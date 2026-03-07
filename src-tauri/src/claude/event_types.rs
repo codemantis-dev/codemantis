@@ -1,0 +1,216 @@
+use serde::{Deserialize, Serialize};
+
+// --- Incoming events from CLI stdout (NDJSON) ---
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum RawStreamEvent {
+    #[serde(rename = "system")]
+    System {
+        subtype: Option<String>,
+        model: Option<String>,
+        tools: Option<Vec<serde_json::Value>>,
+        mcp_servers: Option<Vec<serde_json::Value>>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "assistant")]
+    Assistant {
+        message: AssistantMessage,
+        session_id: Option<String>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "content_block_start")]
+    ContentBlockStart {
+        index: Option<u32>,
+        content_block: Option<ContentBlock>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "content_block_delta")]
+    ContentBlockDelta {
+        index: Option<u32>,
+        delta: Option<StreamDelta>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "content_block_stop")]
+    ContentBlockStop {
+        index: Option<u32>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "result")]
+    Result {
+        subtype: Option<String>,
+        duration_ms: Option<u64>,
+        session_id: Option<String>,
+        result: Option<String>,
+        cost_usd: Option<f64>,
+        is_error: Option<bool>,
+        usage: Option<UsageInfo>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssistantMessage {
+    pub role: Option<String>,
+    pub content: Option<Vec<ContentBlock>>,
+    pub model: Option<String>,
+    pub stop_reason: Option<String>,
+    pub usage: Option<UsageInfo>,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+    },
+
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: Option<serde_json::Value>,
+        is_error: Option<bool>,
+    },
+
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamDelta {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta {
+        partial_json: Option<String>,
+    },
+
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageInfo {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+}
+
+// --- Outgoing events to the frontend ---
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum FrontendEvent {
+    #[serde(rename = "session_init")]
+    SessionInit {
+        session_id: String,
+        model: Option<String>,
+    },
+
+    #[serde(rename = "text_delta")]
+    TextDelta {
+        session_id: String,
+        text: String,
+    },
+
+    #[serde(rename = "text_complete")]
+    TextComplete {
+        session_id: String,
+        full_text: String,
+    },
+
+    #[serde(rename = "tool_use_start")]
+    ToolUseStart {
+        session_id: String,
+        tool_use_id: String,
+        tool_name: String,
+        tool_input: serde_json::Value,
+    },
+
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        session_id: String,
+        tool_use_id: String,
+        content: Option<String>,
+        is_error: bool,
+    },
+
+    #[serde(rename = "turn_complete")]
+    TurnComplete {
+        session_id: String,
+        duration_ms: Option<u64>,
+        usage: Option<UsageInfo>,
+        cost_usd: Option<f64>,
+    },
+
+    #[serde(rename = "process_error")]
+    ProcessError {
+        session_id: String,
+        error: String,
+    },
+}
+
+// --- Stdin messages to CLI ---
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+pub enum StdinMessage {
+    #[serde(rename = "user")]
+    User { message: StdinUserMessage },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        approved: bool,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct StdinUserMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl StdinMessage {
+    pub fn new_user_message(content: &str) -> Self {
+        StdinMessage::User {
+            message: StdinUserMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+            },
+        }
+    }
+
+    pub fn new_tool_response(tool_use_id: &str, approved: bool) -> Self {
+        StdinMessage::ToolResult {
+            tool_use_id: tool_use_id.to_string(),
+            approved,
+        }
+    }
+}

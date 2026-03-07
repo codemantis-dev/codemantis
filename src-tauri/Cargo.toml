@@ -1,0 +1,32 @@
+[package]
+name = "claudeforge"
+version = "0.1.0"
+description = "A native macOS desktop UI for Claude Code"
+authors = ["Harald"]
+edition = "2021"
+
+[lib]
+name = "claudeforge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+libc = "0.2"
+which = "7"
+dirs = "6"
+tauri-plugin-dialog = "2.6.0"
+
+[dev-dependencies]
+tempfile = "3"
