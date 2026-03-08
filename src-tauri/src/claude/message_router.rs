@@ -15,11 +15,15 @@ pub async fn route_events(
     let _approval_event = format!("claude-approval-{}", session_id);
 
     let mut accumulated_text = String::new();
+    let mut cli_session_id_emitted = false;
 
     while let Some(event) = receiver.recv().await {
         match event {
             RawStreamEvent::System {
-                model, subtype, ..
+                model,
+                subtype,
+                session_id: cli_sid,
+                ..
             } => {
                 if subtype.as_deref() == Some("init") {
                     let fe = FrontendEvent::SessionInit {
@@ -27,6 +31,18 @@ pub async fn route_events(
                         model,
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
+
+                    // Emit CLI's own session_id if present
+                    if let Some(ref sid) = cli_sid {
+                        if !cli_session_id_emitted {
+                            cli_session_id_emitted = true;
+                            let fe = FrontendEvent::CliSessionId {
+                                session_id: session_id.clone(),
+                                cli_session_id: sid.clone(),
+                            };
+                            let _ = app_handle.emit(&chat_event, &fe);
+                        }
+                    }
                 }
             }
 
@@ -142,8 +158,20 @@ pub async fn route_events(
                 cost_usd,
                 is_error,
                 result,
+                session_id: cli_sid,
                 ..
             } => {
+                // Emit CLI session_id if not yet emitted (fallback from Result event)
+                if let Some(ref sid) = cli_sid {
+                    if !cli_session_id_emitted {
+                        cli_session_id_emitted = true;
+                        let fe = FrontendEvent::CliSessionId {
+                            session_id: session_id.clone(),
+                            cli_session_id: sid.clone(),
+                        };
+                        let _ = app_handle.emit(&chat_event, &fe);
+                    }
+                }
                 if is_error == Some(true) {
                     let error_msg = result.unwrap_or_else(|| "Unknown error".to_string());
                     let fe = FrontendEvent::ProcessError {

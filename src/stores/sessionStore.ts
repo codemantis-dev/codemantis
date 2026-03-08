@@ -44,6 +44,7 @@ interface SessionState {
   updateModel: (sessionId: string, model: string) => void;
   updateContext: (sessionId: string, used: number, max: number) => void;
   setSessionMode: (sessionId: string, mode: SessionMode) => void;
+  setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   setSessionBusy: (sessionId: string, busy: boolean) => void;
   clearSessionData: (sessionId: string) => void;
 
@@ -365,6 +366,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionModes = new Map(state.sessionModes);
       sessionModes.set(sessionId, mode);
       return { sessionModes };
+    }),
+
+  setCliSessionId: (sessionId, cliSessionId) =>
+    set((state) => {
+      const sessions = new Map(state.sessions);
+      const session = sessions.get(sessionId);
+      if (session) {
+        sessions.set(sessionId, { ...session, cli_session_id: cliSessionId });
+      }
+      return { sessions };
     }),
 
   setSessionBusy: (sessionId, busy) =>

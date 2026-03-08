@@ -35,6 +35,7 @@ impl TerminalPool {
         session_id: &str,
         cwd: &str,
         shell: Option<&str>,
+        args: Option<Vec<String>>,
     ) -> Result<String, AppError> {
         // Enforce 6-terminal max per session
         {
@@ -69,6 +70,11 @@ impl TerminalPool {
             });
 
         let mut cmd = CommandBuilder::new(&shell_cmd);
+        if let Some(ref extra_args) = args {
+            for arg in extra_args {
+                cmd.arg(arg);
+            }
+        }
         cmd.cwd(cwd);
 
         let _child = pair.slave.spawn_command(cmd).map_err(|e| {

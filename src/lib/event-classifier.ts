@@ -53,6 +53,10 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       }
       break;
 
+    case "cli_session_id":
+      store.setCliSessionId(sessionId, event.cli_session_id);
+      break;
+
     case "text_delta": {
       const streaming = store.sessionStreaming.get(sessionId);
       if (!streaming?.isStreaming) {

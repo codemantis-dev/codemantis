@@ -21,10 +21,11 @@ impl ClaudeProcess {
         session_id: String,
         project_path: &str,
         claude_binary: &str,
+        resume_cli_session_id: Option<&str>,
     ) -> Result<Self, AppError> {
         info!(
-            "Spawning Claude CLI for session {} in {}",
-            session_id, project_path
+            "Spawning Claude CLI for session {} in {} (resume: {:?})",
+            session_id, project_path, resume_cli_session_id
         );
 
         let mut cmd = Command::new(claude_binary);
@@ -36,6 +37,9 @@ impl ClaudeProcess {
             "--include-partial-messages",
             "--verbose",
         ]);
+        if let Some(cli_sid) = resume_cli_session_id {
+            cmd.args(["--resume", cli_sid]);
+        }
         cmd.current_dir(project_path);
 
         cmd.stdin(Stdio::piped());

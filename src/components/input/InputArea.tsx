@@ -290,7 +290,7 @@ export default function InputArea() {
                 onClick={() => useUiStore.getState().setShowCliOverlay(true)}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
                 disabled={!session}
-                title="Open Claude CLI (Cmd+/)"
+                title="Open Claude CLI — separate session for /config, /doctor, /help (Cmd+/)"
               >
                 <span className="font-mono text-xs leading-none">/</span>
                 <span>CLI</span>

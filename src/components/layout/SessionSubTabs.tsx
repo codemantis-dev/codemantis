@@ -172,7 +172,7 @@ export default function SessionSubTabs({
 
       {/* Add session button */}
       <button
-        onClick={onAddSession}
+        onClick={() => onAddSession()}
         title="New session in this project"
         className="mx-1 p-1 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors shrink-0"
       >

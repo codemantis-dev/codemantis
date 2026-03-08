@@ -19,6 +19,7 @@ import {
   handleActivityEvent,
   handleApprovalEvent,
 } from "../lib/event-classifier";
+import { showToast } from "../stores/toastStore";
 
 const MAX_SESSIONS = 10;
 
@@ -44,47 +45,45 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   const startSession = useCallback(async (projectPath: string): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
+      showToast(`Maximum ${MAX_SESSIONS} sessions allowed`, "error");
       throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
     }
 
-    try {
-      console.log("[session] Creating session for:", projectPath);
-      const session = await createSession(projectPath);
-      console.log("[session] Session created:", session.id, session);
-      sessionStore.getState().addSession(session);
+    const session = await createSession(projectPath);
+    sessionStore.getState().addSession(session);
 
-      // Register event listeners for this session
-      const unlistenChat = await listenChatEvents(session.id, (event) =>
-        handleChatEvent(session.id, event)
-      );
-      const unlistenActivity = await listenActivityEvents(session.id, (event) =>
-        handleActivityEvent(session.id, event)
-      );
-      const unlistenApproval = await listenApprovalEvents(session.id, (event) =>
-        handleApprovalEvent(session.id, event)
-      );
+    // Register event listeners for this session
+    const unlistenChat = await listenChatEvents(session.id, (event) =>
+      handleChatEvent(session.id, event)
+    );
+    const unlistenActivity = await listenActivityEvents(session.id, (event) =>
+      handleActivityEvent(session.id, event)
+    );
+    const unlistenApproval = await listenApprovalEvents(session.id, (event) =>
+      handleApprovalEvent(session.id, event)
+    );
 
-      sessionListeners.set(session.id, [
-        unlistenChat,
-        unlistenActivity,
-        unlistenApproval,
-      ]);
+    sessionListeners.set(session.id, [
+      unlistenChat,
+      unlistenActivity,
+      unlistenApproval,
+    ]);
 
-      return session.id;
-    } catch (e) {
-      console.error("Failed to start session:", e);
-      throw e;
-    }
+    return session.id;
   }, []);
 
   const addSessionToProject = useCallback(async (projectPath?: string) => {
     const state = sessionStore.getState();
-    const targetPath = projectPath ?? state.activeProjectPath;
-    if (!targetPath) return;
+    const targetPath = (typeof projectPath === "string" ? projectPath : undefined) ?? state.activeProjectPath;
+    if (!targetPath) {
+      showToast("No active project to add session to", "error");
+      return;
+    }
     try {
       await startSession(targetPath);
     } catch (e) {
       console.error("Failed to add session to project:", e);
+      showToast(`Failed to create session: ${String(e)}`, "error");
     }
   }, [startSession]);
 
@@ -104,7 +103,6 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     sessionStore.getState().setSessionBusy(sessionId, true);
 
     try {
-      console.log("[session] Sending message:", prompt.slice(0, 100));
       await sendMessageCmd(sessionId, prompt);
     } catch (e) {
       console.error("Failed to send message:", e);

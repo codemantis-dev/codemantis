@@ -5,7 +5,8 @@ export type FrontendEvent =
   | ToolUseStartEvent
   | ToolResultEvent
   | TurnCompleteEvent
-  | ProcessErrorEvent;
+  | ProcessErrorEvent
+  | CliSessionIdEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -53,6 +54,12 @@ export interface ProcessErrorEvent {
   type: "process_error";
   session_id: string;
   error: string;
+}
+
+export interface CliSessionIdEvent {
+  type: "cli_session_id";
+  session_id: string;
+  cli_session_id: string;
 }
 
 export interface UsageInfo {

@@ -11,6 +11,7 @@ pub enum RawStreamEvent {
     #[serde(rename = "system")]
     System {
         subtype: Option<String>,
+        session_id: Option<String>,
         model: Option<String>,
         tools: Option<Vec<serde_json::Value>>,
         mcp_servers: Option<Vec<serde_json::Value>>,
@@ -213,6 +214,12 @@ pub enum FrontendEvent {
         duration_ms: Option<u64>,
         usage: Option<UsageInfo>,
         cost_usd: Option<f64>,
+    },
+
+    #[serde(rename = "cli_session_id")]
+    CliSessionId {
+        session_id: String,
+        cli_session_id: String,
     },
 
     #[serde(rename = "process_error")]

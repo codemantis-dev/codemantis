@@ -17,11 +17,12 @@ pub async fn create_terminal(
     cwd: String,
     shell: Option<String>,
     name: Option<String>,
+    args: Option<Vec<String>>,
 ) -> Result<TerminalInfo, String> {
     let terminal_name = name.unwrap_or_else(|| "Terminal".to_string());
 
     let terminal_id = state
-        .create_terminal(app_handle, &session_id, &cwd, shell.as_deref())
+        .create_terminal(app_handle, &session_id, &cwd, shell.as_deref(), args)
         .await
         .map_err(|e| e.to_string())?;
 

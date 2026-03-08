@@ -10,6 +10,8 @@ import ProjectPicker, { addRecentProject } from "./components/modals/ProjectPick
 import SettingsModal from "./components/modals/SettingsModal";
 import QuestionModal from "./components/modals/QuestionModal";
 import CliOverlay from "./components/modals/CliOverlay";
+import Toast from "./components/shared/Toast";
+import { showToast } from "./stores/toastStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 export default function App() {
@@ -45,7 +47,9 @@ export default function App() {
       cleanupOldAttachments(path, 7).catch(() => {});
     } catch (e) {
       console.error("Failed to start session:", e);
-      setError(String(e));
+      const msg = String(e);
+      setError(msg);
+      showToast(`Failed to start session: ${msg}`, "error");
     }
   };
 
@@ -134,6 +138,7 @@ export default function App() {
 
         <ProjectPicker onSelectProject={handleSelectProject} />
         <SettingsModal />
+        <Toast />
       </div>
     );
   }
@@ -146,6 +151,7 @@ export default function App() {
       <CliOverlay />
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />
+      <Toast />
     </>
   );
 }

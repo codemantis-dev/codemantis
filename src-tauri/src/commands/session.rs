@@ -63,6 +63,7 @@ pub async fn create_session(
         session_id.clone(),
         &project_path,
         &claude_binary,
+        None,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -84,6 +85,71 @@ pub async fn create_session(
 
     let sessions = state.sessions.lock().await;
     Ok(sessions.get(&session_id).cloned().unwrap())
+}
+
+/// Pauses the session's CLI process without closing the session.
+/// Used before opening the CLI overlay so the interactive process can resume the same conversation.
+#[tauri::command]
+pub async fn pause_session_process(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let mut processes = state.processes.lock().await;
+    if let Some(mut process) = processes.remove(&session_id) {
+        process.shutdown().await;
+    }
+    let mut sessions = state.sessions.lock().await;
+    if let Some(session) = sessions.get_mut(&session_id) {
+        session.status = SessionStatus::Idle;
+    }
+    Ok(())
+}
+
+/// Restarts the session's CLI process, optionally resuming a CLI conversation.
+/// Used after closing the CLI overlay to return to stream-json mode.
+#[tauri::command]
+pub async fn resume_session_process(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    cli_session_id: Option<String>,
+) -> Result<(), String> {
+    let claude_binary = {
+        let binary = state.claude_binary.lock().await;
+        binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
+    };
+
+    let project_path = {
+        let sessions = state.sessions.lock().await;
+        let session = sessions
+            .get(&session_id)
+            .ok_or_else(|| "Session not found".to_string())?;
+        session.project_path.clone()
+    };
+
+    let process = ClaudeProcess::spawn(
+        app_handle,
+        session_id.clone(),
+        &project_path,
+        &claude_binary,
+        cli_session_id.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    {
+        let mut processes = state.processes.lock().await;
+        processes.insert(session_id.clone(), process);
+    }
+
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.status = SessionStatus::Connected;
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

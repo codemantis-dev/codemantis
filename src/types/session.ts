@@ -6,6 +6,7 @@ export interface Session {
   created_at: string;
   model: string | null;
   icon_index: number;
+  cli_session_id?: string | null;
 }
 
 export type SessionStatus = "starting" | "connected" | "idle" | "closed";

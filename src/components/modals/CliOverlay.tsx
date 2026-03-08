@@ -4,7 +4,13 @@ import { TerminalSquare, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { createTerminal as createTerminalCmd, closeTerminal as closeTerminalCmd } from "../../lib/tauri-commands";
+import {
+  createTerminal as createTerminalCmd,
+  closeTerminal as closeTerminalCmd,
+  pauseSessionProcess,
+  resumeSessionProcess,
+} from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 import TerminalView from "../rightpanel/TerminalView";
 
 export default function CliOverlay() {
@@ -17,36 +23,51 @@ export default function CliOverlay() {
   const [terminalId, setTerminalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
   const terminalIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const cliSessionId = session?.cli_session_id;
 
-  const cleanup = useCallback(async () => {
-    const id = terminalIdRef.current;
-    if (!id || !activeSessionId) return;
-    terminalIdRef.current = null;
-    setTerminalId(null);
-    try {
-      await closeTerminalCmd(id);
-    } catch (e) {
-      console.error("Failed to close CLI overlay terminal:", e);
-    }
-    useTerminalStore.getState().removeTerminal(activeSessionId, id);
-  }, [activeSessionId]);
-
+  // Open flow: pause stream-json → spawn interactive claude --resume → user interacts
   useEffect(() => {
     if (!showOverlay || !activeSessionId || !session || !claudeBinaryPath) return;
 
     let cancelled = false;
+    sessionIdRef.current = activeSessionId;
     setLoading(true);
     setError(null);
 
-    createTerminalCmd(activeSessionId, session.project_path, claudeBinaryPath, "Claude CLI")
-      .then((info) => {
+    const openOverlay = async () => {
+      try {
+        // Step 1: Pause the stream-json process
+        console.log("[cli-overlay] Pausing session process:", activeSessionId);
+        await pauseSessionProcess(activeSessionId);
+
+        if (cancelled) return;
+
+        // Step 2: Build args for interactive claude
+        const termArgs: string[] = [];
+        if (cliSessionId) {
+          termArgs.push("--resume", cliSessionId);
+        }
+
+        // Step 3: Spawn interactive claude CLI in PTY
+        console.log("[cli-overlay] Spawning interactive CLI with args:", termArgs);
+        const info = await createTerminalCmd(
+          activeSessionId,
+          session.project_path,
+          claudeBinaryPath,
+          "Claude CLI",
+          termArgs.length > 0 ? termArgs : undefined
+        );
+
         if (cancelled) {
           closeTerminalCmd(info.id).catch(() => {});
           return;
         }
+
         useTerminalStore.getState().addTerminal(activeSessionId, {
           id: info.id,
           sessionId: activeSessionId,
@@ -59,24 +80,63 @@ export default function CliOverlay() {
         terminalIdRef.current = info.id;
         setTerminalId(info.id);
         setLoading(false);
-      })
-      .catch((e) => {
+      } catch (e) {
         if (!cancelled) {
-          console.error("Failed to create CLI overlay terminal:", e);
+          console.error("[cli-overlay] Failed to open:", e);
           setError(String(e));
           setLoading(false);
+          // Try to resume the stream-json process so session isn't stuck
+          resumeSessionProcess(activeSessionId, cliSessionId ?? undefined).catch((re) =>
+            console.error("[cli-overlay] Failed to recover session:", re)
+          );
         }
-      });
+      }
+    };
+
+    openOverlay();
 
     return () => {
       cancelled = true;
     };
-  }, [showOverlay, activeSessionId, session, claudeBinaryPath]);
+  }, [showOverlay, activeSessionId, session, claudeBinaryPath, cliSessionId]);
 
-  const handleClose = useCallback(() => {
-    cleanup();
+  // Close flow: kill PTY → resume stream-json with --resume
+  const handleClose = useCallback(async () => {
+    if (closing) return;
+    setClosing(true);
+
+    const tid = terminalIdRef.current;
+    const sid = sessionIdRef.current;
+    const currentCliSessionId = useSessionStore.getState().sessions.get(sid ?? "")?.cli_session_id;
+
+    // Close the overlay UI immediately
+    terminalIdRef.current = null;
+    setTerminalId(null);
     setShowOverlay(false);
-  }, [cleanup, setShowOverlay]);
+
+    try {
+      // Step 1: Close the interactive PTY terminal
+      if (tid && sid) {
+        console.log("[cli-overlay] Closing PTY terminal:", tid);
+        await closeTerminalCmd(tid);
+        useTerminalStore.getState().removeTerminal(sid, tid);
+      }
+
+      // Step 2: Resume the stream-json process
+      if (sid) {
+        console.log("[cli-overlay] Resuming stream-json process:", sid, "cli_session_id:", currentCliSessionId);
+        await resumeSessionProcess(sid, currentCliSessionId ?? undefined);
+        console.log("[cli-overlay] Session resumed successfully");
+      }
+    } catch (e) {
+      console.error("[cli-overlay] Error during close:", e);
+      showToast(`Failed to resume session: ${String(e)}`, "error");
+    } finally {
+      setClosing(false);
+      setError(null);
+      setLoading(false);
+    }
+  }, [closing, setShowOverlay]);
 
   return (
     <Dialog.Root
@@ -103,6 +163,9 @@ export default function CliOverlay() {
               <Dialog.Title className="text-ui text-text-primary font-medium">
                 Claude CLI
               </Dialog.Title>
+              <span className="text-label text-text-ghost">
+                — /model, /config, /doctor, /help
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-label text-text-ghost">Esc to close</span>
@@ -119,7 +182,9 @@ export default function CliOverlay() {
           <div className="flex-1 overflow-hidden relative">
             {loading && (
               <div className="h-full flex items-center justify-center">
-                <p className="text-text-dim text-ui">Starting Claude CLI...</p>
+                <p className="text-text-dim text-ui">
+                  Pausing session and starting Claude CLI...
+                </p>
               </div>
             )}
             {error && (

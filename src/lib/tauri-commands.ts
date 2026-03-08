@@ -31,6 +31,17 @@ export async function createSession(
   });
 }
 
+export async function pauseSessionProcess(sessionId: string): Promise<void> {
+  return invoke("pause_session_process", { sessionId });
+}
+
+export async function resumeSessionProcess(
+  sessionId: string,
+  cliSessionId?: string | null
+): Promise<void> {
+  return invoke("resume_session_process", { sessionId, cliSessionId });
+}
+
 export async function sendMessage(
   sessionId: string,
   prompt: string
@@ -142,13 +153,15 @@ export async function createTerminal(
   sessionId: string,
   cwd: string,
   shell?: string,
-  name?: string
+  name?: string,
+  args?: string[]
 ): Promise<TerminalInfo> {
   return invoke<TerminalInfo>("create_terminal", {
     sessionId,
     cwd,
     shell,
     name,
+    args,
   });
 }
 

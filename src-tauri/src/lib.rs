@@ -35,6 +35,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::startup::check_claude_status,
             commands::session::create_session,
+            commands::session::pause_session_process,
+            commands::session::resume_session_process,
             commands::session::send_message,
             commands::session::respond_to_approval,
             commands::session::respond_to_question,
