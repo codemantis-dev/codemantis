@@ -23,7 +23,7 @@ export default function CliOverlay() {
   const [terminalId, setTerminalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
   const terminalIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -102,8 +102,8 @@ export default function CliOverlay() {
 
   // Close flow: kill PTY → resume stream-json with --resume
   const handleClose = useCallback(async () => {
-    if (closing) return;
-    setClosing(true);
+    if (closingRef.current) return;
+    closingRef.current = true;
 
     const tid = terminalIdRef.current;
     const sid = sessionIdRef.current;
@@ -122,7 +122,7 @@ export default function CliOverlay() {
         useTerminalStore.getState().removeTerminal(sid, tid);
       }
 
-      // Step 2: Resume the stream-json process
+      // Step 2: Resume the stream-json process (backend falls back to stored CLI session ID)
       if (sid) {
         console.log("[cli-overlay] Resuming stream-json process:", sid, "cli_session_id:", currentCliSessionId);
         await resumeSessionProcess(sid, currentCliSessionId ?? undefined);
@@ -132,11 +132,11 @@ export default function CliOverlay() {
       console.error("[cli-overlay] Error during close:", e);
       showToast(`Failed to resume session: ${String(e)}`, "error");
     } finally {
-      setClosing(false);
+      closingRef.current = false;
       setError(null);
       setLoading(false);
     }
-  }, [closing, setShowOverlay]);
+  }, [setShowOverlay]);
 
   return (
     <Dialog.Root

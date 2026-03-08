@@ -127,12 +127,21 @@ pub async fn resume_session_process(
         session.project_path.clone()
     };
 
+    // Use frontend-provided CLI session ID, or fall back to backend-stored one
+    let effective_cli_session_id = match &cli_session_id {
+        Some(id) => Some(id.clone()),
+        None => {
+            let cli_ids = state.cli_session_ids.lock().await;
+            cli_ids.get(&session_id).cloned()
+        }
+    };
+
     let process = ClaudeProcess::spawn(
         app_handle,
         session_id.clone(),
         &project_path,
         &claude_binary,
-        cli_session_id.as_deref(),
+        effective_cli_session_id.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;

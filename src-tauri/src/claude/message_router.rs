@@ -1,6 +1,7 @@
 use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
+use crate::claude::session::AppState;
 use log::debug;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
 const AUTO_APPROVED_TOOLS: &[&str] = &["Read", "Glob", "Grep"];
@@ -32,10 +33,15 @@ pub async fn route_events(
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
 
-                    // Emit CLI's own session_id if present
+                    // Emit CLI's own session_id if present and store in AppState
                     if let Some(ref sid) = cli_sid {
                         if !cli_session_id_emitted {
                             cli_session_id_emitted = true;
+                            // Store in backend state so it's available even if frontend misses the event
+                            if let Some(state) = app_handle.try_state::<AppState>() {
+                                let mut cli_ids = state.cli_session_ids.lock().await;
+                                cli_ids.insert(session_id.clone(), sid.clone());
+                            }
                             let fe = FrontendEvent::CliSessionId {
                                 session_id: session_id.clone(),
                                 cli_session_id: sid.clone(),
@@ -165,6 +171,10 @@ pub async fn route_events(
                 if let Some(ref sid) = cli_sid {
                     if !cli_session_id_emitted {
                         cli_session_id_emitted = true;
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let mut cli_ids = state.cli_session_ids.lock().await;
+                            cli_ids.insert(session_id.clone(), sid.clone());
+                        }
                         let fe = FrontendEvent::CliSessionId {
                             session_id: session_id.clone(),
                             cli_session_id: sid.clone(),
