@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type RightTab = "activity" | "terminal" | "files" | "changelog";
+export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
 
 interface UiState {
   sidebarWidth: number;

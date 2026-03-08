@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Session, Message, TurnStats, SessionStats, SessionMode } from "../types/session";
+import type { Session, Message, TurnStats, SessionStats, SessionMode, ThinkingEffort } from "../types/session";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -16,6 +16,7 @@ interface SessionState {
   sessionStats: Map<string, SessionStats>;
   sessionModes: Map<string, SessionMode>;
   sessionBusy: Map<string, boolean>;
+  sessionEffort: Map<string, ThinkingEffort>;
   tabOrder: string[];
 
   // Project grouping
@@ -46,6 +47,7 @@ interface SessionState {
   setSessionMode: (sessionId: string, mode: SessionMode) => void;
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   setSessionBusy: (sessionId: string, busy: boolean) => void;
+  setSessionEffort: (sessionId: string, effort: ThinkingEffort) => void;
   clearSessionData: (sessionId: string) => void;
 
   // Derived helpers (for active session)
@@ -82,6 +84,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionStats: new Map(),
   sessionModes: new Map(),
   sessionBusy: new Map(),
+  sessionEffort: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -105,6 +108,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionModes.set(session.id, "normal");
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(session.id, false);
+      const sessionEffort = new Map(state.sessionEffort);
+      sessionEffort.set(session.id, "high");
       const tabOrder = [...state.tabOrder, session.id];
 
       // Project grouping
@@ -123,6 +128,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionStats,
         sessionModes,
         sessionBusy,
+        sessionEffort,
         tabOrder,
         activeSessionId: session.id,
         activeProjectPath: projectPath,
@@ -148,6 +154,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionModes.delete(sessionId);
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.delete(sessionId);
+      const sessionEffort = new Map(state.sessionEffort);
+      sessionEffort.delete(sessionId);
       const tabOrder = state.tabOrder.filter((id) => id !== sessionId);
 
       // Update project grouping
@@ -192,6 +200,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionStats,
         sessionModes,
         sessionBusy,
+        sessionEffort,
         tabOrder,
         activeSessionId,
         activeProjectPath,
@@ -385,6 +394,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessionBusy };
     }),
 
+  setSessionEffort: (sessionId, effort) =>
+    set((state) => {
+      const sessionEffort = new Map(state.sessionEffort);
+      sessionEffort.set(sessionId, effort);
+      return { sessionEffort };
+    }),
+
   clearSessionData: (sessionId) =>
     set((state) => {
       const sessionMessages = new Map(state.sessionMessages);
@@ -399,7 +415,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionModes.set(sessionId, "normal");
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(sessionId, false);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy };
+      const sessionEffort = new Map(state.sessionEffort);
+      sessionEffort.set(sessionId, "high");
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort };
     }),
 
   // Derived helpers

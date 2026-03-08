@@ -4,6 +4,8 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useChangelogStore } from "../stores/changelogStore";
+import { useAssistantStore } from "../stores/assistantStore";
+import { getAssistantListeners } from "./useAssistantSession";
 import {
   createSession,
   sendMessage as sendMessageCmd,
@@ -150,6 +152,25 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     for (const sessionId of sessionIds) {
       await closeSessionFn(sessionId);
     }
+
+    // Also close all assistant sessions for this project
+    const aStore = useAssistantStore.getState();
+    const assistantSessionIds = aStore.getAllSessionIds(projectPath);
+    for (const aSessionId of assistantSessionIds) {
+      const listeners = getAssistantListeners().get(aSessionId);
+      if (listeners) {
+        for (const unlisten of listeners) {
+          unlisten();
+        }
+        getAssistantListeners().delete(aSessionId);
+      }
+      try {
+        await closeSessionCmd(aSessionId);
+      } catch (e) {
+        console.error("Failed to close assistant session:", e);
+      }
+    }
+    aStore.clearProject(projectPath);
   }, [closeSessionFn]);
 
   const switchSession = useCallback((sessionId: string) => {

@@ -32,4 +32,9 @@ export interface AppSettings {
   changelogEnabled: boolean;
   changelogProvider: ChangelogProvider;
   changelogApiKeys: Record<string, string>;
+  changelogPrompt: string;
 }
+
+export const DEFAULT_CHANGELOG_PROMPT = `Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+
+JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}`;

@@ -14,7 +14,7 @@ pub struct SummarizeResponse {
     pub category: String,
 }
 
-const SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+const DEFAULT_SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
 
 JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}"#;
 
@@ -32,14 +32,18 @@ pub async fn summarize_turn(
     provider: &str,
     api_key: &str,
     request: &SummarizeRequest,
+    custom_prompt: Option<&str>,
 ) -> Result<SummarizeResponse, String> {
     let prompt = build_prompt(request);
+    let system_prompt = custom_prompt
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or(DEFAULT_SYSTEM_PROMPT);
     let client = reqwest::Client::new();
 
     let response_text = match provider {
-        "gemini" => call_gemini(&client, api_key, &prompt).await?,
-        "openai" => call_openai(&client, api_key, &prompt).await?,
-        "anthropic" => call_anthropic(&client, api_key, &prompt).await?,
+        "gemini" => call_gemini(&client, api_key, system_prompt, &prompt).await?,
+        "openai" => call_openai(&client, api_key, system_prompt, &prompt).await?,
+        "anthropic" => call_anthropic(&client, api_key, system_prompt, &prompt).await?,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -51,9 +55,9 @@ pub async fn test_api_key(provider: &str, api_key: &str) -> Result<bool, String>
     let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\"}";
 
     let result = match provider {
-        "gemini" => call_gemini(&client, api_key, test_prompt).await,
-        "openai" => call_openai(&client, api_key, test_prompt).await,
-        "anthropic" => call_anthropic(&client, api_key, test_prompt).await,
+        "gemini" => call_gemini(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "openai" => call_openai(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "anthropic" => call_anthropic(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -69,6 +73,7 @@ pub async fn test_api_key(provider: &str, api_key: &str) -> Result<bool, String>
 async fn call_gemini(
     client: &reqwest::Client,
     api_key: &str,
+    system_prompt: &str,
     prompt: &str,
 ) -> Result<String, String> {
     let url = format!(
@@ -78,7 +83,7 @@ async fn call_gemini(
 
     let body = serde_json::json!({
         "system_instruction": {
-            "parts": [{"text": SYSTEM_PROMPT}]
+            "parts": [{"text": system_prompt}]
         },
         "contents": [{
             "parts": [{"text": prompt}]
@@ -117,12 +122,13 @@ async fn call_gemini(
 async fn call_openai(
     client: &reqwest::Client,
     api_key: &str,
+    system_prompt: &str,
     prompt: &str,
 ) -> Result<String, String> {
     let body = serde_json::json!({
         "model": "gpt-4.1-mini",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
@@ -158,12 +164,13 @@ async fn call_openai(
 async fn call_anthropic(
     client: &reqwest::Client,
     api_key: &str,
+    system_prompt: &str,
     prompt: &str,
 ) -> Result<String, String> {
     let body = serde_json::json!({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 256,
-        "system": SYSTEM_PROMPT,
+        "system": system_prompt,
         "messages": [
             {"role": "user", "content": prompt}
         ],

@@ -63,7 +63,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
           </p>
 
           {/* Files changed */}
-          {entry.files_changed.length > 0 && (
+          {(entry.files_changed?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {entry.files_changed.map((file) => {
                 const fileName = file.split("/").pop() ?? file;

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type DragEvent } from "react";
 import { Send, Plus, AtSign } from "lucide-react";
+import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
@@ -8,6 +9,44 @@ import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+
+function formatModelName(model: string | null | undefined): string | null {
+  if (!model) return null;
+  // "claude-opus-4-20250514" → "Opus 4"
+  // "claude-sonnet-4-6-20250514" → "Sonnet 4.6"
+  // "claude-haiku-4-5-20241022" → "Haiku 4.5"
+  const m = model.toLowerCase();
+  const families = ["opus", "sonnet", "haiku"];
+  for (const family of families) {
+    const idx = m.indexOf(family);
+    if (idx === -1) continue;
+    const after = m.slice(idx + family.length).replace(/^-/, "");
+    // Extract version numbers before the date stamp (8+ digits)
+    const versionPart = after.replace(/-?\d{8,}.*$/, "").replace(/-/g, ".");
+    const name = family.charAt(0).toUpperCase() + family.slice(1);
+    return versionPart ? `${name} ${versionPart}` : name;
+  }
+  return model;
+}
+
+function EffortBars({ effort }: { effort: ThinkingEffort }) {
+  const count = effort === "high" ? 3 : effort === "medium" ? 2 : 1;
+  return (
+    <span className="inline-flex gap-px items-end" style={{ height: 12 }}>
+      {[1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className="rounded-sm transition-colors"
+          style={{
+            width: 3,
+            height: 4 + i * 3,
+            background: i <= count ? "var(--accent)" : "var(--border-light)",
+          }}
+        />
+      ))}
+    </span>
+  );
+}
 
 export default function InputArea() {
   const [input, setInput] = useState("");
@@ -216,6 +255,12 @@ export default function InputArea() {
     }
   }, [session, addAttachment]);
 
+  const sessionEffort = useSessionStore((s) => s.sessionEffort);
+  const effort: ThinkingEffort = activeSessionId
+    ? sessionEffort.get(activeSessionId) ?? "high"
+    : "high";
+
+  const modelName = formatModelName(session?.model);
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
 
   return (
@@ -297,19 +342,38 @@ export default function InputArea() {
               </button>
             </div>
 
-            <button
-              onClick={handleSend}
-              disabled={!isActive}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
-                isActive
-                  ? "bg-accent text-white hover:bg-accent-light"
-                  : "bg-bg-subtle text-text-ghost cursor-not-allowed"
-              }`}
-            >
-              <Send size={13} />
-              <span>Send</span>
-              <span className="text-label opacity-60">{"⌘↵"}</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {session && (
+                <div className="flex items-center gap-2 select-none">
+                  {modelName && (
+                    <span className="text-label text-text-ghost">
+                      {modelName}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => useUiStore.getState().setShowCliOverlay(true)}
+                    className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-dim hover:bg-bg-subtle transition-colors"
+                    title={`Thinking: ${effort} — click to open CLI and change with /config`}
+                  >
+                    <EffortBars effort={effort} />
+                    <span className="capitalize">{effort}</span>
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={handleSend}
+                disabled={!isActive}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
+                  isActive
+                    ? "bg-accent text-white hover:bg-accent-light"
+                    : "bg-bg-subtle text-text-ghost cursor-not-allowed"
+                }`}
+              >
+                <Send size={13} />
+                <span>Send</span>
+                <span className="text-label opacity-60">{"⌘↵"}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

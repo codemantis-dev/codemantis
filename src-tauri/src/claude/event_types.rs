@@ -178,6 +178,8 @@ pub enum FrontendEvent {
     SessionInit {
         session_id: String,
         model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thinking_effort: Option<String>,
     },
 
     #[serde(rename = "text_delta")]

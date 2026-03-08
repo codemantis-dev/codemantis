@@ -24,6 +24,8 @@ pub struct AppSettings {
     pub changelog_provider: String,
     #[serde(default)]
     pub changelog_api_keys: HashMap<String, String>,
+    #[serde(default = "default_changelog_prompt")]
+    pub changelog_prompt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +49,11 @@ fn default_terminal_font_size() -> u32 {
 fn default_changelog_provider() -> String {
     "gemini".to_string()
 }
+fn default_changelog_prompt() -> String {
+    r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+
+JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}"#.to_string()
+}
 fn default_quick_commands() -> Vec<QuickCommand> {
     vec![
         QuickCommand { label: "Build".to_string(), command: "pnpm build".to_string() },
@@ -68,6 +75,7 @@ impl Default for AppSettings {
             changelog_enabled: false,
             changelog_provider: default_changelog_provider(),
             changelog_api_keys: HashMap::new(),
+            changelog_prompt: default_changelog_prompt(),
         }
     }
 }

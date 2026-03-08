@@ -1,0 +1,212 @@
+import { create } from "zustand";
+import type { Message } from "../types/session";
+
+interface StreamingState {
+  isStreaming: boolean;
+  streamingContent: string;
+  currentMessageId: string | null;
+}
+
+export interface AssistantInstance {
+  id: string;          // sessionId from the CLI
+  projectPath: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+const DEFAULT_STREAMING: StreamingState = {
+  isStreaming: false,
+  streamingContent: "",
+  currentMessageId: null,
+};
+
+interface AssistantState {
+  // Multiple assistants per project (mirrors terminalStore pattern)
+  projectAssistants: Map<string, AssistantInstance[]>;  // projectPath → instances
+  activeAssistantId: Map<string, string | null>;        // projectPath → active sessionId
+
+  // Per-session data
+  messages: Map<string, Message[]>;       // sessionId → messages
+  streaming: Map<string, StreamingState>; // sessionId → streaming state
+  busy: Map<string, boolean>;             // sessionId → is processing
+
+  // Instance management
+  addAssistant: (projectPath: string, instance: AssistantInstance) => void;
+  removeAssistant: (projectPath: string, sessionId: string) => void;
+  setActiveAssistant: (projectPath: string, sessionId: string | null) => void;
+  getAssistants: (projectPath: string) => AssistantInstance[];
+  getActiveAssistantId: (projectPath: string) => string | null;
+  getAllSessionIds: (projectPath: string) => string[];
+  clearProject: (projectPath: string) => void;
+
+  // Per-session message actions
+  addMessage: (sessionId: string, message: Message) => void;
+  startStreaming: (sessionId: string, messageId: string) => void;
+  appendStreamingContent: (sessionId: string, text: string) => void;
+  finalizeStreaming: (sessionId: string, fullText?: string) => void;
+  setBusy: (sessionId: string, busy: boolean) => void;
+  clearMessages: (sessionId: string) => void;
+}
+
+export const useAssistantStore = create<AssistantState>((set, get) => ({
+  projectAssistants: new Map(),
+  activeAssistantId: new Map(),
+  messages: new Map(),
+  streaming: new Map(),
+  busy: new Map(),
+
+  addAssistant: (projectPath, instance) =>
+    set((state) => {
+      const projectAssistants = new Map(state.projectAssistants);
+      const list = [...(projectAssistants.get(projectPath) ?? []), instance];
+      projectAssistants.set(projectPath, list);
+
+      const activeAssistantId = new Map(state.activeAssistantId);
+      activeAssistantId.set(projectPath, instance.id);
+
+      const messages = new Map(state.messages);
+      messages.set(instance.id, []);
+      const streaming = new Map(state.streaming);
+      streaming.set(instance.id, { ...DEFAULT_STREAMING });
+      const busy = new Map(state.busy);
+      busy.set(instance.id, false);
+
+      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+    }),
+
+  removeAssistant: (projectPath, sessionId) =>
+    set((state) => {
+      const projectAssistants = new Map(state.projectAssistants);
+      const list = (projectAssistants.get(projectPath) ?? []).filter(
+        (a) => a.id !== sessionId
+      );
+      projectAssistants.set(projectPath, list);
+
+      const activeAssistantId = new Map(state.activeAssistantId);
+      if (activeAssistantId.get(projectPath) === sessionId) {
+        activeAssistantId.set(
+          projectPath,
+          list.length > 0 ? list[list.length - 1].id : null
+        );
+      }
+
+      const messages = new Map(state.messages);
+      messages.delete(sessionId);
+      const streaming = new Map(state.streaming);
+      streaming.delete(sessionId);
+      const busy = new Map(state.busy);
+      busy.delete(sessionId);
+
+      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+    }),
+
+  setActiveAssistant: (projectPath, sessionId) =>
+    set((state) => {
+      const activeAssistantId = new Map(state.activeAssistantId);
+      activeAssistantId.set(projectPath, sessionId);
+      return { activeAssistantId };
+    }),
+
+  getAssistants: (projectPath) =>
+    get().projectAssistants.get(projectPath) ?? [],
+
+  getActiveAssistantId: (projectPath) =>
+    get().activeAssistantId.get(projectPath) ?? null,
+
+  getAllSessionIds: (projectPath) =>
+    (get().projectAssistants.get(projectPath) ?? []).map((a) => a.id),
+
+  clearProject: (projectPath) =>
+    set((state) => {
+      const assistants = state.projectAssistants.get(projectPath) ?? [];
+      const projectAssistants = new Map(state.projectAssistants);
+      projectAssistants.delete(projectPath);
+      const activeAssistantId = new Map(state.activeAssistantId);
+      activeAssistantId.delete(projectPath);
+
+      const messages = new Map(state.messages);
+      const streaming = new Map(state.streaming);
+      const busy = new Map(state.busy);
+      for (const a of assistants) {
+        messages.delete(a.id);
+        streaming.delete(a.id);
+        busy.delete(a.id);
+      }
+
+      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+    }),
+
+  // Per-session message actions
+  addMessage: (sessionId, message) =>
+    set((state) => {
+      const messages = new Map(state.messages);
+      const existing = messages.get(sessionId) ?? [];
+      messages.set(sessionId, [...existing, message]);
+      return { messages };
+    }),
+
+  startStreaming: (sessionId, messageId) =>
+    set((state) => {
+      const streaming = new Map(state.streaming);
+      streaming.set(sessionId, {
+        isStreaming: true,
+        streamingContent: "",
+        currentMessageId: messageId,
+      });
+      return { streaming };
+    }),
+
+  appendStreamingContent: (sessionId, text) =>
+    set((state) => {
+      const streaming = new Map(state.streaming);
+      const current = streaming.get(sessionId) ?? { ...DEFAULT_STREAMING };
+      streaming.set(sessionId, {
+        ...current,
+        streamingContent: current.streamingContent + text,
+      });
+      return { streaming };
+    }),
+
+  finalizeStreaming: (sessionId, fullText) =>
+    set((state) => {
+      const streamState = state.streaming.get(sessionId);
+      if (!streamState?.currentMessageId) {
+        const streaming = new Map(state.streaming);
+        streaming.set(sessionId, { ...DEFAULT_STREAMING });
+        return { streaming };
+      }
+
+      const currentId = streamState.currentMessageId;
+      const content = fullText ?? streamState.streamingContent;
+
+      const messages = new Map(state.messages);
+      const msgList = [...(messages.get(sessionId) ?? [])];
+      const idx = msgList.findIndex((m) => m.id === currentId);
+      if (idx >= 0) {
+        msgList[idx] = { ...msgList[idx], content, isStreaming: false };
+        messages.set(sessionId, msgList);
+      }
+
+      const streaming = new Map(state.streaming);
+      streaming.set(sessionId, { ...DEFAULT_STREAMING });
+
+      return { messages, streaming };
+    }),
+
+  setBusy: (sessionId, busy) =>
+    set((state) => {
+      const busyMap = new Map(state.busy);
+      busyMap.set(sessionId, busy);
+      return { busy: busyMap };
+    }),
+
+  clearMessages: (sessionId) =>
+    set((state) => {
+      const messages = new Map(state.messages);
+      messages.set(sessionId, []);
+      const streaming = new Map(state.streaming);
+      streaming.set(sessionId, { ...DEFAULT_STREAMING });
+      return { messages, streaming };
+    }),
+}));

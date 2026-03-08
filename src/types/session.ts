@@ -13,6 +13,8 @@ export type SessionStatus = "starting" | "connected" | "idle" | "closed";
 
 export type SessionMode = "normal" | "auto-accept" | "plan";
 
+export type ThinkingEffort = "high" | "medium" | "low";
+
 
 export interface TurnStats {
   durationMs: number | null;

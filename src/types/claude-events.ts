@@ -12,6 +12,7 @@ export interface SessionInitEvent {
   type: "session_init";
   session_id: string;
   model: string | null;
+  thinking_effort?: string | null;
 }
 
 export interface TextDeltaEvent {

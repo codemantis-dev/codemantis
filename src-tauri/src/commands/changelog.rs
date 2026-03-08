@@ -57,7 +57,12 @@ pub async fn generate_changelog_entry(
         tools_used,
     };
 
-    let response = summarizer::summarize_turn(provider, &api_key, &request).await?;
+    let custom_prompt = if app_settings.changelog_prompt.trim().is_empty() {
+        None
+    } else {
+        Some(app_settings.changelog_prompt.as_str())
+    };
+    let response = summarizer::summarize_turn(provider, &api_key, &request, custom_prompt).await?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().to_rfc3339();

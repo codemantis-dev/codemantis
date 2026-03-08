@@ -51,6 +51,12 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       if (event.model) {
         store.updateModel(sessionId, event.model);
       }
+      if (event.thinking_effort) {
+        const effort = event.thinking_effort.toLowerCase();
+        if (effort === "high" || effort === "medium" || effort === "low") {
+          store.setSessionEffort(sessionId, effort);
+        }
+      }
       break;
 
     case "cli_session_id":

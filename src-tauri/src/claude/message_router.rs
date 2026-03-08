@@ -24,12 +24,27 @@ pub async fn route_events(
                 model,
                 subtype,
                 session_id: cli_sid,
+                ref extra,
                 ..
             } => {
                 if subtype.as_deref() == Some("init") {
+                    debug!("System init extra fields: {}", extra);
+                    // Try to extract thinking effort from extra fields
+                    let thinking_effort = extra
+                        .get("thinking")
+                        .and_then(|v| v.get("effort"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            extra.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        })
+                        .or_else(|| {
+                            extra.get("thinking_effort").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        });
                     let fe = FrontendEvent::SessionInit {
                         session_id: session_id.clone(),
                         model,
+                        thinking_effort,
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
 

@@ -1,4 +1,4 @@
-import { Activity, TerminalSquare, FileCode, ScrollText } from "lucide-react";
+import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare } from "lucide-react";
 import { useUiStore, type RightTab } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
@@ -9,6 +9,7 @@ import TerminalTabs from "./TerminalTabs";
 import QuickCommands from "./QuickCommands";
 import FileViewer from "./FileViewer";
 import ChangelogFeed from "./ChangelogFeed";
+import AssistantPanel from "./AssistantPanel";
 
 export default function RightPanel() {
   const rightTab = useUiStore((s) => s.rightTab);
@@ -40,6 +41,7 @@ export default function RightPanel() {
     { id: "terminal", label: "Terminal", icon: TerminalSquare },
     { id: "files", label: "Files", icon: FileCode },
     { id: "changelog", label: "Changelog", icon: ScrollText },
+    { id: "assistant", label: "Assistant", icon: MessageSquare },
   ];
 
   return (
@@ -130,6 +132,14 @@ export default function RightPanel() {
         style={{ display: rightTab === "changelog" ? "block" : "none" }}
       >
         <ChangelogFeed />
+      </div>
+
+      {/* Assistant panel */}
+      <div
+        className="flex-1 overflow-hidden flex flex-col"
+        style={{ display: rightTab === "assistant" ? "flex" : "none" }}
+      >
+        <AssistantPanel />
       </div>
     </div>
   );
