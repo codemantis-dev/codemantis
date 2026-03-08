@@ -37,6 +37,7 @@ pub fn run() {
             commands::session::create_session,
             commands::session::send_message,
             commands::session::respond_to_approval,
+            commands::session::respond_to_question,
             commands::session::close_session,
             commands::session::get_session,
             commands::session::list_sessions,

@@ -7,9 +7,27 @@ interface PendingApproval {
   toolInput: Record<string, unknown>;
 }
 
+export interface QuestionOption {
+  value: string;
+  description: string;
+}
+
+export interface QuestionItem {
+  header: string;
+  multiSelect: boolean;
+  options: QuestionOption[];
+}
+
+export interface PendingQuestion {
+  toolUseId: string;
+  question?: string;
+  questions?: QuestionItem[];
+}
+
 interface ActivityState {
   sessionEntries: Map<string, ActivityEntry[]>;
   sessionApprovals: Map<string, PendingApproval | null>;
+  sessionQuestions: Map<string, PendingQuestion | null>;
   alwaysAllowedTools: Set<string>;
 
   addEntry: (sessionId: string, entry: ActivityEntry) => void;
@@ -24,6 +42,10 @@ interface ActivityState {
     sessionId: string,
     approval: PendingApproval | null
   ) => void;
+  setPendingQuestion: (
+    sessionId: string,
+    question: PendingQuestion | null
+  ) => void;
   addAlwaysAllowedTool: (toolName: string) => void;
   isToolAlwaysAllowed: (toolName: string) => boolean;
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
@@ -36,6 +58,7 @@ interface ActivityState {
 export const useActivityStore = create<ActivityState>((set, get) => ({
   sessionEntries: new Map(),
   sessionApprovals: new Map(),
+  sessionQuestions: new Map(),
   alwaysAllowedTools: new Set<string>(),
 
   addEntry: (sessionId, entry) =>
@@ -65,6 +88,13 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       return { sessionApprovals };
     }),
 
+  setPendingQuestion: (sessionId, question) =>
+    set((state) => {
+      const sessionQuestions = new Map(state.sessionQuestions);
+      sessionQuestions.set(sessionId, question);
+      return { sessionQuestions };
+    }),
+
   addAlwaysAllowedTool: (toolName) =>
     set((state) => {
       const updated = new Set(state.alwaysAllowedTools);
@@ -91,12 +121,15 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       sessionEntries.set(sessionId, []);
       const sessionApprovals = new Map(state.sessionApprovals);
       sessionApprovals.set(sessionId, null);
-      return { sessionEntries, sessionApprovals };
+      const sessionQuestions = new Map(state.sessionQuestions);
+      sessionQuestions.set(sessionId, null);
+      return { sessionEntries, sessionApprovals, sessionQuestions };
     }),
 
   clearAllEntries: () =>
     set({
       sessionEntries: new Map(),
       sessionApprovals: new Map(),
+      sessionQuestions: new Map(),
     }),
 }));

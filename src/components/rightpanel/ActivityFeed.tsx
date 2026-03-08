@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { getActivityType } from "../../types/activity";
@@ -19,6 +19,8 @@ function formatToolInput(_toolName: string, input: Record<string, unknown>): str
   if (input.pattern) return String(input.pattern);
   if (input.command) return String(input.command);
   if (input.regex) return `"${input.regex}" in ${input.path ?? "."}`;
+  if (input.question) return String(input.question);
+  if (input.questions) return JSON.stringify(input.questions).slice(0, 120);
   const keys = Object.keys(input);
   if (keys.length === 0) return "";
   return JSON.stringify(input).slice(0, 80);
@@ -37,15 +39,22 @@ export default function ActivityFeed() {
     }
   }, [entries.length]);
 
-  const handleEntryClick = (toolName: string, input: Record<string, unknown>) => {
-    const filePath = input.file_path as string | undefined;
-    if (!filePath) return;
+  const handleEntryClick = useCallback(
+    (_e: React.MouseEvent, toolName: string, input: Record<string, unknown>) => {
+      // Don't navigate if user is selecting text
+      const selection = window.getSelection();
+      if (selection && selection.toString().length > 0) return;
 
-    const type = getActivityType(toolName);
-    if (type === "read" || type === "write" || type === "edit") {
-      openFile(filePath);
-    }
-  };
+      const filePath = input.file_path as string | undefined;
+      if (!filePath) return;
+
+      const type = getActivityType(toolName);
+      if (type === "read" || type === "write" || type === "edit") {
+        openFile(filePath);
+      }
+    },
+    [openFile]
+  );
 
   if (entries.length === 0) {
     return (
@@ -56,7 +65,7 @@ export default function ActivityFeed() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-3 py-2">
+    <div ref={scrollRef} className="h-full overflow-y-auto px-3 py-2 select-text">
       {entries.map((entry, i) => {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
@@ -67,7 +76,7 @@ export default function ActivityFeed() {
           <div
             key={entry.id}
             className={`flex gap-2 mb-0.5 ${hasFile ? "cursor-pointer hover:bg-bg-elevated rounded -mx-1 px-1" : ""}`}
-            onClick={hasFile ? () => handleEntryClick(entry.toolName, entry.toolInput) : undefined}
+            onClick={hasFile ? (e) => handleEntryClick(e, entry.toolName, entry.toolInput) : undefined}
           >
             {/* Timeline dot + line */}
             <div className="flex flex-col items-center pt-2 w-4 shrink-0">

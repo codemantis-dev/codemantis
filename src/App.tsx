@@ -8,6 +8,7 @@ import AppShell from "./components/layout/AppShell";
 import ToolApproval from "./components/modals/ToolApproval";
 import ProjectPicker, { addRecentProject } from "./components/modals/ProjectPicker";
 import SettingsModal from "./components/modals/SettingsModal";
+import QuestionModal from "./components/modals/QuestionModal";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 export default function App() {
@@ -135,6 +136,7 @@ export default function App() {
     <>
       <AppShell />
       <ToolApproval />
+      <QuestionModal />
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />
     </>

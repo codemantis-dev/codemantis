@@ -295,6 +295,19 @@ export function handleApprovalEvent(sessionId: string, event: FrontendEvent): vo
     const sessionStore = useSessionStore.getState();
     const uiStore = useUiStore.getState();
 
+    // Handle AskUserQuestion — show question modal instead of approval
+    if (event.tool_name === "AskUserQuestion") {
+      console.log("[approval] AskUserQuestion detected:", event.tool_input);
+      const input = event.tool_input;
+      activityStore.setPendingQuestion(sessionId, {
+        toolUseId: event.tool_use_id,
+        question: input.question as string | undefined,
+        questions: input.questions as import("../stores/activityStore").QuestionItem[] | undefined,
+      });
+      uiStore.setShowQuestionModal(true);
+      return;
+    }
+
     // Auto-approve in auto-accept mode
     const mode = sessionStore.sessionModes.get(sessionId) ?? "normal";
     if (mode === "auto-accept") {

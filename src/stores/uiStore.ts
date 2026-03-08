@@ -7,6 +7,7 @@ interface UiState {
   rightPanelWidth: number;
   rightTab: RightTab;
   showApprovalModal: boolean;
+  showQuestionModal: boolean;
   showSettingsModal: boolean;
   showProjectPicker: boolean;
 
@@ -14,6 +15,7 @@ interface UiState {
   setRightPanelWidth: (width: number) => void;
   setRightTab: (tab: RightTab) => void;
   setShowApprovalModal: (show: boolean) => void;
+  setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
 }
@@ -23,6 +25,7 @@ export const useUiStore = create<UiState>((set) => ({
   rightPanelWidth: 360,
   rightTab: "activity",
   showApprovalModal: false,
+  showQuestionModal: false,
   showSettingsModal: false,
   showProjectPicker: false,
 
@@ -32,6 +35,7 @@ export const useUiStore = create<UiState>((set) => ({
     set({ rightPanelWidth: Math.max(200, width) }),
   setRightTab: (tab) => set({ rightTab: tab }),
   setShowApprovalModal: (show) => set({ showApprovalModal: show }),
+  setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
 }));

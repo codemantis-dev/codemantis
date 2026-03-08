@@ -46,6 +46,14 @@ export async function respondToApproval(
   return invoke("respond_to_approval", { sessionId, toolUseId, approved });
 }
 
+export async function respondToQuestion(
+  sessionId: string,
+  toolUseId: string,
+  answer: string
+): Promise<void> {
+  return invoke("respond_to_question", { sessionId, toolUseId, answer });
+}
+
 export async function closeSession(sessionId: string): Promise<void> {
   return invoke("close_session", { sessionId });
 }
