@@ -99,15 +99,15 @@
 /* ── Dawn (light) ── */
 :root[data-theme="dawn"] {
   --bg-primary: #fafaf9;
-  --bg-subtle: rgba(0, 0, 0, 0.015);
-  --bg-elevated: rgba(0, 0, 0, 0.03);
-  --border: rgba(0, 0, 0, 0.1);
-  --border-light: rgba(0, 0, 0, 0.05);
+  --bg-subtle: rgba(0, 0, 0, 0.025);
+  --bg-elevated: rgba(0, 0, 0, 0.05);
+  --border: rgba(0, 0, 0, 0.15);
+  --border-light: rgba(0, 0, 0, 0.08);
   --text-primary: #1c1917;
-  --text-secondary: #57534e;
-  --text-dim: #78716c;
-  --text-faint: #a8a29e;
-  --text-ghost: #d6d3d1;
+  --text-secondary: #44403c;
+  --text-dim: #57534e;
+  --text-faint: #78716c;
+  --text-ghost: #a8a29e;
   --accent: #7c3aed;
   --accent-light: #6d28d9;
   --accent-dim: rgba(124, 58, 237, 0.1);
@@ -119,8 +119,8 @@
   --tool-write: #16a34a;
   --tool-edit: #ca8a04;
   --tool-bash: #7c3aed;
-  --scrollbar-thumb: rgba(0, 0, 0, 0.1);
-  --scrollbar-hover: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-hover: rgba(0, 0, 0, 0.25);
   --code-bg: rgba(0, 0, 0, 0.05);
   --pre-bg: rgba(0, 0, 0, 0.04);
 }
@@ -128,18 +128,18 @@
 /* ── Sand (light warm) ── */
 :root[data-theme="sand"] {
   --bg-primary: #fdf8f0;
-  --bg-subtle: rgba(180, 130, 60, 0.02);
-  --bg-elevated: rgba(180, 130, 60, 0.04);
-  --border: rgba(180, 130, 60, 0.12);
-  --border-light: rgba(180, 130, 60, 0.06);
+  --bg-subtle: rgba(140, 100, 40, 0.04);
+  --bg-elevated: rgba(140, 100, 40, 0.07);
+  --border: rgba(120, 90, 40, 0.2);
+  --border-light: rgba(120, 90, 40, 0.1);
   --text-primary: #1f1a13;
-  --text-secondary: #6b5c4a;
-  --text-dim: #8c7e6c;
-  --text-faint: #b8ad9e;
-  --text-ghost: #ddd5c8;
-  --accent: #c2710c;
-  --accent-light: #a35d08;
-  --accent-dim: rgba(194, 113, 12, 0.1);
+  --text-secondary: #4a4035;
+  --text-dim: #5e5345;
+  --text-faint: #7a6e5e;
+  --text-ghost: #958878;
+  --accent: #b5650a;
+  --accent-light: #9a5508;
+  --accent-dim: rgba(181, 101, 10, 0.12);
   --green: #15803d;
   --yellow: #a16207;
   --red: #dc2626;
@@ -148,24 +148,24 @@
   --tool-write: #15803d;
   --tool-edit: #a16207;
   --tool-bash: #9333ea;
-  --scrollbar-thumb: rgba(180, 130, 60, 0.1);
-  --scrollbar-hover: rgba(180, 130, 60, 0.2);
-  --code-bg: rgba(180, 130, 60, 0.06);
-  --pre-bg: rgba(180, 130, 60, 0.04);
+  --scrollbar-thumb: rgba(120, 90, 40, 0.15);
+  --scrollbar-hover: rgba(120, 90, 40, 0.25);
+  --code-bg: rgba(140, 100, 40, 0.06);
+  --pre-bg: rgba(140, 100, 40, 0.05);
 }
 
 /* ── Arctic (light cool) ── */
 :root[data-theme="arctic"] {
   --bg-primary: #f4f7fb;
-  --bg-subtle: rgba(50, 100, 180, 0.02);
-  --bg-elevated: rgba(50, 100, 180, 0.04);
-  --border: rgba(50, 100, 180, 0.1);
-  --border-light: rgba(50, 100, 180, 0.05);
+  --bg-subtle: rgba(50, 80, 140, 0.035);
+  --bg-elevated: rgba(50, 80, 140, 0.06);
+  --border: rgba(50, 80, 140, 0.15);
+  --border-light: rgba(50, 80, 140, 0.08);
   --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-dim: #64748b;
-  --text-faint: #94a3b8;
-  --text-ghost: #cbd5e1;
+  --text-secondary: #334155;
+  --text-dim: #475569;
+  --text-faint: #5a6a82;
+  --text-ghost: #7e8ea0;
   --accent: #2563eb;
   --accent-light: #1d4ed8;
   --accent-dim: rgba(37, 99, 235, 0.1);
@@ -177,10 +177,10 @@
   --tool-write: #16a34a;
   --tool-edit: #ca8a04;
   --tool-bash: #7c3aed;
-  --scrollbar-thumb: rgba(50, 100, 180, 0.1);
-  --scrollbar-hover: rgba(50, 100, 180, 0.2);
-  --code-bg: rgba(50, 100, 180, 0.06);
-  --pre-bg: rgba(50, 100, 180, 0.04);
+  --scrollbar-thumb: rgba(50, 80, 140, 0.12);
+  --scrollbar-hover: rgba(50, 80, 140, 0.22);
+  --code-bg: rgba(50, 80, 140, 0.06);
+  --pre-bg: rgba(50, 80, 140, 0.04);
 }
 
 * {

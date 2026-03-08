@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useUiStore } from "../../stores/uiStore";
 import TitleBar from "./TitleBar";
 import Sidebar from "../sidebar/Sidebar";
@@ -9,12 +9,15 @@ import InputArea from "../input/InputArea";
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
   const lastX = useRef(0);
+  const [isHovering, setIsHovering] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       dragging.current = true;
       lastX.current = e.clientX;
+      setIsDragging(true);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
 
@@ -27,6 +30,7 @@ function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
 
       const onMouseUp = () => {
         dragging.current = false;
+        setIsDragging(false);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("mousemove", onMouseMove);
@@ -42,25 +46,45 @@ function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-[5px] shrink-0 cursor-col-resize hover:bg-accent/30 active:bg-accent/50 transition-colors"
-    />
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => { if (!dragging.current) setIsHovering(false); }}
+      className="w-[9px] shrink-0 cursor-col-resize flex items-stretch justify-center group"
+    >
+      <div
+        className="w-[1px] transition-all duration-150"
+        style={{
+          background:
+            isDragging
+              ? "var(--accent)"
+              : isHovering
+                ? "var(--accent-light)"
+                : "var(--border)",
+          opacity: isDragging ? 1 : isHovering ? 0.7 : 0.5,
+        }}
+      />
+    </div>
   );
 }
 
 export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
-  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth);
-  const setRightPanelWidth = useUiStore((s) => s.setRightPanelWidth);
 
+  // Use getState() to avoid stale closure during drag
   const handleLeftDrag = useCallback(
-    (delta: number) => setSidebarWidth(sidebarWidth + delta),
-    [sidebarWidth, setSidebarWidth]
+    (delta: number) => {
+      const current = useUiStore.getState().sidebarWidth;
+      useUiStore.getState().setSidebarWidth(current + delta);
+    },
+    []
   );
 
   const handleRightDrag = useCallback(
-    (delta: number) => setRightPanelWidth(rightPanelWidth - delta),
-    [rightPanelWidth, setRightPanelWidth]
+    (delta: number) => {
+      const current = useUiStore.getState().rightPanelWidth;
+      useUiStore.getState().setRightPanelWidth(current - delta);
+    },
+    []
   );
 
   return (
