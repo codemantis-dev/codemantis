@@ -1,6 +1,16 @@
 import { create } from "zustand";
-import type { AppSettings } from "../types/settings";
+import type { AppSettings, ThemeId } from "../types/settings";
+import { THEMES } from "../types/settings";
 import { getSettings, updateSettings as updateSettingsCmd } from "../lib/tauri-commands";
+
+function normalizeTheme(theme: string): ThemeId {
+  if (THEMES.some((t) => t.id === theme)) return theme as ThemeId;
+  return "midnight"; // fallback for legacy "dark" or unknown values
+}
+
+function applyTheme(theme: ThemeId): void {
+  document.documentElement.setAttribute("data-theme", theme);
+}
 
 interface SettingsState {
   settings: AppSettings;
@@ -11,7 +21,7 @@ interface SettingsState {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  theme: "dark",
+  theme: "midnight",
   fontSize: 13,
   sendShortcut: "cmd+enter",
   terminalShell: null,
@@ -31,6 +41,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     try {
       const settings = await getSettings();
+      settings.theme = normalizeTheme(settings.theme);
+      applyTheme(settings.theme);
       set({ settings, loaded: true });
     } catch (e) {
       console.error("Failed to load settings:", e);
@@ -40,6 +52,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   updateSettings: async (partial) => {
     const merged = { ...get().settings, ...partial };
+    if (partial.theme) {
+      applyTheme(partial.theme);
+    }
     set({ settings: merged });
     try {
       await updateSettingsCmd(merged);

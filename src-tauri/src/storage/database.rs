@@ -133,6 +133,7 @@ impl Database {
         Ok(count % 10)
     }
 
+    #[allow(dead_code)]
     pub fn update_session_model(&self, id: &str, model: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))

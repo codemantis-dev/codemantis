@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -25,7 +26,7 @@ pub struct QuickCommand {
 }
 
 fn default_theme() -> String {
-    "dark".to_string()
+    "midnight".to_string()
 }
 fn default_font_size() -> u32 {
     13

@@ -19,6 +19,7 @@ pub struct SessionInfo {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
 pub enum SessionStatus {
     Starting,
     Connected,

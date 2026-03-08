@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 // --- Incoming events from CLI stdout (NDJSON) ---
+// These structs capture all JSON fields from the Claude CLI stream.
+// Many fields are only needed for deserialization (serde flatten/catch-all).
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum RawStreamEvent {
     #[serde(rename = "system")]
     System {
@@ -79,6 +82,7 @@ pub enum RawStreamEvent {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct AssistantMessage {
     pub role: Option<String>,
     pub content: Option<Vec<ContentBlock>>,
@@ -123,6 +127,7 @@ pub enum ContentBlock {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum StreamDelta {
     #[serde(rename = "text_delta")]
     TextDelta { text: String },
@@ -202,6 +207,7 @@ pub enum FrontendEvent {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum StdinMessage {
     #[serde(rename = "user")]
     User { message: StdinUserMessage },
@@ -218,6 +224,7 @@ pub struct StdinUserMessage {
     pub content: String,
 }
 
+#[allow(dead_code)]
 impl StdinMessage {
     pub fn new_user_message(content: &str) -> Self {
         StdinMessage::User {

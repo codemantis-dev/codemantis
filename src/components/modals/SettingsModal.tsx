@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { QuickCommand } from "../../types/settings";
+import type { QuickCommand, ThemeId } from "../../types/settings";
+import { THEMES } from "../../types/settings";
 
 export default function SettingsModal() {
   const showModal = useUiStore((s) => s.showSettingsModal);
@@ -10,6 +11,7 @@ export default function SettingsModal() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
+  const [theme, setTheme] = useState<ThemeId>(settings.theme);
   const [fontSize, setFontSize] = useState(settings.fontSize);
   const [sendShortcut, setSendShortcut] = useState(settings.sendShortcut);
   const [terminalShell, setTerminalShell] = useState(settings.terminalShell ?? "");
@@ -18,6 +20,7 @@ export default function SettingsModal() {
 
   useEffect(() => {
     if (showModal) {
+      setTheme(settings.theme);
       setFontSize(settings.fontSize);
       setSendShortcut(settings.sendShortcut);
       setTerminalShell(settings.terminalShell ?? "");
@@ -28,6 +31,7 @@ export default function SettingsModal() {
 
   const handleSave = () => {
     updateSettings({
+      theme,
       fontSize,
       sendShortcut,
       terminalShell: terminalShell.trim() || null,
@@ -35,6 +39,12 @@ export default function SettingsModal() {
       quickCommands: quickCommands.filter((c) => c.label.trim() && c.command.trim()),
     });
     setShowModal(false);
+  };
+
+  const handleThemeChange = (id: ThemeId) => {
+    setTheme(id);
+    // Live preview: apply immediately
+    document.documentElement.setAttribute("data-theme", id);
   };
 
   const handleAddQuickCommand = () => {
@@ -52,7 +62,13 @@ export default function SettingsModal() {
   };
 
   return (
-    <Dialog.Root open={showModal} onOpenChange={setShowModal}>
+    <Dialog.Root open={showModal} onOpenChange={(open) => {
+      if (!open) {
+        // Revert live preview on dismiss
+        document.documentElement.setAttribute("data-theme", settings.theme);
+      }
+      setShowModal(open);
+    }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[480px] max-h-[80vh] overflow-y-auto rounded-xl border border-border p-6" style={{ background: "var(--bg-primary)" }}>
@@ -67,6 +83,33 @@ export default function SettingsModal() {
             </h3>
 
             <div className="space-y-3">
+              {/* Theme picker */}
+              <div>
+                <label className="text-ui text-text-secondary mb-2 block">Theme</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => handleThemeChange(t.id)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-ui transition-colors ${
+                        theme === t.id
+                          ? "border-accent bg-accent-dim text-text-primary"
+                          : "border-border bg-bg-elevated text-text-secondary hover:border-accent/30"
+                      }`}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0 border"
+                        style={{
+                          background: t.isDark ? "#18181b" : "#fafafa",
+                          borderColor: t.isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)",
+                        }}
+                      />
+                      <span className="truncate">{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between">
                 <label className="text-ui text-text-secondary">Font Size</label>
                 <input
@@ -168,7 +211,10 @@ export default function SettingsModal() {
           {/* Actions */}
           <div className="flex justify-end gap-2">
             <button
-              onClick={() => setShowModal(false)}
+              onClick={() => {
+                document.documentElement.setAttribute("data-theme", settings.theme);
+                setShowModal(false);
+              }}
               className="px-4 py-2 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
             >
               Cancel
