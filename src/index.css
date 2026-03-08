@@ -139,3 +139,17 @@ textarea {
 .selectable {
   user-select: text;
 }
+
+/* xterm.js overrides */
+.xterm {
+  padding: 4px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}

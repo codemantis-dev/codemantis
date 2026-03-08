@@ -81,6 +81,9 @@ pub async fn route_events(
                                 };
                                 let _ = app_handle.emit(&activity_event, &fe);
                             }
+                            ContentBlock::Thinking { .. } => {
+                                // Extended thinking — silently skip
+                            }
                             ContentBlock::Unknown => {
                                 debug!("Unknown content block type");
                             }
@@ -158,6 +161,36 @@ pub async fn route_events(
                     let _ = app_handle.emit(&chat_event, &fe);
                 }
                 accumulated_text.clear();
+            }
+
+            RawStreamEvent::RateLimitEvent { .. } => {}
+
+            RawStreamEvent::User { message, .. } => {
+                // User events contain tool_result content blocks
+                if let Some(msg) = message {
+                    if let Some(content_blocks) = &msg.content {
+                        for block in content_blocks {
+                            if let ContentBlock::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } = block
+                            {
+                                let content_str = content.as_ref().map(|c| match c {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                });
+                                let fe = FrontendEvent::ToolResult {
+                                    session_id: session_id.clone(),
+                                    tool_use_id: tool_use_id.clone(),
+                                    content: content_str,
+                                    is_error: is_error.unwrap_or(false),
+                                };
+                                let _ = app_handle.emit(&activity_event, &fe);
+                            }
+                        }
+                    }
+                }
             }
 
             RawStreamEvent::Unknown => {

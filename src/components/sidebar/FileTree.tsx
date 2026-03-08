@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
+import { useFileViewer } from "../../hooks/useFileViewer";
 
 interface FileTreeProps {
   nodes: FileNode[];
@@ -22,6 +23,7 @@ const extensionColors: Record<string, string> = {
 
 function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 1);
+  const { openFile } = useFileViewer();
 
   const isSpecial = node.name === "CLAUDE.md" || node.name === ".claude";
   const iconColor = node.extension
@@ -69,6 +71,7 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
 
   return (
     <button
+      onClick={() => openFile(node.path)}
       className="flex items-center gap-1 w-full px-2 py-0.5 hover:bg-bg-elevated rounded text-left"
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
     >

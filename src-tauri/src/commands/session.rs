@@ -1,6 +1,8 @@
 use crate::claude::process::ClaudeProcess;
 use crate::claude::session::{AppState, SessionInfo, SessionStatus};
 use crate::errors::AppError;
+use crate::storage::database::PersistedSession;
+use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -26,6 +28,8 @@ pub async fn create_session(
             .unwrap_or_else(|| "New Session".to_string())
     });
 
+    let icon_index = state.database.get_next_icon_index().unwrap_or(0);
+
     let session_info = SessionInfo {
         id: session_id.clone(),
         name: session_name,
@@ -33,6 +37,7 @@ pub async fn create_session(
         status: SessionStatus::Starting,
         created_at: Utc::now(),
         model: None,
+        icon_index,
     };
 
     // Store session info
@@ -40,6 +45,17 @@ pub async fn create_session(
         let mut sessions = state.sessions.lock().await;
         sessions.insert(session_id.clone(), session_info.clone());
     }
+
+    // Persist to SQLite
+    let _ = state.database.insert_session(
+        &session_info.id,
+        &session_info.name,
+        &session_info.project_path,
+        "starting",
+        &session_info.created_at.to_rfc3339(),
+        None,
+        session_info.icon_index,
+    );
 
     // Spawn the CLI process
     let process = ClaudeProcess::spawn(
@@ -64,6 +80,7 @@ pub async fn create_session(
             session.status = SessionStatus::Connected;
         }
     }
+    let _ = state.database.update_session_status(&session_id, "connected");
 
     let sessions = state.sessions.lock().await;
     Ok(sessions.get(&session_id).cloned().unwrap())
@@ -113,6 +130,7 @@ pub async fn respond_to_approval(
 #[tauri::command]
 pub async fn close_session(
     state: State<'_, AppState>,
+    terminal_pool: State<'_, TerminalPool>,
     session_id: String,
 ) -> Result<(), String> {
     // Shutdown the process
@@ -123,6 +141,9 @@ pub async fn close_session(
         }
     }
 
+    // Close all terminals for this session
+    terminal_pool.close_all_for_session(&session_id).await;
+
     // Update session status
     {
         let mut sessions = state.sessions.lock().await;
@@ -130,6 +151,9 @@ pub async fn close_session(
             session.status = SessionStatus::Closed;
         }
     }
+
+    // Persist status
+    let _ = state.database.update_session_status(&session_id, "closed");
 
     Ok(())
 }
@@ -150,4 +174,43 @@ pub async fn get_session(
 pub async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     let sessions = state.sessions.lock().await;
     Ok(sessions.values().cloned().collect())
+}
+
+#[tauri::command]
+pub async fn rename_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    new_name: String,
+) -> Result<(), String> {
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.name = new_name.clone();
+        }
+    }
+    state
+        .database
+        .rename_session(&session_id, &new_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_persisted_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<PersistedSession>, String> {
+    state
+        .database
+        .list_sessions()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_persisted_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .database
+        .delete_session(&session_id)
+        .map_err(|e| e.to_string())
 }

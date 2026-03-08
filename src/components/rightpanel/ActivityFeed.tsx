@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
+import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { getActivityType } from "../../types/activity";
+import { useFileViewer } from "../../hooks/useFileViewer";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
 
@@ -23,14 +25,27 @@ function formatToolInput(_toolName: string, input: Record<string, unknown>): str
 }
 
 export default function ActivityFeed() {
-  const entries = useActivityStore((s) => s.entries);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessionEntries = useActivityStore((s) => s.sessionEntries);
+  const entries = activeSessionId ? sessionEntries.get(activeSessionId) ?? [] : [];
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { openFile } = useFileViewer();
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [entries.length]);
+
+  const handleEntryClick = (toolName: string, input: Record<string, unknown>) => {
+    const filePath = input.file_path as string | undefined;
+    if (!filePath) return;
+
+    const type = getActivityType(toolName);
+    if (type === "read" || type === "write" || type === "edit") {
+      openFile(filePath);
+    }
+  };
 
   if (entries.length === 0) {
     return (
@@ -46,9 +61,14 @@ export default function ActivityFeed() {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
         const inputStr = formatToolInput(entry.toolName, entry.toolInput);
+        const hasFile = !!entry.toolInput.file_path;
 
         return (
-          <div key={entry.id} className="flex gap-2 mb-0.5">
+          <div
+            key={entry.id}
+            className={`flex gap-2 mb-0.5 ${hasFile ? "cursor-pointer hover:bg-bg-elevated rounded -mx-1 px-1" : ""}`}
+            onClick={hasFile ? () => handleEntryClick(entry.toolName, entry.toolInput) : undefined}
+          >
             {/* Timeline dot + line */}
             <div className="flex flex-col items-center pt-2 w-4 shrink-0">
               <StatusDot

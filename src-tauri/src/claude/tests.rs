@@ -202,8 +202,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_unknown_content_block_type() {
+    fn parse_thinking_content_block() {
         let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Assistant { message, .. } => {
+                let content = message.content.unwrap();
+                assert_eq!(content.len(), 1);
+                assert!(matches!(content[0], ContentBlock::Thinking { .. }));
+            }
+            other => panic!("Expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_unknown_content_block_type() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"some_future_type","data":"test"}]}}"#;
         let event: RawStreamEvent = serde_json::from_str(json).unwrap();
         match event {
             RawStreamEvent::Assistant { message, .. } => {
@@ -626,9 +640,13 @@ mod tests {
     // SESSION STATE — in-memory state management
     // ──────────────────────────────────────────────────────────
 
+    fn test_db() -> crate::storage::Database {
+        crate::storage::Database::new(":memory:").unwrap()
+    }
+
     #[tokio::test]
     async fn app_state_starts_empty() {
-        let state = crate::claude::session::AppState::new();
+        let state = crate::claude::session::AppState::new(test_db());
         let sessions = state.sessions.lock().await;
         assert!(sessions.is_empty());
         let processes = state.processes.lock().await;
@@ -642,7 +660,7 @@ mod tests {
         use crate::claude::session::{AppState, SessionInfo, SessionStatus};
         use chrono::Utc;
 
-        let state = AppState::new();
+        let state = AppState::new(test_db());
         let info = SessionInfo {
             id: "test-session-1".to_string(),
             name: "Test".to_string(),
@@ -650,6 +668,7 @@ mod tests {
             status: SessionStatus::Connected,
             created_at: Utc::now(),
             model: Some("sonnet".to_string()),
+            icon_index: 0,
         };
 
         {
@@ -670,7 +689,7 @@ mod tests {
         use crate::claude::session::{AppState, SessionInfo, SessionStatus};
         use chrono::Utc;
 
-        let state = AppState::new();
+        let state = AppState::new(test_db());
         let info = SessionInfo {
             id: "s1".to_string(),
             name: "Test".to_string(),
@@ -678,6 +697,7 @@ mod tests {
             status: SessionStatus::Starting,
             created_at: Utc::now(),
             model: None,
+            icon_index: 0,
         };
 
         {
@@ -802,6 +822,42 @@ mod tests {
         }
 
         assert_eq!(events.len(), 2, "Empty lines should be skipped");
+    }
+
+    #[tokio::test]
+    async fn stream_parser_unwraps_stream_event_wrapper() {
+        use crate::claude::stream_parser::parse_stream;
+        use tokio::sync::mpsc;
+
+        // CLI wraps streaming deltas in {"type":"stream_event","event":{...}}
+        let ndjson = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"result","duration_ms":100}"#;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let mut child = tokio::process::Command::new("echo")
+            .arg("-n")
+            .arg(ndjson)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let stdout = child.stdout.take().unwrap();
+
+        tokio::spawn(async move {
+            parse_stream(stdout, tx).await;
+        });
+
+        let mut events = vec![];
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+
+        assert_eq!(events.len(), 3, "Should unwrap 2 stream_events + 1 direct result");
+        assert!(matches!(events[0], RawStreamEvent::ContentBlockDelta { .. }));
+        assert!(matches!(events[1], RawStreamEvent::ContentBlockStart { .. }));
+        assert!(matches!(events[2], RawStreamEvent::Result { .. }));
     }
 
     #[tokio::test]

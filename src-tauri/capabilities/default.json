@@ -10,6 +10,15 @@
     "core:event:allow-emit",
     "core:event:allow-listen",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-size",
+    "core:window:allow-inner-size",
+    "core:window:allow-set-min-size"
   ]
 }

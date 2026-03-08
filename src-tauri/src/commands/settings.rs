@@ -1,0 +1,86 @@
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+    #[serde(default = "default_send_shortcut")]
+    pub send_shortcut: String,
+    #[serde(default)]
+    pub terminal_shell: Option<String>,
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: u32,
+    #[serde(default = "default_quick_commands")]
+    pub quick_commands: Vec<QuickCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickCommand {
+    pub label: String,
+    pub command: String,
+}
+
+fn default_theme() -> String {
+    "dark".to_string()
+}
+fn default_font_size() -> u32 {
+    13
+}
+fn default_send_shortcut() -> String {
+    "cmd+enter".to_string()
+}
+fn default_terminal_font_size() -> u32 {
+    13
+}
+fn default_quick_commands() -> Vec<QuickCommand> {
+    vec![
+        QuickCommand { label: "Build".to_string(), command: "pnpm build".to_string() },
+        QuickCommand { label: "Test".to_string(), command: "pnpm test".to_string() },
+        QuickCommand { label: "Lint".to_string(), command: "pnpm lint".to_string() },
+        QuickCommand { label: "Dev".to_string(), command: "pnpm dev".to_string() },
+    ]
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+            font_size: default_font_size(),
+            send_shortcut: default_send_shortcut(),
+            terminal_shell: None,
+            terminal_font_size: default_terminal_font_size(),
+            quick_commands: default_quick_commands(),
+        }
+    }
+}
+
+fn settings_path() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("com.claudeforge.app")
+        .join("settings.json")
+}
+
+#[tauri::command]
+pub fn get_settings() -> Result<AppSettings, String> {
+    let path = settings_path();
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_settings(settings: AppSettings) -> Result<(), String> {
+    let path = settings_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}

@@ -25,6 +25,12 @@ pub enum AppError {
 
     #[error("File system error: {0}")]
     FileSystem(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Terminal error: {0}")]
+    TerminalError(String),
 }
 
 impl Serialize for AppError {

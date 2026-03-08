@@ -8,6 +8,8 @@ describe("uiStore", () => {
       rightPanelWidth: 360,
       rightTab: "activity",
       showApprovalModal: false,
+      showSettingsModal: false,
+      showProjectPicker: false,
     });
   });
 
@@ -17,6 +19,8 @@ describe("uiStore", () => {
     expect(state.rightPanelWidth).toBe(360);
     expect(state.rightTab).toBe("activity");
     expect(state.showApprovalModal).toBe(false);
+    expect(state.showSettingsModal).toBe(false);
+    expect(state.showProjectPicker).toBe(false);
   });
 
   it("setSidebarWidth clamps to min 180", () => {
@@ -52,8 +56,24 @@ describe("uiStore", () => {
   it("setShowApprovalModal toggles modal", () => {
     useUiStore.getState().setShowApprovalModal(true);
     expect(useUiStore.getState().showApprovalModal).toBe(true);
-
     useUiStore.getState().setShowApprovalModal(false);
     expect(useUiStore.getState().showApprovalModal).toBe(false);
+  });
+
+  it("setRightTab switches tab", () => {
+    useUiStore.getState().setRightTab("terminal");
+    expect(useUiStore.getState().rightTab).toBe("terminal");
+    useUiStore.getState().setRightTab("activity");
+    expect(useUiStore.getState().rightTab).toBe("activity");
+  });
+
+  it("setShowSettingsModal toggles settings", () => {
+    useUiStore.getState().setShowSettingsModal(true);
+    expect(useUiStore.getState().showSettingsModal).toBe(true);
+  });
+
+  it("setShowProjectPicker toggles picker", () => {
+    useUiStore.getState().setShowProjectPicker(true);
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
   });
 });

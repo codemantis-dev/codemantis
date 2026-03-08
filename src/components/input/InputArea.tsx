@@ -1,26 +1,54 @@
-import { useState, useRef, useCallback, type KeyboardEvent } from "react";
+import { useState, useRef, useCallback, type KeyboardEvent, type DragEvent } from "react";
 import { Send, Plus, Slash, AtSign } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
+import { open } from "@tauri-apps/plugin-dialog";
+import AttachmentBar from "./AttachmentBar";
 
 export default function InputArea() {
   const [input, setInput] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const session = useSessionStore((s) => s.session);
-  const isStreaming = useSessionStore((s) => s.isStreaming);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessions = useSessionStore((s) => s.sessions);
+  const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
+
+  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const streaming = activeSessionId
+    ? sessionStreaming.get(activeSessionId)
+    : undefined;
+  const isStreaming = streaming?.isStreaming ?? false;
+
+  const attachments = useAttachmentStore((s) => s.attachments);
+  const addAttachment = useAttachmentStore((s) => s.addAttachment);
+  const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
+
   const { sendMessage } = useClaudeSession();
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || !session || isStreaming) return;
+    const hasAttachments = attachments.length > 0;
+    if ((!trimmed && !hasAttachments) || !activeSessionId || isStreaming) return;
+
+    // Build prompt with attachment references
+    let prompt = trimmed;
+    if (hasAttachments) {
+      const attachmentRefs = attachments
+        .map((a) => `[Attached file: ${a.filePath}]`)
+        .join("\n");
+      prompt = attachmentRefs + (trimmed ? "\n\n" + trimmed : "");
+    }
 
     setInput("");
+    clearAttachments();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
 
-    await sendMessage(trimmed);
-  }, [input, session, isStreaming, sendMessage]);
+    await sendMessage(activeSessionId, prompt);
+  }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -40,16 +68,171 @@ export default function InputArea() {
     el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
   }, []);
 
-  const isActive = input.trim().length > 0 && !!session && !isStreaming;
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      if (!session) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+
+          const now = new Date();
+          const timeStr = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+          const filename = `clipboard_${timeStr}.png`;
+
+          const arrayBuffer = await blob.arrayBuffer();
+          const imageData = Array.from(new Uint8Array(arrayBuffer));
+
+          try {
+            const info = await saveClipboardImage(
+              session.project_path,
+              imageData,
+              filename
+            );
+            addAttachment({
+              id: `att-${Date.now()}`,
+              fileName: info.file_name,
+              filePath: info.file_path,
+              fileSize: info.file_size,
+              mimeType: info.mime_type,
+              isImage: info.is_image,
+            });
+          } catch (err) {
+            console.error("Failed to save clipboard image:", err);
+          }
+          return; // Only handle one image
+        }
+      }
+    },
+    [session, addAttachment]
+  );
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      if (!session) return;
+
+      const files = e.dataTransfer?.files;
+      if (!files) return;
+
+      for (const file of files) {
+        try {
+          // For drag-and-drop we reference the original file path
+          // In web context, File objects don't have full paths — use name + save
+          const isImage = file.type.startsWith("image/");
+          if (isImage) {
+            const arrayBuffer = await file.arrayBuffer();
+            const imageData = Array.from(new Uint8Array(arrayBuffer));
+            const info = await saveClipboardImage(
+              session.project_path,
+              imageData,
+              file.name
+            );
+            addAttachment({
+              id: `att-${Date.now()}-${file.name}`,
+              fileName: info.file_name,
+              filePath: info.file_path,
+              fileSize: info.file_size,
+              mimeType: info.mime_type,
+              isImage: true,
+            });
+          } else {
+            // Non-image files: just reference by name
+            addAttachment({
+              id: `att-${Date.now()}-${file.name}`,
+              fileName: file.name,
+              filePath: file.name, // Limited in web context
+              fileSize: file.size,
+              mimeType: file.type || "application/octet-stream",
+              isImage: false,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to process dropped file:", err);
+        }
+      }
+    },
+    [session, addAttachment]
+  );
+
+  const handleFileDialog = useCallback(async () => {
+    if (!session) return;
+
+    try {
+      const result = await open({
+        multiple: true,
+        filters: [
+          { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
+          { name: "Documents", extensions: ["pdf", "txt", "md"] },
+          { name: "Code", extensions: ["ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "rb"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!result) return;
+
+      const paths = Array.isArray(result) ? result : [result];
+      for (const filePath of paths) {
+        try {
+          const info = await getFileInfo(filePath);
+          addAttachment({
+            id: `att-${Date.now()}-${info.file_name}`,
+            fileName: info.file_name,
+            filePath: info.file_path,
+            fileSize: info.file_size,
+            mimeType: info.mime_type,
+            isImage: info.is_image,
+          });
+        } catch (err) {
+          console.error("Failed to get file info:", err);
+        }
+      }
+    } catch (err) {
+      console.error("File dialog error:", err);
+    }
+  }, [session, addAttachment]);
+
+  const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
 
   return (
-    <div className="border-t border-border px-4 py-3">
+    <div
+      className={`border-t border-border px-4 py-3 ${dragOver ? "bg-accent/5" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="max-w-[720px] mx-auto">
-        {/* Textarea */}
         <div
-          className="rounded-xl border border-border bg-bg-elevated transition-colors focus-within:border-accent/40"
-          style={{ background: "var(--bg-elevated)" }}
+          className={`rounded-xl border transition-colors focus-within:border-accent/40 ${
+            dragOver ? "border-accent/60 bg-accent/5" : "border-border bg-bg-elevated"
+          }`}
+          style={!dragOver ? { background: "var(--bg-elevated)" } : undefined}
         >
+          {/* Attachment bar */}
+          <AttachmentBar />
+
+          {/* Drop zone overlay text */}
+          {dragOver && (
+            <div className="px-4 py-2 text-center text-accent text-ui">
+              Drop files to attach
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={input}
@@ -58,6 +241,7 @@ export default function InputArea() {
               handleInput();
             }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               session
                 ? "Ask Claude anything... (\u2318+Enter to send)"
@@ -72,6 +256,7 @@ export default function InputArea() {
           <div className="flex items-center justify-between px-3 pb-2">
             <div className="flex items-center gap-1">
               <button
+                onClick={handleFileDialog}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
                 disabled={!session}
               >
@@ -105,7 +290,7 @@ export default function InputArea() {
             >
               <Send size={13} />
               <span>Send</span>
-              <span className="text-label opacity-60">\u2318\u21B5</span>
+              <span className="text-label opacity-60">{"⌘↵"}</span>
             </button>
           </div>
         </div>

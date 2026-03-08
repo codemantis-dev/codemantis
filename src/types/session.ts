@@ -5,6 +5,7 @@ export interface Session {
   status: SessionStatus;
   created_at: string;
   model: string | null;
+  icon_index: number;
 }
 
 export type SessionStatus = "starting" | "connected" | "idle" | "closed";
@@ -16,4 +17,14 @@ export interface Message {
   timestamp: string;
   activityIds: string[];
   isStreaming: boolean;
+}
+
+export interface PersistedSession {
+  id: string;
+  name: string;
+  project_path: string;
+  status: string;
+  created_at: string;
+  model: string | null;
+  icon_index: number;
 }

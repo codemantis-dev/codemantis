@@ -1,20 +1,124 @@
-import { Activity } from "lucide-react";
+import { Activity, TerminalSquare, FileCode } from "lucide-react";
+import { useUiStore } from "../../stores/uiStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useTerminalStore } from "../../stores/terminalStore";
+import { useTerminal } from "../../hooks/useTerminal";
 import ActivityFeed from "./ActivityFeed";
+import TerminalView from "./TerminalView";
+import TerminalTabs from "./TerminalTabs";
+import QuickCommands from "./QuickCommands";
+import FileViewer from "./FileViewer";
 
 export default function RightPanel() {
+  const rightTab = useUiStore((s) => s.rightTab);
+  const setRightTab = useUiStore((s) => s.setRightTab);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+
+  const sessionTerminals = useTerminalStore((s) => s.sessionTerminals);
+  const activeTerminalIdMap = useTerminalStore((s) => s.activeTerminalId);
+  const setActiveTerminal = useTerminalStore((s) => s.setActiveTerminal);
+
+  const terminals = activeSessionId ? sessionTerminals.get(activeSessionId) ?? [] : [];
+  const activeTerminalId = activeSessionId ? activeTerminalIdMap.get(activeSessionId) ?? null : null;
+
+  const { createTerminal, closeTerminal } = useTerminal();
+
+  const handleCreateTerminal = async () => {
+    if (!activeSessionId) return;
+    await createTerminal(activeSessionId);
+  };
+
+  const handleCloseTerminal = async (terminalId: string) => {
+    if (!activeSessionId) return;
+    await closeTerminal(activeSessionId, terminalId);
+  };
+
+  const tabs: { id: "activity" | "terminal" | "files"; label: string; icon: typeof Activity }[] = [
+    { id: "activity", label: "Activity", icon: Activity },
+    { id: "terminal", label: "Terminal", icon: TerminalSquare },
+    { id: "files", label: "Files", icon: FileCode },
+  ];
+
   return (
     <div className="h-full flex flex-col" style={{ background: "var(--bg-subtle)" }}>
       {/* Tab header */}
-      <div className="h-9 flex items-center px-3 border-b border-border-light shrink-0">
-        <div className="flex items-center gap-1.5 text-text-secondary">
-          <Activity size={13} />
-          <span className="text-ui font-medium">Activity</span>
-        </div>
+      <div className="h-9 flex items-center px-1 border-b border-border-light shrink-0">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setRightTab(tab.id)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-ui transition-colors ${
+                rightTab === tab.id
+                  ? "text-text-primary bg-bg-elevated font-medium"
+                  : "text-text-dim hover:text-text-secondary"
+              }`}
+            >
+              <Icon size={13} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      {/* Activity panel */}
+      <div
+        className="flex-1 overflow-hidden"
+        style={{ display: rightTab === "activity" ? "block" : "none" }}
+      >
         <ActivityFeed />
+      </div>
+
+      {/* Terminal panel */}
+      <div
+        className="flex-1 overflow-hidden flex flex-col"
+        style={{ display: rightTab === "terminal" ? "flex" : "none" }}
+      >
+        {terminals.length > 0 && (
+          <TerminalTabs
+            terminals={terminals}
+            activeTerminalId={activeTerminalId}
+            onSelect={(id) => activeSessionId && setActiveTerminal(activeSessionId, id)}
+            onClose={handleCloseTerminal}
+            onCreate={handleCreateTerminal}
+          />
+        )}
+
+        <div className="flex-1 relative overflow-hidden">
+          {terminals.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2">
+              <p className="text-text-faint text-ui">No terminals</p>
+              <button
+                onClick={handleCreateTerminal}
+                disabled={!activeSessionId}
+                className="px-3 py-1.5 rounded-lg text-ui text-accent hover:bg-accent/10 transition-colors"
+              >
+                Create Terminal
+              </button>
+            </div>
+          ) : (
+            terminals.map((terminal) => (
+              <TerminalView
+                key={terminal.id}
+                terminalId={terminal.id}
+                isVisible={terminal.id === activeTerminalId}
+              />
+            ))
+          )}
+        </div>
+
+        {terminals.length > 0 && (
+          <QuickCommands terminalId={activeTerminalId} />
+        )}
+      </div>
+
+      {/* File viewer panel */}
+      <div
+        className="flex-1 overflow-hidden"
+        style={{ display: rightTab === "files" ? "block" : "none" }}
+      >
+        <FileViewer />
       </div>
     </div>
   );

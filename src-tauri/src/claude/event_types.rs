@@ -52,9 +52,24 @@ pub enum RawStreamEvent {
         duration_ms: Option<u64>,
         session_id: Option<String>,
         result: Option<String>,
+        #[serde(alias = "total_cost_usd")]
         cost_usd: Option<f64>,
         is_error: Option<bool>,
         usage: Option<UsageInfo>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    // Events we receive but don't need to process
+    #[serde(rename = "rate_limit_event")]
+    RateLimitEvent {
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "user")]
+    User {
+        message: Option<AssistantMessage>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
@@ -94,6 +109,12 @@ pub enum ContentBlock {
         tool_use_id: String,
         content: Option<serde_json::Value>,
         is_error: Option<bool>,
+    },
+
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(default)]
+        thinking: String,
     },
 
     #[serde(other)]

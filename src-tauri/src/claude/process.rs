@@ -33,6 +33,7 @@ impl ClaudeProcess {
             "stream-json",
             "--output-format",
             "stream-json",
+            "--include-partial-messages",
             "--verbose",
         ]);
         cmd.current_dir(project_path);

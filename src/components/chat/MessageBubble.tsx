@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
 import ActivityChip from "./ActivityChip";
 import StreamingCursor from "./StreamingCursor";
+import CodeBlock from "./CodeBlock";
 
 interface MessageBubbleProps {
   message: Message;
@@ -41,7 +42,12 @@ export default function MessageBubble({
       <ActivityChip messageId={message.id} />
       <div className="mt-1 selectable">
         <div className="markdown-content text-chat text-text-secondary">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code: CodeBlock,
+            }}
+          >
             {displayContent}
           </ReactMarkdown>
           {message.isStreaming && <StreamingCursor />}

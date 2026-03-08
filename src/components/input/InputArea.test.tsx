@@ -2,17 +2,36 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import InputArea from "./InputArea";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { Session } from "../../types/session";
+
+const SESSION: Session = {
+  id: "s1", name: "Test", project_path: "/tmp", status: "connected", created_at: "", model: null, icon_index: 0,
+};
+
+function setSessionState(session: Session | null): void {
+  if (session) {
+    useSessionStore.setState({
+      sessions: new Map([[session.id, session]]),
+      activeSessionId: session.id,
+      sessionMessages: new Map([[session.id, []]]),
+      sessionStreaming: new Map([[session.id, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([[session.id, { used: 0, max: 200000 }]]),
+      tabOrder: [session.id],
+    });
+  } else {
+    useSessionStore.setState({
+      sessions: new Map(),
+      activeSessionId: null,
+      sessionMessages: new Map(),
+      sessionStreaming: new Map(),
+      sessionContext: new Map(),
+      tabOrder: [],
+    });
+  }
+}
 
 describe("InputArea", () => {
-  beforeEach(() => {
-    useSessionStore.setState({
-      session: null,
-      messages: [],
-      isStreaming: false,
-      streamingContent: "",
-      currentMessageId: null,
-    });
-  });
+  beforeEach(() => setSessionState(null));
 
   it("renders disabled state when no session", () => {
     render(<InputArea />);
@@ -21,20 +40,9 @@ describe("InputArea", () => {
   });
 
   it("renders enabled state when session active", () => {
-    useSessionStore.setState({
-      session: {
-        id: "s1",
-        name: "Test",
-        project_path: "/tmp",
-        status: "connected",
-        created_at: "",
-        model: null,
-      },
-    });
+    setSessionState(SESSION);
     render(<InputArea />);
-    const textarea = screen.getByPlaceholderText(
-      /Ask Claude anything/
-    );
+    const textarea = screen.getByPlaceholderText(/Ask Claude anything/);
     expect(textarea).not.toBeDisabled();
   });
 
@@ -47,16 +55,7 @@ describe("InputArea", () => {
   });
 
   it("send button shows disabled style with empty input", () => {
-    useSessionStore.setState({
-      session: {
-        id: "s1",
-        name: "Test",
-        project_path: "/tmp",
-        status: "connected",
-        created_at: "",
-        model: null,
-      },
-    });
+    setSessionState(SESSION);
     render(<InputArea />);
     const sendButton = screen.getByText("Send").closest("button");
     expect(sendButton).toBeDisabled();

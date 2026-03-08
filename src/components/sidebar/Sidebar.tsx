@@ -6,7 +6,15 @@ import FileTree from "./FileTree";
 import ContextMeter from "../shared/ContextMeter";
 
 export default function Sidebar() {
-  const session = useSessionStore((s) => s.session);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessions = useSessionStore((s) => s.sessions);
+  const sessionContext = useSessionStore((s) => s.sessionContext);
+
+  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const context = activeSessionId
+    ? sessionContext.get(activeSessionId) ?? { used: 0, max: 200000 }
+    : { used: 0, max: 200000 };
+
   const { files, loading, refresh } = useFileTree();
 
   useEffect(() => {
@@ -47,7 +55,7 @@ export default function Sidebar() {
 
       {/* Context meter */}
       <div className="shrink-0 border-t border-border-light">
-        <ContextMeter used={0} max={200000} />
+        <ContextMeter used={context.used} max={context.max} />
       </div>
     </div>
   );

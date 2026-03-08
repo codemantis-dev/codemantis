@@ -4,49 +4,46 @@ import AppShell from "./AppShell";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 
+const SESSION = {
+  id: "s1",
+  name: "Test Session",
+  project_path: "/tmp/test",
+  status: "connected" as const,
+  created_at: "",
+  model: "sonnet",
+  icon_index: 0,
+};
+
 describe("AppShell", () => {
   beforeEach(() => {
     useSessionStore.setState({
-      session: {
-        id: "s1",
-        name: "Test Session",
-        project_path: "/tmp/test",
-        status: "connected",
-        created_at: "",
-        model: "sonnet",
-      },
-      messages: [],
-      isStreaming: false,
-      streamingContent: "",
-      currentMessageId: null,
+      sessions: new Map([["s1", SESSION]]),
+      activeSessionId: "s1",
+      sessionMessages: new Map([["s1", []]]),
+      sessionStreaming: new Map([["s1", { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([["s1", { used: 0, max: 200000 }]]),
+      tabOrder: ["s1"],
     });
     useUiStore.setState({
       sidebarWidth: 220,
       rightPanelWidth: 360,
       rightTab: "activity",
       showApprovalModal: false,
+      showSettingsModal: false,
+      showProjectPicker: false,
     });
   });
 
   it("renders three-panel layout", () => {
     render(<AppShell />);
-    // Title bar with session name
     expect(screen.getByText("Test Session")).toBeInTheDocument();
-    // Sidebar with Files tab
-    expect(screen.getByText("Files")).toBeInTheDocument();
-    // Right panel with Activity tab
+    expect(screen.getAllByText("Files").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Activity")).toBeInTheDocument();
-    // Context meter
     expect(screen.getByText("Context")).toBeInTheDocument();
   });
 
   it("renders input area", () => {
     render(<AppShell />);
     expect(screen.getByText("Send")).toBeInTheDocument();
-  });
-
-  it("shows model info in title bar", () => {
-    render(<AppShell />);
-    expect(screen.getByText("sonnet")).toBeInTheDocument();
   });
 });

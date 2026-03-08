@@ -8,26 +8,41 @@ import { respondToApproval } from "../../lib/tauri-commands";
 import ToolBadge from "../shared/ToolBadge";
 
 export default function ToolApproval() {
-  const pendingApproval = useActivityStore((s) => s.pendingApproval);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const sessionApprovals = useActivityStore((s) => s.sessionApprovals);
   const showModal = useUiStore((s) => s.showApprovalModal);
   const setShowModal = useUiStore((s) => s.setShowApprovalModal);
-  const session = useSessionStore((s) => s.session);
-  const setPendingApproval = useActivityStore((s) => s.setPendingApproval);
+
+  // Find the pending approval — check active session first, then any session
+  let approvalSessionId = activeSessionId;
+  let pendingApproval = activeSessionId
+    ? sessionApprovals.get(activeSessionId) ?? null
+    : null;
+
+  if (!pendingApproval) {
+    for (const [sid, approval] of sessionApprovals) {
+      if (approval) {
+        pendingApproval = approval;
+        approvalSessionId = sid;
+        break;
+      }
+    }
+  }
 
   const handleResponse = useCallback(
     async (approved: boolean) => {
-      if (!pendingApproval || !session) return;
+      if (!pendingApproval || !approvalSessionId) return;
 
       try {
-        await respondToApproval(session.id, pendingApproval.toolUseId, approved);
+        await respondToApproval(approvalSessionId, pendingApproval.toolUseId, approved);
       } catch (e) {
         console.error("Failed to respond to approval:", e);
       }
 
-      setPendingApproval(null);
+      useActivityStore.getState().setPendingApproval(approvalSessionId, null);
       setShowModal(false);
     },
-    [pendingApproval, session, setPendingApproval, setShowModal]
+    [pendingApproval, approvalSessionId, setShowModal]
   );
 
   // Keyboard shortcuts
@@ -84,7 +99,13 @@ export default function ToolApproval() {
           </div>
 
           <div className="flex items-center justify-between">
-            <button className="text-label text-text-faint hover:text-text-dim transition-colors">
+            <button
+              onClick={() => {
+                useActivityStore.getState().addAlwaysAllowedTool(pendingApproval.toolName);
+                handleResponse(true);
+              }}
+              className="text-label text-text-faint hover:text-text-dim transition-colors"
+            >
               Always allow {pendingApproval.toolName}
             </button>
             <div className="flex gap-2">
