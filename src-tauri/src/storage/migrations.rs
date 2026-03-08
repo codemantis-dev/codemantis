@@ -27,4 +27,16 @@ CREATE TABLE IF NOT EXISTS terminal_instances (
     cwd TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS changelog_entries (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    headline TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'feature',
+    files_changed TEXT NOT NULL DEFAULT '[]',
+    turn_index INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
 "#;

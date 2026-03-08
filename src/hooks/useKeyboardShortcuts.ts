@@ -2,21 +2,19 @@ import { useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
+import { useClaudeSession } from "./useClaudeSession";
 import type { SessionMode } from "../types/session";
 
 const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
 
 export function useKeyboardShortcuts(): void {
   const { createTerminal } = useTerminal();
+  const { addSessionToProject, closeSession, closeAllSessionsInProject } = useClaudeSession();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Shift+Tab — cycle working mode (no Cmd/Ctrl required)
       if (e.key === "Tab" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // Don't intercept if focus is in an input/textarea
-        const tag = (e.target as HTMLElement)?.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
-
         e.preventDefault();
         const store = useSessionStore.getState();
         const activeId = store.activeSessionId;
@@ -29,29 +27,64 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Ctrl+Tab / Ctrl+Shift+Tab — switch between project tabs
+      if (e.key === "Tab" && e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        const store = useSessionStore.getState();
+        const { projectOrder, activeProjectPath } = store;
+        if (projectOrder.length <= 1) return;
+        const currentIdx = activeProjectPath ? projectOrder.indexOf(activeProjectPath) : -1;
+        let nextIdx: number;
+        if (e.shiftKey) {
+          nextIdx = currentIdx <= 0 ? projectOrder.length - 1 : currentIdx - 1;
+        } else {
+          nextIdx = currentIdx >= projectOrder.length - 1 ? 0 : currentIdx + 1;
+        }
+        store.setActiveProject(projectOrder[nextIdx]);
+        return;
+      }
+
       // Only handle Cmd/Ctrl key combos below
       if (!e.metaKey && !e.ctrlKey) return;
 
       const key = e.key.toLowerCase();
       const shift = e.shiftKey;
 
-      // Cmd+N — open project picker (new session)
+      // Cmd+N — add new session to current project (or open project picker if no project)
       if (key === "n" && !shift) {
+        e.preventDefault();
+        const store = useSessionStore.getState();
+        if (store.activeProjectPath) {
+          addSessionToProject();
+        } else {
+          useUiStore.getState().setShowProjectPicker(true);
+        }
+        return;
+      }
+
+      // Cmd+Shift+N — always open project picker for a new project
+      if (key === "n" && shift) {
         e.preventDefault();
         useUiStore.getState().setShowProjectPicker(true);
         return;
       }
 
-      // Cmd+W — close active session
+      // Cmd+W — close current session sub-tab
       if (key === "w" && !shift) {
         e.preventDefault();
         const activeId = useSessionStore.getState().activeSessionId;
         if (activeId) {
-          // Import dynamically to avoid circular deps in this hook
-          import("../lib/tauri-commands").then(({ closeSession }) => {
-            closeSession(activeId).catch(console.error);
-          });
-          useSessionStore.getState().removeSession(activeId);
+          closeSession(activeId);
+        }
+        return;
+      }
+
+      // Cmd+Shift+W — close all sessions in current project
+      if (key === "w" && shift) {
+        e.preventDefault();
+        const store = useSessionStore.getState();
+        if (store.activeProjectPath) {
+          closeAllSessionsInProject(store.activeProjectPath);
         }
         return;
       }
@@ -63,13 +96,19 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Cmd+1-9 — switch to session tab N
+      // Cmd+1-9 — switch between session sub-tabs within the current project
       if (key >= "1" && key <= "9" && !shift) {
         const idx = parseInt(key) - 1;
-        const { tabOrder } = useSessionStore.getState();
-        if (idx < tabOrder.length) {
+        const store = useSessionStore.getState();
+        const { activeProjectPath, tabOrder, sessions } = store;
+        if (!activeProjectPath) return;
+        const projectSessions = tabOrder.filter((id) => {
+          const s = sessions.get(id);
+          return s && s.project_path === activeProjectPath;
+        });
+        if (idx < projectSessions.length) {
           e.preventDefault();
-          useSessionStore.getState().setActiveSession(tabOrder[idx]);
+          store.setActiveSessionInProject(activeProjectPath, projectSessions[idx]);
         }
         return;
       }
@@ -95,6 +134,13 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+Shift+L — switch to Changelog tab
+      if (key === "l" && shift) {
+        e.preventDefault();
+        useUiStore.getState().setRightTab("changelog");
+        return;
+      }
+
       // Cmd+` — create new terminal
       if (key === "`" && !shift) {
         e.preventDefault();
@@ -109,5 +155,5 @@ export function useKeyboardShortcuts(): void {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [createTerminal]);
+  }, [createTerminal, addSessionToProject, closeSession, closeAllSessionsInProject]);
 }

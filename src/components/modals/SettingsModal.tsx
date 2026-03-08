@@ -2,8 +2,15 @@ import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { QuickCommand, ThemeId } from "../../types/settings";
+import type { QuickCommand, ThemeId, ChangelogProvider } from "../../types/settings";
 import { THEMES } from "../../types/settings";
+import { testChangelogApiKey } from "../../lib/tauri-commands";
+
+const CHANGELOG_PROVIDERS: { id: ChangelogProvider; label: string }[] = [
+  { id: "gemini", label: "Gemini Flash" },
+  { id: "openai", label: "GPT-4.1-mini" },
+  { id: "anthropic", label: "Claude Haiku" },
+];
 
 export default function SettingsModal() {
   const showModal = useUiStore((s) => s.showSettingsModal);
@@ -17,6 +24,11 @@ export default function SettingsModal() {
   const [terminalShell, setTerminalShell] = useState(settings.terminalShell ?? "");
   const [terminalFontSize, setTerminalFontSize] = useState(settings.terminalFontSize);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(settings.quickCommands);
+  const [changelogEnabled, setChangelogEnabled] = useState(settings.changelogEnabled);
+  const [changelogProvider, setChangelogProvider] = useState<ChangelogProvider>(settings.changelogProvider);
+  const [changelogApiKeys, setChangelogApiKeys] = useState<Record<string, string>>(settings.changelogApiKeys);
+  const [testingKey, setTestingKey] = useState(false);
+  const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
 
   useEffect(() => {
     if (showModal) {
@@ -26,6 +38,10 @@ export default function SettingsModal() {
       setTerminalShell(settings.terminalShell ?? "");
       setTerminalFontSize(settings.terminalFontSize);
       setQuickCommands([...settings.quickCommands]);
+      setChangelogEnabled(settings.changelogEnabled);
+      setChangelogProvider(settings.changelogProvider);
+      setChangelogApiKeys({ ...settings.changelogApiKeys });
+      setTestResult(null);
     }
   }, [showModal, settings]);
 
@@ -37,6 +53,9 @@ export default function SettingsModal() {
       terminalShell: terminalShell.trim() || null,
       terminalFontSize,
       quickCommands: quickCommands.filter((c) => c.label.trim() && c.command.trim()),
+      changelogEnabled,
+      changelogProvider,
+      changelogApiKeys,
     });
     setShowModal(false);
   };
@@ -59,6 +78,26 @@ export default function SettingsModal() {
     const updated = [...quickCommands];
     updated[index] = { ...updated[index], [field]: value };
     setQuickCommands(updated);
+  };
+
+  const handleTestKey = async () => {
+    const apiKey = changelogApiKeys[changelogProvider] ?? "";
+    if (!apiKey.trim()) return;
+    setTestingKey(true);
+    setTestResult(null);
+    try {
+      const success = await testChangelogApiKey(changelogProvider, apiKey);
+      setTestResult(success ? "success" : "error");
+    } catch {
+      setTestResult("error");
+    } finally {
+      setTestingKey(false);
+    }
+  };
+
+  const handleApiKeyChange = (value: string) => {
+    setChangelogApiKeys({ ...changelogApiKeys, [changelogProvider]: value });
+    setTestResult(null);
   };
 
   return (
@@ -205,6 +244,81 @@ export default function SettingsModal() {
               >
                 + Add command
               </button>
+            </div>
+          </div>
+
+          {/* Changelog section */}
+          <div className="mb-6">
+            <h3 className="text-ui text-text-secondary font-medium mb-3 uppercase tracking-wider">
+              Changelog
+            </h3>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-ui text-text-secondary">Auto-generate changelog entries</label>
+                <button
+                  onClick={() => setChangelogEnabled(!changelogEnabled)}
+                  className={`w-10 h-5 rounded-full transition-colors relative ${
+                    changelogEnabled ? "bg-accent" : "bg-bg-elevated border border-border"
+                  }`}
+                >
+                  <div
+                    className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
+                      changelogEnabled ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {changelogEnabled && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <label className="text-ui text-text-secondary">Provider</label>
+                    <select
+                      value={changelogProvider}
+                      onChange={(e) => {
+                        setChangelogProvider(e.target.value as ChangelogProvider);
+                        setTestResult(null);
+                      }}
+                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40"
+                    >
+                      {CHANGELOG_PROVIDERS.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-ui text-text-secondary mb-1.5 block">API Key</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        value={changelogApiKeys[changelogProvider] ?? ""}
+                        onChange={(e) => handleApiKeyChange(e.target.value)}
+                        placeholder={`Enter ${changelogProvider} API key`}
+                        className="flex-1 px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
+                      />
+                      <button
+                        onClick={handleTestKey}
+                        disabled={testingKey || !(changelogApiKeys[changelogProvider] ?? "").trim()}
+                        className={`px-3 py-1 rounded text-ui font-medium transition-colors shrink-0 ${
+                          testingKey || !(changelogApiKeys[changelogProvider] ?? "").trim()
+                            ? "bg-bg-elevated text-text-ghost cursor-not-allowed"
+                            : "bg-accent/10 text-accent hover:bg-accent/20"
+                        }`}
+                      >
+                        {testingKey ? "Testing..." : "Test"}
+                      </button>
+                    </div>
+                    {testResult === "success" && (
+                      <p className="text-green text-label mt-1">API key is valid</p>
+                    )}
+                    {testResult === "error" && (
+                      <p className="text-red text-label mt-1">Invalid API key or connection error</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

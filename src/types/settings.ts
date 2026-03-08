@@ -20,6 +20,8 @@ export const THEMES: ThemeOption[] = [
   { id: "arctic", label: "Arctic", isDark: false },
 ];
 
+export type ChangelogProvider = "gemini" | "openai" | "anthropic";
+
 export interface AppSettings {
   theme: ThemeId;
   fontSize: number;
@@ -27,4 +29,7 @@ export interface AppSettings {
   terminalShell: string | null;
   terminalFontSize: number;
   quickCommands: QuickCommand[];
+  changelogEnabled: boolean;
+  changelogProvider: ChangelogProvider;
+  changelogApiKeys: Record<string, string>;
 }

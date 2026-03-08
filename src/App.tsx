@@ -116,7 +116,7 @@ export default function App() {
             </button>
 
             <p className="text-center text-text-ghost text-label mt-4">
-              Press <kbd className="px-1.5 py-0.5 rounded bg-bg-elevated border border-border-light text-text-faint">Cmd+N</kbd> to create a new session
+              Press <kbd className="px-1.5 py-0.5 rounded bg-bg-elevated border border-border-light text-text-faint">Cmd+Shift+N</kbd> to open a new project
             </p>
 
             {error && (

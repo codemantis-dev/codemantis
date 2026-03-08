@@ -3,6 +3,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useChangelogStore } from "../stores/changelogStore";
 import {
   createSession,
   sendMessage as sendMessageCmd,
@@ -26,8 +27,10 @@ const sessionListeners = new Map<string, UnlistenFn[]>();
 
 interface UseClaudeSessionReturn {
   startSession: (projectPath: string) => Promise<string>;
+  addSessionToProject: (projectPath?: string) => Promise<void>;
   sendMessage: (sessionId: string, prompt: string) => Promise<void>;
   closeSession: (sessionId: string) => Promise<void>;
+  closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
 }
@@ -36,6 +39,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   const sessionStore = useSessionStore;
   const activityStore = useActivityStore;
   const terminalStore = useTerminalStore;
+  const changelogStore = useChangelogStore;
 
   const startSession = useCallback(async (projectPath: string): Promise<string> => {
     const state = sessionStore.getState();
@@ -72,6 +76,17 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       throw e;
     }
   }, []);
+
+  const addSessionToProject = useCallback(async (projectPath?: string) => {
+    const state = sessionStore.getState();
+    const targetPath = projectPath ?? state.activeProjectPath;
+    if (!targetPath) return;
+    try {
+      await startSession(targetPath);
+    } catch (e) {
+      console.error("Failed to add session to project:", e);
+    }
+  }, [startSession]);
 
   const sendMessage = useCallback(async (sessionId: string, prompt: string) => {
     const session = sessionStore.getState().sessions.get(sessionId);
@@ -125,7 +140,19 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
     sessionStore.getState().removeSession(sessionId);
     activityStore.getState().clearEntries(sessionId);
+    changelogStore.getState().clearSession(sessionId);
   }, []);
+
+  const closeAllSessionsInProject = useCallback(async (projectPath: string) => {
+    const state = sessionStore.getState();
+    const sessionIds = state.tabOrder.filter((id) => {
+      const s = state.sessions.get(id);
+      return s && s.project_path === projectPath;
+    });
+    for (const sessionId of sessionIds) {
+      await closeSessionFn(sessionId);
+    }
+  }, [closeSessionFn]);
 
   const switchSession = useCallback((sessionId: string) => {
     sessionStore.getState().setActiveSession(sessionId);
@@ -142,8 +169,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
   return {
     startSession,
+    addSessionToProject,
     sendMessage,
     closeSession: closeSessionFn,
+    closeAllSessionsInProject,
     switchSession,
     renameSession: renameSessionFn,
   };

@@ -1,17 +1,20 @@
 import { Plus, Settings } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
-import { useClaudeSession } from "../../hooks/useClaudeSession";
-import SessionTab from "./SessionTab";
+import ProjectTab from "./ProjectTab";
 
-export default function TitleBar() {
+interface TitleBarProps {
+  onCloseProject: (projectPath: string) => void;
+}
+
+export default function TitleBar({ onCloseProject }: TitleBarProps) {
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const projectOrder = useSessionStore((s) => s.projectOrder);
   const sessions = useSessionStore((s) => s.sessions);
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const tabOrder = useSessionStore((s) => s.tabOrder);
-  const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
+  const setActiveProject = useSessionStore((s) => s.setActiveProject);
   const setShowProjectPicker = useUiStore((s) => s.setShowProjectPicker);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
-  const { closeSession, switchSession, renameSession } = useClaudeSession();
 
   return (
     <div
@@ -22,45 +25,43 @@ export default function TitleBar() {
       {/* Traffic light spacer */}
       <div className="w-[78px] shrink-0" data-tauri-drag-region />
 
-      {/* Session tabs */}
+      {/* Project tabs */}
       <div className="flex items-center h-full flex-1 overflow-x-auto overflow-y-hidden" data-tauri-drag-region>
-        {tabOrder.map((sessionId) => {
-          const session = sessions.get(sessionId);
-          if (!session) return null;
-          const streaming = sessionStreaming.get(sessionId);
-          const projectName = session.project_path
+        {projectOrder.map((projectPath) => {
+          const projectName = projectPath
             .split("/")
             .filter(Boolean)
             .pop() ?? "";
+          const sessionCount = tabOrder.filter((id) => {
+            const s = sessions.get(id);
+            return s && s.project_path === projectPath;
+          }).length;
 
           return (
-            <SessionTab
-              key={sessionId}
-              id={sessionId}
-              name={session.name}
+            <ProjectTab
+              key={projectPath}
+              projectPath={projectPath}
               projectName={projectName}
-              iconIndex={session.icon_index}
-              isActive={sessionId === activeSessionId}
-              isStreaming={streaming?.isStreaming ?? false}
-              onSelect={() => switchSession(sessionId)}
-              onClose={() => closeSession(sessionId)}
-              onRename={(name) => renameSession(sessionId, name)}
+              sessionCount={sessionCount}
+              isActive={projectPath === activeProjectPath}
+              onSelect={() => setActiveProject(projectPath)}
+              onClose={() => onCloseProject(projectPath)}
             />
           );
         })}
 
         {/* Empty drag region if no tabs */}
-        {tabOrder.length === 0 && (
+        {projectOrder.length === 0 && (
           <span className="text-ui text-text-dim px-2" data-tauri-drag-region>
             ClaudeForge
           </span>
         )}
       </div>
 
-      {/* New session button */}
+      {/* New project button */}
       <button
         onClick={() => setShowProjectPicker(true)}
-        title="New session (⌘N)"
+        title="New project (⌘⇧N)"
         className="mx-1 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Plus size={15} />

@@ -23,6 +23,9 @@ describe("AppShell", () => {
       sessionStreaming: new Map([["s1", { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
       sessionContext: new Map([["s1", { used: 0, max: 200000 }]]),
       tabOrder: ["s1"],
+      activeProjectPath: "/tmp/test",
+      projectOrder: ["/tmp/test"],
+      projectActiveSession: new Map([["/tmp/test", "s1"]]),
     });
     useUiStore.setState({
       sidebarWidth: 220,
@@ -36,6 +39,7 @@ describe("AppShell", () => {
 
   it("renders three-panel layout", () => {
     render(<AppShell />);
+    // Project tab shows folder name "test", session sub-tab shows "Test Session"
     expect(screen.getByText("Test Session")).toBeInTheDocument();
     expect(screen.getAllByText("Files").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Activity")).toBeInTheDocument();

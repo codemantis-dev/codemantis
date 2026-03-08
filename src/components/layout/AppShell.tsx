@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { useUiStore } from "../../stores/uiStore";
+import { useClaudeSession } from "../../hooks/useClaudeSession";
 import TitleBar from "./TitleBar";
+import SessionSubTabs from "./SessionSubTabs";
 import Sidebar from "../sidebar/Sidebar";
 import ChatPanel from "../chat/ChatPanel";
 import RightPanel from "../rightpanel/RightPanel";
@@ -72,6 +74,7 @@ const HANDLE_WIDTH = 9; // each resize handle
 export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
+  const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
 
   // Use getState() to avoid stale closure during drag.
   // Cap widths so the center column never shrinks below MIN_CENTER.
@@ -97,7 +100,12 @@ export default function AppShell() {
 
   return (
     <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
-      <TitleBar />
+      <TitleBar onCloseProject={closeAllSessionsInProject} />
+      <SessionSubTabs
+        onAddSession={addSessionToProject}
+        onCloseSession={closeSession}
+        onRenameSession={renameSession}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}

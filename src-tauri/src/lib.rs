@@ -1,3 +1,4 @@
+mod changelog;
 mod claude;
 mod commands;
 mod errors;
@@ -55,6 +56,10 @@ pub fn run() {
             commands::attachments::save_clipboard_image,
             commands::attachments::get_file_info,
             commands::attachments::cleanup_old_attachments,
+            commands::changelog::generate_changelog_entry,
+            commands::changelog::get_changelog_entries,
+            commands::changelog::delete_changelog_entry,
+            commands::changelog::test_changelog_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

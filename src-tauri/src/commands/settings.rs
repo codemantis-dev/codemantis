@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -17,6 +18,12 @@ pub struct AppSettings {
     pub terminal_font_size: u32,
     #[serde(default = "default_quick_commands")]
     pub quick_commands: Vec<QuickCommand>,
+    #[serde(default)]
+    pub changelog_enabled: bool,
+    #[serde(default = "default_changelog_provider")]
+    pub changelog_provider: String,
+    #[serde(default)]
+    pub changelog_api_keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +44,9 @@ fn default_send_shortcut() -> String {
 fn default_terminal_font_size() -> u32 {
     13
 }
+fn default_changelog_provider() -> String {
+    "gemini".to_string()
+}
 fn default_quick_commands() -> Vec<QuickCommand> {
     vec![
         QuickCommand { label: "Build".to_string(), command: "pnpm build".to_string() },
@@ -55,6 +65,9 @@ impl Default for AppSettings {
             terminal_shell: None,
             terminal_font_size: default_terminal_font_size(),
             quick_commands: default_quick_commands(),
+            changelog_enabled: false,
+            changelog_provider: default_changelog_provider(),
+            changelog_api_keys: HashMap::new(),
         }
     }
 }

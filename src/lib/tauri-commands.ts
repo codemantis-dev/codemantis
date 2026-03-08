@@ -4,6 +4,7 @@ import type { Session, PersistedSession } from "../types/session";
 import type { FileNode } from "../types/file-tree";
 import type { FrontendEvent } from "../types/claude-events";
 import type { AppSettings } from "../types/settings";
+import type { ChangelogEntry } from "../types/changelog";
 
 // --- Startup ---
 
@@ -183,6 +184,39 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function updateSettings(settings: AppSettings): Promise<void> {
   return invoke("update_settings", { settings });
+}
+
+// --- Changelog ---
+
+export async function generateChangelogEntry(
+  sessionId: string,
+  userPrompt: string,
+  assistantSummary: string,
+  toolsUsed: string[]
+): Promise<ChangelogEntry> {
+  return invoke<ChangelogEntry>("generate_changelog_entry", {
+    sessionId,
+    userPrompt,
+    assistantSummary,
+    toolsUsed,
+  });
+}
+
+export async function getChangelogEntries(
+  sessionId: string
+): Promise<ChangelogEntry[]> {
+  return invoke<ChangelogEntry[]>("get_changelog_entries", { sessionId });
+}
+
+export async function deleteChangelogEntry(entryId: string): Promise<void> {
+  return invoke("delete_changelog_entry", { entryId });
+}
+
+export async function testChangelogApiKey(
+  provider: string,
+  apiKey: string
+): Promise<boolean> {
+  return invoke<boolean>("test_changelog_api_key", { provider, apiKey });
 }
 
 // --- Event Listeners ---

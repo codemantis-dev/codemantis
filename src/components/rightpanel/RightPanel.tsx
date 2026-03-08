@@ -1,5 +1,5 @@
-import { Activity, TerminalSquare, FileCode } from "lucide-react";
-import { useUiStore } from "../../stores/uiStore";
+import { Activity, TerminalSquare, FileCode, ScrollText } from "lucide-react";
+import { useUiStore, type RightTab } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useTerminal } from "../../hooks/useTerminal";
@@ -8,6 +8,7 @@ import TerminalView from "./TerminalView";
 import TerminalTabs from "./TerminalTabs";
 import QuickCommands from "./QuickCommands";
 import FileViewer from "./FileViewer";
+import ChangelogFeed from "./ChangelogFeed";
 
 export default function RightPanel() {
   const rightTab = useUiStore((s) => s.rightTab);
@@ -33,10 +34,11 @@ export default function RightPanel() {
     await closeTerminal(activeSessionId, terminalId);
   };
 
-  const tabs: { id: "activity" | "terminal" | "files"; label: string; icon: typeof Activity }[] = [
+  const tabs: { id: RightTab; label: string; icon: typeof Activity }[] = [
     { id: "activity", label: "Activity", icon: Activity },
     { id: "terminal", label: "Terminal", icon: TerminalSquare },
     { id: "files", label: "Files", icon: FileCode },
+    { id: "changelog", label: "Changelog", icon: ScrollText },
   ];
 
   return (
@@ -119,6 +121,14 @@ export default function RightPanel() {
         style={{ display: rightTab === "files" ? "block" : "none" }}
       >
         <FileViewer />
+      </div>
+
+      {/* Changelog panel */}
+      <div
+        className="flex-1 overflow-hidden"
+        style={{ display: rightTab === "changelog" ? "block" : "none" }}
+      >
+        <ChangelogFeed />
       </div>
     </div>
   );

@@ -85,10 +85,10 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] rounded-xl border border-border p-6" style={{ background: "var(--bg-primary)" }}>
           <Dialog.Title className="text-lg text-text-primary font-medium mb-1">
-            New Session
+            New Project
           </Dialog.Title>
           <Dialog.Description className="text-ui text-text-dim mb-4">
-            Select a project folder to start a new Claude session
+            Select a project folder to open a new workspace
           </Dialog.Description>
 
           {/* Folder picker */}
@@ -119,7 +119,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                 : "bg-bg-elevated text-text-ghost cursor-not-allowed"
             }`}
           >
-            {starting ? "Starting..." : "Start Session"}
+            {starting ? "Starting..." : "Open Project"}
           </button>
 
           {error && (

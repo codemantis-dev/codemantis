@@ -4,6 +4,8 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
 import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import { useChangelogStore } from "../stores/changelogStore";
 
 let messageCounter = 0;
 
@@ -133,6 +135,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
           cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
         });
       }
+
+      // Trigger changelog generation if enabled
+      maybeGenerateChangelog(sessionId);
       break;
     }
 
@@ -222,6 +227,65 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       break;
     }
   }
+}
+
+// Tools that indicate actual changes were made (not just reads)
+const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
+
+function maybeGenerateChangelog(sessionId: string): void {
+  const settings = useSettingsStore.getState().settings;
+  if (!settings.changelogEnabled) return;
+
+  const activityEntries = useActivityStore.getState().getActiveEntries(sessionId);
+  const messages = useSessionStore.getState().sessionMessages.get(sessionId) ?? [];
+
+  // Check if any mutating tools were used in this turn
+  const hasMutatingTool = activityEntries.some((e) => MUTATING_TOOLS.has(e.toolName));
+  if (!hasMutatingTool) return;
+
+  // Get the last user prompt
+  let userPrompt = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      userPrompt = messages[i].content.slice(0, 200);
+      break;
+    }
+  }
+
+  // Get last assistant message text
+  let assistantSummary = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant" && messages[i].content.length > 50) {
+      assistantSummary = messages[i].content.slice(0, 300);
+      break;
+    }
+  }
+  if (!assistantSummary) return;
+
+  // Collect tool operations as "ToolName: file_path" strings
+  const toolsUsed = activityEntries
+    .filter((e) => MUTATING_TOOLS.has(e.toolName))
+    .map((e) => {
+      const filePath = (e.toolInput?.file_path as string) ?? (e.toolInput?.command as string) ?? "";
+      return `${e.toolName}: ${filePath}`.slice(0, 100);
+    });
+
+  // Fire and forget — non-blocking
+  const changelogStore = useChangelogStore.getState();
+  changelogStore.setGenerating(sessionId, true);
+
+  import("./tauri-commands").then(({ generateChangelogEntry }) => {
+    generateChangelogEntry(sessionId, userPrompt, assistantSummary, toolsUsed)
+      .then((entry) => {
+        useChangelogStore.getState().addEntry(sessionId, entry);
+      })
+      .catch((e) => {
+        console.error("Failed to generate changelog entry:", e);
+      })
+      .finally(() => {
+        useChangelogStore.getState().setGenerating(sessionId, false);
+      });
+  });
 }
 
 export function handleApprovalEvent(sessionId: string, event: FrontendEvent): void {

@@ -9,6 +9,18 @@ pub struct Database {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ChangelogEntryRow {
+    pub id: String,
+    pub session_id: String,
+    pub timestamp: String,
+    pub headline: String,
+    pub description: String,
+    pub category: String,
+    pub files_changed: String, // JSON array string
+    pub turn_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
     pub id: String,
     pub name: String,
@@ -131,6 +143,72 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
             .map_err(|e| AppError::DatabaseError(format!("Count failed: {}", e)))?;
         Ok(count % 10)
+    }
+
+    pub fn insert_changelog_entry(
+        &self,
+        id: &str,
+        session_id: &str,
+        timestamp: &str,
+        headline: &str,
+        description: &str,
+        category: &str,
+        files_changed: &str,
+        turn_index: i32,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "INSERT INTO changelog_entries (id, session_id, timestamp, headline, description, category, files_changed, turn_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![id, session_id, timestamp, headline, description, category, files_changed, turn_index],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Insert changelog entry failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn list_changelog_entries(&self, session_id: &str) -> Result<Vec<ChangelogEntryRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare("SELECT id, session_id, timestamp, headline, description, category, files_changed, turn_index FROM changelog_entries WHERE session_id = ?1 ORDER BY timestamp DESC")
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(ChangelogEntryRow {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    timestamp: row.get(2)?,
+                    headline: row.get(3)?,
+                    description: row.get(4)?,
+                    category: row.get(5)?,
+                    files_changed: row.get(6)?,
+                    turn_index: row.get(7)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(entries)
+    }
+
+    pub fn delete_changelog_entry(&self, id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "DELETE FROM changelog_entries WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Delete changelog entry failed: {}", e)))?;
+        Ok(())
     }
 
     #[allow(dead_code)]
