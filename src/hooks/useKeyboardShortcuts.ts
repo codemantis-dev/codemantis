@@ -96,6 +96,15 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+/ — open CLI overlay
+      if (key === "/" && !shift) {
+        e.preventDefault();
+        if (useSessionStore.getState().activeSessionId) {
+          useUiStore.getState().setShowCliOverlay(true);
+        }
+        return;
+      }
+
       // Cmd+1-9 — switch between session sub-tabs within the current project
       if (key >= "1" && key <= "9" && !shift) {
         const idx = parseInt(key) - 1;

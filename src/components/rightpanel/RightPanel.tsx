@@ -19,7 +19,8 @@ export default function RightPanel() {
   const activeTerminalIdMap = useTerminalStore((s) => s.activeTerminalId);
   const setActiveTerminal = useTerminalStore((s) => s.setActiveTerminal);
 
-  const terminals = activeSessionId ? sessionTerminals.get(activeSessionId) ?? [] : [];
+  const allTerminals = activeSessionId ? sessionTerminals.get(activeSessionId) ?? [] : [];
+  const terminals = allTerminals.filter((t) => t.kind !== "cli-overlay");
   const activeTerminalId = activeSessionId ? activeTerminalIdMap.get(activeSessionId) ?? null : null;
 
   const { createTerminal, closeTerminal } = useTerminal();

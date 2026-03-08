@@ -5,4 +5,5 @@ export interface TerminalInstance {
   sortOrder: number;
   createdAt: string;
   isRunning: boolean;
+  kind?: "shell" | "cli-overlay";
 }

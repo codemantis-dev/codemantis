@@ -10,6 +10,8 @@ interface UiState {
   showQuestionModal: boolean;
   showSettingsModal: boolean;
   showProjectPicker: boolean;
+  showCliOverlay: boolean;
+  claudeBinaryPath: string | null;
 
   setSidebarWidth: (width: number) => void;
   setRightPanelWidth: (width: number) => void;
@@ -18,6 +20,8 @@ interface UiState {
   setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
+  setShowCliOverlay: (show: boolean) => void;
+  setClaudeBinaryPath: (path: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -28,6 +32,8 @@ export const useUiStore = create<UiState>((set) => ({
   showQuestionModal: false,
   showSettingsModal: false,
   showProjectPicker: false,
+  showCliOverlay: false,
+  claudeBinaryPath: null,
 
   setSidebarWidth: (width) =>
     set({ sidebarWidth: Math.max(140, width) }),
@@ -38,4 +44,6 @@ export const useUiStore = create<UiState>((set) => ({
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
+  setShowCliOverlay: (show) => set({ showCliOverlay: show }),
+  setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
 }));

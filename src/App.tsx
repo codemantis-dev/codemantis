@@ -9,6 +9,7 @@ import ToolApproval from "./components/modals/ToolApproval";
 import ProjectPicker, { addRecentProject } from "./components/modals/ProjectPicker";
 import SettingsModal from "./components/modals/SettingsModal";
 import QuestionModal from "./components/modals/QuestionModal";
+import CliOverlay from "./components/modals/CliOverlay";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 export default function App() {
@@ -24,7 +25,12 @@ export default function App() {
 
   useEffect(() => {
     checkClaudeStatus()
-      .then(setClaudeStatus)
+      .then((status) => {
+        setClaudeStatus(status);
+        if (status.binary_path) {
+          useUiStore.getState().setClaudeBinaryPath(status.binary_path);
+        }
+      })
       .catch((e) => console.error("Status check failed:", e))
       .finally(() => setChecking(false));
     loadSettings();
@@ -137,6 +143,7 @@ export default function App() {
       <AppShell />
       <ToolApproval />
       <QuestionModal />
+      <CliOverlay />
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />
     </>

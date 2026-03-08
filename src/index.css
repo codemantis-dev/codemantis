@@ -322,6 +322,37 @@ textarea {
   animation: thinking-bounce 1.4s ease-in-out infinite;
 }
 
+/* ── CLI overlay slide-in animation ── */
+@keyframes cli-overlay-slide-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes cli-overlay-slide-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+}
+
+.cli-overlay-content[data-state="open"] {
+  animation: cli-overlay-slide-in 200ms ease-out;
+}
+
+.cli-overlay-content[data-state="closed"] {
+  animation: cli-overlay-slide-out 150ms ease-in;
+}
+
 /* ── Smooth streaming content ── */
 .markdown-content {
   /* Prevent layout shift from re-renders by keeping block flow stable */

@@ -1,20 +1,18 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type DragEvent } from "react";
-import { Send, Plus, Slash, AtSign } from "lucide-react";
+import { Send, Plus, AtSign } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { useUiStore } from "../../stores/uiStore";
 import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
-import SlashCommandPicker from "./SlashCommandPicker";
 
 export default function InputArea() {
   const [input, setInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [showSlashPicker, setShowSlashPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
@@ -53,7 +51,6 @@ export default function InputArea() {
     }
 
     setInput("");
-    setShowSlashPicker(false);
     clearAttachments();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -68,53 +65,9 @@ export default function InputArea() {
         e.preventDefault();
         handleSend();
       }
-      // Close slash picker on Escape (the picker also handles this, but as a fallback)
-      if (e.key === "Escape" && showSlashPicker) {
-        setShowSlashPicker(false);
-      }
     },
-    [handleSend, showSlashPicker]
+    [handleSend]
   );
-
-  const handleInputChange = useCallback((value: string) => {
-    setInput(value);
-
-    // Show slash picker when typing "/" at the start of input
-    if (value.startsWith("/") && !value.includes(" ") && !value.includes("\n")) {
-      setShowSlashPicker(true);
-    } else {
-      setShowSlashPicker(false);
-    }
-  }, []);
-
-  const handleSlashSelect = useCallback(
-    (command: string, sendImmediately: boolean) => {
-      setShowSlashPicker(false);
-      if (sendImmediately && activeSessionId && !isStreaming) {
-        setInput("");
-        if (textareaRef.current) {
-          textareaRef.current.style.height = "auto";
-        }
-        sendMessage(activeSessionId, command);
-      } else {
-        // Fill the input with the command so user can add arguments
-        setInput(command + " ");
-        textareaRef.current?.focus();
-      }
-    },
-    [activeSessionId, isStreaming, sendMessage]
-  );
-
-  const handleSlashClose = useCallback(() => {
-    setShowSlashPicker(false);
-  }, []);
-
-  const openSlashPicker = useCallback(() => {
-    if (!session) return;
-    setInput("/");
-    setShowSlashPicker(true);
-    textareaRef.current?.focus();
-  }, [session]);
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current;
@@ -265,27 +218,13 @@ export default function InputArea() {
 
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
 
-  // Calculate picker anchor position (above the input container)
-  const containerHeight = containerRef.current?.offsetHeight ?? 120;
-
   return (
     <div
-      ref={containerRef}
       className={`relative border-t border-border px-4 py-3 ${dragOver ? "bg-accent/5" : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Slash command picker */}
-      {showSlashPicker && session && (
-        <SlashCommandPicker
-          filter={input}
-          onSelect={handleSlashSelect}
-          onClose={handleSlashClose}
-          anchorBottom={containerHeight}
-        />
-      )}
-
       <div className="max-w-[720px] mx-auto">
         <div
           className={`rounded-xl border transition-colors focus-within:border-accent/40 ${
@@ -307,7 +246,12 @@ export default function InputArea() {
             ref={textareaRef}
             value={input}
             onChange={(e) => {
-              handleInputChange(e.target.value);
+              const newValue = e.target.value;
+              if (newValue === "/" && input === "") {
+                useUiStore.getState().setShowCliOverlay(true);
+                return;
+              }
+              setInput(newValue);
               handleInput();
             }}
             onKeyDown={handleKeyDown}
@@ -336,19 +280,20 @@ export default function InputArea() {
                 <span>File</span>
               </button>
               <button
-                onClick={openSlashPicker}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
-                disabled={!session}
-              >
-                <Slash size={13} />
-                <span>Cmd</span>
-              </button>
-              <button
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
                 disabled={!session}
               >
                 <AtSign size={13} />
                 <span>Agent</span>
+              </button>
+              <button
+                onClick={() => useUiStore.getState().setShowCliOverlay(true)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
+                disabled={!session}
+                title="Open Claude CLI (Cmd+/)"
+              >
+                <span className="font-mono text-xs leading-none">/</span>
+                <span>CLI</span>
               </button>
             </div>
 

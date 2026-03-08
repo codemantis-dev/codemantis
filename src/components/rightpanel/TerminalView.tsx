@@ -101,7 +101,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     };
   }, [terminalId, resizeTerminal]);
 
-  // Re-fit when visibility changes
+  // Re-fit and focus when visibility changes
   useEffect(() => {
     if (isVisible && fitAddonRef.current && terminalRef.current) {
       setTimeout(() => {
@@ -109,6 +109,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
           fitAddonRef.current?.fit();
           if (terminalRef.current) {
             resizeTerminal(terminalId, terminalRef.current.cols, terminalRef.current.rows);
+            terminalRef.current.focus();
           }
         } catch {
           // ignore
