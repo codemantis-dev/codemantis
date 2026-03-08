@@ -84,6 +84,10 @@ export async function readFileContent(filePath: string): Promise<string> {
   return invoke<string>("read_file_content", { filePath });
 }
 
+export async function writeFileContent(filePath: string, content: string): Promise<void> {
+  return invoke("write_file_content", { filePath, content });
+}
+
 // --- Attachments ---
 
 export interface AttachmentInfo {

@@ -3,6 +3,7 @@ import {
   handleChatEvent,
   handleActivityEvent,
   handleApprovalEvent,
+  flushStreamingBuffer,
 } from "./event-classifier";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
@@ -74,6 +75,7 @@ describe("event-classifier", () => {
         session_id: SESSION_ID,
         text: "Hello",
       });
+      flushStreamingBuffer(SESSION_ID);
 
       const streaming = useSessionStore.getState().sessionStreaming.get(SESSION_ID);
       expect(streaming?.isStreaming).toBe(true);
@@ -87,6 +89,7 @@ describe("event-classifier", () => {
     it("text_delta accumulates on subsequent deltas", () => {
       handleChatEvent(SESSION_ID, { type: "text_delta", session_id: SESSION_ID, text: "Hello" });
       handleChatEvent(SESSION_ID, { type: "text_delta", session_id: SESSION_ID, text: " world" });
+      flushStreamingBuffer(SESSION_ID);
 
       const streaming = useSessionStore.getState().sessionStreaming.get(SESSION_ID);
       expect(streaming?.streamingContent).toBe("Hello world");

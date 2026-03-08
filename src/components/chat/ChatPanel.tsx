@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import MessageBubble from "./MessageBubble";
+import ThinkingIndicator from "./ThinkingIndicator";
 
 export default function ChatPanel() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -13,7 +14,9 @@ export default function ChatPanel() {
   const streaming = activeSessionId
     ? sessionStreaming.get(activeSessionId) ?? { isStreaming: false, streamingContent: "", currentMessageId: null }
     : { isStreaming: false, streamingContent: "", currentMessageId: null };
+  const sessionBusy = useSessionStore((s) => s.sessionBusy);
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const isBusy = activeSessionId ? sessionBusy.get(activeSessionId) ?? false : false;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -37,7 +40,7 @@ export default function ChatPanel() {
     if (isAtBottomRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, streaming.streamingContent]);
+  }, [messages, streaming.streamingContent, isBusy]);
 
   if (!session) {
     return (
@@ -77,6 +80,11 @@ export default function ChatPanel() {
               }
             />
           ))}
+
+          {/* Working indicator — show when busy but no text is streaming yet */}
+          {isBusy && !streaming.isStreaming && (
+            <ThinkingIndicator />
+          )}
         </div>
       </div>
 

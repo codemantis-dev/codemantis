@@ -44,6 +44,7 @@ pub fn run() {
             commands::session::delete_persisted_session,
             commands::files::read_file_tree,
             commands::files::read_file_content,
+            commands::files::write_file_content,
             commands::terminal::create_terminal,
             commands::terminal::send_terminal_input,
             commands::terminal::resize_terminal,

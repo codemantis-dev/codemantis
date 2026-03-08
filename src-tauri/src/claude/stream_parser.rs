@@ -1,5 +1,5 @@
 use crate::claude::event_types::RawStreamEvent;
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::ChildStdout;
 use tokio::sync::mpsc;
@@ -32,7 +32,7 @@ pub async fn parse_stream(
                     continue;
                 }
 
-                debug!("Raw NDJSON: {}", trimmed);
+                trace!("Raw NDJSON: {}", trimmed);
 
                 // First parse as generic JSON to check for stream_event wrapper
                 let parsed: Result<serde_json::Value, _> = serde_json::from_str(trimmed);

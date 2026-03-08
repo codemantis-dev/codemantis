@@ -63,6 +63,25 @@ pub enum RawStreamEvent {
         extra: serde_json::Value,
     },
 
+    // Anthropic API message-level events (no-op for us)
+    #[serde(rename = "message_start")]
+    MessageStart {
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "message_delta")]
+    MessageDelta {
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "message_stop")]
+    MessageStop {
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
     // Events we receive but don't need to process
     #[serde(rename = "rate_limit_event")]
     RateLimitEvent {

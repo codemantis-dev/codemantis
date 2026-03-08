@@ -86,6 +86,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       activityIds: [],
       isStreaming: false,
     });
+    sessionStore.getState().setSessionBusy(sessionId, true);
 
     try {
       console.log("[session] Sending message:", prompt.slice(0, 100));

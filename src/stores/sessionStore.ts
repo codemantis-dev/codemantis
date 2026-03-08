@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Session, Message } from "../types/session";
+import type { Session, Message, TurnStats, SessionStats, SessionMode } from "../types/session";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -13,6 +13,9 @@ interface SessionState {
   sessionMessages: Map<string, Message[]>;
   sessionStreaming: Map<string, StreamingState>;
   sessionContext: Map<string, { used: number; max: number }>;
+  sessionStats: Map<string, SessionStats>;
+  sessionModes: Map<string, SessionMode>;
+  sessionBusy: Map<string, boolean>;
   tabOrder: string[];
 
   // Session management
@@ -27,8 +30,11 @@ interface SessionState {
   startStreaming: (sessionId: string, messageId: string) => void;
   appendStreamingContent: (sessionId: string, text: string) => void;
   finalizeStreaming: (sessionId: string, fullText?: string) => void;
+  setTurnStats: (sessionId: string, messageId: string, stats: TurnStats) => void;
   updateModel: (sessionId: string, model: string) => void;
   updateContext: (sessionId: string, used: number, max: number) => void;
+  setSessionMode: (sessionId: string, mode: SessionMode) => void;
+  setSessionBusy: (sessionId: string, busy: boolean) => void;
   clearSessionData: (sessionId: string) => void;
 
   // Derived helpers (for active session)
@@ -36,6 +42,7 @@ interface SessionState {
   getActiveMessages: () => Message[];
   getActiveStreaming: () => StreamingState;
   getActiveContext: () => { used: number; max: number };
+  getActiveMode: () => SessionMode;
 }
 
 const DEFAULT_STREAMING: StreamingState = {
@@ -46,12 +53,24 @@ const DEFAULT_STREAMING: StreamingState = {
 
 const DEFAULT_CONTEXT = { used: 0, max: 200000 };
 
+const DEFAULT_STATS: SessionStats = {
+  totalCostUsd: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalCacheCreationTokens: 0,
+  totalCacheReadTokens: 0,
+  turnCount: 0,
+};
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   activeSessionId: null,
   sessionMessages: new Map(),
   sessionStreaming: new Map(),
   sessionContext: new Map(),
+  sessionStats: new Map(),
+  sessionModes: new Map(),
+  sessionBusy: new Map(),
   tabOrder: [],
 
   addSession: (session) =>
@@ -64,12 +83,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionStreaming.set(session.id, { ...DEFAULT_STREAMING });
       const sessionContext = new Map(state.sessionContext);
       sessionContext.set(session.id, { ...DEFAULT_CONTEXT });
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.set(session.id, { ...DEFAULT_STATS });
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.set(session.id, "normal");
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.set(session.id, false);
       const tabOrder = [...state.tabOrder, session.id];
       return {
         sessions,
         sessionMessages,
         sessionStreaming,
         sessionContext,
+        sessionStats,
+        sessionModes,
+        sessionBusy,
         tabOrder,
         activeSessionId: session.id,
       };
@@ -85,6 +113,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionStreaming.delete(sessionId);
       const sessionContext = new Map(state.sessionContext);
       sessionContext.delete(sessionId);
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.delete(sessionId);
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.delete(sessionId);
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.delete(sessionId);
       const tabOrder = state.tabOrder.filter((id) => id !== sessionId);
 
       let activeSessionId = state.activeSessionId;
@@ -103,6 +137,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionMessages,
         sessionStreaming,
         sessionContext,
+        sessionStats,
+        sessionModes,
+        sessionBusy,
         tabOrder,
         activeSessionId,
       };
@@ -183,6 +220,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessionMessages, sessionStreaming };
     }),
 
+  setTurnStats: (sessionId, messageId, stats) =>
+    set((state) => {
+      // Attach stats to the message
+      const sessionMessages = new Map(state.sessionMessages);
+      const messages = [...(sessionMessages.get(sessionId) ?? [])];
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx >= 0) {
+        messages[idx] = { ...messages[idx], turnStats: stats };
+        sessionMessages.set(sessionId, messages);
+      }
+
+      // Update cumulative session stats
+      const sessionStats = new Map(state.sessionStats);
+      const prev = sessionStats.get(sessionId) ?? { ...DEFAULT_STATS };
+      sessionStats.set(sessionId, {
+        totalCostUsd: prev.totalCostUsd + (stats.costUsd ?? 0),
+        totalInputTokens: prev.totalInputTokens + stats.inputTokens,
+        totalOutputTokens: prev.totalOutputTokens + stats.outputTokens,
+        totalCacheCreationTokens: prev.totalCacheCreationTokens + stats.cacheCreationTokens,
+        totalCacheReadTokens: prev.totalCacheReadTokens + stats.cacheReadTokens,
+        turnCount: prev.turnCount + 1,
+      });
+
+      return { sessionMessages, sessionStats };
+    }),
+
   updateModel: (sessionId, model) =>
     set((state) => {
       const sessions = new Map(state.sessions);
@@ -200,6 +263,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessionContext };
     }),
 
+  setSessionMode: (sessionId, mode) =>
+    set((state) => {
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.set(sessionId, mode);
+      return { sessionModes };
+    }),
+
+  setSessionBusy: (sessionId, busy) =>
+    set((state) => {
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.set(sessionId, busy);
+      return { sessionBusy };
+    }),
+
   clearSessionData: (sessionId) =>
     set((state) => {
       const sessionMessages = new Map(state.sessionMessages);
@@ -208,7 +285,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionStreaming.set(sessionId, { ...DEFAULT_STREAMING });
       const sessionContext = new Map(state.sessionContext);
       sessionContext.set(sessionId, { ...DEFAULT_CONTEXT });
-      return { sessionMessages, sessionStreaming, sessionContext };
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.set(sessionId, { ...DEFAULT_STATS });
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.set(sessionId, "normal");
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.set(sessionId, false);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy };
     }),
 
   // Derived helpers
@@ -234,5 +317,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return activeSessionId
       ? sessionContext.get(activeSessionId) ?? { ...DEFAULT_CONTEXT }
       : { ...DEFAULT_CONTEXT };
+  },
+
+  getActiveMode: () => {
+    const { sessionModes, activeSessionId } = get();
+    return activeSessionId
+      ? sessionModes.get(activeSessionId) ?? "normal"
+      : "normal";
   },
 }));

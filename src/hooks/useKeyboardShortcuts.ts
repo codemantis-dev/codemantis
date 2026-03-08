@@ -2,13 +2,34 @@ import { useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
+import type { SessionMode } from "../types/session";
+
+const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
 
 export function useKeyboardShortcuts(): void {
   const { createTerminal } = useTerminal();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Only handle Cmd/Ctrl key combos
+      // Shift+Tab — cycle working mode (no Cmd/Ctrl required)
+      if (e.key === "Tab" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // Don't intercept if focus is in an input/textarea
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+        e.preventDefault();
+        const store = useSessionStore.getState();
+        const activeId = store.activeSessionId;
+        if (activeId) {
+          const current = store.sessionModes.get(activeId) ?? "normal";
+          const idx = MODE_CYCLE.indexOf(current);
+          const next = MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];
+          store.setSessionMode(activeId, next);
+        }
+        return;
+      }
+
+      // Only handle Cmd/Ctrl key combos below
       if (!e.metaKey && !e.ctrlKey) return;
 
       const key = e.key.toLowerCase();

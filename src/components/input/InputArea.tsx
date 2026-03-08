@@ -6,6 +6,7 @@ import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
+import ModeSelector from "./ModeSelector";
 
 export default function InputArea() {
   const [input, setInput] = useState("");
@@ -26,6 +27,7 @@ export default function InputArea() {
   const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
 
   const { sendMessage } = useClaudeSession();
+  const sessionModes = useSessionStore((s) => s.sessionModes);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -41,6 +43,12 @@ export default function InputArea() {
       prompt = attachmentRefs + (trimmed ? "\n\n" + trimmed : "");
     }
 
+    // In plan mode, prepend instruction to only plan
+    const mode = sessionModes.get(activeSessionId) ?? "normal";
+    if (mode === "plan") {
+      prompt = "[PLAN MODE] Only describe what you would do step-by-step. Do NOT make any code changes, create files, or run commands. Just explain your plan.\n\n" + prompt;
+    }
+
     setInput("");
     clearAttachments();
     if (textareaRef.current) {
@@ -48,7 +56,7 @@ export default function InputArea() {
     }
 
     await sendMessage(activeSessionId, prompt);
-  }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments]);
+  }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments, sessionModes]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -255,6 +263,8 @@ export default function InputArea() {
           {/* Action bar */}
           <div className="flex items-center justify-between px-3 pb-2">
             <div className="flex items-center gap-1">
+              <ModeSelector />
+              <div className="w-px h-4 bg-border-light mx-0.5" />
               <button
                 onClick={handleFileDialog}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"

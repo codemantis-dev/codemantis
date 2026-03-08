@@ -14,9 +14,13 @@ export interface FileViewerTab {
 
 interface FileViewerState {
   openFile: FileViewerTab | null;
+  editedContent: string | null;
+  isDirty: boolean;
 
   setOpenFile: (tab: FileViewerTab) => void;
   closeFile: () => void;
+  setEditedContent: (content: string) => void;
+  markSaved: () => void;
 }
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -58,7 +62,21 @@ export function getLanguageFromPath(filePath: string): string {
 
 export const useFileViewerStore = create<FileViewerState>((set) => ({
   openFile: null,
+  editedContent: null,
+  isDirty: false,
 
-  setOpenFile: (tab) => set({ openFile: tab }),
-  closeFile: () => set({ openFile: null }),
+  setOpenFile: (tab) => set({ openFile: tab, editedContent: null, isDirty: false }),
+  closeFile: () => set({ openFile: null, editedContent: null, isDirty: false }),
+  setEditedContent: (content) =>
+    set((state) => ({
+      editedContent: content,
+      isDirty: content !== (state.openFile?.content ?? ""),
+    })),
+  markSaved: () =>
+    set((state) => ({
+      isDirty: false,
+      openFile: state.openFile
+        ? { ...state.openFile, content: state.editedContent ?? state.openFile.content }
+        : null,
+    })),
 }));

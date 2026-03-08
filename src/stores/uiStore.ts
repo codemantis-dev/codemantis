@@ -27,9 +27,9 @@ export const useUiStore = create<UiState>((set) => ({
   showProjectPicker: false,
 
   setSidebarWidth: (width) =>
-    set({ sidebarWidth: Math.max(180, Math.min(320, width)) }),
+    set({ sidebarWidth: Math.max(140, width) }),
   setRightPanelWidth: (width) =>
-    set({ rightPanelWidth: Math.max(280, Math.min(500, width)) }),
+    set({ rightPanelWidth: Math.max(200, width) }),
   setRightTab: (tab) => set({ rightTab: tab }),
   setShowApprovalModal: (show) => set({ showApprovalModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),

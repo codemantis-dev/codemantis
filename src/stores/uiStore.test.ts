@@ -23,14 +23,14 @@ describe("uiStore", () => {
     expect(state.showProjectPicker).toBe(false);
   });
 
-  it("setSidebarWidth clamps to min 180", () => {
-    useUiStore.getState().setSidebarWidth(100);
-    expect(useUiStore.getState().sidebarWidth).toBe(180);
+  it("setSidebarWidth clamps to min 140", () => {
+    useUiStore.getState().setSidebarWidth(50);
+    expect(useUiStore.getState().sidebarWidth).toBe(140);
   });
 
-  it("setSidebarWidth clamps to max 320", () => {
-    useUiStore.getState().setSidebarWidth(500);
-    expect(useUiStore.getState().sidebarWidth).toBe(320);
+  it("setSidebarWidth has no upper limit", () => {
+    useUiStore.getState().setSidebarWidth(800);
+    expect(useUiStore.getState().sidebarWidth).toBe(800);
   });
 
   it("setSidebarWidth accepts values in range", () => {
@@ -38,14 +38,14 @@ describe("uiStore", () => {
     expect(useUiStore.getState().sidebarWidth).toBe(250);
   });
 
-  it("setRightPanelWidth clamps to min 280", () => {
+  it("setRightPanelWidth clamps to min 200", () => {
     useUiStore.getState().setRightPanelWidth(100);
-    expect(useUiStore.getState().rightPanelWidth).toBe(280);
+    expect(useUiStore.getState().rightPanelWidth).toBe(200);
   });
 
-  it("setRightPanelWidth clamps to max 500", () => {
-    useUiStore.getState().setRightPanelWidth(600);
-    expect(useUiStore.getState().rightPanelWidth).toBe(500);
+  it("setRightPanelWidth has no upper limit", () => {
+    useUiStore.getState().setRightPanelWidth(1200);
+    expect(useUiStore.getState().rightPanelWidth).toBe(1200);
   });
 
   it("setRightPanelWidth accepts values in range", () => {

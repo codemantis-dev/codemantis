@@ -97,18 +97,18 @@ export default function ActivityFeed() {
                 </span>
               </div>
               {inputStr && (
-                <p className="text-label text-text-dim font-mono truncate mt-0.5">
+                <p className="text-label text-text-dim font-mono mt-0.5 break-all line-clamp-3">
                   {inputStr}
                 </p>
               )}
               {entry.status === "done" && entry.result && (
-                <p className="text-label text-text-faint truncate mt-0.5">
-                  {entry.result.slice(0, 100)}
+                <p className="text-label text-text-faint mt-0.5 break-all line-clamp-3">
+                  {entry.result}
                 </p>
               )}
               {entry.status === "error" && (
-                <p className="text-label text-red truncate mt-0.5">
-                  Error{entry.result ? `: ${entry.result.slice(0, 80)}` : ""}
+                <p className="text-label text-red mt-0.5 break-all line-clamp-3">
+                  Error{entry.result ? `: ${entry.result}` : ""}
                 </p>
               )}
             </div>

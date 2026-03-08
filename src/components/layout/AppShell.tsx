@@ -66,23 +66,31 @@ function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   );
 }
 
+const MIN_CENTER = 300; // minimum center column width in px
+const HANDLE_WIDTH = 9; // each resize handle
+
 export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
 
-  // Use getState() to avoid stale closure during drag
+  // Use getState() to avoid stale closure during drag.
+  // Cap widths so the center column never shrinks below MIN_CENTER.
   const handleLeftDrag = useCallback(
     (delta: number) => {
-      const current = useUiStore.getState().sidebarWidth;
-      useUiStore.getState().setSidebarWidth(current + delta);
+      const state = useUiStore.getState();
+      const maxSidebar = window.innerWidth - state.rightPanelWidth - MIN_CENTER - HANDLE_WIDTH * 2;
+      const next = Math.min(state.sidebarWidth + delta, maxSidebar);
+      state.setSidebarWidth(next);
     },
     []
   );
 
   const handleRightDrag = useCallback(
     (delta: number) => {
-      const current = useUiStore.getState().rightPanelWidth;
-      useUiStore.getState().setRightPanelWidth(current - delta);
+      const state = useUiStore.getState();
+      const maxRight = window.innerWidth - state.sidebarWidth - MIN_CENTER - HANDLE_WIDTH * 2;
+      const next = Math.min(state.rightPanelWidth - delta, maxRight);
+      state.setRightPanelWidth(next);
     },
     []
   );

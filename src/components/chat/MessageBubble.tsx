@@ -4,6 +4,7 @@ import type { Message } from "../../types/session";
 import ActivityChip from "./ActivityChip";
 import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
+import TurnStatsPopover from "./TurnStatsPopover";
 
 interface MessageBubbleProps {
   message: Message;
@@ -52,6 +53,12 @@ export default function MessageBubble({
           </ReactMarkdown>
           {message.isStreaming && <StreamingCursor />}
         </div>
+        {/* Turn stats (shown after streaming completes) */}
+        {!message.isStreaming && message.turnStats && (
+          <div className="mt-1.5">
+            <TurnStatsPopover stats={message.turnStats} />
+          </div>
+        )}
       </div>
     </div>
   );

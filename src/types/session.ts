@@ -10,6 +10,18 @@ export interface Session {
 
 export type SessionStatus = "starting" | "connected" | "idle" | "closed";
 
+export type SessionMode = "normal" | "auto-accept" | "plan";
+
+
+export interface TurnStats {
+  durationMs: number | null;
+  costUsd: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
@@ -17,6 +29,16 @@ export interface Message {
   timestamp: string;
   activityIds: string[];
   isStreaming: boolean;
+  turnStats?: TurnStats;
+}
+
+export interface SessionStats {
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
+  turnCount: number;
 }
 
 export interface PersistedSession {

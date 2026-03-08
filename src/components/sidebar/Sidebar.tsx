@@ -9,11 +9,15 @@ export default function Sidebar() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const sessionContext = useSessionStore((s) => s.sessionContext);
+  const sessionStats = useSessionStore((s) => s.sessionStats);
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const context = activeSessionId
     ? sessionContext.get(activeSessionId) ?? { used: 0, max: 200000 }
     : { used: 0, max: 200000 };
+  const stats = activeSessionId
+    ? sessionStats.get(activeSessionId) ?? undefined
+    : undefined;
 
   const { files, loading, refresh } = useFileTree();
 
@@ -55,7 +59,7 @@ export default function Sidebar() {
 
       {/* Context meter */}
       <div className="shrink-0 border-t border-border-light">
-        <ContextMeter used={context.used} max={context.max} />
+        <ContextMeter used={context.used} max={context.max} stats={stats} />
       </div>
     </div>
   );

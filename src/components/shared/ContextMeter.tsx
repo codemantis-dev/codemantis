@@ -1,9 +1,24 @@
+import type { SessionStats } from "../../types/session";
+
 interface ContextMeterProps {
   used: number;
   max: number;
+  stats?: SessionStats;
 }
 
-export default function ContextMeter({ used, max }: ContextMeterProps) {
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${n}`;
+}
+
+export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
   const percentage = max > 0 ? Math.min((used / max) * 100, 100) : 0;
   const displayUsed = used >= 1000 ? `${Math.round(used / 1000)}K` : `${used}`;
   const displayMax = max >= 1000 ? `${Math.round(max / 1000)}K` : `${max}`;
@@ -12,8 +27,30 @@ export default function ContextMeter({ used, max }: ContextMeterProps) {
   if (percentage > 90) barColor = "bg-red";
   else if (percentage > 70) barColor = "bg-yellow";
 
+  const hasCost = stats && stats.totalCostUsd > 0;
+  const totalTokens = stats
+    ? stats.totalInputTokens + stats.totalOutputTokens + stats.totalCacheCreationTokens + stats.totalCacheReadTokens
+    : 0;
+
   return (
     <div className="px-3 py-2">
+      {/* Session cost + tokens */}
+      {stats && stats.turnCount > 0 && (
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-label text-text-dim">
+            {stats.turnCount} turn{stats.turnCount !== 1 ? "s" : ""}
+            {" / "}
+            {formatTokenCount(totalTokens)} tok
+          </span>
+          {hasCost && (
+            <span className="text-label text-text-dim font-mono">
+              {formatCost(stats.totalCostUsd)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Context bar */}
       <div className="flex items-center justify-between mb-1">
         <span className="text-label text-text-dim font-medium tracking-wider uppercase">
           Context

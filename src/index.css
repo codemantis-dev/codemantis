@@ -305,3 +305,25 @@ textarea {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
+
+/* ── Thinking indicator animation ── */
+@keyframes thinking-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.3;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.thinking-dot {
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+/* ── Smooth streaming content ── */
+.markdown-content {
+  /* Prevent layout shift from re-renders by keeping block flow stable */
+  will-change: contents;
+}

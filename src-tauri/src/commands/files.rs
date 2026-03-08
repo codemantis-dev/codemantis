@@ -104,6 +104,20 @@ fn scan_directory(dir: &Path, depth: usize) -> Result<Vec<FileNode>, std::io::Er
 }
 
 #[tauri::command]
+pub fn write_file_content(file_path: String, content: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        // Ensure parent directory exists for new files
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+
+    fs::write(path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn read_file_content(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
 

@@ -1,5 +1,5 @@
 use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
-use log::{debug, warn};
+use log::debug;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
@@ -163,7 +163,10 @@ pub async fn route_events(
                 accumulated_text.clear();
             }
 
-            RawStreamEvent::RateLimitEvent { .. } => {}
+            RawStreamEvent::MessageStart { .. }
+            | RawStreamEvent::MessageDelta { .. }
+            | RawStreamEvent::MessageStop { .. }
+            | RawStreamEvent::RateLimitEvent { .. } => {}
 
             RawStreamEvent::User { message, .. } => {
                 // User events contain tool_result content blocks
@@ -194,7 +197,7 @@ pub async fn route_events(
             }
 
             RawStreamEvent::Unknown => {
-                warn!("Received unknown event type");
+                debug!("Received unhandled event type (message_start/delta/stop)");
             }
         }
     }
