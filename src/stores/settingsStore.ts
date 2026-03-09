@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   changelogProvider: "gemini",
   changelogApiKeys: {},
   changelogPrompt: DEFAULT_CHANGELOG_PROMPT,
+  assistantShortcuts: [],
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

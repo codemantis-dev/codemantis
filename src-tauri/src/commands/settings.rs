@@ -26,12 +26,21 @@ pub struct AppSettings {
     pub changelog_api_keys: HashMap<String, String>,
     #[serde(default = "default_changelog_prompt")]
     pub changelog_prompt: String,
+    #[serde(default)]
+    pub assistant_shortcuts: Vec<AssistantShortcut>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuickCommand {
     pub label: String,
     pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistantShortcut {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
 }
 
 fn default_theme() -> String {
@@ -76,6 +85,7 @@ impl Default for AppSettings {
             changelog_provider: default_changelog_provider(),
             changelog_api_keys: HashMap::new(),
             changelog_prompt: default_changelog_prompt(),
+            assistant_shortcuts: Vec::new(),
         }
     }
 }

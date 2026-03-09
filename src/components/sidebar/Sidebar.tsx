@@ -1,6 +1,7 @@
-import { useEffect } from "react";
-import { FolderTree } from "lucide-react";
+import { useEffect, useCallback } from "react";
+import { FolderTree, RefreshCw } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useUiStore } from "../../stores/uiStore";
 import { useFileTree } from "../../hooks/useFileTree";
 import FileTree from "./FileTree";
 import ContextMeter from "../shared/ContextMeter";
@@ -19,22 +20,44 @@ export default function Sidebar() {
     ? sessionStats.get(activeSessionId) ?? undefined
     : undefined;
 
+  const fileTreeRefreshTrigger = useUiStore((s) => s.fileTreeRefreshTrigger);
   const { files, loading, refresh } = useFileTree();
 
-  useEffect(() => {
+  const doRefresh = useCallback(() => {
     if (session?.project_path) {
       refresh(session.project_path);
     }
   }, [session?.project_path, refresh]);
 
+  // Load on session open
+  useEffect(() => {
+    doRefresh();
+  }, [doRefresh]);
+
+  // Auto-refresh when files are modified by Claude
+  useEffect(() => {
+    if (fileTreeRefreshTrigger > 0) {
+      doRefresh();
+    }
+  }, [fileTreeRefreshTrigger, doRefresh]);
+
   return (
     <div className="h-full flex flex-col" style={{ background: "var(--bg-subtle)" }}>
       {/* Tab header */}
-      <div className="h-9 flex items-center px-3 border-b border-border-light shrink-0">
+      <div className="h-9 flex items-center justify-between px-3 border-b border-border-light shrink-0">
         <div className="flex items-center gap-1.5 text-text-secondary">
           <FolderTree size={13} />
           <span className="text-ui font-medium">Files</span>
         </div>
+        {session && (
+          <button
+            onClick={doRefresh}
+            className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+            title="Refresh file tree"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+          </button>
+        )}
       </div>
 
       {/* File tree */}

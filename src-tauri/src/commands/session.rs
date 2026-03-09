@@ -4,6 +4,7 @@ use crate::errors::AppError;
 use crate::storage::database::PersistedSession;
 use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
+use log::info;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
@@ -13,7 +14,6 @@ pub async fn create_session(
     state: State<'_, AppState>,
     project_path: String,
     name: Option<String>,
-    skip_permissions: Option<bool>,
 ) -> Result<SessionInfo, String> {
     let session_id = Uuid::new_v4().to_string();
 
@@ -58,6 +58,12 @@ pub async fn create_session(
         session_info.icon_index,
     );
 
+    // Get approval server port
+    let approval_port = {
+        let port = state.approval_server_port.lock().await;
+        *port
+    };
+
     // Spawn the CLI process
     let process = ClaudeProcess::spawn(
         app_handle,
@@ -65,7 +71,7 @@ pub async fn create_session(
         &project_path,
         &claude_binary,
         None,
-        skip_permissions.unwrap_or(false),
+        approval_port,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -138,13 +144,19 @@ pub async fn resume_session_process(
         }
     };
 
+    // Get approval server port
+    let approval_port = {
+        let port = state.approval_server_port.lock().await;
+        *port
+    };
+
     let process = ClaudeProcess::spawn(
         app_handle,
         session_id.clone(),
         &project_path,
         &claude_binary,
         effective_cli_session_id.as_deref(),
-        false,
+        approval_port,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -183,26 +195,43 @@ pub async fn send_message(
 }
 
 #[tauri::command]
-pub async fn respond_to_approval(
+pub async fn set_session_mode(
     state: State<'_, AppState>,
     session_id: String,
-    tool_use_id: String,
-    approved: bool,
+    mode: crate::claude::session::SessionMode,
 ) -> Result<(), String> {
-    let processes = state.processes.lock().await;
-    let process = processes
-        .get(&session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()).to_string())?;
+    info!(
+        "[set_session_mode] session_id={}, mode={:?}",
+        session_id, mode
+    );
+    let mut modes = state.session_modes.lock().await;
+    modes.insert(session_id, mode);
+    Ok(())
+}
 
-    let response = serde_json::json!({
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "approved": approved,
-    });
-
-    process
-        .send_raw(&response.to_string())
-        .map_err(|e| e.to_string())
+#[tauri::command]
+pub async fn resolve_tool_approval(
+    state: State<'_, AppState>,
+    request_id: String,
+    approved: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
+    info!(
+        "[resolve_tool_approval] request_id={}, approved={}, reason={:?}",
+        request_id, approved, reason
+    );
+    let resolved = state
+        .approval_state
+        .resolve(&request_id, approved, reason)
+        .await;
+    if resolved {
+        Ok(())
+    } else {
+        Err(format!(
+            "No pending approval found for request_id: {}",
+            request_id
+        ))
+    }
 }
 
 #[tauri::command]

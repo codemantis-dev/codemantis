@@ -13,6 +13,7 @@ export interface ActivityEntry {
   durationMs?: number;
   approvalStatus?: ApprovalDecision;
   approvalTimestamp?: string;
+  sessionId?: string;
 }
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";

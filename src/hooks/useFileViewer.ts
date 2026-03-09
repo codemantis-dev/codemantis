@@ -21,7 +21,7 @@ export function useFileViewer(): UseFileViewerReturn {
       const language = getLanguageFromPath(filePath);
       const extension = getExtension(filePath);
 
-      useFileViewerStore.getState().setOpenFile({
+      useFileViewerStore.getState().openFile({
         filePath,
         fileName,
         language,
@@ -42,7 +42,7 @@ export function useFileViewer(): UseFileViewerReturn {
       const language = getLanguageFromPath(filePath);
       const extension = getExtension(filePath);
 
-      useFileViewerStore.getState().setOpenFile({
+      useFileViewerStore.getState().openFile({
         filePath,
         fileName,
         language,

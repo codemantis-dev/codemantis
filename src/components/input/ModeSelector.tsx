@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Shield, ShieldCheck, Map } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { setSessionMode as setSessionModeCmd } from "../../lib/tauri-commands";
 import type { SessionMode } from "../../types/session";
 
 const MODES: { id: SessionMode; label: string; description: string; icon: typeof Shield }[] = [
@@ -57,6 +58,17 @@ export default function ModeSelector() {
         ? "text-yellow"
         : "text-text-faint";
 
+  const handleModeChange = (newMode: SessionMode) => {
+    if (!activeSessionId) return;
+    // Update frontend state
+    setSessionMode(activeSessionId, newMode);
+    // Send to Rust backend — enforced at the approval server level
+    setSessionModeCmd(activeSessionId, newMode).catch((e) =>
+      console.error("Failed to set session mode:", e)
+    );
+    setOpen(false);
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -80,12 +92,7 @@ export default function ModeSelector() {
             return (
               <button
                 key={m.id}
-                onClick={() => {
-                  if (activeSessionId) {
-                    setSessionMode(activeSessionId, m.id);
-                  }
-                  setOpen(false);
-                }}
+                onClick={() => handleModeChange(m.id)}
                 className={`w-full flex items-start gap-2 px-2.5 py-2 rounded-md text-left transition-colors ${
                   isActive
                     ? "bg-accent/10 text-accent"

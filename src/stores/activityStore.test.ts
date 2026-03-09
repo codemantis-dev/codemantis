@@ -69,7 +69,7 @@ describe("activityStore", () => {
 
   it("enqueueApproval adds to queue", () => {
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t1", toolName: "Bash", toolInput: { command: "rm -rf /" },
+      requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: { command: "rm -rf /" },
       sessionId: "s1", timestamp: "2026-01-01T00:00:00Z",
     });
 
@@ -79,7 +79,7 @@ describe("activityStore", () => {
 
   it("enqueueApproval deduplicates by toolUseId", () => {
     const approval = {
-      toolUseId: "t1", toolName: "Bash", toolInput: { command: "npm install" },
+      requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: { command: "npm install" },
       sessionId: "s1", timestamp: "2026-01-01T00:00:00Z",
     };
     useActivityStore.getState().enqueueApproval(approval);
@@ -90,11 +90,11 @@ describe("activityStore", () => {
 
   it("dequeueApproval removes from queue and clamps index", () => {
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t2", toolName: "Write", toolInput: {},
+      requestId: "r2", toolUseId: "t2", toolName: "Write", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
 
@@ -150,7 +150,7 @@ describe("activityStore", () => {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
     });
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t2", toolName: "Bash", toolInput: {},
+      requestId: "r2", toolUseId: "t2", toolName: "Bash", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
 
@@ -161,11 +161,11 @@ describe("activityStore", () => {
 
   it("clearEntries only removes target session from queue", () => {
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t2", toolName: "Write", toolInput: {},
+      requestId: "r2", toolUseId: "t2", toolName: "Write", toolInput: {},
       sessionId: "s2", timestamp: "",
     });
 
@@ -192,11 +192,11 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().getApprovalQueueSize()).toBe(0);
 
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t2", toolName: "Write", toolInput: {},
+      requestId: "r2", toolUseId: "t2", toolName: "Write", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
 
@@ -208,7 +208,7 @@ describe("activityStore", () => {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
     });
     useActivityStore.getState().enqueueApproval({
-      toolUseId: "t2", toolName: "Bash", toolInput: {},
+      requestId: "r2", toolUseId: "t2", toolName: "Bash", toolInput: {},
       sessionId: "s1", timestamp: "",
     });
 

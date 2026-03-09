@@ -22,14 +22,9 @@ export default function ProjectTab({
   const handleCloseClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (sessionCount > 1) {
-        if (!window.confirm(`Close all ${sessionCount} sessions in "${projectName}"?`)) {
-          return;
-        }
-      }
       onClose();
     },
-    [onClose, sessionCount, projectName]
+    [onClose]
   );
 
   return (

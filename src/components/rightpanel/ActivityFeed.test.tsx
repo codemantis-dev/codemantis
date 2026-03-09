@@ -11,6 +11,7 @@ function setEntries(entries: ActivityEntry[]): void {
   useSessionStore.setState({
     sessions: new Map([[SESSION_ID, { id: SESSION_ID, name: "Test", project_path: "/tmp", status: "connected" as const, created_at: "", model: null, icon_index: 0 }]]),
     activeSessionId: SESSION_ID,
+    activeProjectPath: "/tmp",
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
     sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),

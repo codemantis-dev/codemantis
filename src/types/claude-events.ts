@@ -69,3 +69,11 @@ export interface UsageInfo {
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
 }
+
+/** Emitted globally by the approval HTTP server (not per-session). */
+export interface ToolApprovalRequestEvent {
+  requestId: string;
+  forgeSessionId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}

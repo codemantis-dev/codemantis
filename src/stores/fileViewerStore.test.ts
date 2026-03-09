@@ -1,50 +1,138 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useFileViewerStore, getLanguageFromPath } from "./fileViewerStore";
 
-describe("fileViewerStore", () => {
+function makeTab(filePath: string, content: string = "content") {
+  const fileName = filePath.split("/").pop() ?? filePath;
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  return {
+    filePath,
+    fileName,
+    language: ext === "rs" ? "rust" : ext === "ts" || ext === "tsx" ? "typescript" : "plaintext",
+    extension: ext,
+    fileSize: content.length,
+    content,
+    isDiff: false,
+  };
+}
+
+describe("fileViewerStore (multi-tab)", () => {
   beforeEach(() => {
-    useFileViewerStore.setState({ openFile: null });
-  });
-
-  it("starts with no file open", () => {
-    expect(useFileViewerStore.getState().openFile).toBeNull();
-  });
-
-  it("sets open file", () => {
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/src/main.rs",
-      fileName: "main.rs",
-      language: "rust",
-      extension: "rs",
-      fileSize: 128,
-      content: "fn main() {}",
-      isDiff: false,
+    useFileViewerStore.setState({
+      openFiles: [],
+      activeFilePath: null,
+      editedContents: new Map(),
+      dirtyFiles: new Set(),
     });
-    const file = useFileViewerStore.getState().openFile;
-    expect(file).not.toBeNull();
-    expect(file!.fileName).toBe("main.rs");
-    expect(file!.language).toBe("rust");
-    expect(file!.extension).toBe("rs");
-    expect(file!.fileSize).toBe(128);
-    expect(file!.content).toBe("fn main() {}");
   });
 
-  it("closes file", () => {
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/src/main.rs",
-      fileName: "main.rs",
-      language: "rust",
-      extension: "rs",
-      fileSize: 128,
-      content: "fn main() {}",
-      isDiff: false,
-    });
-    useFileViewerStore.getState().closeFile();
-    expect(useFileViewerStore.getState().openFile).toBeNull();
+  it("starts with no files open", () => {
+    const state = useFileViewerStore.getState();
+    expect(state.openFiles).toHaveLength(0);
+    expect(state.activeFilePath).toBeNull();
+  });
+
+  it("opens a file and sets it as active", () => {
+    const tab = makeTab("/src/main.rs", "fn main() {}");
+    useFileViewerStore.getState().openFile(tab);
+    const state = useFileViewerStore.getState();
+    expect(state.openFiles).toHaveLength(1);
+    expect(state.activeFilePath).toBe("/src/main.rs");
+    expect(state.openFiles[0].content).toBe("fn main() {}");
+  });
+
+  it("opening same file twice focuses instead of duplicating", () => {
+    const tab1 = makeTab("/src/main.rs", "v1");
+    const tab2 = makeTab("/src/lib.ts", "v2");
+    useFileViewerStore.getState().openFile(tab1);
+    useFileViewerStore.getState().openFile(tab2);
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/src/lib.ts");
+
+    // Re-open first file — should not duplicate
+    const tab1Updated = makeTab("/src/main.rs", "v1-updated");
+    useFileViewerStore.getState().openFile(tab1Updated);
+    const state = useFileViewerStore.getState();
+    expect(state.openFiles).toHaveLength(2);
+    expect(state.activeFilePath).toBe("/src/main.rs");
+    expect(state.openFiles[0].content).toBe("v1-updated");
+  });
+
+  it("closes a file and cleans up state", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts", "a"));
+    useFileViewerStore.getState().openFile(makeTab("/b.rs", "b"));
+    useFileViewerStore.getState().closeFile("/b.rs");
+    const state = useFileViewerStore.getState();
+    expect(state.openFiles).toHaveLength(1);
+    expect(state.openFiles[0].filePath).toBe("/a.ts");
+  });
+
+  it("closing active tab switches to last remaining tab", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(makeTab("/b.rs"));
+    useFileViewerStore.getState().openFile(makeTab("/c.py"));
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/c.py");
+
+    useFileViewerStore.getState().closeFile("/c.py");
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/b.rs");
+  });
+
+  it("closing last tab sets activeFilePath to null", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts"));
+    useFileViewerStore.getState().closeFile("/a.ts");
+    expect(useFileViewerStore.getState().activeFilePath).toBeNull();
+    expect(useFileViewerStore.getState().openFiles).toHaveLength(0);
+  });
+
+  it("dirty state is per-file", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts", "original-a"));
+    useFileViewerStore.getState().openFile(makeTab("/b.rs", "original-b"));
+
+    useFileViewerStore.getState().setEditedContent("/a.ts", "modified-a");
+    const state = useFileViewerStore.getState();
+    expect(state.dirtyFiles.has("/a.ts")).toBe(true);
+    expect(state.dirtyFiles.has("/b.rs")).toBe(false);
+  });
+
+  it("markSaved clears dirty and updates tab content", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts", "original"));
+    useFileViewerStore.getState().setEditedContent("/a.ts", "modified");
+    expect(useFileViewerStore.getState().dirtyFiles.has("/a.ts")).toBe(true);
+
+    useFileViewerStore.getState().markSaved("/a.ts");
+    const state = useFileViewerStore.getState();
+    expect(state.dirtyFiles.has("/a.ts")).toBe(false);
+    expect(state.openFiles[0].content).toBe("modified");
+  });
+
+  it("setActiveFile switches active tab", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(makeTab("/b.rs"));
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/b.rs");
+
+    useFileViewerStore.getState().setActiveFile("/a.ts");
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/a.ts");
+  });
+
+  it("setActiveFile ignores non-open paths", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts"));
+    useFileViewerStore.getState().setActiveFile("/nonexistent.ts");
+    expect(useFileViewerStore.getState().activeFilePath).toBe("/a.ts");
+  });
+
+  it("closeAllFiles resets everything", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(makeTab("/b.rs"));
+    useFileViewerStore.getState().setEditedContent("/a.ts", "dirty");
+    useFileViewerStore.getState().closeAllFiles();
+
+    const state = useFileViewerStore.getState();
+    expect(state.openFiles).toHaveLength(0);
+    expect(state.activeFilePath).toBeNull();
+    expect(state.editedContents.size).toBe(0);
+    expect(state.dirtyFiles.size).toBe(0);
   });
 
   it("supports diff mode", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/src/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -55,47 +143,21 @@ describe("fileViewerStore", () => {
       oldContent: "const a = 1;",
       newContent: "const a = 2;",
     });
-    const file = useFileViewerStore.getState().openFile;
-    expect(file!.isDiff).toBe(true);
-    expect(file!.oldContent).toBe("const a = 1;");
-    expect(file!.newContent).toBe("const a = 2;");
+    const tab = useFileViewerStore.getState().openFiles[0];
+    expect(tab.isDiff).toBe(true);
+    expect(tab.oldContent).toBe("const a = 1;");
+    expect(tab.newContent).toBe("const a = 2;");
   });
 
-  it("replaces open file when setting new one", () => {
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/a.ts",
-      fileName: "a.ts",
-      language: "typescript",
-      extension: "ts",
-      fileSize: 10,
-      content: "a",
-      isDiff: false,
-    });
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/b.rs",
-      fileName: "b.rs",
-      language: "rust",
-      extension: "rs",
-      fileSize: 20,
-      content: "b",
-      isDiff: false,
-    });
-    expect(useFileViewerStore.getState().openFile!.fileName).toBe("b.rs");
-  });
+  it("closeFile cleans up editedContents and dirtyFiles for that path", () => {
+    useFileViewerStore.getState().openFile(makeTab("/a.ts", "original"));
+    useFileViewerStore.getState().setEditedContent("/a.ts", "modified");
+    expect(useFileViewerStore.getState().dirtyFiles.has("/a.ts")).toBe(true);
+    expect(useFileViewerStore.getState().editedContents.has("/a.ts")).toBe(true);
 
-  it("stores extension and fileSize correctly", () => {
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/data/report.py",
-      fileName: "report.py",
-      language: "python",
-      extension: "py",
-      fileSize: 4096,
-      content: "print('hello')",
-      isDiff: false,
-    });
-    const file = useFileViewerStore.getState().openFile!;
-    expect(file.extension).toBe("py");
-    expect(file.fileSize).toBe(4096);
+    useFileViewerStore.getState().closeFile("/a.ts");
+    expect(useFileViewerStore.getState().dirtyFiles.has("/a.ts")).toBe(false);
+    expect(useFileViewerStore.getState().editedContents.has("/a.ts")).toBe(false);
   });
 });
 

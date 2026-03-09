@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, X, ScrollText } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useUiStore } from "../../stores/uiStore";
 import StatusDot from "../shared/StatusDot";
 
 interface SessionSubTabProps {
@@ -136,6 +137,8 @@ export default function SessionSubTabs({
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
   const setActiveSessionInProject = useSessionStore((s) => s.setActiveSessionInProject);
+  const showProjectLog = useUiStore((s) => s.showProjectLog);
+  const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
 
   if (!activeProjectPath) return null;
 
@@ -144,7 +147,7 @@ export default function SessionSubTabs({
     return s && s.project_path === activeProjectPath;
   });
 
-  if (projectSessionIds.length === 0) return null;
+  if (projectSessionIds.length === 0 && !activeProjectPath) return null;
 
   return (
     <div
@@ -161,9 +164,12 @@ export default function SessionSubTabs({
             sessionId={sessionId}
             name={session.name}
             model={session.model}
-            isActive={sessionId === activeSessionId}
+            isActive={sessionId === activeSessionId && !showProjectLog}
             isStreaming={streaming?.isStreaming ?? false}
-            onSelect={() => setActiveSessionInProject(activeProjectPath, sessionId)}
+            onSelect={() => {
+              setShowProjectLog(false);
+              setActiveSessionInProject(activeProjectPath, sessionId);
+            }}
             onClose={() => onCloseSession(sessionId)}
             onRename={(name) => onRenameSession(sessionId, name)}
           />
@@ -177,6 +183,27 @@ export default function SessionSubTabs({
         className="mx-1 p-1 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors shrink-0"
       >
         <Plus size={13} />
+      </button>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Project Log tab */}
+      <button
+        onClick={() => setShowProjectLog(true)}
+        title="Project Log — all changelog entries"
+        className={`
+          flex items-center gap-1.5 px-2.5 h-full cursor-pointer select-none shrink-0 text-label
+          transition-colors border-b-2
+          ${
+            showProjectLog
+              ? "bg-bg-elevated text-text-primary border-b-accent"
+              : "text-text-dim hover:text-text-secondary hover:bg-bg-subtle border-b-transparent"
+          }
+        `}
+      >
+        <ScrollText size={12} />
+        <span>Project Log</span>
       </button>
     </div>
   );

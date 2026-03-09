@@ -1,19 +1,20 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Settings, Terminal, Zap, ScrollText, X, RotateCcw } from "lucide-react";
+import { Settings, Terminal, Zap, ScrollText, MessageSquare, X, RotateCcw } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { QuickCommand, ThemeId, ChangelogProvider } from "../../types/settings";
+import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider } from "../../types/settings";
 import { THEMES, DEFAULT_CHANGELOG_PROMPT } from "../../types/settings";
 import { testChangelogApiKey } from "../../lib/tauri-commands";
 
-type SettingsTab = "general" | "terminal" | "quick-commands" | "changelog";
+type SettingsTab = "general" | "terminal" | "quick-commands" | "changelog" | "assistant";
 
 const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "quick-commands", label: "Quick Commands", icon: Zap },
   { id: "changelog", label: "Changelog", icon: ScrollText },
+  { id: "assistant", label: "Assistant", icon: MessageSquare },
 ];
 
 const CHANGELOG_PROVIDERS: { id: ChangelogProvider; label: string }[] = [
@@ -39,6 +40,7 @@ export default function SettingsModal() {
   const [changelogProvider, setChangelogProvider] = useState<ChangelogProvider>(settings.changelogProvider);
   const [changelogApiKeys, setChangelogApiKeys] = useState<Record<string, string>>(settings.changelogApiKeys);
   const [changelogPrompt, setChangelogPrompt] = useState(settings.changelogPrompt);
+  const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
   const [testingKey, setTestingKey] = useState(false);
   const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
 
@@ -54,6 +56,7 @@ export default function SettingsModal() {
       setChangelogProvider(settings.changelogProvider);
       setChangelogApiKeys({ ...settings.changelogApiKeys });
       setChangelogPrompt(settings.changelogPrompt);
+      setAssistantShortcuts([...settings.assistantShortcuts]);
       setTestResult(null);
     }
   }, [showModal, settings]);
@@ -70,6 +73,7 @@ export default function SettingsModal() {
       changelogProvider,
       changelogApiKeys,
       changelogPrompt,
+      assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
     });
     setShowModal(false);
   };
@@ -188,6 +192,13 @@ export default function SettingsModal() {
               <QuickCommandsTab
                 commands={quickCommands}
                 onChange={setQuickCommands}
+              />
+            )}
+
+            {activeTab === "assistant" && (
+              <AssistantShortcutsTab
+                shortcuts={assistantShortcuts}
+                onChange={setAssistantShortcuts}
               />
             )}
 
@@ -484,6 +495,61 @@ function ChangelogTab({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AssistantShortcutsTab({
+  shortcuts, onChange,
+}: {
+  shortcuts: AssistantShortcut[]; onChange: (shortcuts: AssistantShortcut[]) => void;
+}) {
+  const handleUpdate = (index: number, field: "name" | "prompt", value: string) => {
+    const updated = [...shortcuts];
+    updated[index] = { ...updated[index], [field]: value };
+    onChange(updated);
+  };
+
+  return (
+    <div>
+      <SectionTitle>Assistant Shortcuts</SectionTitle>
+      <p className="text-label text-text-dim mb-3">
+        Saved prompts available as quick-access chips in the assistant panel.
+      </p>
+      <div className="space-y-2">
+        {shortcuts.map((sc, i) => (
+          <div key={sc.id} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={sc.name}
+                onChange={(e) => handleUpdate(i, "name", e.target.value)}
+                placeholder="Name"
+                className="w-28 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
+              />
+              <textarea
+                value={sc.prompt}
+                onChange={(e) => handleUpdate(i, "prompt", e.target.value)}
+                placeholder="Prompt text"
+                rows={1}
+                className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost resize-y"
+              />
+              <button
+                onClick={() => onChange(shortcuts.filter((_, j) => j !== i))}
+                className="text-text-ghost hover:text-red transition-colors text-ui px-1.5 py-1"
+              >
+                &times;
+              </button>
+            </div>
+          </div>
+        ))}
+        <button
+          onClick={() => onChange([...shortcuts, { id: crypto.randomUUID(), name: "", prompt: "" }])}
+          className="text-label text-accent hover:text-accent-light transition-colors"
+        >
+          + Add shortcut
+        </button>
+      </div>
     </div>
   );
 }

@@ -29,9 +29,12 @@ function computeDiffSummary(oldContent: string, newContent: string): { added: nu
 }
 
 export default function FileViewer() {
-  const openFile = useFileViewerStore((s) => s.openFile);
+  const openFiles = useFileViewerStore((s) => s.openFiles);
+  const activeFilePath = useFileViewerStore((s) => s.activeFilePath);
+  const dirtyFiles = useFileViewerStore((s) => s.dirtyFiles);
+  const editedContents = useFileViewerStore((s) => s.editedContents);
   const closeFile = useFileViewerStore((s) => s.closeFile);
-  const isDirty = useFileViewerStore((s) => s.isDirty);
+  const setActiveFile = useFileViewerStore((s) => s.setActiveFile);
   const setEditedContent = useFileViewerStore((s) => s.setEditedContent);
   const markSaved = useFileViewerStore((s) => s.markSaved);
   const themeId = useSettingsStore((s) => s.settings.theme);
@@ -40,20 +43,27 @@ export default function FileViewer() {
   const [saving, setSaving] = useState(false);
   const monacoColors = useMemo(() => getMonacoTheme(themeId), [themeId]);
 
+  const activeTab = useMemo(
+    () => openFiles.find((f) => f.filePath === activeFilePath) ?? null,
+    [openFiles, activeFilePath]
+  );
+
+  const isDirty = activeFilePath ? dirtyFiles.has(activeFilePath) : false;
+
   const handleSave = useCallback(async () => {
-    if (!openFile || !isDirty) return;
-    const content = useFileViewerStore.getState().editedContent;
+    if (!activeFilePath || !isDirty) return;
+    const content = useFileViewerStore.getState().editedContents.get(activeFilePath);
     if (content == null) return;
     setSaving(true);
     try {
-      await writeFileContent(openFile.filePath, content);
-      markSaved();
+      await writeFileContent(activeFilePath, content);
+      markSaved(activeFilePath);
     } catch (err) {
       console.error("Failed to save file:", err);
     } finally {
       setSaving(false);
     }
-  }, [openFile, isDirty, markSaved]);
+  }, [activeFilePath, isDirty, markSaved]);
 
   // Cmd+S keyboard shortcut for saving
   useEffect(() => {
@@ -67,7 +77,7 @@ export default function FileViewer() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave]);
 
-  const isEditable = openFile ? !openFile.isDiff : false;
+  const isEditable = activeTab ? !activeTab.isDiff : false;
 
   const monacoOptions = useMemo(() => ({
     readOnly: !isEditable,
@@ -96,9 +106,9 @@ export default function FileViewer() {
   }), [monacoOptions, sideBySide]);
 
   const diffSummary = useMemo(() => {
-    if (!openFile?.isDiff || !openFile.oldContent || !openFile.newContent) return null;
-    return computeDiffSummary(openFile.oldContent, openFile.newContent);
-  }, [openFile]);
+    if (!activeTab?.isDiff || !activeTab.oldContent || !activeTab.newContent) return null;
+    return computeDiffSummary(activeTab.oldContent, activeTab.newContent);
+  }, [activeTab]);
 
   const monacoThemeName = `claudeforge-${themeId}`;
 
@@ -127,7 +137,11 @@ export default function FileViewer() {
     [monacoColors, monacoThemeName]
   );
 
-  if (!openFile) {
+  const editorValue = activeFilePath
+    ? editedContents.get(activeFilePath) ?? activeTab?.content ?? ""
+    : "";
+
+  if (openFiles.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2">
         <FileText size={24} className="text-text-ghost" />
@@ -139,92 +153,124 @@ export default function FileViewer() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* File header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border-light shrink-0">
-        <FileText size={13} className="text-text-dim shrink-0" />
-        <span className="text-ui text-text-primary font-medium truncate">
-          {openFile.fileName}{isDirty ? " •" : ""}
-        </span>
-        {openFile.extension && (
-          <span className="text-label px-1.5 py-0.5 rounded bg-bg-elevated text-text-dim shrink-0">
-            .{openFile.extension}
-          </span>
-        )}
-        {openFile.isDiff && diffSummary && (
-          <span className="text-label shrink-0">
-            <span className="text-green">+{diffSummary.added}</span>
-            {" "}
-            <span className="text-red">-{diffSummary.removed}</span>
-          </span>
-        )}
-        {!openFile.isDiff && openFile.fileSize > 0 && (
-          <span className="text-label text-text-ghost shrink-0">
-            {formatFileSize(openFile.fileSize)}
-          </span>
-        )}
-
-        {/* Toolbar */}
-        <div className="ml-auto flex items-center gap-0.5 shrink-0">
-          {isDirty && (
+      {/* Tab bar */}
+      <div className="flex items-center h-7 border-b border-border-light px-1 gap-0.5 shrink-0 overflow-x-auto">
+        {openFiles.map((tab) => {
+          const isActive = tab.filePath === activeFilePath;
+          const tabDirty = dirtyFiles.has(tab.filePath);
+          return (
             <button
-              onClick={handleSave}
-              disabled={saving}
-              title="Save (⌘S)"
-              className="p-1 rounded text-accent hover:bg-accent/10 transition-colors"
+              key={tab.filePath}
+              onClick={() => setActiveFile(tab.filePath)}
+              className={`
+                flex items-center gap-1 px-2 h-6 rounded text-label transition-colors group shrink-0
+                ${isActive
+                  ? "bg-bg-elevated text-text-primary"
+                  : "text-text-dim hover:text-text-secondary hover:bg-bg-subtle"
+                }
+              `}
+              title={tab.filePath}
             >
-              <Save size={13} />
+              <span className="truncate max-w-[120px]">
+                {tab.fileName}{tabDirty ? " \u2022" : ""}
+              </span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeFile(tab.filePath);
+                }}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-bg-subtle transition-all"
+              >
+                <X size={10} />
+              </span>
             </button>
+          );
+        })}
+      </div>
+
+      {/* File header with toolbar */}
+      {activeTab && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border-light shrink-0">
+          <FileText size={13} className="text-text-dim shrink-0" />
+          <span className="text-ui text-text-primary font-medium truncate">
+            {activeTab.fileName}{isDirty ? " \u2022" : ""}
+          </span>
+          {activeTab.extension && (
+            <span className="text-label px-1.5 py-0.5 rounded bg-bg-elevated text-text-dim shrink-0">
+              .{activeTab.extension}
+            </span>
           )}
-          <button
-            onClick={() => setWordWrap(!wordWrap)}
-            title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-            className={`p-1 rounded transition-colors ${
-              wordWrap ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-secondary"
-            }`}
-          >
-            <WrapText size={13} />
-          </button>
-          {openFile.isDiff && (
+          {activeTab.isDiff && diffSummary && (
+            <span className="text-label shrink-0">
+              <span className="text-green">+{diffSummary.added}</span>
+              {" "}
+              <span className="text-red">-{diffSummary.removed}</span>
+            </span>
+          )}
+          {!activeTab.isDiff && activeTab.fileSize > 0 && (
+            <span className="text-label text-text-ghost shrink-0">
+              {formatFileSize(activeTab.fileSize)}
+            </span>
+          )}
+
+          {/* Toolbar */}
+          <div className="ml-auto flex items-center gap-0.5 shrink-0">
+            {isDirty && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                title="Save (\u2318S)"
+                className="p-1 rounded text-accent hover:bg-accent/10 transition-colors"
+              >
+                <Save size={13} />
+              </button>
+            )}
             <button
-              onClick={() => setSideBySide(!sideBySide)}
-              title={sideBySide ? "Unified view" : "Side-by-side view"}
+              onClick={() => setWordWrap(!wordWrap)}
+              title={wordWrap ? "Disable word wrap" : "Enable word wrap"}
               className={`p-1 rounded transition-colors ${
-                sideBySide ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-secondary"
+                wordWrap ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-secondary"
               }`}
             >
-              <Columns2 size={13} />
+              <WrapText size={13} />
             </button>
-          )}
-          <button
-            onClick={closeFile}
-            className="p-1 rounded hover:bg-bg-elevated text-text-faint hover:text-text-secondary transition-colors"
-          >
-            <X size={13} />
-          </button>
+            {activeTab.isDiff && (
+              <button
+                onClick={() => setSideBySide(!sideBySide)}
+                title={sideBySide ? "Unified view" : "Side-by-side view"}
+                className={`p-1 rounded transition-colors ${
+                  sideBySide ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-secondary"
+                }`}
+              >
+                <Columns2 size={13} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
-        {openFile.isDiff && openFile.oldContent !== undefined && openFile.newContent !== undefined ? (
+        {activeTab?.isDiff && activeTab.oldContent !== undefined && activeTab.newContent !== undefined ? (
           <DiffEditor
-            original={openFile.oldContent}
-            modified={openFile.newContent}
-            language={openFile.language}
+            original={activeTab.oldContent}
+            modified={activeTab.newContent}
+            language={activeTab.language}
             theme={monacoThemeName}
             options={diffOptions}
             onMount={handleEditorMount}
           />
         ) : (
           <Editor
-            value={openFile.content ?? ""}
-            language={openFile.language}
+            key={activeFilePath ?? "empty"}
+            value={editorValue}
+            language={activeTab?.language ?? "plaintext"}
             theme={monacoThemeName}
             options={monacoOptions}
             onMount={handleEditorMount}
             onChange={(value) => {
-              if (value !== undefined) {
-                setEditedContent(value);
+              if (value !== undefined && activeFilePath) {
+                setEditedContent(activeFilePath, value);
               }
             }}
           />

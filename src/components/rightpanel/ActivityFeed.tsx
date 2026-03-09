@@ -1,7 +1,9 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
+import { useAssistantStore } from "../../stores/assistantStore";
 import { getActivityType } from "../../types/activity";
+import type { ActivityEntry } from "../../types/activity";
 import { useFileViewer } from "../../hooks/useFileViewer";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
@@ -26,18 +28,64 @@ function formatToolInput(_toolName: string, input: Record<string, unknown>): str
   return JSON.stringify(input).slice(0, 80);
 }
 
+interface LabeledEntry extends ActivityEntry {
+  computedLabel: string;
+}
+
 export default function ActivityFeed() {
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const sessions = useSessionStore((s) => s.sessions);
+  const tabOrder = useSessionStore((s) => s.tabOrder);
   const sessionEntries = useActivityStore((s) => s.sessionEntries);
-  const entries = activeSessionId ? sessionEntries.get(activeSessionId) ?? [] : [];
+  const projectAssistants = useAssistantStore((s) => s.projectAssistants);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { openFile } = useFileViewer();
 
+  // Build merged entries from all sessions in the project
+  const { sortedEntries, showLabels } = useMemo(() => {
+    if (!activeProjectPath) return { sortedEntries: [] as LabeledEntry[], showLabels: false };
+
+    const merged: LabeledEntry[] = [];
+
+    // Collect entries from main sessions in this project
+    const projectSessionIds = tabOrder.filter((sid) => {
+      const s = sessions.get(sid);
+      return s && s.project_path === activeProjectPath;
+    });
+
+    for (const sid of projectSessionIds) {
+      const entries = sessionEntries.get(sid) ?? [];
+      const session = sessions.get(sid);
+      const label = session?.name ?? "Chat";
+      for (const entry of entries) {
+        merged.push({ ...entry, computedLabel: label });
+      }
+    }
+
+    // Collect entries from assistant sessions in this project
+    const assistants = projectAssistants.get(activeProjectPath) ?? [];
+    for (const assistant of assistants) {
+      const entries = sessionEntries.get(assistant.id) ?? [];
+      for (const entry of entries) {
+        merged.push({ ...entry, computedLabel: assistant.name });
+      }
+    }
+
+    // Sort newest first
+    merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Show labels only when there are 2+ active sources
+    const sourceCount = projectSessionIds.length + assistants.length;
+
+    return { sortedEntries: merged, showLabels: sourceCount >= 2 };
+  }, [activeProjectPath, sessions, tabOrder, sessionEntries, projectAssistants]);
+
+  // Scroll to top when new entries appear (newest first)
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = 0;
     }
-  }, [entries.length]);
+  }, [sortedEntries.length]);
 
   const handleEntryClick = useCallback(
     (_e: React.MouseEvent, toolName: string, input: Record<string, unknown>) => {
@@ -56,7 +104,7 @@ export default function ActivityFeed() {
     [openFile]
   );
 
-  if (entries.length === 0) {
+  if (sortedEntries.length === 0) {
     return (
       <div className="h-full flex items-center justify-center">
         <p className="text-text-faint text-ui">No activity yet</p>
@@ -65,8 +113,8 @@ export default function ActivityFeed() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-3 py-2 select-text">
-      {entries.map((entry, i) => {
+    <div ref={scrollRef} className="h-full overflow-y-auto px-3 pt-2 pb-8 select-text">
+      {sortedEntries.map((entry, i) => {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
         const inputStr = formatToolInput(entry.toolName, entry.toolInput);
@@ -85,7 +133,7 @@ export default function ActivityFeed() {
                 pulse={entry.status === "running"}
                 size={6}
               />
-              {i < entries.length - 1 && (
+              {i < sortedEntries.length - 1 && (
                 <div className="w-px flex-1 mt-1 bg-border-light" />
               )}
             </div>
@@ -108,6 +156,11 @@ export default function ActivityFeed() {
                     }`}
                   >
                     {entry.approvalStatus.toUpperCase()}
+                  </span>
+                )}
+                {showLabels && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                    {entry.computedLabel}
                   </span>
                 )}
                 <span className="text-label text-text-ghost ml-auto shrink-0">

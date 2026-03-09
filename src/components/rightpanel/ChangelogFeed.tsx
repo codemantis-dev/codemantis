@@ -1,17 +1,9 @@
-import { Bug, Wrench, FileText, Settings, TestTube, Sparkles, Loader2, Trash2 } from "lucide-react";
+import { Sparkles, Loader2, Trash2 } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
-import type { ChangelogCategory, ChangelogEntry } from "../../types/changelog";
+import type { ChangelogEntry } from "../../types/changelog";
 import { deleteChangelogEntry } from "../../lib/tauri-commands";
-
-const CATEGORY_CONFIG: Record<ChangelogCategory, { icon: typeof Bug; color: string; label: string }> = {
-  feature: { icon: Sparkles, color: "text-green", label: "Feature" },
-  bugfix: { icon: Bug, color: "text-red", label: "Bug Fix" },
-  refactor: { icon: Wrench, color: "text-yellow", label: "Refactor" },
-  docs: { icon: FileText, color: "text-blue", label: "Docs" },
-  config: { icon: Settings, color: "text-purple", label: "Config" },
-  test: { icon: TestTube, color: "text-accent", label: "Test" },
-};
+import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
 
 function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId: string }) {
   const removeEntry = useChangelogStore((s) => s.removeEntry);
@@ -109,7 +101,7 @@ export default function ChangelogFeed() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto pb-8">
       {isGenerating && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border-light text-text-dim text-label">
           <Loader2 size={12} className="animate-spin" />

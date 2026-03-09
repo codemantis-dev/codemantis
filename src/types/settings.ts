@@ -3,6 +3,12 @@ export interface QuickCommand {
   command: string;
 }
 
+export interface AssistantShortcut {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
 export type ThemeId = "midnight" | "ocean" | "ember" | "dawn" | "sand" | "arctic";
 
 export interface ThemeOption {
@@ -33,6 +39,7 @@ export interface AppSettings {
   changelogProvider: ChangelogProvider;
   changelogApiKeys: Record<string, string>;
   changelogPrompt: string;
+  assistantShortcuts: AssistantShortcut[];
 }
 
 export const DEFAULT_CHANGELOG_PROMPT = `Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.

@@ -13,13 +13,11 @@ import {
   renameSession as renameSessionCmd,
   listenChatEvents,
   listenActivityEvents,
-  listenApprovalEvents,
   closeTerminal as closeTerminalCmd,
 } from "../lib/tauri-commands";
 import {
   handleChatEvent,
   handleActivityEvent,
-  handleApprovalEvent,
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
 
@@ -61,14 +59,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     const unlistenActivity = await listenActivityEvents(session.id, (event) =>
       handleActivityEvent(session.id, event)
     );
-    const unlistenApproval = await listenApprovalEvents(session.id, (event) =>
-      handleApprovalEvent(session.id, event)
-    );
 
     sessionListeners.set(session.id, [
       unlistenChat,
       unlistenActivity,
-      unlistenApproval,
     ]);
 
     return session.id;

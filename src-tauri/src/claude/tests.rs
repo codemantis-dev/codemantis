@@ -395,6 +395,7 @@ mod tests {
         let fe = FrontendEvent::SessionInit {
             session_id: "s1".into(),
             model: Some("claude-sonnet-4-20250514".into()),
+            thinking_effort: None,
         };
         let json = serde_json::to_string(&fe).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

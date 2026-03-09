@@ -3,7 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
-import { respondToApproval } from "../../lib/tauri-commands";
+import { resolveToolApproval } from "../../lib/tauri-commands";
 import ToolBadge from "../shared/ToolBadge";
 
 export default function ToolApproval() {
@@ -43,12 +43,12 @@ export default function ToolApproval() {
     async (approved: boolean) => {
       if (!currentApproval) return;
 
-      const { sessionId, toolUseId, toolName } = currentApproval;
+      const { requestId, sessionId, toolUseId, toolName } = currentApproval;
       const decision = approved ? "approved" : "denied";
 
       console.log("[approval-response]", {
+        requestId,
         sessionId,
-        toolUseId,
         toolName,
         approved,
       });
@@ -58,11 +58,14 @@ export default function ToolApproval() {
         .recordApprovalDecision(sessionId, toolUseId, decision);
 
       try {
-        await respondToApproval(sessionId, toolUseId, approved);
+        await resolveToolApproval(
+          requestId,
+          approved,
+          approved ? undefined : "Denied by user"
+        );
       } catch (e) {
         console.error("[approval-response] Failed:", e, {
-          sessionId,
-          toolUseId,
+          requestId,
         });
       }
 
@@ -75,11 +78,11 @@ export default function ToolApproval() {
     // Copy the queue since it mutates as we dequeue
     const items = [...approvalQueue];
     for (const item of items) {
-      const { sessionId, toolUseId, toolName } = item;
+      const { requestId, sessionId, toolUseId, toolName } = item;
 
       console.log("[approval-response] approve-all", {
+        requestId,
         sessionId,
-        toolUseId,
         toolName,
       });
 
@@ -88,11 +91,10 @@ export default function ToolApproval() {
         .recordApprovalDecision(sessionId, toolUseId, "approved");
 
       try {
-        await respondToApproval(sessionId, toolUseId, true);
+        await resolveToolApproval(requestId, true);
       } catch (e) {
         console.error("[approval-response] Failed in approve-all:", e, {
-          sessionId,
-          toolUseId,
+          requestId,
         });
       }
 

@@ -1,12 +1,16 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useUiStore } from "../../stores/uiStore";
+import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import TitleBar from "./TitleBar";
 import SessionSubTabs from "./SessionSubTabs";
 import Sidebar from "../sidebar/Sidebar";
 import ChatPanel from "../chat/ChatPanel";
+import ProjectLogFeed from "../chat/ProjectLogFeed";
 import RightPanel from "../rightpanel/RightPanel";
 import InputArea from "../input/InputArea";
+import ConfirmCloseModal from "../modals/ConfirmCloseModal";
+import type { PendingClose } from "../modals/ConfirmCloseModal";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -74,7 +78,50 @@ const HANDLE_WIDTH = 9; // each resize handle
 export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
+  const showProjectLog = useUiStore((s) => s.showProjectLog);
+  const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
+  const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+
+  // Reset project log view when switching projects
+  useEffect(() => {
+    setShowProjectLog(false);
+  }, [activeProjectPath, setShowProjectLog]);
+
+  const handleCloseSession = useCallback((sessionId: string) => {
+    const session = useSessionStore.getState().sessions.get(sessionId);
+    setPendingClose({
+      type: "session",
+      id: sessionId,
+      name: session?.name ?? "Session",
+      sessionCount: 1,
+    });
+  }, []);
+
+  const handleCloseProject = useCallback((projectPath: string) => {
+    const { sessions, tabOrder } = useSessionStore.getState();
+    const count = tabOrder.filter(
+      (id) => sessions.get(id)?.project_path === projectPath
+    ).length;
+    const projectName = projectPath.split("/").filter(Boolean).pop() ?? "";
+    setPendingClose({
+      type: "project",
+      id: projectPath,
+      name: projectName,
+      sessionCount: count,
+    });
+  }, []);
+
+  const handleConfirmClose = useCallback(() => {
+    if (!pendingClose) return;
+    if (pendingClose.type === "session") {
+      closeSession(pendingClose.id);
+    } else {
+      closeAllSessionsInProject(pendingClose.id);
+    }
+    setPendingClose(null);
+  }, [pendingClose, closeSession, closeAllSessionsInProject]);
 
   // Use getState() to avoid stale closure during drag.
   // Cap widths so the center column never shrinks below MIN_CENTER.
@@ -100,10 +147,10 @@ export default function AppShell() {
 
   return (
     <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
-      <TitleBar onCloseProject={closeAllSessionsInProject} />
+      <TitleBar onCloseProject={handleCloseProject} />
       <SessionSubTabs
         onAddSession={addSessionToProject}
-        onCloseSession={closeSession}
+        onCloseSession={handleCloseSession}
         onRenameSession={renameSession}
       />
 
@@ -118,12 +165,18 @@ export default function AppShell() {
 
         <ResizeHandle onDrag={handleLeftDrag} />
 
-        {/* Center: Chat + Input */}
+        {/* Center: Chat + Input or Project Log */}
         <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <ChatPanel />
-          </div>
-          <InputArea />
+          {showProjectLog ? (
+            <ProjectLogFeed />
+          ) : (
+            <>
+              <div className="flex-1 overflow-hidden">
+                <ChatPanel />
+              </div>
+              <InputArea />
+            </>
+          )}
         </div>
 
         <ResizeHandle onDrag={handleRightDrag} />
@@ -136,6 +189,12 @@ export default function AppShell() {
           <RightPanel />
         </div>
       </div>
+
+      <ConfirmCloseModal
+        pendingClose={pendingClose}
+        onConfirm={handleConfirmClose}
+        onCancel={() => setPendingClose(null)}
+      />
     </div>
   );
 }

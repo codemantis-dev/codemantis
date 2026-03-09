@@ -4,8 +4,6 @@ use log::debug;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 
-const AUTO_APPROVED_TOOLS: &[&str] = &["Read", "Glob", "Grep"];
-
 pub async fn route_events(
     app_handle: AppHandle,
     session_id: String,
@@ -13,7 +11,6 @@ pub async fn route_events(
 ) {
     let chat_event = format!("claude-chat-{}", session_id);
     let activity_event = format!("claude-activity-{}", session_id);
-    let approval_event = format!("claude-approval-{}", session_id);
 
     let mut accumulated_text = String::new();
     let mut cli_session_id_emitted = false;
@@ -89,10 +86,6 @@ pub async fn route_events(
                                         tool_input: input.clone(),
                                     };
                                     let _ = app_handle.emit(&activity_event, &fe);
-
-                                    if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
-                                        let _ = app_handle.emit(&approval_event, &fe);
-                                    }
                                 }
                             }
                             ContentBlock::ToolResult {
@@ -148,10 +141,6 @@ pub async fn route_events(
                                     tool_input: input.clone(),
                                 };
                                 let _ = app_handle.emit(&activity_event, &fe);
-
-                                if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
-                                    let _ = app_handle.emit(&approval_event, &fe);
-                                }
                             }
                         }
                         ContentBlock::Text { text } => {

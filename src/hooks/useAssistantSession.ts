@@ -32,7 +32,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     }
 
     const num = existing.length + 1;
-    const session = await createSession(projectPath, `Assistant ${num}`, true);
+    const session = await createSession(projectPath, `Assistant ${num}`);
 
     store.addAssistant(projectPath, {
       id: session.id,

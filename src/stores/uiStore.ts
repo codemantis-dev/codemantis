@@ -12,6 +12,9 @@ interface UiState {
   showProjectPicker: boolean;
   showCliOverlay: boolean;
   claudeBinaryPath: string | null;
+  showProjectLog: boolean;
+  draftInput: string | null;
+  fileTreeRefreshTrigger: number;
 
   setSidebarWidth: (width: number) => void;
   setRightPanelWidth: (width: number) => void;
@@ -22,11 +25,14 @@ interface UiState {
   setShowProjectPicker: (show: boolean) => void;
   setShowCliOverlay: (show: boolean) => void;
   setClaudeBinaryPath: (path: string | null) => void;
+  setShowProjectLog: (show: boolean) => void;
+  setDraftInput: (text: string | null) => void;
+  triggerFileTreeRefresh: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
   sidebarWidth: 220,
-  rightPanelWidth: 360,
+  rightPanelWidth: 420,
   rightTab: "activity",
   showApprovalModal: false,
   showQuestionModal: false,
@@ -34,6 +40,9 @@ export const useUiStore = create<UiState>((set) => ({
   showProjectPicker: false,
   showCliOverlay: false,
   claudeBinaryPath: null,
+  showProjectLog: false,
+  draftInput: null,
+  fileTreeRefreshTrigger: 0,
 
   setSidebarWidth: (width) =>
     set({ sidebarWidth: Math.max(140, width) }),
@@ -46,4 +55,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
+  setShowProjectLog: (show) => set({ showProjectLog: show }),
+  setDraftInput: (text) => set({ draftInput: text }),
+  triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
 }));

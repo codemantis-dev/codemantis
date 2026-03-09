@@ -44,7 +44,12 @@ function resetStores(): void {
     alwaysAllowedTools: new Set(),
   });
 
-  useFileViewerStore.setState({ openFile: null });
+  useFileViewerStore.setState({
+    openFiles: [],
+    activeFilePath: null,
+    editedContents: new Map(),
+    dirtyFiles: new Set(),
+  });
 
   useUiStore.setState({
     sidebarWidth: 220,

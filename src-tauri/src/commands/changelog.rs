@@ -17,6 +17,20 @@ pub struct ChangelogEntry {
     pub turn_index: i32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectChangelogEntry {
+    pub id: String,
+    pub session_id: String,
+    pub session_name: String,
+    pub timestamp: String,
+    pub headline: String,
+    pub description: String,
+    pub category: String,
+    pub files_changed: Vec<String>,
+    pub turn_index: i32,
+}
+
 #[tauri::command]
 pub async fn generate_changelog_entry(
     state: State<'_, AppState>,
@@ -24,6 +38,7 @@ pub async fn generate_changelog_entry(
     user_prompt: String,
     assistant_summary: String,
     tools_used: Vec<String>,
+    session_mode: String,
 ) -> Result<ChangelogEntry, String> {
     // Read settings to get provider + key
     let app_settings = settings::get_settings()?;
@@ -55,6 +70,7 @@ pub async fn generate_changelog_entry(
         user_prompt,
         assistant_summary,
         tools_used,
+        session_mode,
     };
 
     let custom_prompt = if app_settings.changelog_prompt.trim().is_empty() {
@@ -140,6 +156,38 @@ pub async fn delete_changelog_entry(
 ) -> Result<(), String> {
     let db = &state.database;
     db.delete_changelog_entry(&entry_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_project_changelog_entries(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<Vec<ProjectChangelogEntry>, String> {
+    let db = &state.database;
+    let rows = db
+        .list_changelog_entries_by_project(&project_path)
+        .map_err(|e| e.to_string())?;
+
+    let entries = rows
+        .into_iter()
+        .map(|row| {
+            let files_changed: Vec<String> =
+                serde_json::from_str(&row.files_changed).unwrap_or_default();
+            ProjectChangelogEntry {
+                id: row.id,
+                session_id: row.session_id,
+                session_name: row.session_name,
+                timestamp: row.timestamp,
+                headline: row.headline,
+                description: row.description,
+                category: row.category,
+                files_changed,
+                turn_index: row.turn_index,
+            }
+        })
+        .collect();
+
+    Ok(entries)
 }
 
 #[tauri::command]

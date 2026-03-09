@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { listenTerminalOutput, sendTerminalInput } from "../../lib/tauri-commands";
 import { useTerminal } from "../../hooks/useTerminal";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -41,7 +42,9 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     });
 
     const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
+    const webLinksAddon = new WebLinksAddon((_event, uri) => {
+      openUrl(uri).catch((e) => console.error("Failed to open URL:", e));
+    });
 
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(webLinksAddon);

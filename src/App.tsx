@@ -13,6 +13,7 @@ import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
 import { showToast } from "./stores/toastStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
 
 export default function App() {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
@@ -24,6 +25,7 @@ export default function App() {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   useKeyboardShortcuts();
+  useToolApprovalListener();
 
   useEffect(() => {
     checkClaudeStatus()
@@ -115,6 +117,7 @@ export default function App() {
                   <span>Native UI for Claude Code</span>
                 )}
               </p>
+              <p className="text-text-ghost text-label mt-1">v{__APP_VERSION__}</p>
             </div>
 
             <button

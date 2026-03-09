@@ -13,6 +13,20 @@ pub struct AttachmentInfo {
     pub is_image: bool,
 }
 
+/// Read a file and return its bytes for creating object URLs on the frontend.
+#[tauri::command]
+pub fn read_file_bytes(file_path: String) -> Result<Vec<u8>, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    if metadata.len() > MAX_IMAGE_SIZE as u64 {
+        return Err("File too large for preview".to_string());
+    }
+    fs::read(path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn save_clipboard_image(
     project_path: String,

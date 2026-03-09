@@ -21,6 +21,19 @@ pub struct ChangelogEntryRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProjectChangelogEntryRow {
+    pub id: String,
+    pub session_id: String,
+    pub session_name: String,
+    pub timestamp: String,
+    pub headline: String,
+    pub description: String,
+    pub category: String,
+    pub files_changed: String, // JSON array string
+    pub turn_index: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
     pub id: String,
     pub name: String,
@@ -211,6 +224,45 @@ impl Database {
         Ok(())
     }
 
+    pub fn list_changelog_entries_by_project(&self, project_path: &str) -> Result<Vec<ProjectChangelogEntryRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT ce.id, ce.session_id, s.name, ce.timestamp, ce.headline, ce.description, ce.category, ce.files_changed, ce.turn_index \
+                 FROM changelog_entries ce \
+                 JOIN sessions s ON ce.session_id = s.id \
+                 WHERE s.project_path = ?1 \
+                 ORDER BY ce.timestamp DESC"
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![project_path], |row| {
+                Ok(ProjectChangelogEntryRow {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    session_name: row.get(2)?,
+                    timestamp: row.get(3)?,
+                    headline: row.get(4)?,
+                    description: row.get(5)?,
+                    category: row.get(6)?,
+                    files_changed: row.get(7)?,
+                    turn_index: row.get(8)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(entries)
+    }
+
     #[allow(dead_code)]
     pub fn update_session_model(&self, id: &str, model: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| {
@@ -286,5 +338,33 @@ mod tests {
         db.insert_session("s1", "Test1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
             .unwrap();
         assert_eq!(db.get_next_icon_index().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_list_changelog_entries_by_project() {
+        let db = Database::new(":memory:").unwrap();
+
+        // Two sessions in the same project
+        db.insert_session("s1", "Session A", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s2", "Session B", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        // One session in a different project
+        db.insert_session("s3", "Other", "/other", "connected", "2026-01-03T00:00:00Z", None, 2).unwrap();
+
+        db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "First", "desc1", "feature", "[]", 0).unwrap();
+        db.insert_changelog_entry("e2", "s2", "2026-01-02T01:00:00Z", "Second", "desc2", "bugfix", "[]", 0).unwrap();
+        db.insert_changelog_entry("e3", "s3", "2026-01-03T01:00:00Z", "Other project", "desc3", "docs", "[]", 0).unwrap();
+
+        let entries = db.list_changelog_entries_by_project("/project").unwrap();
+        assert_eq!(entries.len(), 2);
+        // Newest first
+        assert_eq!(entries[0].id, "e2");
+        assert_eq!(entries[0].session_name, "Session B");
+        assert_eq!(entries[1].id, "e1");
+        assert_eq!(entries[1].session_name, "Session A");
+
+        // Other project only has one
+        let other = db.list_changelog_entries_by_project("/other").unwrap();
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].id, "e3");
     }
 }

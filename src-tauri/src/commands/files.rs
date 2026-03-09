@@ -5,21 +5,22 @@ use std::path::Path;
 const MAX_DEPTH: usize = 5;
 const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
 
-const IGNORE_DIRS: &[&str] = &[
+const IGNORE_ENTRIES: &[&str] = &[
     "node_modules",
     ".git",
-    "dist",
-    "build",
     ".next",
     "__pycache__",
     ".DS_Store",
     "target",
-    ".claudeforge",
+
     ".venv",
     "venv",
     ".turbo",
     ".cache",
     "coverage",
+    ".angular",
+    ".svelte-kit",
+    ".nuxt",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,11 +68,8 @@ fn scan_directory(dir: &Path, depth: usize) -> Result<Vec<FileNode>, std::io::Er
     for entry in dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip hidden files (except special ones) and ignored dirs
-        if name.starts_with('.') && name != ".claude" {
-            continue;
-        }
-        if IGNORE_DIRS.contains(&name.as_str()) {
+        // Skip entries in the ignore list (noisy/internal dirs)
+        if IGNORE_ENTRIES.contains(&name.as_str()) {
             continue;
         }
 

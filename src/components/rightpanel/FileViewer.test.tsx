@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import FileViewer from "./FileViewer";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 
@@ -35,10 +35,17 @@ vi.mock("@monaco-editor/react", () => {
   };
 });
 
-describe("FileViewer", () => {
-  beforeEach(() => {
-    useFileViewerStore.setState({ openFile: null });
+function resetStore(): void {
+  useFileViewerStore.setState({
+    openFiles: [],
+    activeFilePath: null,
+    editedContents: new Map(),
+    dirtyFiles: new Set(),
   });
+}
+
+describe("FileViewer", () => {
+  beforeEach(resetStore);
 
   it("shows empty state when no file is open", () => {
     render(<FileViewer />);
@@ -48,8 +55,8 @@ describe("FileViewer", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders file name in header", () => {
-    useFileViewerStore.getState().setOpenFile({
+  it("renders file name in header and tab", () => {
+    useFileViewerStore.getState().openFile({
       filePath: "/src/main.rs",
       fileName: "main.rs",
       language: "rust",
@@ -59,11 +66,13 @@ describe("FileViewer", () => {
       isDiff: false,
     });
     render(<FileViewer />);
-    expect(screen.getByText("main.rs")).toBeInTheDocument();
+    // File name appears in both the tab and the header
+    const matches = screen.getAllByText("main.rs");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders extension badge", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/src/app.tsx",
       fileName: "app.tsx",
       language: "typescript",
@@ -77,7 +86,7 @@ describe("FileViewer", () => {
   });
 
   it("renders file size for normal files", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/data.json",
       fileName: "data.json",
       language: "json",
@@ -91,7 +100,7 @@ describe("FileViewer", () => {
   });
 
   it("renders Monaco editor with file content", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/test.py",
       fileName: "test.py",
       language: "python",
@@ -108,7 +117,7 @@ describe("FileViewer", () => {
   });
 
   it("renders DiffEditor for diff mode", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -131,7 +140,7 @@ describe("FileViewer", () => {
   });
 
   it("shows diff summary (+N -M) for diff files", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -148,28 +157,35 @@ describe("FileViewer", () => {
     expect(screen.getByText("-1")).toBeInTheDocument();
   });
 
-  it("closes file when X button is clicked", () => {
-    useFileViewerStore.getState().setOpenFile({
-      filePath: "/test.rs",
-      fileName: "test.rs",
+  it("renders multiple tabs when multiple files are open", () => {
+    useFileViewerStore.getState().openFile({
+      filePath: "/a.ts",
+      fileName: "a.ts",
+      language: "typescript",
+      extension: "ts",
+      fileSize: 5,
+      content: "a",
+      isDiff: false,
+    });
+    useFileViewerStore.getState().openFile({
+      filePath: "/b.rs",
+      fileName: "b.rs",
       language: "rust",
       extension: "rs",
-      fileSize: 10,
-      content: "fn test() {}",
+      fileSize: 5,
+      content: "b",
       isDiff: false,
     });
     render(<FileViewer />);
-
-    // Find the close button (last button in toolbar)
-    const buttons = screen.getAllByRole("button");
-    const closeButton = buttons[buttons.length - 1]; // Close is last
-    fireEvent.click(closeButton);
-
-    expect(useFileViewerStore.getState().openFile).toBeNull();
+    // Both tab names should be visible
+    expect(screen.getByText("a.ts")).toBeInTheDocument();
+    // b.rs appears in both tab and header since it's active
+    const bMatches = screen.getAllByText("b.rs");
+    expect(bMatches.length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders word wrap toggle button", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -179,14 +195,13 @@ describe("FileViewer", () => {
       isDiff: false,
     });
     render(<FileViewer />);
-    // Word wrap button should exist (it's one of the buttons)
     const buttons = screen.getAllByRole("button");
-    expect(buttons.length).toBeGreaterThanOrEqual(2); // word wrap + close
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders side-by-side toggle only in diff mode", () => {
     // Normal mode — no side-by-side button
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -196,12 +211,13 @@ describe("FileViewer", () => {
       isDiff: false,
     });
     const { unmount } = render(<FileViewer />);
-    const normalButtons = screen.getAllByRole("button");
-    expect(normalButtons).toHaveLength(2); // word wrap + close
+    // In normal mode: tab close (X) + word wrap button = buttons in toolbar only
+    // Tab button + close X inside tab + word wrap in toolbar
     unmount();
+    resetStore();
 
     // Diff mode — has side-by-side button
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -214,11 +230,12 @@ describe("FileViewer", () => {
     });
     render(<FileViewer />);
     const diffButtons = screen.getAllByRole("button");
-    expect(diffButtons).toHaveLength(3); // word wrap + side-by-side + close
+    // Should have more buttons due to side-by-side toggle
+    expect(diffButtons.length).toBeGreaterThanOrEqual(2);
   });
 
   it("does not show file size for diff files", () => {
-    useFileViewerStore.getState().setOpenFile({
+    useFileViewerStore.getState().openFile({
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",

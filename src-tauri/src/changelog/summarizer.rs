@@ -5,6 +5,7 @@ pub struct SummarizeRequest {
     pub user_prompt: String,
     pub assistant_summary: String,
     pub tools_used: Vec<String>,
+    pub session_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,15 +17,23 @@ pub struct SummarizeResponse {
 
 const DEFAULT_SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
 
-JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}"#;
+JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test|plan"}
+
+Use category "plan" when the session is in plan mode (architecture planning, implementation design, no actual code changes being committed)."#;
 
 fn build_prompt(request: &SummarizeRequest) -> String {
     let tools_str = request.tools_used.join(", ");
+    let mode_hint = if request.session_mode == "plan" {
+        "\nSession mode: PLAN MODE (this is a planning/architecture session, use category \"plan\")"
+    } else {
+        ""
+    };
     format!(
-        "User request: {}\nActions taken: {}\nResult summary: {}",
+        "User request: {}\nActions taken: {}\nResult summary: {}{}",
         &request.user_prompt[..request.user_prompt.len().min(200)],
         &tools_str[..tools_str.len().min(300)],
-        &request.assistant_summary[..request.assistant_summary.len().min(300)]
+        &request.assistant_summary[..request.assistant_summary.len().min(300)],
+        mode_hint
     )
 }
 
@@ -230,7 +239,7 @@ fn validate_response(mut resp: SummarizeResponse) -> SummarizeResponse {
     }
 
     // Validate category
-    let valid_categories = ["feature", "bugfix", "refactor", "docs", "config", "test"];
+    let valid_categories = ["feature", "bugfix", "refactor", "docs", "config", "test", "plan"];
     if !valid_categories.contains(&resp.category.as_str()) {
         resp.category = "feature".to_string();
     }

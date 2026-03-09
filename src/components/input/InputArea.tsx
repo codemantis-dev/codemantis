@@ -1,14 +1,25 @@
-import { useState, useRef, useCallback, type KeyboardEvent, type DragEvent } from "react";
+import { useState, useRef, useCallback, useEffect, type KeyboardEvent, type DragEvent } from "react";
 import { Send, Plus, AtSign } from "lucide-react";
 import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useUiStore } from "../../stores/uiStore";
-import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
+import { saveClipboardImage, getFileInfo, readFileBytes } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+
+/** Read a file via Rust and create a blob: URL for previewing in the webview. */
+async function createPreviewUrl(filePath: string, mimeType: string): Promise<string | undefined> {
+  try {
+    const bytes = await readFileBytes(filePath);
+    const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+    return URL.createObjectURL(blob);
+  } catch {
+    return undefined;
+  }
+}
 
 function formatModelName(model: string | null | undefined): string | null {
   if (!model) return null;
@@ -62,6 +73,26 @@ export default function InputArea() {
     : undefined;
   const isStreaming = streaming?.isStreaming ?? false;
 
+  const draftInput = useUiStore((s) => s.draftInput);
+  const setDraftInput = useUiStore((s) => s.setDraftInput);
+
+  // Consume draftInput from assistant "Use in Chat"
+  useEffect(() => {
+    if (draftInput !== null) {
+      setInput(draftInput);
+      setDraftInput(null);
+      setTimeout(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.style.height = "auto";
+          const maxHeight = 8 * 24;
+          el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
+          el.focus();
+        }
+      }, 0);
+    }
+  }, [draftInput, setDraftInput]);
+
   const attachments = useAttachmentStore((s) => s.attachments);
   const addAttachment = useAttachmentStore((s) => s.addAttachment);
   const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
@@ -81,12 +112,6 @@ export default function InputArea() {
         .map((a) => `[Attached file: ${a.filePath}]`)
         .join("\n");
       prompt = attachmentRefs + (trimmed ? "\n\n" + trimmed : "");
-    }
-
-    // In plan mode, prepend instruction to only plan
-    const mode = sessionModes.get(activeSessionId) ?? "normal";
-    if (mode === "plan") {
-      prompt = "[PLAN MODE] Only describe what you would do step-by-step. Do NOT make any code changes, create files, or run commands. Just explain your plan.\n\n" + prompt;
     }
 
     setInput("");
@@ -142,6 +167,9 @@ export default function InputArea() {
               imageData,
               filename
             );
+            const thumbnailUrl = info.is_image
+              ? await createPreviewUrl(info.file_path, info.mime_type)
+              : undefined;
             addAttachment({
               id: `att-${Date.now()}`,
               fileName: info.file_name,
@@ -149,6 +177,7 @@ export default function InputArea() {
               fileSize: info.file_size,
               mimeType: info.mime_type,
               isImage: info.is_image,
+              thumbnailUrl,
             });
           } catch (err) {
             console.error("Failed to save clipboard image:", err);
@@ -191,6 +220,7 @@ export default function InputArea() {
               imageData,
               file.name
             );
+            const thumbUrl = await createPreviewUrl(info.file_path, info.mime_type);
             addAttachment({
               id: `att-${Date.now()}-${file.name}`,
               fileName: info.file_name,
@@ -198,6 +228,7 @@ export default function InputArea() {
               fileSize: info.file_size,
               mimeType: info.mime_type,
               isImage: true,
+              thumbnailUrl: thumbUrl,
             });
           } else {
             // Non-image files: just reference by name
@@ -238,6 +269,9 @@ export default function InputArea() {
       for (const filePath of paths) {
         try {
           const info = await getFileInfo(filePath);
+          const previewUrl = info.is_image
+            ? await createPreviewUrl(info.file_path, info.mime_type)
+            : undefined;
           addAttachment({
             id: `att-${Date.now()}-${info.file_name}`,
             fileName: info.file_name,
@@ -245,6 +279,7 @@ export default function InputArea() {
             fileSize: info.file_size,
             mimeType: info.mime_type,
             isImage: info.is_image,
+            thumbnailUrl: previewUrl,
           });
         } catch (err) {
           console.error("Failed to get file info:", err);

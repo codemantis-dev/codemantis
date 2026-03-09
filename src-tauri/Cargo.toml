@@ -1,6 +1,6 @@
 [package]
 name = "claudeforge"
-version = "0.1.0"
+version = "0.2.3"
 description = "A native macOS desktop UI for Claude Code"
 authors = ["Harald"]
 edition = "2021"
@@ -30,6 +30,7 @@ tauri-plugin-dialog = "2.6.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 portable-pty = "0.8"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+axum = "0.8"
 
 [dev-dependencies]
 tempfile = "3"

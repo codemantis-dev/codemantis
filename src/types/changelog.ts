@@ -1,4 +1,4 @@
-export type ChangelogCategory = "feature" | "bugfix" | "refactor" | "docs" | "config" | "test";
+export type ChangelogCategory = "feature" | "bugfix" | "refactor" | "docs" | "config" | "test" | "plan";
 
 export interface ChangelogEntry {
   id: string;
@@ -9,4 +9,8 @@ export interface ChangelogEntry {
   category: ChangelogCategory;
   files_changed: string[];
   turn_index: number;
+}
+
+export interface ProjectChangelogEntry extends ChangelogEntry {
+  session_name: string;
 }

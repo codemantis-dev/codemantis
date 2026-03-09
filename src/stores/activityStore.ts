@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ActivityEntry, ApprovalDecision } from "../types/activity";
 
 export interface PendingApproval {
+  requestId: string;
   toolUseId: string;
   toolName: string;
   toolInput: Record<string, unknown>;

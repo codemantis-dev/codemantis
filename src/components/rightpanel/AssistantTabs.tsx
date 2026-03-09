@@ -40,13 +40,14 @@ export default function AssistantTabs({
               color={isBusy ? "yellow" : "green"}
               size={4}
             />
-            <span className="truncate max-w-[80px]">{asst.name}</span>
+            <span className="truncate max-w-[80px]" title={asst.name}>{asst.name}</span>
             <span
               onClick={(e) => {
                 e.stopPropagation();
                 onClose(asst.id);
               }}
               className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-bg-subtle transition-all"
+              title="Close assistant"
             >
               <X size={10} />
             </span>

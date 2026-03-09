@@ -80,3 +80,15 @@ pnpm tsc --noEmit
 - Rust: handle all Results (no unwrap in production code), use thiserror for error types
 - CSS: Tailwind classes only, CSS variables for colors (defined in index.css)
 - Naming: camelCase for TS/JS, snake_case for Rust, PascalCase for components
+
+## Versioning
+
+ClaudeForge uses semantic versioning (major.minor.patch).
+
+**On every commit that changes functionality:**
+1. Bump the patch version (or minor for features, major for breaking)
+2. Update version in ALL THREE locations:
+   - `package.json` → `"version"`
+   - `src-tauri/Cargo.toml` → `version`
+   - `src-tauri/tauri.conf.json` → `"version"`
+3. Add entry to `RELEASES.md` with version number and bullet list of changes

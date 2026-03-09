@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Session, PersistedSession } from "../types/session";
 import type { FileNode } from "../types/file-tree";
-import type { FrontendEvent } from "../types/claude-events";
+import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-events";
 import type { AppSettings } from "../types/settings";
-import type { ChangelogEntry } from "../types/changelog";
+import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 
 // --- Startup ---
 
@@ -23,13 +23,11 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
 
 export async function createSession(
   projectPath: string,
-  name?: string,
-  skipPermissions?: boolean
+  name?: string
 ): Promise<Session> {
   return invoke<Session>("create_session", {
     projectPath,
     name,
-    skipPermissions: skipPermissions ?? false,
   });
 }
 
@@ -51,12 +49,19 @@ export async function sendMessage(
   return invoke("send_message", { sessionId, prompt });
 }
 
-export async function respondToApproval(
+export async function setSessionMode(
   sessionId: string,
-  toolUseId: string,
-  approved: boolean
+  mode: string
 ): Promise<void> {
-  return invoke("respond_to_approval", { sessionId, toolUseId, approved });
+  return invoke("set_session_mode", { sessionId, mode });
+}
+
+export async function resolveToolApproval(
+  requestId: string,
+  approved: boolean,
+  reason?: string
+): Promise<void> {
+  return invoke("resolve_tool_approval", { requestId, approved, reason });
 }
 
 export async function respondToQuestion(
@@ -118,6 +123,12 @@ export interface AttachmentInfo {
   file_size: number;
   mime_type: string;
   is_image: boolean;
+}
+
+export async function readFileBytes(
+  filePath: string
+): Promise<number[]> {
+  return invoke<number[]>("read_file_bytes", { filePath });
 }
 
 export async function saveClipboardImage(
@@ -215,13 +226,15 @@ export async function generateChangelogEntry(
   sessionId: string,
   userPrompt: string,
   assistantSummary: string,
-  toolsUsed: string[]
+  toolsUsed: string[],
+  sessionMode: string
 ): Promise<ChangelogEntry> {
   return invoke<ChangelogEntry>("generate_changelog_entry", {
     sessionId,
     userPrompt,
     assistantSummary,
     toolsUsed,
+    sessionMode,
   });
 }
 
@@ -229,6 +242,12 @@ export async function getChangelogEntries(
   sessionId: string
 ): Promise<ChangelogEntry[]> {
   return invoke<ChangelogEntry[]>("get_changelog_entries", { sessionId });
+}
+
+export async function getProjectChangelogEntries(
+  projectPath: string
+): Promise<ProjectChangelogEntry[]> {
+  return invoke<ProjectChangelogEntry[]>("get_project_changelog_entries", { projectPath });
 }
 
 export async function deleteChangelogEntry(entryId: string): Promise<void> {
@@ -262,11 +281,10 @@ export function listenActivityEvents(
   );
 }
 
-export function listenApprovalEvents(
-  sessionId: string,
-  callback: (event: FrontendEvent) => void
+export function listenToolApprovalRequests(
+  callback: (event: ToolApprovalRequestEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<FrontendEvent>(`claude-approval-${sessionId}`, (e) =>
+  return listen<ToolApprovalRequestEvent>("tool-approval-request", (e) =>
     callback(e.payload)
   );
 }
