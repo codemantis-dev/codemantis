@@ -18,7 +18,9 @@ function setEntries(entries: ActivityEntry[]): void {
   });
   useActivityStore.setState({
     sessionEntries: new Map([[SESSION_ID, entries]]),
-    sessionApprovals: new Map([[SESSION_ID, null]]),
+    approvalQueue: [],
+    approvalSeenIds: new Set(),
+    currentApprovalIndex: 0,
   });
 }
 
@@ -34,7 +36,9 @@ describe("ActivityFeed", () => {
     });
     useActivityStore.setState({
       sessionEntries: new Map(),
-      sessionApprovals: new Map(),
+      approvalQueue: [],
+      approvalSeenIds: new Set(),
+      currentApprovalIndex: 0,
     });
   });
 

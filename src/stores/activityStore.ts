@@ -1,10 +1,12 @@
 import { create } from "zustand";
-import type { ActivityEntry } from "../types/activity";
+import type { ActivityEntry, ApprovalDecision } from "../types/activity";
 
-interface PendingApproval {
+export interface PendingApproval {
   toolUseId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
+  sessionId: string;
+  timestamp: string;
 }
 
 export interface QuestionOption {
@@ -26,9 +28,13 @@ export interface PendingQuestion {
 
 interface ActivityState {
   sessionEntries: Map<string, ActivityEntry[]>;
-  sessionApprovals: Map<string, PendingApproval | null>;
   sessionQuestions: Map<string, PendingQuestion | null>;
   alwaysAllowedTools: Set<string>;
+
+  // Queue-based approval system
+  approvalQueue: PendingApproval[];
+  approvalSeenIds: Set<string>;
+  currentApprovalIndex: number;
 
   addEntry: (sessionId: string, entry: ActivityEntry) => void;
   updateEntryStatus: (
@@ -38,9 +44,15 @@ interface ActivityState {
     result?: string,
     isError?: boolean
   ) => void;
-  setPendingApproval: (
+  enqueueApproval: (approval: PendingApproval) => void;
+  dequeueApproval: (toolUseId: string) => void;
+  setCurrentApprovalIndex: (index: number) => void;
+  getCurrentApproval: () => PendingApproval | undefined;
+  getApprovalQueueSize: () => number;
+  recordApprovalDecision: (
     sessionId: string,
-    approval: PendingApproval | null
+    toolUseId: string,
+    decision: ApprovalDecision
   ) => void;
   setPendingQuestion: (
     sessionId: string,
@@ -50,16 +62,18 @@ interface ActivityState {
   isToolAlwaysAllowed: (toolName: string) => boolean;
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
   getActiveEntries: (sessionId: string) => ActivityEntry[];
-  getActivePendingApproval: (sessionId: string) => PendingApproval | null;
   clearEntries: (sessionId: string) => void;
   clearAllEntries: () => void;
 }
 
 export const useActivityStore = create<ActivityState>((set, get) => ({
   sessionEntries: new Map(),
-  sessionApprovals: new Map(),
   sessionQuestions: new Map(),
   alwaysAllowedTools: new Set<string>(),
+
+  approvalQueue: [],
+  approvalSeenIds: new Set<string>(),
+  currentApprovalIndex: 0,
 
   addEntry: (sessionId, entry) =>
     set((state) => {
@@ -81,11 +95,60 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       return { sessionEntries };
     }),
 
-  setPendingApproval: (sessionId, approval) =>
+  enqueueApproval: (approval) =>
     set((state) => {
-      const sessionApprovals = new Map(state.sessionApprovals);
-      sessionApprovals.set(sessionId, approval);
-      return { sessionApprovals };
+      if (state.approvalSeenIds.has(approval.toolUseId)) {
+        return {};
+      }
+      const approvalSeenIds = new Set(state.approvalSeenIds);
+      approvalSeenIds.add(approval.toolUseId);
+      return {
+        approvalQueue: [...state.approvalQueue, approval],
+        approvalSeenIds,
+      };
+    }),
+
+  dequeueApproval: (toolUseId) =>
+    set((state) => {
+      const approvalQueue = state.approvalQueue.filter(
+        (a) => a.toolUseId !== toolUseId
+      );
+      const currentApprovalIndex = Math.min(
+        state.currentApprovalIndex,
+        Math.max(0, approvalQueue.length - 1)
+      );
+      return { approvalQueue, currentApprovalIndex };
+    }),
+
+  setCurrentApprovalIndex: (index) =>
+    set((state) => ({
+      currentApprovalIndex: Math.max(
+        0,
+        Math.min(index, state.approvalQueue.length - 1)
+      ),
+    })),
+
+  getCurrentApproval: () => {
+    const state = get();
+    return state.approvalQueue[state.currentApprovalIndex];
+  },
+
+  getApprovalQueueSize: () => get().approvalQueue.length,
+
+  recordApprovalDecision: (sessionId, toolUseId, decision) =>
+    set((state) => {
+      const sessionEntries = new Map(state.sessionEntries);
+      const entries = (sessionEntries.get(sessionId) ?? []).map((e) =>
+        e.toolUseId === toolUseId
+          ? {
+              ...e,
+              approvalStatus: decision,
+              approvalTimestamp: new Date().toISOString(),
+            }
+          : e
+      );
+      sessionEntries.set(sessionId, entries);
+      return { sessionEntries };
     }),
 
   setPendingQuestion: (sessionId, question) =>
@@ -112,24 +175,42 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
   getActiveEntries: (sessionId) =>
     get().sessionEntries.get(sessionId) ?? [],
 
-  getActivePendingApproval: (sessionId) =>
-    get().sessionApprovals.get(sessionId) ?? null,
-
   clearEntries: (sessionId) =>
     set((state) => {
       const sessionEntries = new Map(state.sessionEntries);
       sessionEntries.set(sessionId, []);
-      const sessionApprovals = new Map(state.sessionApprovals);
-      sessionApprovals.set(sessionId, null);
       const sessionQuestions = new Map(state.sessionQuestions);
       sessionQuestions.set(sessionId, null);
-      return { sessionEntries, sessionApprovals, sessionQuestions };
+      // Remove this session's items from the approval queue
+      const approvalQueue = state.approvalQueue.filter(
+        (a) => a.sessionId !== sessionId
+      );
+      const approvalSeenIds = new Set(state.approvalSeenIds);
+      // Remove seen IDs for this session's approvals
+      for (const a of state.approvalQueue) {
+        if (a.sessionId === sessionId) {
+          approvalSeenIds.delete(a.toolUseId);
+        }
+      }
+      const currentApprovalIndex = Math.min(
+        state.currentApprovalIndex,
+        Math.max(0, approvalQueue.length - 1)
+      );
+      return {
+        sessionEntries,
+        sessionQuestions,
+        approvalQueue,
+        approvalSeenIds,
+        currentApprovalIndex,
+      };
     }),
 
   clearAllEntries: () =>
     set({
       sessionEntries: new Map(),
-      sessionApprovals: new Map(),
       sessionQuestions: new Map(),
+      approvalQueue: [],
+      approvalSeenIds: new Set<string>(),
+      currentApprovalIndex: 0,
     }),
 }));

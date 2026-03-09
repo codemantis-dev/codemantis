@@ -6,6 +6,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useChangelogStore } from "../stores/changelogStore";
+import { useAssistantStore } from "../stores/assistantStore";
 
 let messageCounter = 0;
 
@@ -179,7 +180,11 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
   switch (event.type) {
     case "tool_use_start": {
-      const streaming = sessionStore.sessionStreaming.get(sessionId);
+      // Check main session store first, then assistant store for the streaming messageId
+      let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;
+      if (!currentMessageId) {
+        currentMessageId = useAssistantStore.getState().streaming.get(sessionId)?.currentMessageId;
+      }
       const entry: ActivityEntry = {
         id: `activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         toolUseId: event.tool_use_id,
@@ -187,7 +192,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         toolInput: event.tool_input,
         status: "running",
         timestamp: now,
-        messageId: streaming?.currentMessageId ?? "",
+        messageId: currentMessageId ?? "",
         isError: false,
       };
       activityStore.addEntry(sessionId, entry);
@@ -204,7 +209,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       );
 
       // Auto-open file when Write or Edit tool completes successfully
+      // Only auto-switch tab for main sessions, not assistant sessions
       if (!event.is_error) {
+        const isMainSession = sessionStore.sessions.has(sessionId);
         const entries = activityStore.getActiveEntries(sessionId);
         const entry = entries.find((e) => e.toolUseId === event.tool_use_id);
         if (entry) {
@@ -226,7 +233,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
                   content,
                   isDiff: false,
                 });
-                useUiStore.getState().setRightTab("files");
+                if (isMainSession) {
+                  useUiStore.getState().setRightTab("files");
+                }
               }).catch(() => {
                 // File may not exist yet or be unreadable — ignore
               });
@@ -305,6 +314,14 @@ export function handleApprovalEvent(sessionId: string, event: FrontendEvent): vo
     const sessionStore = useSessionStore.getState();
     const uiStore = useUiStore.getState();
 
+    // Skip approval modal for assistant sessions (they run with --dangerously-skip-permissions)
+    const isAssistantSession = useAssistantStore.getState().streaming.has(sessionId)
+      || useAssistantStore.getState().messages.has(sessionId);
+    if (isAssistantSession) {
+      console.log("[approval] Skipping approval for assistant session:", event.tool_name);
+      return;
+    }
+
     // Handle AskUserQuestion — show question modal instead of approval
     if (event.tool_name === "AskUserQuestion") {
       console.log("[approval] AskUserQuestion detected:", event.tool_input);
@@ -322,6 +339,7 @@ export function handleApprovalEvent(sessionId: string, event: FrontendEvent): vo
     const mode = sessionStore.sessionModes.get(sessionId) ?? "normal";
     if (mode === "auto-accept") {
       console.log("[approval] Auto-approving (auto-accept mode):", event.tool_name);
+      activityStore.recordApprovalDecision(sessionId, event.tool_use_id, "approved");
       import("./tauri-commands").then(({ respondToApproval }) => {
         respondToApproval(sessionId, event.tool_use_id, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
@@ -333,6 +351,7 @@ export function handleApprovalEvent(sessionId: string, event: FrontendEvent): vo
     // Auto-approve if user previously clicked "Always allow" for this tool
     if (activityStore.isToolAlwaysAllowed(event.tool_name)) {
       console.log("[approval] Auto-approving always-allowed tool:", event.tool_name);
+      activityStore.recordApprovalDecision(sessionId, event.tool_use_id, "approved");
       import("./tauri-commands").then(({ respondToApproval }) => {
         respondToApproval(sessionId, event.tool_use_id, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
@@ -341,11 +360,17 @@ export function handleApprovalEvent(sessionId: string, event: FrontendEvent): vo
       return;
     }
 
-    activityStore.setPendingApproval(sessionId, {
+    activityStore.enqueueApproval({
       toolUseId: event.tool_use_id,
       toolName: event.tool_name,
       toolInput: event.tool_input,
+      sessionId,
+      timestamp: new Date().toISOString(),
     });
-    uiStore.setShowApprovalModal(true);
+    activityStore.recordApprovalDecision(sessionId, event.tool_use_id, "pending");
+
+    if (!uiStore.showApprovalModal) {
+      uiStore.setShowApprovalModal(true);
+    }
   }
 }

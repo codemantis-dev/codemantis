@@ -13,10 +13,11 @@ pub async fn route_events(
 ) {
     let chat_event = format!("claude-chat-{}", session_id);
     let activity_event = format!("claude-activity-{}", session_id);
-    let _approval_event = format!("claude-approval-{}", session_id);
+    let approval_event = format!("claude-approval-{}", session_id);
 
     let mut accumulated_text = String::new();
     let mut cli_session_id_emitted = false;
+    let mut emitted_tool_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     while let Some(event) = receiver.recv().await {
         match event {
@@ -80,23 +81,18 @@ pub async fn route_events(
                                 let _ = app_handle.emit(&chat_event, &fe);
                             }
                             ContentBlock::ToolUse { id, name, input } => {
-                                let fe = FrontendEvent::ToolUseStart {
-                                    session_id: session_id.clone(),
-                                    tool_use_id: id.clone(),
-                                    tool_name: name.clone(),
-                                    tool_input: input.clone(),
-                                };
-                                let _ = app_handle.emit(&activity_event, &fe);
-
-                                if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
-                                    let approval_fe = FrontendEvent::ToolUseStart {
+                                if emitted_tool_ids.insert(id.clone()) {
+                                    let fe = FrontendEvent::ToolUseStart {
                                         session_id: session_id.clone(),
                                         tool_use_id: id.clone(),
                                         tool_name: name.clone(),
                                         tool_input: input.clone(),
                                     };
-                                    let _ = app_handle
-                                        .emit(&_approval_event, &approval_fe);
+                                    let _ = app_handle.emit(&activity_event, &fe);
+
+                                    if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
+                                        let _ = app_handle.emit(&approval_event, &fe);
+                                    }
                                 }
                             }
                             ContentBlock::ToolResult {
@@ -144,16 +140,18 @@ pub async fn route_events(
                 if let Some(block) = content_block {
                     match block {
                         ContentBlock::ToolUse { id, name, input } => {
-                            let fe = FrontendEvent::ToolUseStart {
-                                session_id: session_id.clone(),
-                                tool_use_id: id.clone(),
-                                tool_name: name.clone(),
-                                tool_input: input.clone(),
-                            };
-                            let _ = app_handle.emit(&activity_event, &fe);
+                            if emitted_tool_ids.insert(id.clone()) {
+                                let fe = FrontendEvent::ToolUseStart {
+                                    session_id: session_id.clone(),
+                                    tool_use_id: id.clone(),
+                                    tool_name: name.clone(),
+                                    tool_input: input.clone(),
+                                };
+                                let _ = app_handle.emit(&activity_event, &fe);
 
-                            if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
-                                let _ = app_handle.emit(&_approval_event, &fe);
+                                if !AUTO_APPROVED_TOOLS.contains(&name.as_str()) {
+                                    let _ = app_handle.emit(&approval_event, &fe);
+                                }
                             }
                         }
                         ContentBlock::Text { text } => {

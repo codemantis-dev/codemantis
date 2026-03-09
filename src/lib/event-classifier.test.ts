@@ -33,7 +33,9 @@ function resetStores(): void {
 
   useActivityStore.setState({
     sessionEntries: new Map([[SESSION_ID, []]]),
-    sessionApprovals: new Map([[SESSION_ID, null]]),
+    approvalQueue: [],
+    approvalSeenIds: new Set(),
+    currentApprovalIndex: 0,
     alwaysAllowedTools: new Set(),
   });
 
@@ -238,7 +240,7 @@ describe("event-classifier", () => {
   });
 
   describe("handleApprovalEvent", () => {
-    it("tool_use_start sets pending approval and shows modal", () => {
+    it("tool_use_start enqueues approval and shows modal", () => {
       handleApprovalEvent(SESSION_ID, {
         type: "tool_use_start",
         session_id: SESSION_ID,
@@ -247,10 +249,72 @@ describe("event-classifier", () => {
         tool_input: { command: "npm install" },
       });
 
-      const approval = useActivityStore.getState().getActivePendingApproval(SESSION_ID);
-      expect(approval).not.toBeNull();
-      expect(approval?.toolName).toBe("Bash");
+      const queue = useActivityStore.getState().approvalQueue;
+      expect(queue).toHaveLength(1);
+      expect(queue[0].toolName).toBe("Bash");
+      expect(queue[0].sessionId).toBe(SESSION_ID);
       expect(useUiStore.getState().showApprovalModal).toBe(true);
+    });
+
+    it("multiple approvals queue up without overwriting", () => {
+      handleApprovalEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Bash",
+        tool_input: { command: "npm install" },
+      });
+      handleApprovalEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t2",
+        tool_name: "Write",
+        tool_input: { file_path: "/tmp/test.ts" },
+      });
+
+      const queue = useActivityStore.getState().approvalQueue;
+      expect(queue).toHaveLength(2);
+      expect(queue[0].toolName).toBe("Bash");
+      expect(queue[1].toolName).toBe("Write");
+    });
+
+    it("duplicate tool_use_id is deduplicated", () => {
+      handleApprovalEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Bash",
+        tool_input: { command: "npm install" },
+      });
+      handleApprovalEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Bash",
+        tool_input: { command: "npm install" },
+      });
+
+      expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    });
+
+    it("records pending approval decision on activity entry", () => {
+      // Add an activity entry first (normally done by handleActivityEvent)
+      useActivityStore.getState().addEntry(SESSION_ID, {
+        id: "a1", toolUseId: "t1", toolName: "Bash",
+        toolInput: { command: "npm install" }, status: "running",
+        timestamp: "", messageId: "m1", isError: false,
+      });
+
+      handleApprovalEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Bash",
+        tool_input: { command: "npm install" },
+      });
+
+      const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
+      expect(entry.approvalStatus).toBe("pending");
     });
 
     it("non tool_use_start events are ignored", () => {
@@ -262,7 +326,7 @@ describe("event-classifier", () => {
         is_error: false,
       });
 
-      expect(useActivityStore.getState().getActivePendingApproval(SESSION_ID)).toBeNull();
+      expect(useActivityStore.getState().approvalQueue).toHaveLength(0);
       expect(useUiStore.getState().showApprovalModal).toBe(false);
     });
   });

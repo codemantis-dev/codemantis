@@ -22,10 +22,11 @@ impl ClaudeProcess {
         project_path: &str,
         claude_binary: &str,
         resume_cli_session_id: Option<&str>,
+        skip_permissions: bool,
     ) -> Result<Self, AppError> {
         info!(
-            "Spawning Claude CLI for session {} in {} (resume: {:?})",
-            session_id, project_path, resume_cli_session_id
+            "Spawning Claude CLI for session {} in {} (resume: {:?}, skip_permissions: {})",
+            session_id, project_path, resume_cli_session_id, skip_permissions
         );
 
         let mut cmd = Command::new(claude_binary);
@@ -37,6 +38,9 @@ impl ClaudeProcess {
             "--include-partial-messages",
             "--verbose",
         ]);
+        if skip_permissions {
+            cmd.arg("--dangerously-skip-permissions");
+        }
         if let Some(cli_sid) = resume_cli_session_id {
             cmd.args(["--resume", cli_sid]);
         }

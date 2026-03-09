@@ -97,6 +97,19 @@ export default function ActivityFeed() {
                 <span className="text-ui text-text-secondary font-medium truncate">
                   {entry.toolName}
                 </span>
+                {entry.approvalStatus && (
+                  <span
+                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ml-1 ${
+                      entry.approvalStatus === "approved"
+                        ? "bg-green/15 text-green"
+                        : entry.approvalStatus === "denied"
+                          ? "bg-red/15 text-red"
+                          : "bg-yellow/15 text-yellow"
+                    }`}
+                  >
+                    {entry.approvalStatus.toUpperCase()}
+                  </span>
+                )}
                 <span className="text-label text-text-ghost ml-auto shrink-0">
                   {new Date(entry.timestamp).toLocaleTimeString([], {
                     hour: "2-digit",

@@ -9,11 +9,13 @@ import TurnStatsPopover from "./TurnStatsPopover";
 interface MessageBubbleProps {
   message: Message;
   streamingContent?: string;
+  sessionId?: string;
 }
 
 export default function MessageBubble({
   message,
   streamingContent,
+  sessionId,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const displayContent = message.isStreaming
@@ -40,7 +42,7 @@ export default function MessageBubble({
 
   return (
     <div className="mb-4">
-      <ActivityChip messageId={message.id} />
+      <ActivityChip messageId={message.id} sessionId={sessionId} />
       <div className="mt-1 selectable">
         <div className="markdown-content text-chat text-text-secondary">
           <ReactMarkdown

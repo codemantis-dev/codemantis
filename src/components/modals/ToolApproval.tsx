@@ -1,49 +1,104 @@
 import { useCallback, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
-import { useSessionStore } from "../../stores/sessionStore";
 import { respondToApproval } from "../../lib/tauri-commands";
 import ToolBadge from "../shared/ToolBadge";
 
 export default function ToolApproval() {
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const sessionApprovals = useActivityStore((s) => s.sessionApprovals);
+  const approvalQueue = useActivityStore((s) => s.approvalQueue);
+  const currentApprovalIndex = useActivityStore((s) => s.currentApprovalIndex);
   const showModal = useUiStore((s) => s.showApprovalModal);
   const setShowModal = useUiStore((s) => s.setShowApprovalModal);
 
-  // Find the pending approval — check active session first, then any session
-  let approvalSessionId = activeSessionId;
-  let pendingApproval = activeSessionId
-    ? sessionApprovals.get(activeSessionId) ?? null
-    : null;
+  const currentApproval = approvalQueue[currentApprovalIndex];
+  const queueSize = approvalQueue.length;
 
-  if (!pendingApproval) {
-    for (const [sid, approval] of sessionApprovals) {
-      if (approval) {
-        pendingApproval = approval;
-        approvalSessionId = sid;
-        break;
-      }
+  // Auto-open modal when items enqueue
+  useEffect(() => {
+    if (queueSize > 0 && !showModal) {
+      setShowModal(true);
     }
-  }
+  }, [queueSize, showModal, setShowModal]);
+
+  // Auto-close modal when queue empties
+  useEffect(() => {
+    if (queueSize === 0 && showModal) {
+      setShowModal(false);
+    }
+  }, [queueSize, showModal, setShowModal]);
+
+  const navigateQueue = useCallback(
+    (direction: -1 | 1) => {
+      const newIndex = currentApprovalIndex + direction;
+      if (newIndex >= 0 && newIndex < queueSize) {
+        useActivityStore.getState().setCurrentApprovalIndex(newIndex);
+      }
+    },
+    [currentApprovalIndex, queueSize]
+  );
 
   const handleResponse = useCallback(
     async (approved: boolean) => {
-      if (!pendingApproval || !approvalSessionId) return;
+      if (!currentApproval) return;
+
+      const { sessionId, toolUseId, toolName } = currentApproval;
+      const decision = approved ? "approved" : "denied";
+
+      console.log("[approval-response]", {
+        sessionId,
+        toolUseId,
+        toolName,
+        approved,
+      });
+
+      useActivityStore
+        .getState()
+        .recordApprovalDecision(sessionId, toolUseId, decision);
 
       try {
-        await respondToApproval(approvalSessionId, pendingApproval.toolUseId, approved);
+        await respondToApproval(sessionId, toolUseId, approved);
       } catch (e) {
-        console.error("Failed to respond to approval:", e);
+        console.error("[approval-response] Failed:", e, {
+          sessionId,
+          toolUseId,
+        });
       }
 
-      useActivityStore.getState().setPendingApproval(approvalSessionId, null);
-      setShowModal(false);
+      useActivityStore.getState().dequeueApproval(toolUseId);
     },
-    [pendingApproval, approvalSessionId, setShowModal]
+    [currentApproval]
   );
+
+  const handleApproveAll = useCallback(async () => {
+    // Copy the queue since it mutates as we dequeue
+    const items = [...approvalQueue];
+    for (const item of items) {
+      const { sessionId, toolUseId, toolName } = item;
+
+      console.log("[approval-response] approve-all", {
+        sessionId,
+        toolUseId,
+        toolName,
+      });
+
+      useActivityStore
+        .getState()
+        .recordApprovalDecision(sessionId, toolUseId, "approved");
+
+      try {
+        await respondToApproval(sessionId, toolUseId, true);
+      } catch (e) {
+        console.error("[approval-response] Failed in approve-all:", e, {
+          sessionId,
+          toolUseId,
+        });
+      }
+
+      useActivityStore.getState().dequeueApproval(toolUseId);
+    }
+  }, [approvalQueue]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -56,16 +111,25 @@ export default function ToolApproval() {
       } else if (e.key === "Escape") {
         e.preventDefault();
         handleResponse(false);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        navigateQueue(-1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        navigateQueue(1);
+      } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleApproveAll();
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [showModal, handleResponse]);
+  }, [showModal, handleResponse, navigateQueue, handleApproveAll]);
 
-  if (!pendingApproval) return null;
+  if (!currentApproval) return null;
 
-  const inputStr = JSON.stringify(pendingApproval.toolInput, null, 2);
+  const inputStr = JSON.stringify(currentApproval.toolInput, null, 2);
 
   return (
     <Dialog.Root open={showModal} onOpenChange={setShowModal}>
@@ -76,7 +140,7 @@ export default function ToolApproval() {
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-yellow/10">
               <ShieldAlert size={20} className="text-yellow" />
             </div>
-            <div>
+            <div className="flex-1">
               <Dialog.Title className="text-text-primary font-medium">
                 Approve Tool?
               </Dialog.Title>
@@ -84,13 +148,34 @@ export default function ToolApproval() {
                 Claude wants to use a tool
               </Dialog.Description>
             </div>
+            {queueSize > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => navigateQueue(-1)}
+                  disabled={currentApprovalIndex === 0}
+                  className="p-1 rounded hover:bg-bg-elevated transition-colors disabled:opacity-30"
+                >
+                  <ChevronLeft size={16} className="text-text-secondary" />
+                </button>
+                <span className="text-label text-text-dim font-mono min-w-[3ch] text-center">
+                  {currentApprovalIndex + 1}/{queueSize}
+                </span>
+                <button
+                  onClick={() => navigateQueue(1)}
+                  disabled={currentApprovalIndex >= queueSize - 1}
+                  className="p-1 rounded hover:bg-bg-elevated transition-colors disabled:opacity-30"
+                >
+                  <ChevronRight size={16} className="text-text-secondary" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-border-light p-3 mb-4" style={{ background: "var(--bg-elevated)" }}>
             <div className="flex items-center gap-2 mb-2">
-              <ToolBadge toolName={pendingApproval.toolName} />
+              <ToolBadge toolName={currentApproval.toolName} />
               <span className="text-ui text-text-primary font-medium">
-                {pendingApproval.toolName}
+                {currentApproval.toolName}
               </span>
             </div>
             <pre className="text-label text-text-dim font-mono whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
@@ -101,14 +186,22 @@ export default function ToolApproval() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => {
-                useActivityStore.getState().addAlwaysAllowedTool(pendingApproval.toolName);
+                useActivityStore.getState().addAlwaysAllowedTool(currentApproval.toolName);
                 handleResponse(true);
               }}
               className="text-label text-text-faint hover:text-text-dim transition-colors"
             >
-              Always allow {pendingApproval.toolName}
+              Always allow {currentApproval.toolName}
             </button>
             <div className="flex gap-2">
+              {queueSize > 1 && (
+                <button
+                  onClick={handleApproveAll}
+                  className="px-4 py-2 rounded-lg text-ui text-accent border border-accent/30 hover:bg-accent/10 transition-colors"
+                >
+                  Approve all ({queueSize})
+                </button>
+              )}
               <button
                 onClick={() => handleResponse(false)}
                 className="px-4 py-2 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"

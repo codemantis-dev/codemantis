@@ -4,7 +4,9 @@ import { useActivityStore } from "./activityStore";
 function resetStore(): void {
   useActivityStore.setState({
     sessionEntries: new Map(),
-    sessionApprovals: new Map(),
+    approvalQueue: [],
+    approvalSeenIds: new Set(),
+    currentApprovalIndex: 0,
     alwaysAllowedTools: new Set(),
   });
 }
@@ -15,7 +17,7 @@ describe("activityStore", () => {
   it("starts empty", () => {
     const state = useActivityStore.getState();
     expect(state.sessionEntries.size).toBe(0);
-    expect(state.sessionApprovals.size).toBe(0);
+    expect(state.approvalQueue).toHaveLength(0);
   });
 
   it("addEntry appends an activity entry for a session", () => {
@@ -65,13 +67,66 @@ describe("activityStore", () => {
     expect(entry.isError).toBe(true);
   });
 
-  it("setPendingApproval sets and clears approval for session", () => {
-    const approval = { toolUseId: "t1", toolName: "Bash", toolInput: { command: "rm -rf /" } };
-    useActivityStore.getState().setPendingApproval("s1", approval);
-    expect(useActivityStore.getState().getActivePendingApproval("s1")).toEqual(approval);
+  it("enqueueApproval adds to queue", () => {
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t1", toolName: "Bash", toolInput: { command: "rm -rf /" },
+      sessionId: "s1", timestamp: "2026-01-01T00:00:00Z",
+    });
 
-    useActivityStore.getState().setPendingApproval("s1", null);
-    expect(useActivityStore.getState().getActivePendingApproval("s1")).toBeNull();
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    expect(useActivityStore.getState().getCurrentApproval()?.toolName).toBe("Bash");
+  });
+
+  it("enqueueApproval deduplicates by toolUseId", () => {
+    const approval = {
+      toolUseId: "t1", toolName: "Bash", toolInput: { command: "npm install" },
+      sessionId: "s1", timestamp: "2026-01-01T00:00:00Z",
+    };
+    useActivityStore.getState().enqueueApproval(approval);
+    useActivityStore.getState().enqueueApproval(approval);
+
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+  });
+
+  it("dequeueApproval removes from queue and clamps index", () => {
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t2", toolName: "Write", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+
+    // Navigate to second item
+    useActivityStore.getState().setCurrentApprovalIndex(1);
+    expect(useActivityStore.getState().currentApprovalIndex).toBe(1);
+
+    // Remove second item — index should clamp
+    useActivityStore.getState().dequeueApproval("t2");
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    expect(useActivityStore.getState().currentApprovalIndex).toBe(0);
+  });
+
+  it("recordApprovalDecision updates matching activity entry", () => {
+    useActivityStore.getState().addEntry("s1", {
+      id: "a1", toolUseId: "t1", toolName: "Bash", toolInput: {}, status: "running", timestamp: "", messageId: "m1", isError: false,
+    });
+
+    useActivityStore.getState().recordApprovalDecision("s1", "t1", "approved");
+    const entry = useActivityStore.getState().getActiveEntries("s1")[0];
+    expect(entry.approvalStatus).toBe("approved");
+    expect(entry.approvalTimestamp).toBeDefined();
+  });
+
+  it("recordApprovalDecision sets denied status", () => {
+    useActivityStore.getState().addEntry("s1", {
+      id: "a1", toolUseId: "t1", toolName: "Bash", toolInput: {}, status: "running", timestamp: "", messageId: "m1", isError: false,
+    });
+
+    useActivityStore.getState().recordApprovalDecision("s1", "t1", "denied");
+    const entry = useActivityStore.getState().getActiveEntries("s1")[0];
+    expect(entry.approvalStatus).toBe("denied");
   });
 
   it("getEntriesForMessage filters by messageId", () => {
@@ -90,17 +145,33 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().getEntriesForMessage("s1", "m3")).toHaveLength(0);
   });
 
-  it("clearEntries resets session entries", () => {
+  it("clearEntries resets session entries and removes session approvals from queue", () => {
     useActivityStore.getState().addEntry("s1", {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
     });
-    useActivityStore.getState().setPendingApproval("s1", {
+    useActivityStore.getState().enqueueApproval({
       toolUseId: "t2", toolName: "Bash", toolInput: {},
+      sessionId: "s1", timestamp: "",
     });
 
     useActivityStore.getState().clearEntries("s1");
     expect(useActivityStore.getState().getActiveEntries("s1")).toEqual([]);
-    expect(useActivityStore.getState().getActivePendingApproval("s1")).toBeNull();
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(0);
+  });
+
+  it("clearEntries only removes target session from queue", () => {
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t2", toolName: "Write", toolInput: {},
+      sessionId: "s2", timestamp: "",
+    });
+
+    useActivityStore.getState().clearEntries("s1");
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    expect(useActivityStore.getState().approvalQueue[0].sessionId).toBe("s2");
   });
 
   it("multi-session isolation", () => {
@@ -115,5 +186,36 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().getActiveEntries("s2")).toHaveLength(1);
     expect(useActivityStore.getState().getActiveEntries("s1")[0].toolName).toBe("Read");
     expect(useActivityStore.getState().getActiveEntries("s2")[0].toolName).toBe("Write");
+  });
+
+  it("getApprovalQueueSize returns correct count", () => {
+    expect(useActivityStore.getState().getApprovalQueueSize()).toBe(0);
+
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t1", toolName: "Bash", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t2", toolName: "Write", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+
+    expect(useActivityStore.getState().getApprovalQueueSize()).toBe(2);
+  });
+
+  it("clearAllEntries resets everything", () => {
+    useActivityStore.getState().addEntry("s1", {
+      id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
+    });
+    useActivityStore.getState().enqueueApproval({
+      toolUseId: "t2", toolName: "Bash", toolInput: {},
+      sessionId: "s1", timestamp: "",
+    });
+
+    useActivityStore.getState().clearAllEntries();
+    expect(useActivityStore.getState().sessionEntries.size).toBe(0);
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(0);
+    expect(useActivityStore.getState().approvalSeenIds.size).toBe(0);
+    expect(useActivityStore.getState().currentApprovalIndex).toBe(0);
   });
 });

@@ -13,6 +13,7 @@ pub async fn create_session(
     state: State<'_, AppState>,
     project_path: String,
     name: Option<String>,
+    skip_permissions: Option<bool>,
 ) -> Result<SessionInfo, String> {
     let session_id = Uuid::new_v4().to_string();
 
@@ -64,6 +65,7 @@ pub async fn create_session(
         &project_path,
         &claude_binary,
         None,
+        skip_permissions.unwrap_or(false),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -142,6 +144,7 @@ pub async fn resume_session_process(
         &project_path,
         &claude_binary,
         effective_cli_session_id.as_deref(),
+        false,
     )
     .await
     .map_err(|e| e.to_string())?;

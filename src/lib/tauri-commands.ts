@@ -23,11 +23,13 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
 
 export async function createSession(
   projectPath: string,
-  name?: string
+  name?: string,
+  skipPermissions?: boolean
 ): Promise<Session> {
   return invoke<Session>("create_session", {
     projectPath,
     name,
+    skipPermissions: skipPermissions ?? false,
   });
 }
 

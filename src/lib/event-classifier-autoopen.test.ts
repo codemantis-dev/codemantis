@@ -38,7 +38,9 @@ function resetStores(): void {
 
   useActivityStore.setState({
     sessionEntries: new Map([[SESSION_ID, []]]),
-    sessionApprovals: new Map([[SESSION_ID, null]]),
+    approvalQueue: [],
+    approvalSeenIds: new Set(),
+    currentApprovalIndex: 0,
     alwaysAllowedTools: new Set(),
   });
 

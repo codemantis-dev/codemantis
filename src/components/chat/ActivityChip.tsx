@@ -6,12 +6,14 @@ import StatusDot from "../shared/StatusDot";
 
 interface ActivityChipProps {
   messageId: string;
+  sessionId?: string;
 }
 
-export default function ActivityChip({ messageId }: ActivityChipProps) {
+export default function ActivityChip({ messageId, sessionId }: ActivityChipProps) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessionEntries = useActivityStore((s) => s.sessionEntries);
-  const allEntries = activeSessionId ? sessionEntries.get(activeSessionId) ?? [] : [];
+  const effectiveSessionId = sessionId ?? activeSessionId;
+  const allEntries = effectiveSessionId ? sessionEntries.get(effectiveSessionId) ?? [] : [];
   const entries = useMemo(
     () => allEntries.filter((e) => e.messageId === messageId),
     [allEntries, messageId]
@@ -48,7 +50,8 @@ export default function ActivityChip({ messageId }: ActivityChipProps) {
         size={5}
       />
       <span className="text-text-dim">
-        {summary} <span className="text-accent-light">&rarr; Activity</span>
+        {summary}
+        {!sessionId && <span className="text-accent-light"> &rarr; Activity</span>}
       </span>
     </button>
   );

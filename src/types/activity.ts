@@ -1,3 +1,5 @@
+export type ApprovalDecision = "pending" | "approved" | "denied";
+
 export interface ActivityEntry {
   id: string;
   toolUseId: string;
@@ -9,6 +11,8 @@ export interface ActivityEntry {
   result?: string;
   isError: boolean;
   durationMs?: number;
+  approvalStatus?: ApprovalDecision;
+  approvalTimestamp?: string;
 }
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";

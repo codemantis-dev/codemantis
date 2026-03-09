@@ -152,6 +152,7 @@ export default function AssistantPanel() {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
+                  sessionId={activeAssistantId ?? undefined}
                   streamingContent={
                     isCurrentlyStreaming
                       ? streaming?.streamingContent

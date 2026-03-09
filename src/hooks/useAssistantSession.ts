@@ -7,13 +7,9 @@ import {
   closeSession as closeSessionCmd,
   listenChatEvents,
   listenActivityEvents,
-  listenApprovalEvents,
 } from "../lib/tauri-commands";
 import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
-import {
-  handleActivityEvent,
-  handleApprovalEvent,
-} from "../lib/event-classifier";
+import { handleActivityEvent } from "../lib/event-classifier";
 
 // Module-level listener map for assistant sessions
 const assistantListeners = new Map<string, UnlistenFn[]>();
@@ -36,7 +32,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     }
 
     const num = existing.length + 1;
-    const session = await createSession(projectPath, `Assistant ${num}`);
+    const session = await createSession(projectPath, `Assistant ${num}`, true);
 
     store.addAssistant(projectPath, {
       id: session.id,
@@ -52,14 +48,10 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const unlistenActivity = await listenActivityEvents(session.id, (event) =>
       handleActivityEvent(session.id, event)
     );
-    const unlistenApproval = await listenApprovalEvents(session.id, (event) =>
-      handleApprovalEvent(session.id, event)
-    );
 
     assistantListeners.set(session.id, [
       unlistenChat,
       unlistenActivity,
-      unlistenApproval,
     ]);
 
     return session.id;
