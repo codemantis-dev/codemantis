@@ -1,19 +1,19 @@
-# CLAUDE.md — ClaudeForge Build Instructions
+# CLAUDE.md — CodeMantis Build Instructions
 
 ## What This Project Is
 
-ClaudeForge is a native macOS desktop app (Tauri v2 + React + TypeScript) that wraps the Claude Code CLI with a modern UI. It uses the user's existing Claude Pro/Max subscription — no API key.
+CodeMantis is a native macOS desktop app (Tauri v2 + React + TypeScript) that wraps the Claude Code CLI with a modern UI. It uses the user's existing Claude Pro/Max subscription — no API key.
 
 ## Primary Specification
 
-**Read `REQUIREMENTS.md` before any implementation work.** It contains the complete product specification with architecture, module details, data models, and implementation phases.
+**Read `docs/requirements/` before any implementation work.** It contains the complete product specification with architecture, module details, data models, and implementation phases.
 
 ## Implementation Approach
 
 Follow the phases defined in Section 24 of REQUIREMENTS.md. Build Phase 1 completely before starting Phase 2.
 
 ### Phase 1 checklist:
-1. Scaffold Tauri v2 project: `pnpm create tauri-app claudeforge` (TypeScript, React, pnpm)
+1. Scaffold Tauri v2 project: `pnpm create tauri-app codemantis` (TypeScript, React, pnpm)
 2. Install frontend deps: tailwindcss, @radix-ui/react-dialog, zustand, lucide-react, react-markdown, remark-gfm
 3. Set up the three-panel layout (AppShell component)
 4. Build the Rust CLI process manager (spawn `claude` in stream-json mode)
@@ -83,7 +83,7 @@ pnpm tsc --noEmit
 
 ## Versioning
 
-ClaudeForge uses semantic versioning (major.minor.patch).
+CodeMantis uses semantic versioning (major.minor.patch).
 
 **On every commit that changes functionality:**
 1. Bump the patch version (or minor for features, major for breaking)

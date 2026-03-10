@@ -7,6 +7,13 @@ interface StreamingState {
   currentMessageId: string | null;
 }
 
+interface RetryState {
+  isRetrying: boolean;
+  retryAttempt: number;
+  retryAt: number | null; // timestamp when next retry fires
+  retryTimerId: ReturnType<typeof setTimeout> | null;
+}
+
 interface SessionState {
   sessions: Map<string, Session>;
   activeSessionId: string | null;
@@ -17,6 +24,9 @@ interface SessionState {
   sessionModes: Map<string, SessionMode>;
   sessionBusy: Map<string, boolean>;
   sessionEffort: Map<string, ThinkingEffort>;
+  sessionRetry: Map<string, RetryState>;
+  lastEventTimestamp: Map<string, number>;
+  contextToastFired: Map<string, Set<number>>;
   tabOrder: string[];
 
   // Project grouping
@@ -50,6 +60,10 @@ interface SessionState {
   setSessionEffort: (sessionId: string, effort: ThinkingEffort) => void;
   updateSessionStatus: (sessionId: string, status: SessionStatus) => void;
   clearSessionData: (sessionId: string) => void;
+  setRetryState: (sessionId: string, state: RetryState) => void;
+  clearRetry: (sessionId: string) => void;
+  touchLastEvent: (sessionId: string) => void;
+  markContextToastFired: (sessionId: string, threshold: number) => void;
 
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
@@ -86,6 +100,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionModes: new Map(),
   sessionBusy: new Map(),
   sessionEffort: new Map(),
+  sessionRetry: new Map(),
+  lastEventTimestamp: new Map(),
+  contextToastFired: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -428,7 +445,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionBusy.set(sessionId, false);
       const sessionEffort = new Map(state.sessionEffort);
       sessionEffort.set(sessionId, "high");
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort };
+      const contextToastFired = new Map(state.contextToastFired);
+      contextToastFired.set(sessionId, new Set());
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired };
+    }),
+
+  setRetryState: (sessionId, retryState) =>
+    set((state) => {
+      const sessionRetry = new Map(state.sessionRetry);
+      sessionRetry.set(sessionId, retryState);
+      return { sessionRetry };
+    }),
+
+  clearRetry: (sessionId) =>
+    set((state) => {
+      const sessionRetry = new Map(state.sessionRetry);
+      const existing = sessionRetry.get(sessionId);
+      if (existing?.retryTimerId) clearTimeout(existing.retryTimerId);
+      sessionRetry.delete(sessionId);
+      return { sessionRetry };
+    }),
+
+  touchLastEvent: (sessionId) =>
+    set((state) => {
+      const lastEventTimestamp = new Map(state.lastEventTimestamp);
+      lastEventTimestamp.set(sessionId, Date.now());
+      return { lastEventTimestamp };
+    }),
+
+  markContextToastFired: (sessionId, threshold) =>
+    set((state) => {
+      const contextToastFired = new Map(state.contextToastFired);
+      const existing = contextToastFired.get(sessionId) ?? new Set();
+      const updated = new Set(existing);
+      updated.add(threshold);
+      contextToastFired.set(sessionId, updated);
+      return { contextToastFired };
     }),
 
   // Derived helpers

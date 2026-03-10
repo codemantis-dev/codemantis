@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
@@ -10,12 +11,14 @@ interface MessageBubbleProps {
   message: Message;
   streamingContent?: string;
   sessionId?: string;
+  onRestart?: () => void;
 }
 
 export default function MessageBubble({
   message,
   streamingContent,
   sessionId,
+  onRestart,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const displayContent = message.isStreaming
@@ -55,6 +58,16 @@ export default function MessageBubble({
           </ReactMarkdown>
           {message.isStreaming && <StreamingCursor />}
         </div>
+        {/* Restart button for error/crash messages */}
+        {message.restartable && onRestart && (
+          <button
+            onClick={onRestart}
+            className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-accent bg-accent/10 hover:bg-accent/20 transition-colors font-medium"
+          >
+            <RotateCcw size={13} />
+            Restart Session
+          </button>
+        )}
         {/* Turn stats (shown after streaming completes) */}
         {!message.isStreaming && message.turnStats && (
           <div className="mt-1.5">

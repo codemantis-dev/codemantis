@@ -33,7 +33,7 @@ export function useTriviaRotation(active: boolean): TriviaState {
         : getRandomTrivia(topicRef.current);
       topicRef.current = next.topic;
       setState((prev) => ({ ...next, factKey: prev.factKey + 1 }));
-    }, 10_000);
+    }, 15_000);
 
     return () => clearInterval(interval);
   }, [active]);

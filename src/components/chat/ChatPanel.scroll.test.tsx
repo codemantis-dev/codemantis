@@ -193,7 +193,7 @@ describe("ChatPanel — scroll and message rendering", () => {
 
   it("shows welcome state for missing session", () => {
     render(<ChatPanel />);
-    expect(screen.getByText("Welcome to ClaudeForge")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to CodeMantis")).toBeInTheDocument();
     expect(
       screen.getByText("Open a project to start a session")
     ).toBeInTheDocument();

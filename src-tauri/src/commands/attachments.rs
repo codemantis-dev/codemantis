@@ -42,7 +42,7 @@ pub fn save_clipboard_image(
     }
 
     let attachments_dir = Path::new(&project_path)
-        .join(".claudeforge")
+        .join(".codemantis")
         .join("attachments");
 
     fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
@@ -50,7 +50,7 @@ pub fn save_clipboard_image(
     let file_path = attachments_dir.join(&filename);
     fs::write(&file_path, &image_data).map_err(|e| e.to_string())?;
 
-    // Ensure .claudeforge is in .gitignore
+    // Ensure .codemantis is in .gitignore
     ensure_gitignore(&project_path);
 
     let path_str = file_path.to_string_lossy().to_string();
@@ -103,7 +103,7 @@ pub fn get_file_info(file_path: String) -> Result<AttachmentInfo, String> {
 #[tauri::command]
 pub fn cleanup_old_attachments(project_path: String, max_age_days: u64) -> Result<u32, String> {
     let attachments_dir = Path::new(&project_path)
-        .join(".claudeforge")
+        .join(".codemantis")
         .join("attachments");
 
     if !attachments_dir.exists() {
@@ -173,7 +173,7 @@ mod tests {
 
         let _ = save_clipboard_image(project_path.clone(), data, "x.png".into());
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
-        assert!(gitignore.contains(".claudeforge/"));
+        assert!(gitignore.contains(".codemantis/"));
     }
 
     #[test]
@@ -186,20 +186,20 @@ mod tests {
         let _ = save_clipboard_image(project_path.clone(), data, "x.png".into());
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(gitignore.contains("node_modules/"));
-        assert!(gitignore.contains(".claudeforge/"));
+        assert!(gitignore.contains(".codemantis/"));
     }
 
     #[test]
     fn test_save_clipboard_image_does_not_duplicate_gitignore_entry() {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
-        fs::write(tmp.path().join(".gitignore"), ".claudeforge/\n").unwrap();
+        fs::write(tmp.path().join(".gitignore"), ".codemantis/\n").unwrap();
 
         let data = vec![1, 2, 3];
         let _ = save_clipboard_image(project_path.clone(), data.clone(), "a.png".into());
         let _ = save_clipboard_image(project_path, data, "b.png".into());
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
-        assert_eq!(gitignore.matches(".claudeforge/").count(), 1);
+        assert_eq!(gitignore.matches(".codemantis/").count(), 1);
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
     fn test_cleanup_old_attachments_keeps_recent() {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
-        let att_dir = tmp.path().join(".claudeforge").join("attachments");
+        let att_dir = tmp.path().join(".codemantis").join("attachments");
         fs::create_dir_all(&att_dir).unwrap();
         fs::write(att_dir.join("recent.png"), b"recent").unwrap();
 
@@ -319,7 +319,7 @@ mod tests {
     fn test_save_clipboard_image_creates_attachments_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
-        let att_dir = tmp.path().join(".claudeforge").join("attachments");
+        let att_dir = tmp.path().join(".codemantis").join("attachments");
 
         assert!(!att_dir.exists());
         let _ = save_clipboard_image(project_path, vec![1], "a.png".into());
@@ -421,7 +421,7 @@ mod tests {
 
         ensure_gitignore(&project_path);
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
-        assert!(gitignore.contains("node_modules/\n.claudeforge/\n"));
+        assert!(gitignore.contains("node_modules/\n.codemantis/\n"));
     }
 
     #[test]
@@ -429,19 +429,19 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
         // Entry with trailing whitespace should still match after trim
-        fs::write(tmp.path().join(".gitignore"), ".claudeforge/  \n").unwrap();
+        fs::write(tmp.path().join(".gitignore"), ".codemantis/  \n").unwrap();
 
         ensure_gitignore(&project_path);
         let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         // Should NOT add a duplicate entry
-        assert_eq!(gitignore.matches(".claudeforge/").count(), 1);
+        assert_eq!(gitignore.matches(".codemantis/").count(), 1);
     }
 
     #[test]
     fn test_cleanup_old_attachments_no_attachments_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
-        // No .claudeforge/attachments dir exists
+        // No .codemantis/attachments dir exists
         let result = cleanup_old_attachments(project_path, 7);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -451,7 +451,7 @@ mod tests {
     fn test_cleanup_old_attachments_with_subdirs() {
         let tmp = tempfile::tempdir().unwrap();
         let project_path = tmp.path().to_str().unwrap().to_string();
-        let att_dir = tmp.path().join(".claudeforge").join("attachments");
+        let att_dir = tmp.path().join(".codemantis").join("attachments");
         fs::create_dir_all(&att_dir).unwrap();
         // Create a recent file
         fs::write(att_dir.join("a.png"), b"data").unwrap();
@@ -476,7 +476,7 @@ mod tests {
         assert!(r2.is_ok());
         assert!(r3.is_ok());
 
-        let att_dir = tmp.path().join(".claudeforge").join("attachments");
+        let att_dir = tmp.path().join(".codemantis").join("attachments");
         assert!(att_dir.join("a.png").exists());
         assert!(att_dir.join("b.png").exists());
         assert!(att_dir.join("c.png").exists());
@@ -495,7 +495,7 @@ mod tests {
 
 fn ensure_gitignore(project_path: &str) {
     let gitignore_path = Path::new(project_path).join(".gitignore");
-    let entry = ".claudeforge/";
+    let entry = ".codemantis/";
 
     if gitignore_path.exists() {
         if let Ok(content) = fs::read_to_string(&gitignore_path) {

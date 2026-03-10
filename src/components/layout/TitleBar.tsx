@@ -54,7 +54,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         {/* Empty drag region if no tabs */}
         {projectOrder.length === 0 && (
           <span className="text-ui text-text-dim px-2" data-tauri-drag-region>
-            ClaudeForge
+            CodeMantis
           </span>
         )}
       </div>

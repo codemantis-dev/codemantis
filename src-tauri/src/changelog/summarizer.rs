@@ -13,6 +13,8 @@ pub struct SummarizeResponse {
     pub headline: String,
     pub description: String,
     pub category: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
 }
 
 const DEFAULT_SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
@@ -40,6 +42,7 @@ fn build_prompt(request: &SummarizeRequest) -> String {
 pub async fn summarize_turn(
     provider: &str,
     api_key: &str,
+    model: &str,
     request: &SummarizeRequest,
     custom_prompt: Option<&str>,
 ) -> Result<SummarizeResponse, String> {
@@ -49,24 +52,27 @@ pub async fn summarize_turn(
         .unwrap_or(DEFAULT_SYSTEM_PROMPT);
     let client = reqwest::Client::new();
 
-    let response_text = match provider {
-        "gemini" => call_gemini(&client, api_key, system_prompt, &prompt).await?,
-        "openai" => call_openai(&client, api_key, system_prompt, &prompt).await?,
-        "anthropic" => call_anthropic(&client, api_key, system_prompt, &prompt).await?,
+    let (response_text, input_tokens, output_tokens) = match provider {
+        "gemini" => call_gemini(&client, api_key, model, system_prompt, &prompt).await?,
+        "openai" => call_openai(&client, api_key, model, system_prompt, &prompt).await?,
+        "anthropic" => call_anthropic(&client, api_key, model, system_prompt, &prompt).await?,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
-    parse_response(&response_text)
+    let mut resp = parse_response(&response_text)?;
+    resp.input_tokens = input_tokens;
+    resp.output_tokens = output_tokens;
+    Ok(resp)
 }
 
-pub async fn test_api_key(provider: &str, api_key: &str) -> Result<bool, String> {
+pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<bool, String> {
     let client = reqwest::Client::new();
     let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\"}";
 
     let result = match provider {
-        "gemini" => call_gemini(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
-        "openai" => call_openai(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
-        "anthropic" => call_anthropic(&client, api_key, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "gemini" => call_gemini(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "openai" => call_openai(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "anthropic" => call_anthropic(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -82,12 +88,13 @@ pub async fn test_api_key(provider: &str, api_key: &str) -> Result<bool, String>
 async fn call_gemini(
     client: &reqwest::Client,
     api_key: &str,
+    model: &str,
     system_prompt: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, u32, u32), String> {
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={}",
-        api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model, api_key
     );
 
     let body = serde_json::json!({
@@ -122,20 +129,26 @@ async fn call_gemini(
         .await
         .map_err(|e| format!("Gemini response parse failed: {}", e))?;
 
-    json["candidates"][0]["content"]["parts"][0]["text"]
+    let text = json["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "No text in Gemini response".to_string())
+        .ok_or_else(|| "No text in Gemini response".to_string())?;
+
+    let input_tokens = json["usageMetadata"]["promptTokenCount"].as_u64().unwrap_or(0) as u32;
+    let output_tokens = json["usageMetadata"]["candidatesTokenCount"].as_u64().unwrap_or(0) as u32;
+
+    Ok((text, input_tokens, output_tokens))
 }
 
 async fn call_openai(
     client: &reqwest::Client,
     api_key: &str,
+    model: &str,
     system_prompt: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, u32, u32), String> {
     let body = serde_json::json!({
-        "model": "gpt-4.1-mini",
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
@@ -164,20 +177,26 @@ async fn call_openai(
         .await
         .map_err(|e| format!("OpenAI response parse failed: {}", e))?;
 
-    json["choices"][0]["message"]["content"]
+    let text = json["choices"][0]["message"]["content"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "No content in OpenAI response".to_string())
+        .ok_or_else(|| "No content in OpenAI response".to_string())?;
+
+    let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+    let output_tokens = json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32;
+
+    Ok((text, input_tokens, output_tokens))
 }
 
 async fn call_anthropic(
     client: &reqwest::Client,
     api_key: &str,
+    model: &str,
     system_prompt: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<(String, u32, u32), String> {
     let body = serde_json::json!({
-        "model": "claude-haiku-4-5-20251001",
+        "model": model,
         "max_tokens": 256,
         "system": system_prompt,
         "messages": [
@@ -207,15 +226,28 @@ async fn call_anthropic(
         .await
         .map_err(|e| format!("Anthropic response parse failed: {}", e))?;
 
-    json["content"][0]["text"]
+    let text = json["content"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "No text in Anthropic response".to_string())
+        .ok_or_else(|| "No text in Anthropic response".to_string())?;
+
+    let input_tokens = json["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32;
+    let output_tokens = json["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32;
+
+    Ok((text, input_tokens, output_tokens))
+}
+
+/// Intermediate struct for deserializing the JSON response (without token fields)
+#[derive(Debug, Deserialize)]
+struct RawSummarizeResponse {
+    headline: String,
+    description: String,
+    category: String,
 }
 
 fn parse_response(text: &str) -> Result<SummarizeResponse, String> {
     // Try direct parse first
-    if let Ok(resp) = serde_json::from_str::<SummarizeResponse>(text) {
+    if let Ok(resp) = serde_json::from_str::<RawSummarizeResponse>(text) {
         return Ok(validate_response(resp));
     }
 
@@ -223,7 +255,7 @@ fn parse_response(text: &str) -> Result<SummarizeResponse, String> {
     if let Some(start) = text.find('{') {
         if let Some(end) = text.rfind('}') {
             let json_str = &text[start..=end];
-            if let Ok(resp) = serde_json::from_str::<SummarizeResponse>(json_str) {
+            if let Ok(resp) = serde_json::from_str::<RawSummarizeResponse>(json_str) {
                 return Ok(validate_response(resp));
             }
         }
@@ -232,17 +264,23 @@ fn parse_response(text: &str) -> Result<SummarizeResponse, String> {
     Err(format!("Failed to parse AI response as JSON: {}", text))
 }
 
-fn validate_response(mut resp: SummarizeResponse) -> SummarizeResponse {
-    // Truncate headline to 80 chars
-    if resp.headline.len() > 80 {
-        resp.headline = resp.headline[..80].to_string();
+fn validate_response(raw: RawSummarizeResponse) -> SummarizeResponse {
+    let mut headline = raw.headline;
+    if headline.len() > 80 {
+        headline = headline[..80].to_string();
     }
 
-    // Validate category
+    let mut category = raw.category;
     let valid_categories = ["feature", "bugfix", "refactor", "docs", "config", "test", "plan"];
-    if !valid_categories.contains(&resp.category.as_str()) {
-        resp.category = "feature".to_string();
+    if !valid_categories.contains(&category.as_str()) {
+        category = "feature".to_string();
     }
 
-    resp
+    SummarizeResponse {
+        headline,
+        description: raw.description,
+        category,
+        input_tokens: 0,
+        output_tokens: 0,
+    }
 }

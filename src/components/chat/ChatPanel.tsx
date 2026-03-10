@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useClaudeSession } from "../../hooks/useClaudeSession";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 
@@ -17,6 +18,14 @@ export default function ChatPanel() {
   const sessionBusy = useSessionStore((s) => s.sessionBusy);
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const isBusy = activeSessionId ? sessionBusy.get(activeSessionId) ?? false : false;
+  const { startSession } = useClaudeSession();
+
+  const handleRestart = useCallback(() => {
+    if (!session) return;
+    startSession(session.project_path).catch((e) =>
+      console.error("Failed to restart session:", e)
+    );
+  }, [session, startSession]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -46,7 +55,7 @@ export default function ChatPanel() {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <p className="text-text-dim text-lg mb-2">Welcome to ClaudeForge</p>
+          <p className="text-text-dim text-lg mb-2">Welcome to CodeMantis</p>
           <p className="text-text-faint text-ui">
             Open a project to start a session
           </p>
@@ -78,6 +87,7 @@ export default function ChatPanel() {
               streamingContent={
                 message.isStreaming ? streaming.streamingContent : undefined
               }
+              onRestart={message.restartable ? handleRestart : undefined}
             />
           ))}
 

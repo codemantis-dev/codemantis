@@ -34,6 +34,34 @@ pub struct ProjectChangelogEntryRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ApiLogRow {
+    pub id: String,
+    pub timestamp: String,
+    pub provider: String,
+    pub model: String,
+    pub session_id: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cost_usd: f64,
+    pub success: bool,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderCostRow {
+    pub provider: String,
+    pub cost: f64,
+    pub calls: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiCostSummaryRow {
+    pub total_cost: f64,
+    pub total_calls: u32,
+    pub by_provider: Vec<ProviderCostRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
     pub id: String,
     pub name: String,
@@ -60,6 +88,10 @@ impl Database {
         // Run migrations (safe to re-run — ignores "duplicate column" errors)
         for sql in migrations::MIGRATE_SESSION_HISTORY {
             let _ = conn.execute_batch(sql); // ignore if column already exists
+        }
+
+        for sql in migrations::MIGRATE_API_LOGS {
+            let _ = conn.execute_batch(sql);
         }
 
         Ok(Self {
@@ -329,6 +361,120 @@ impl Database {
             );
         }
         Ok(sessions)
+    }
+
+    pub fn insert_api_log(
+        &self,
+        id: &str,
+        timestamp: &str,
+        provider: &str,
+        model: &str,
+        session_id: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost_usd: f64,
+        success: bool,
+        error_message: Option<&str>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "INSERT INTO api_logs (id, timestamp, provider, model, session_id, input_tokens, output_tokens, cost_usd, success, error_message) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![id, timestamp, provider, model, session_id, input_tokens, output_tokens, cost_usd, success as i32, error_message],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Insert api_log failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn list_api_logs(&self) -> Result<Vec<ApiLogRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare("SELECT id, timestamp, provider, model, session_id, input_tokens, output_tokens, cost_usd, success, error_message FROM api_logs ORDER BY timestamp DESC")
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ApiLogRow {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    provider: row.get(2)?,
+                    model: row.get(3)?,
+                    session_id: row.get(4)?,
+                    input_tokens: row.get(5)?,
+                    output_tokens: row.get(6)?,
+                    cost_usd: row.get(7)?,
+                    success: row.get::<_, i32>(8)? != 0,
+                    error_message: row.get(9)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(entries)
+    }
+
+    pub fn delete_old_api_logs(&self, max_age_days: u32) -> Result<u32, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = conn
+            .execute(
+                "DELETE FROM api_logs WHERE timestamp < ?1",
+                rusqlite::params![cutoff_str],
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Delete old api_logs failed: {}", e)))?;
+        Ok(deleted as u32)
+    }
+
+    pub fn get_api_cost_summary(&self) -> Result<ApiCostSummaryRow, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+
+        let total_cost: f64 = conn
+            .query_row("SELECT COALESCE(SUM(cost_usd), 0.0) FROM api_logs", [], |row| row.get(0))
+            .map_err(|e| AppError::DatabaseError(format!("Sum cost failed: {}", e)))?;
+
+        let total_calls: i64 = conn
+            .query_row("SELECT COUNT(*) FROM api_logs", [], |row| row.get(0))
+            .map_err(|e| AppError::DatabaseError(format!("Count failed: {}", e)))?;
+
+        let mut stmt = conn
+            .prepare("SELECT provider, COALESCE(SUM(cost_usd), 0.0), COUNT(*) FROM api_logs GROUP BY provider ORDER BY provider")
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ProviderCostRow {
+                    provider: row.get(0)?,
+                    cost: row.get(1)?,
+                    calls: row.get::<_, i64>(2)? as u32,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut by_provider = Vec::new();
+        for row in rows {
+            by_provider.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+
+        Ok(ApiCostSummaryRow {
+            total_cost,
+            total_calls: total_calls as u32,
+            by_provider,
+        })
     }
 
     #[allow(dead_code)]

@@ -17,7 +17,7 @@ pub fn run() {
     env_logger::init();
 
     let db_path = dirs::data_dir()
-        .map(|d| d.join("com.claudeforge.app").join("claudeforge.db"))
+        .map(|d| d.join("dev.codemantis.app").join("codemantis.db"))
         .expect("Failed to determine data directory");
 
     // Ensure parent directory exists
@@ -94,6 +94,9 @@ pub fn run() {
             commands::slash_commands::discover_commands,
             commands::slash_commands::expand_skill,
             commands::slash_commands::run_oneshot_command,
+            commands::api_logs::get_api_logs,
+            commands::api_logs::get_api_cost_summary,
+            commands::api_logs::cleanup_api_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

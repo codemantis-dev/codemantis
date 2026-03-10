@@ -33,6 +33,7 @@ export interface Message {
   activityIds: string[];
   isStreaming: boolean;
   turnStats?: TurnStats;
+  restartable?: boolean;
 }
 
 export interface SessionStats {

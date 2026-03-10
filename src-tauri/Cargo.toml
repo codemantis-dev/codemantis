@@ -1,12 +1,12 @@
 [package]
-name = "claudeforge"
-version = "0.3.4"
+name = "codemantis"
+version = "0.4.1"
 description = "A native macOS desktop UI for Claude Code"
 authors = ["Harald"]
 edition = "2021"
 
 [lib]
-name = "claudeforge_lib"
+name = "codemantis_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

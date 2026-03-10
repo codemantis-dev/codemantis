@@ -42,7 +42,7 @@ pub struct AppState {
     pub processes: Mutex<HashMap<String, ClaudeProcess>>,
     pub claude_binary: Mutex<Option<String>>,
     pub database: Arc<Database>,
-    /// Maps ClaudeForge session_id → CLI's own session_id.
+    /// Maps CodeMantis session_id → CLI's own session_id.
     /// Populated by the message router when it sees the System init event.
     pub cli_session_ids: Mutex<HashMap<String, String>>,
     /// Shared state for the tool approval HTTP server.

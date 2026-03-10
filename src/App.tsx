@@ -77,7 +77,7 @@ export default function App() {
               Claude Code Not Found
             </h2>
             <p className="text-text-secondary mb-4">
-              ClaudeForge requires the Claude Code CLI. Install it with:
+              CodeMantis requires the Claude Code CLI. Install it with:
             </p>
             <code className="block px-4 py-2 rounded-lg bg-bg-elevated text-accent-light font-mono text-ui mb-4">
               npm install -g @anthropic-ai/claude-code
@@ -100,16 +100,13 @@ export default function App() {
         <div className="flex-1 flex items-center justify-center">
           <div className="w-full max-w-md p-8">
             <div className="text-center mb-8">
-              <div
-                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-                style={{ background: "var(--accent-dim)", border: "1px solid rgba(124,58,237,0.2)" }}
-              >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-light)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
-              </div>
+              <img
+                src="/codemantis_app_icon.png"
+                alt="CodeMantis"
+                className="w-16 h-16 rounded-2xl mb-4 inline-block"
+              />
               <h2 className="text-2xl text-text-primary font-semibold mb-1">
-                ClaudeForge
+                CodeMantis
               </h2>
               <p className="text-text-secondary text-ui">
                 {claudeStatus?.version ? (

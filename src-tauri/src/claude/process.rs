@@ -11,20 +11,20 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
-/// Ensure the hook script exists at ~/.claudeforge/approval-hook.sh
+/// Ensure the hook script exists at ~/.codemantis/approval-hook.sh
 pub fn ensure_hook_script() -> Result<std::path::PathBuf, AppError> {
     let home = dirs::home_dir().ok_or_else(|| {
         AppError::ClaudeCliError("Cannot determine home directory".into())
     })?;
-    let dir = home.join(".claudeforge");
+    let dir = home.join(".codemantis");
     std::fs::create_dir_all(&dir).map_err(|e| {
-        AppError::ClaudeCliError(format!("Failed to create ~/.claudeforge: {}", e))
+        AppError::ClaudeCliError(format!("Failed to create ~/.codemantis: {}", e))
     })?;
 
     let script_path = dir.join("approval-hook.sh");
     let script = r#"#!/bin/bash
-# ClaudeForge tool approval hook — DO NOT EDIT (auto-generated)
-# Reads PreToolUse JSON from stdin, forwards to ClaudeForge's HTTP server,
+# CodeMantis tool approval hook — DO NOT EDIT (auto-generated)
+# Reads PreToolUse JSON from stdin, forwards to CodeMantis's HTTP server,
 # and outputs the decision. Auto-approves read-only tools locally.
 
 INPUT=$(cat)
@@ -38,16 +38,16 @@ case "$TOOL_NAME" in
     ;;
 esac
 
-# Forward to ClaudeForge approval server
+# Forward to CodeMantis approval server
 RESPONSE=$(echo "$INPUT" | curl -s --max-time 300 -X POST \
   -H "Content-Type: application/json" \
   -d @- \
-  "http://127.0.0.1:${CLAUDEFORGE_APPROVAL_PORT}/tool-approval" 2>/dev/null)
+  "http://127.0.0.1:${CODEMANTIS_APPROVAL_PORT}/tool-approval" 2>/dev/null)
 
 if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
     echo "$RESPONSE"
 else
-    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"ClaudeForge approval server unavailable"}}'
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"CodeMantis approval server unavailable"}}'
 fi
 "#;
 
@@ -69,7 +69,7 @@ fi
 }
 
 /// Build an inline settings JSON string containing our hook config.
-/// Passed via --settings to the CLI so it only affects ClaudeForge's process,
+/// Passed via --settings to the CLI so it only affects CodeMantis's process,
 /// not other Claude Code instances in the same project.
 fn build_hook_settings_json(hook_script_path: &str) -> String {
     let hook_command = format!("bash {}", hook_script_path);
@@ -92,7 +92,7 @@ fn build_hook_settings_json(hook_script_path: &str) -> String {
     serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// Remove the ClaudeForge hook entry from a project's .claude/settings.local.json
+/// Remove the CodeMantis hook entry from a project's .claude/settings.local.json
 /// if it was previously written there by older versions.
 fn cleanup_legacy_hook_config(project_path: &str) {
     let settings_path = std::path::Path::new(project_path)
@@ -124,7 +124,7 @@ fn cleanup_legacy_hook_config(project_path: &str) {
                 .as_array()
                 .and_then(|h| h.first())
                 .and_then(|h| h["command"].as_str())
-                .map(|c| c.contains(".claudeforge/approval-hook.sh"))
+                .map(|c| c.contains(".codemantis/approval-hook.sh") || c.contains(".claudeforge/approval-hook.sh"))
                 .unwrap_or(false)
         });
         pre_tool_use.len() != before_len
@@ -150,7 +150,7 @@ fn cleanup_legacy_hook_config(project_path: &str) {
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = std::fs::write(&settings_path, json);
             info!(
-                "Cleaned up legacy ClaudeForge hook from {}",
+                "Cleaned up legacy CodeMantis hook from {}",
                 settings_path.display()
             );
         }
@@ -193,7 +193,7 @@ impl ClaudeProcess {
             "--include-partial-messages",
             "--verbose",
             // Skip CLI-level permissions: the CLI has no TTY in stream-json mode.
-            // Tool approval is handled by the PreToolUse hook + ClaudeForge's
+            // Tool approval is handled by the PreToolUse hook + CodeMantis's
             // approval server instead.
             "--dangerously-skip-permissions",
         ]);
@@ -203,7 +203,7 @@ impl ClaudeProcess {
         if let Some(port) = approval_server_port {
             let hook_script = ensure_hook_script()?;
             let settings_json = build_hook_settings_json(
-                hook_script.to_str().unwrap_or("~/.claudeforge/approval-hook.sh"),
+                hook_script.to_str().unwrap_or("~/.codemantis/approval-hook.sh"),
             );
             cmd.args(["--settings", &settings_json]);
             debug!("Hook config passed via --settings for port {}", port);
@@ -224,7 +224,7 @@ impl ClaudeProcess {
 
         // Pass the approval server port to the hook script via env var
         if let Some(port) = approval_server_port {
-            cmd.env("CLAUDEFORGE_APPROVAL_PORT", port.to_string());
+            cmd.env("CODEMANTIS_APPROVAL_PORT", port.to_string());
         }
 
         let mut child = cmd.spawn().map_err(|e| {

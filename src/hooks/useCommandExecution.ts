@@ -190,7 +190,7 @@ function addSystemMessage(sessionId: string, content: string): void {
 
 function formatHelpMessage(): string {
   return [
-    "**ClaudeForge Commands**",
+    "**CodeMantis Commands**",
     "",
     "**Skills** — Custom commands from `.claude/commands/` expand into prompts",
     "",

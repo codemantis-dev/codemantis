@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ClaudeForge",
-  "version": "0.3.4",
-  "identifier": "com.claudeforge.app",
+  "productName": "CodeMantis",
+  "version": "0.4.1",
+  "identifier": "dev.codemantis.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ClaudeForge",
+        "title": "CodeMantis",
         "width": 1440,
         "height": 900,
         "minWidth": 900,

@@ -22,6 +22,8 @@ pub struct AppSettings {
     pub changelog_enabled: bool,
     #[serde(default = "default_changelog_provider")]
     pub changelog_provider: String,
+    #[serde(default = "default_changelog_model")]
+    pub changelog_model: String,
     #[serde(default)]
     pub changelog_api_keys: HashMap<String, String>,
     #[serde(default = "default_changelog_prompt")]
@@ -58,6 +60,9 @@ fn default_terminal_font_size() -> u32 {
 fn default_changelog_provider() -> String {
     "gemini".to_string()
 }
+fn default_changelog_model() -> String {
+    "gemini-2.5-flash-lite".to_string()
+}
 fn default_changelog_prompt() -> String {
     r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
 
@@ -83,6 +88,7 @@ impl Default for AppSettings {
             quick_commands: default_quick_commands(),
             changelog_enabled: false,
             changelog_provider: default_changelog_provider(),
+            changelog_model: default_changelog_model(),
             changelog_api_keys: HashMap::new(),
             changelog_prompt: default_changelog_prompt(),
             assistant_shortcuts: Vec::new(),
@@ -93,7 +99,7 @@ impl Default for AppSettings {
 fn settings_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.claudeforge.app")
+        .join("dev.codemantis.app")
         .join("settings.json")
 }
 

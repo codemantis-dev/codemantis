@@ -45,3 +45,19 @@ pub const MIGRATE_SESSION_HISTORY: &[&str] = &[
     "ALTER TABLE sessions ADD COLUMN cli_session_id TEXT",
     "ALTER TABLE sessions ADD COLUMN closed_at TEXT",
 ];
+
+pub const MIGRATE_API_LOGS: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS api_logs (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0.0,
+        success INTEGER NOT NULL DEFAULT 1,
+        error_message TEXT,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    )",
+];

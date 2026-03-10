@@ -76,6 +76,7 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
 
     case "text_delta": {
+      store.touchLastEvent(sessionId);
       const streaming = store.sessionStreaming.get(sessionId);
       if (!streaming?.isStreaming) {
         const msgId = nextMessageId();
@@ -171,6 +172,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         });
       }
 
+      // Context meter toast notifications
+      checkContextThresholds(sessionId);
+
       // Trigger changelog generation if enabled
       maybeGenerateChangelog(sessionId);
       break;
@@ -213,6 +217,12 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         event.exit_code !== 0 &&
         AUTH_KEYWORDS.some((kw) => stderrLower.includes(kw));
 
+      // Rate limit detection
+      const RATE_LIMIT_KEYWORDS = ["rate limit", "429", "too many requests", "rate_limit"];
+      const isRateLimit =
+        event.exit_code !== 0 &&
+        RATE_LIMIT_KEYWORDS.some((kw) => stderrLower.includes(kw));
+
       if (isAuthFailure) {
         store.addMessage(sessionId, {
           id: nextMessageId(),
@@ -220,12 +230,64 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
           content:
             "**Authentication failed.** Your Claude session may have expired.\n\n" +
             "To fix this, open a terminal and run:\n\n```\nclaude login\n```\n\n" +
-            "Then start a new session in ClaudeForge.",
+            "Then start a new session in CodeMantis.",
           timestamp: now,
           activityIds: [],
           isStreaming: false,
+          restartable: true,
         });
         showToast("Authentication failed — run 'claude login' in a terminal", "error", 12000);
+      } else if (isRateLimit) {
+        // Auto-retry with exponential backoff
+        const retryState = store.sessionRetry.get(sessionId);
+        const attempt = (retryState?.retryAttempt ?? 0) + 1;
+        const delays = [30, 60, 120];
+        const delaySec = delays[Math.min(attempt - 1, delays.length - 1)];
+
+        store.addMessage(sessionId, {
+          id: nextMessageId(),
+          role: "assistant",
+          content:
+            `**Rate limited.** Retrying in ${delaySec}s (attempt ${attempt}/3)...\n\n` +
+            `The API returned a rate limit error. Auto-retrying with exponential backoff.`,
+          timestamp: now,
+          activityIds: [],
+          isStreaming: false,
+          restartable: attempt >= 3,
+        });
+        showToast(`Rate limited — retrying in ${delaySec}s`, "info", delaySec * 1000);
+
+        if (attempt <= 3) {
+          const retryAt = Date.now() + delaySec * 1000;
+          const timerId = setTimeout(() => {
+            // Re-send the last user message
+            const messages = store.sessionMessages.get(sessionId) ?? [];
+            let lastUserPrompt = "";
+            for (let i = messages.length - 1; i >= 0; i--) {
+              if (messages[i].role === "user") {
+                lastUserPrompt = messages[i].content;
+                break;
+              }
+            }
+            store.clearRetry(sessionId);
+            if (lastUserPrompt) {
+              import("./tauri-commands").then(({ sendMessage }) => {
+                store.setSessionBusy(sessionId, true);
+                sendMessage(sessionId, lastUserPrompt).catch((e: unknown) => {
+                  console.error("Rate limit retry failed:", e);
+                  store.setSessionBusy(sessionId, false);
+                });
+              });
+            }
+          }, delaySec * 1000);
+
+          store.setRetryState(sessionId, {
+            isRetrying: true,
+            retryAttempt: attempt,
+            retryAt,
+            retryTimerId: timerId,
+          });
+        }
       } else if (event.exit_code !== 0) {
         const stderrInfo = event.stderr_tail
           ? `\n\n**stderr:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
@@ -239,6 +301,7 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
           timestamp: now,
           activityIds: [],
           isStreaming: false,
+          restartable: true,
         });
       }
       // Clean exit (code 0): no message needed
@@ -255,6 +318,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
   switch (event.type) {
     case "tool_use_start": {
+      useSessionStore.getState().touchLastEvent(sessionId);
       // Track tool calls per turn for context estimation
       turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
 
@@ -345,6 +409,80 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       }
       break;
     }
+  }
+}
+
+function checkContextThresholds(sessionId: string): void {
+  const store = useSessionStore.getState();
+  const ctx = store.sessionContext.get(sessionId);
+  if (!ctx || ctx.max === 0) return;
+
+  const pct = ctx.used / ctx.max;
+  const fired = store.contextToastFired.get(sessionId) ?? new Set();
+
+  if (pct >= 0.95 && !fired.has(95)) {
+    store.markContextToastFired(sessionId, 95);
+    showToast(
+      "Context window is 95% full. Run /compact to free space before the session stalls.",
+      "error",
+      15000
+    );
+  } else if (pct >= 0.80 && !fired.has(80)) {
+    store.markContextToastFired(sessionId, 80);
+    showToast(
+      "Context window is 80% full. Consider running /compact to free space.",
+      "info",
+      10000
+    );
+  }
+}
+
+// ── Stale connection detection ──
+// If the session is busy and no events arrive for 60+ seconds, warn.
+const staleTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+export function startStaleDetection(sessionId: string): void {
+  stopStaleDetection(sessionId);
+  const store = useSessionStore.getState();
+  store.touchLastEvent(sessionId);
+
+  const timer = setInterval(() => {
+    const s = useSessionStore.getState();
+    const isBusy = s.sessionBusy.get(sessionId) ?? false;
+    if (!isBusy) return;
+
+    const lastTs = s.lastEventTimestamp.get(sessionId) ?? 0;
+    const elapsed = Date.now() - lastTs;
+    if (elapsed > 60_000) {
+      // Show stale warning (only once per stale period)
+      const streaming = s.sessionStreaming.get(sessionId);
+      if (streaming?.isStreaming) return; // Still streaming text, not truly stale
+
+      s.addMessage(sessionId, {
+        id: `stale-${Date.now()}`,
+        role: "assistant",
+        content:
+          "**No response received for 60+ seconds.** The connection may be stale.\n\n" +
+          "You can wait for the response or restart the session.",
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+        restartable: true,
+      });
+      showToast("No response for 60s — connection may be stale", "info", 10000);
+      // Reset so we don't spam
+      s.touchLastEvent(sessionId);
+    }
+  }, 10_000);
+
+  staleTimers.set(sessionId, timer);
+}
+
+export function stopStaleDetection(sessionId: string): void {
+  const timer = staleTimers.get(sessionId);
+  if (timer) {
+    clearInterval(timer);
+    staleTimers.delete(sessionId);
   }
 }
 

@@ -8,6 +8,7 @@ import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
+import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
 
 // --- Startup ---
 
@@ -267,9 +268,24 @@ export async function deleteChangelogEntry(entryId: string): Promise<void> {
 
 export async function testChangelogApiKey(
   provider: string,
-  apiKey: string
+  apiKey: string,
+  model: string
 ): Promise<boolean> {
-  return invoke<boolean>("test_changelog_api_key", { provider, apiKey });
+  return invoke<boolean>("test_changelog_api_key", { provider, apiKey, model });
+}
+
+// --- API Logs ---
+
+export async function getApiLogs(): Promise<ApiLogEntry[]> {
+  return invoke<ApiLogEntry[]>("get_api_logs");
+}
+
+export async function getApiCostSummary(): Promise<ApiCostSummary> {
+  return invoke<ApiCostSummary>("get_api_cost_summary");
+}
+
+export async function cleanupApiLogs(maxAgeDays: number): Promise<number> {
+  return invoke<number>("cleanup_api_logs", { maxAgeDays });
 }
 
 // --- Git ---

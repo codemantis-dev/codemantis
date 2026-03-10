@@ -1,3 +1,4 @@
+pub mod api_logs;
 pub mod attachments;
 pub mod changelog;
 pub mod files;

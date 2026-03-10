@@ -144,7 +144,7 @@ impl ApprovalServerState {
     }
 }
 
-/// Look up ClaudeForge session ID from the CLI's session_id or cwd.
+/// Look up CodeMantis session ID from the CLI's session_id or cwd.
 async fn find_forge_session_id(
     app_handle: &AppHandle,
     cli_session_id: Option<&str>,
@@ -207,14 +207,14 @@ async fn handle_tool_approval(
                 return (
                     StatusCode::OK,
                     Json(HookResponse::deny(Some(
-                        "ClaudeForge not ready".to_string(),
+                        "CodeMantis not ready".to_string(),
                     ))),
                 );
             }
         }
     };
 
-    // Find the ClaudeForge session ID
+    // Find the CodeMantis session ID
     let forge_session_id = find_forge_session_id(
         &app_handle,
         input.session_id.as_deref(),

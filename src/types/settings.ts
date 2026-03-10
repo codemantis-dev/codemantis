@@ -37,10 +37,27 @@ export interface AppSettings {
   quickCommands: QuickCommand[];
   changelogEnabled: boolean;
   changelogProvider: ChangelogProvider;
+  changelogModel: string;
   changelogApiKeys: Record<string, string>;
   changelogPrompt: string;
   assistantShortcuts: AssistantShortcut[];
 }
+
+export const CHANGELOG_MODELS: Record<ChangelogProvider, { id: string; label: string }[]> = {
+  openai: [
+    { id: "gpt-4.1", label: "GPT-4.1" },
+    { id: "gpt-5-nano", label: "GPT-5 Nano" },
+    { id: "gpt-5-mini", label: "GPT-5 Mini" },
+  ],
+  gemini: [
+    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  ],
+  anthropic: [
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  ],
+};
 
 export const DEFAULT_CHANGELOG_PROMPT = `Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
 

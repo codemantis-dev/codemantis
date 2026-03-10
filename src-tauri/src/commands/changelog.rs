@@ -1,3 +1,4 @@
+use crate::changelog::pricing;
 use crate::changelog::summarizer::{self, SummarizeRequest};
 use crate::claude::session::AppState;
 use crate::commands::settings;
@@ -47,6 +48,7 @@ pub async fn generate_changelog_entry(
     }
 
     let provider = &app_settings.changelog_provider;
+    let model = &app_settings.changelog_model;
     let api_key = app_settings
         .changelog_api_keys
         .get(provider)
@@ -78,10 +80,35 @@ pub async fn generate_changelog_entry(
     } else {
         Some(app_settings.changelog_prompt.as_str())
     };
-    let response = summarizer::summarize_turn(provider, &api_key, &request, custom_prompt).await?;
+    let response = summarizer::summarize_turn(provider, &api_key, model, &request, custom_prompt).await;
 
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().to_rfc3339();
+
+    // Log the API call regardless of success/failure
+    {
+        let (success, error_msg, input_tokens, output_tokens) = match &response {
+            Ok(r) => (true, None, r.input_tokens, r.output_tokens),
+            Err(e) => (false, Some(e.clone()), 0, 0),
+        };
+        let cost = pricing::calculate_cost(model, input_tokens, output_tokens);
+        let log_id = uuid::Uuid::new_v4().to_string();
+        let db = &state.database;
+        let _ = db.insert_api_log(
+            &log_id,
+            &timestamp,
+            provider,
+            model,
+            &session_id,
+            input_tokens,
+            output_tokens,
+            cost,
+            success,
+            error_msg.as_deref(),
+        );
+    }
+
+    let response = response?;
 
     // Get turn index for this session
     let turn_index = {
@@ -194,6 +221,7 @@ pub async fn get_project_changelog_entries(
 pub async fn test_changelog_api_key(
     provider: String,
     api_key: String,
+    model: String,
 ) -> Result<bool, String> {
-    summarizer::test_api_key(&provider, &api_key).await
+    summarizer::test_api_key(&provider, &api_key, &model).await
 }

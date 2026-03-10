@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Settings, Terminal, Zap, ScrollText, MessageSquare, X, RotateCcw } from "lucide-react";
+import { Settings, Terminal, Zap, ScrollText, MessageSquare, Keyboard, X, RotateCcw, BarChart3 } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider } from "../../types/settings";
-import { THEMES, DEFAULT_CHANGELOG_PROMPT } from "../../types/settings";
-import { testChangelogApiKey } from "../../lib/tauri-commands";
+import { THEMES, DEFAULT_CHANGELOG_PROMPT, CHANGELOG_MODELS } from "../../types/settings";
+import type { ApiLogEntry, ApiCostSummary } from "../../types/api-logs";
+import { testChangelogApiKey, getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../lib/tauri-commands";
+import { SHORTCUT_CATEGORIES } from "../../data/shortcuts";
 
-type SettingsTab = "general" | "terminal" | "quick-commands" | "changelog" | "assistant";
+type SettingsTab = "general" | "terminal" | "quick-commands" | "changelog" | "assistant" | "shortcuts" | "api-logs";
 
 const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
@@ -15,12 +17,14 @@ const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "quick-commands", label: "Quick Commands", icon: Zap },
   { id: "changelog", label: "Changelog", icon: ScrollText },
   { id: "assistant", label: "Assistant", icon: MessageSquare },
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "api-logs", label: "API Logs", icon: BarChart3 },
 ];
 
 const CHANGELOG_PROVIDERS: { id: ChangelogProvider; label: string }[] = [
-  { id: "gemini", label: "Gemini Flash" },
-  { id: "openai", label: "GPT-4.1-mini" },
-  { id: "anthropic", label: "Claude Haiku" },
+  { id: "gemini", label: "Google Gemini" },
+  { id: "openai", label: "OpenAI" },
+  { id: "anthropic", label: "Anthropic" },
 ];
 
 export default function SettingsModal() {
@@ -38,6 +42,7 @@ export default function SettingsModal() {
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>(settings.quickCommands);
   const [changelogEnabled, setChangelogEnabled] = useState(settings.changelogEnabled);
   const [changelogProvider, setChangelogProvider] = useState<ChangelogProvider>(settings.changelogProvider);
+  const [changelogModel, setChangelogModel] = useState(settings.changelogModel);
   const [changelogApiKeys, setChangelogApiKeys] = useState<Record<string, string>>(settings.changelogApiKeys);
   const [changelogPrompt, setChangelogPrompt] = useState(settings.changelogPrompt);
   const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
@@ -54,6 +59,7 @@ export default function SettingsModal() {
       setQuickCommands([...settings.quickCommands]);
       setChangelogEnabled(settings.changelogEnabled);
       setChangelogProvider(settings.changelogProvider);
+      setChangelogModel(settings.changelogModel);
       setChangelogApiKeys({ ...settings.changelogApiKeys });
       setChangelogPrompt(settings.changelogPrompt);
       setAssistantShortcuts([...settings.assistantShortcuts]);
@@ -71,6 +77,7 @@ export default function SettingsModal() {
       quickCommands: quickCommands.filter((c) => c.label.trim() && c.command.trim()),
       changelogEnabled,
       changelogProvider,
+      changelogModel,
       changelogApiKeys,
       changelogPrompt,
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
@@ -94,12 +101,22 @@ export default function SettingsModal() {
     setTestingKey(true);
     setTestResult(null);
     try {
-      const success = await testChangelogApiKey(changelogProvider, apiKey);
+      const success = await testChangelogApiKey(changelogProvider, apiKey, changelogModel);
       setTestResult(success ? "success" : "error");
     } catch {
       setTestResult("error");
     } finally {
       setTestingKey(false);
+    }
+  };
+
+  const handleProviderChange = (p: ChangelogProvider) => {
+    setChangelogProvider(p);
+    setTestResult(null);
+    // Auto-select first model for the new provider
+    const models = CHANGELOG_MODELS[p];
+    if (models.length > 0) {
+      setChangelogModel(models[0].id);
     }
   };
 
@@ -206,17 +223,23 @@ export default function SettingsModal() {
               <ChangelogTab
                 enabled={changelogEnabled}
                 provider={changelogProvider}
+                model={changelogModel}
                 apiKeys={changelogApiKeys}
                 prompt={changelogPrompt}
                 testingKey={testingKey}
                 testResult={testResult}
                 onEnabledChange={setChangelogEnabled}
-                onProviderChange={(p) => { setChangelogProvider(p); setTestResult(null); }}
+                onProviderChange={handleProviderChange}
+                onModelChange={(m) => { setChangelogModel(m); setTestResult(null); }}
                 onApiKeyChange={(v) => { setChangelogApiKeys({ ...changelogApiKeys, [changelogProvider]: v }); setTestResult(null); }}
                 onPromptChange={setChangelogPrompt}
                 onTestKey={handleTestKey}
               />
             )}
+
+            {activeTab === "shortcuts" && <ShortcutsTab />}
+
+            {activeTab === "api-logs" && <ApiLogsTab />}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -390,14 +413,16 @@ function QuickCommandsTab({
 }
 
 function ChangelogTab({
-  enabled, provider, apiKeys, prompt, testingKey, testResult,
-  onEnabledChange, onProviderChange, onApiKeyChange, onPromptChange, onTestKey,
+  enabled, provider, model, apiKeys, prompt, testingKey, testResult,
+  onEnabledChange, onProviderChange, onModelChange, onApiKeyChange, onPromptChange, onTestKey,
 }: {
-  enabled: boolean; provider: ChangelogProvider; apiKeys: Record<string, string>;
+  enabled: boolean; provider: ChangelogProvider; model: string; apiKeys: Record<string, string>;
   prompt: string; testingKey: boolean; testResult: "success" | "error" | null;
   onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
-  onApiKeyChange: (v: string) => void; onPromptChange: (v: string) => void; onTestKey: () => void;
+  onModelChange: (m: string) => void; onApiKeyChange: (v: string) => void;
+  onPromptChange: (v: string) => void; onTestKey: () => void;
 }) {
+  const availableModels = CHANGELOG_MODELS[provider] ?? [];
   return (
     <div>
       <SectionTitle>Changelog</SectionTitle>
@@ -434,6 +459,18 @@ function ChangelogTab({
               >
                 {CHANGELOG_PROVIDERS.map((p) => (
                   <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </FieldRow>
+
+            <FieldRow label="Model">
+              <select
+                value={model}
+                onChange={(e) => onModelChange(e.target.value)}
+                className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40"
+              >
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>
             </FieldRow>
@@ -550,6 +587,162 @@ function AssistantShortcutsTab({
           + Add shortcut
         </button>
       </div>
+    </div>
+  );
+}
+
+function ShortcutsTab() {
+  return (
+    <div>
+      <SectionTitle>Keyboard Shortcuts</SectionTitle>
+      <div className="space-y-5">
+        {SHORTCUT_CATEGORIES.map((category) => (
+          <div key={category.name}>
+            <h4 className="text-label text-text-dim uppercase tracking-wider mb-2">
+              {category.name}
+            </h4>
+            <div className="space-y-1">
+              {category.shortcuts.map((shortcut) => (
+                <div
+                  key={shortcut.keys}
+                  className="flex items-center justify-between py-1.5"
+                >
+                  <span className="text-ui text-text-secondary">
+                    {shortcut.description}
+                  </span>
+                  <kbd className="px-2 py-0.5 rounded bg-bg-elevated border border-border text-text-faint text-label font-mono tracking-wide">
+                    {shortcut.keys}
+                  </kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ApiLogsTab() {
+  const [logs, setLogs] = useState<ApiLogEntry[]>([]);
+  const [summary, setSummary] = useState<ApiCostSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      try {
+        // Auto-cleanup logs older than 5 days
+        await cleanupApiLogs(5);
+        const [logsData, summaryData] = await Promise.all([
+          getApiLogs(),
+          getApiCostSummary(),
+        ]);
+        if (!cancelled) {
+          setLogs(logsData);
+          setSummary(summaryData);
+        }
+      } catch (e) {
+        console.error("Failed to load API logs:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const formatCost = (cost: number): string => {
+    if (cost === 0) return "Free";
+    if (cost < 0.01) return `$${cost.toFixed(6)}`;
+    return `$${cost.toFixed(4)}`;
+  };
+
+  const formatTimestamp = (ts: string): string => {
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString(undefined, {
+        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      });
+    } catch {
+      return ts;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div>
+        <SectionTitle>API Logs</SectionTitle>
+        <p className="text-ui text-text-dim">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <SectionTitle>API Logs</SectionTitle>
+
+      {/* Cost summary card */}
+      {summary && summary.totalCalls > 0 && (
+        <div className="rounded-lg border border-border p-4 mb-4" style={{ background: "var(--bg-elevated)" }}>
+          <div className="flex items-baseline justify-between mb-3">
+            <span className="text-ui text-text-secondary">Total Cost</span>
+            <span className="text-lg font-semibold text-text-primary">{formatCost(summary.totalCost)}</span>
+          </div>
+          <div className="flex items-baseline justify-between mb-3">
+            <span className="text-ui text-text-secondary">Total Calls</span>
+            <span className="text-ui font-medium text-text-primary">{summary.totalCalls}</span>
+          </div>
+          {summary.byProvider.length > 0 && (
+            <div className="border-t border-border-light pt-2 space-y-1.5">
+              {summary.byProvider.map((p) => (
+                <div key={p.provider} className="flex items-center justify-between">
+                  <span className="text-label text-text-dim capitalize">{p.provider}</span>
+                  <span className="text-label text-text-secondary">
+                    {formatCost(p.cost)} ({p.calls} call{p.calls !== 1 ? "s" : ""})
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Log list */}
+      {logs.length === 0 ? (
+        <div className="text-center py-8">
+          <BarChart3 size={24} className="mx-auto mb-2 text-text-ghost" />
+          <p className="text-ui text-text-dim">No API calls logged yet</p>
+          <p className="text-label text-text-ghost mt-1">Calls will appear here when changelog entries are generated</p>
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-[280px] overflow-y-auto">
+          {logs.map((log) => (
+            <div
+              key={log.id}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border-light text-label"
+              style={{ background: "var(--bg-elevated)" }}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${log.success ? "bg-green" : "bg-red"}`}
+              />
+              <span className="text-text-ghost w-28 shrink-0">{formatTimestamp(log.timestamp)}</span>
+              <span className="text-text-dim capitalize w-16 shrink-0">{log.provider}</span>
+              <span className="text-text-secondary flex-1 truncate font-mono">{log.model}</span>
+              <span className="text-text-ghost w-24 shrink-0 text-right">
+                {log.inputTokens + log.outputTokens} tok
+              </span>
+              <span className="text-text-primary w-16 shrink-0 text-right font-medium">
+                {formatCost(log.costUsd)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[11px] text-text-ghost mt-3">
+        Logs older than 5 days are automatically deleted.
+      </p>
     </div>
   );
 }

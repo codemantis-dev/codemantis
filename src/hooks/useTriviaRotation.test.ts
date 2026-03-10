@@ -18,12 +18,12 @@ describe("useTriviaRotation", () => {
     expect(result.current.factKey).toBe(0);
   });
 
-  it("rotates fact after 10 seconds", () => {
+  it("rotates fact after 15 seconds", () => {
     const { result } = renderHook(() => useTriviaRotation(true));
     const initialKey = result.current.factKey;
 
     act(() => {
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(15_000);
     });
 
     expect(result.current.factKey).toBe(initialKey + 1);
@@ -35,7 +35,7 @@ describe("useTriviaRotation", () => {
     for (let i = 0; i < 10; i++) {
       const prevTopic = result.current.topic;
       act(() => {
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(15_000);
       });
       // Easter egg turns (every 50th) may have any topic, but for first 10 rotations this won't trigger
       expect(result.current.topic).not.toBe(prevTopic);
@@ -47,7 +47,7 @@ describe("useTriviaRotation", () => {
 
     // Advance 49 intervals (shownCount goes from 1 to 50; 50th triggers easter egg)
     act(() => {
-      vi.advanceTimersByTime(10_000 * 49);
+      vi.advanceTimersByTime(15_000 * 49);
     });
 
     expect(result.current.isEasterEgg).toBe(true);
@@ -78,7 +78,7 @@ describe("useTriviaRotation", () => {
 
     for (let i = 0; i < 5; i++) {
       act(() => {
-        vi.advanceTimersByTime(10_000);
+        vi.advanceTimersByTime(15_000);
       });
       keys.push(result.current.factKey);
     }

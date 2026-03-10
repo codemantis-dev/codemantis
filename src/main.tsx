@@ -8,7 +8,7 @@ window.addEventListener("error", (e) => {
   const root = document.getElementById("root");
   if (root && !root.hasChildNodes()) {
     root.innerHTML = `<div style="color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;">
-      <h2 style="color:#e4e4e7;margin-bottom:12px;">ClaudeForge failed to start</h2>
+      <h2 style="color:#e4e4e7;margin-bottom:12px;">CodeMantis failed to start</h2>
       ${e.message}\n${e.filename}:${e.lineno}
     </div>`;
   }
@@ -28,7 +28,7 @@ try {
   const root = document.getElementById("root");
   if (root) {
     root.innerHTML = `<div style="color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;">
-      <h2 style="color:#e4e4e7;margin-bottom:12px;">ClaudeForge failed to start</h2>
+      <h2 style="color:#e4e4e7;margin-bottom:12px;">CodeMantis failed to start</h2>
       ${e}
     </div>`;
   }

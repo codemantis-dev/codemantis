@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ],
   changelogEnabled: false,
   changelogProvider: "gemini",
+  changelogModel: "gemini-2.5-flash-lite",
   changelogApiKeys: {},
   changelogPrompt: DEFAULT_CHANGELOG_PROMPT,
   assistantShortcuts: [],

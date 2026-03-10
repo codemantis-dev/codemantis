@@ -19,6 +19,8 @@ import { useUiStore } from "../stores/uiStore";
 import {
   handleChatEvent,
   handleActivityEvent,
+  startStaleDetection,
+  stopStaleDetection,
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
 
@@ -66,6 +68,8 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       unlistenChat,
       unlistenActivity,
     ]);
+
+    startStaleDetection(session.id);
 
     return session.id;
   }, []);
@@ -116,6 +120,8 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       }
       sessionListeners.delete(sessionId);
     }
+
+    stopStaleDetection(sessionId);
 
     // Close all terminals for this session
     const terminals = terminalStore.getState().getTerminals(sessionId);
@@ -206,6 +212,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
       sessionListeners.set(session.id, [unlistenChat, unlistenActivity]);
 
+      startStaleDetection(session.id);
       useUiStore.getState().setShowClaudeHistory(false);
 
       return session.id;

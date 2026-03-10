@@ -564,8 +564,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "claudeforge"
-version = "0.3.4"
+name = "codemantis"
+version = "0.4.1"
 dependencies = [
  "axum",
  "chrono",

@@ -21,6 +21,7 @@ const IGNORE_ENTRIES: &[&str] = &[
     ".angular",
     ".svelte-kit",
     ".nuxt",
+    ".codemantis",
 ];
 
 #[derive(Debug, Clone, Serialize)]

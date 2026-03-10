@@ -35,7 +35,7 @@ describe("ChatPanel", () => {
 
   it("shows welcome text when no session", () => {
     render(<ChatPanel />);
-    expect(screen.getByText("Welcome to ClaudeForge")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to CodeMantis")).toBeInTheDocument();
   });
 
   it("shows empty state prompt when session exists but no messages", () => {

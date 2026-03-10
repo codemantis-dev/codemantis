@@ -1,4 +1,31 @@
-# ClaudeForge Releases
+# CodeMantis Releases
+
+## 0.4.1
+
+- Add model selection dropdown in Changelog settings (per provider: OpenAI, Gemini, Anthropic)
+- Update available models: GPT-4.1/5-Nano/5-Mini, Gemini 2.5 Flash Lite/Flash, Claude Sonnet 4.6/Haiku 4.5
+- Track API token usage and cost for each changelog generation call
+- Add pricing module with per-model cost calculation
+- Add `api_logs` database table with auto-migration
+- Add "API Logs" tab in Settings showing cost summary and scrollable call history
+- Auto-delete API logs older than 5 days on tab open
+- Pass selected model to `test_changelog_api_key` for accurate validation
+
+## 0.4.0
+
+- Rename project from ClaudeForge to CodeMantis across all source files, configs, and UI strings
+- Update Tauri identifier from `com.claudeforge.app` to `dev.codemantis.app`
+- Rename data directories from `~/.claudeforge/` to `~/.codemantis/` and `.claudeforge/` to `.codemantis/`
+- Add localStorage migration for recent projects key
+- Delete `code_example_ui/` directory and `public/vite.svg`
+- Move `_requirements/` to `docs/requirements/`
+- Add `.codemantis/` to file tree ignore list and `.gitignore`
+- Add MIT LICENSE file
+- Add CONTRIBUTING.md with dev setup, test, PR process, and code standards
+- Add error recovery: "Restart Session" button on process crash, rate limit auto-retry with countdown, and stale connection timeout detection
+- Add context meter toast notifications at 80% (warning) and 95% (urgent) thresholds suggesting /compact
+- Add "Shortcuts" tab in Settings modal showing all keyboard shortcuts grouped by category
+- Add GitHub Actions release workflow for building macOS .dmg on version tags
 
 ## 0.3.4
 

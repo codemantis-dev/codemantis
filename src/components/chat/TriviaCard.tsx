@@ -25,8 +25,8 @@ export default function TriviaCard({
           {isEasterEgg ? "\u2B50 Fun fact!" : "\uD83D\uDCA1 Did you know?"}
         </span>
         <span
-          className="text-label uppercase tracking-wide px-1.5 py-0.5 rounded"
-          style={{ background: "var(--bg-subtle)", color: "var(--text-faint)" }}
+          className="text-label uppercase tracking-wide px-1.5 py-0.5 rounded font-medium"
+          style={{ background: "var(--bg-subtle)", color: "var(--text-secondary)" }}
         >
           {topic}
         </span>

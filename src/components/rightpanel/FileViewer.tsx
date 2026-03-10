@@ -110,7 +110,7 @@ export default function FileViewer() {
     return computeDiffSummary(activeTab.oldContent, activeTab.newContent);
   }, [activeTab]);
 
-  const monacoThemeName = `claudeforge-${themeId}`;
+  const monacoThemeName = `codemantis-${themeId}`;
 
   const handleEditorMount = useCallback(
     (_editor: unknown, monaco: { editor: { defineTheme: (name: string, theme: unknown) => void; setTheme: (name: string) => void } }) => {
