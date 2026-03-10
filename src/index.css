@@ -294,7 +294,13 @@ textarea {
 
 /* xterm.js overrides */
 .xterm {
-  padding: 4px;
+  padding: 8px;
+}
+
+/* Override xterm's hardcoded #000 viewport background — the theme
+   background is applied via inline style, which takes precedence. */
+.xterm .xterm-viewport {
+  background-color: transparent !important;
 }
 
 .xterm-viewport::-webkit-scrollbar {

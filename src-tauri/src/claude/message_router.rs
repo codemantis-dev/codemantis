@@ -27,6 +27,17 @@ pub async fn route_events(
             } => {
                 if subtype.as_deref() == Some("init") {
                     debug!("System init extra fields: {}", extra);
+
+                    // Store model in SessionInfo so it's available at close time
+                    if let Some(ref model_name) = model {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let mut sessions = state.sessions.lock().await;
+                            if let Some(session) = sessions.get_mut(&session_id) {
+                                session.model = Some(model_name.clone());
+                            }
+                        }
+                    }
+
                     // Try to extract thinking effort from extra fields
                     let thinking_effort = extra
                         .get("thinking")

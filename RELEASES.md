@@ -1,5 +1,36 @@
 # ClaudeForge Releases
 
+## 0.2.8
+
+- Add Git status card in sidebar showing branch name, uncommitted change count, last commit time, and last push time
+- Add `get_git_status` Tauri command with branch, porcelain status, and remote log queries
+- Auto-polls every 10 seconds and refreshes alongside file tree updates
+
+## 0.2.7
+
+- Add session history & resume: persist CLI session ID and model when closing sessions
+- Add "Claude History" tab in session sub-tabs to browse and resume closed sessions
+- Add `list_session_history` Tauri command with changelog headline previews
+- Extend `create_session` to accept `resume_cli_session_id` for resuming prior conversations
+- Add database migration for `cli_session_id` and `closed_at` columns on sessions table
+
+## 0.2.6
+
+- Fix context meter showing only non-cached tokens (10K instead of actual context usage)
+- Include all token categories (input + cache_creation + cache_read) per Anthropic API spec
+- Estimate per-call context window usage by dividing aggregated turn usage by API call count
+
+## 0.2.5
+
+- Add tool badges for TodoWrite, TodoRead, ToolSearch, WebSearch, WebFetch, and Agent tools (task, search, agent categories)
+- Fix context token calculation that was double-counting cache tokens as additive instead of subsets of input_tokens
+
+## 0.2.4
+
+- Fix terminal black border by overriding xterm's hardcoded `#000` viewport background
+- Set terminal container background to match xterm theme for seamless edges
+- Increase terminal padding from 4px to 8px for better breathing room
+
 ## 0.2.3
 
 - Fix file tree hiding dotfiles and common directories (`.gitignore`, `.lovable`, `dist`, `build`)

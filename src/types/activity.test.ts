@@ -26,6 +26,30 @@ describe("getActivityType", () => {
     expect(getActivityType("Bash")).toBe("bash");
   });
 
+  it("classifies NotebookEdit as write", () => {
+    expect(getActivityType("NotebookEdit")).toBe("write");
+  });
+
+  it("classifies TodoWrite as task", () => {
+    expect(getActivityType("TodoWrite")).toBe("task");
+  });
+
+  it("classifies TodoRead as task", () => {
+    expect(getActivityType("TodoRead")).toBe("task");
+  });
+
+  it("classifies ToolSearch as search", () => {
+    expect(getActivityType("ToolSearch")).toBe("search");
+  });
+
+  it("classifies WebSearch as search", () => {
+    expect(getActivityType("WebSearch")).toBe("search");
+  });
+
+  it("classifies Agent as agent", () => {
+    expect(getActivityType("Agent")).toBe("agent");
+  });
+
   it("classifies unknown tools as other", () => {
     expect(getActivityType("SomeNewTool")).toBe("other");
     expect(getActivityType("MCP_tool")).toBe("other");

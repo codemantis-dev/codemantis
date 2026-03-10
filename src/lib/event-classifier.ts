@@ -13,6 +13,12 @@ const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
 
 let messageCounter = 0;
 
+// Track tool calls per turn for context window estimation.
+// The CLI result event aggregates usage across all API calls in a turn
+// (each tool use triggers a new API call), so we divide by call count
+// to estimate the actual context window usage.
+const turnToolCallCount = new Map<string, number>();
+
 function nextMessageId(): string {
   return `msg-${++messageCounter}`;
 }
@@ -121,18 +127,27 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         store.finalizeStreaming(sessionId);
       }
       if (event.usage) {
-        // Context = total tokens in the current conversation window.
-        // input_tokens + cache tokens = full prompt size for this turn.
-        // Add output_tokens since they become part of context for the next turn.
-        // Do NOT accumulate across turns — input_tokens already includes the
-        // full conversation history.
-        const used =
+        // Context window estimation:
+        // input_tokens = non-cached input only; cache_creation and cache_read
+        // are SEPARATE categories (not subsets). Total input sent to the model
+        // = input_tokens + cache_creation + cache_read.
+        //
+        // The result event aggregates usage across ALL API calls in a turn
+        // (each tool use triggers a new call). Divide by call count to
+        // estimate the per-call context, which reflects actual window usage.
+        const totalInput =
           (event.usage.input_tokens ?? 0) +
-          (event.usage.output_tokens ?? 0) +
           (event.usage.cache_creation_input_tokens ?? 0) +
           (event.usage.cache_read_input_tokens ?? 0);
-        store.updateContext(sessionId, used, 200000);
+        const totalOutput = event.usage.output_tokens ?? 0;
+
+        const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
+        const apiCalls = Math.max(toolCalls, 1);
+        const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
+        store.updateContext(sessionId, estimatedContext, 200000);
       }
+      // Reset tool call counter for next turn
+      turnToolCallCount.delete(sessionId);
 
       // Attach turn stats to the completed assistant message
       const targetMsgId = completedMessageId ?? (() => {
@@ -187,6 +202,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
   switch (event.type) {
     case "tool_use_start": {
+      // Track tool calls per turn for context estimation
+      turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
+
       // Check main session store first, then assistant store for the streaming messageId
       let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;
       if (!currentMessageId) {

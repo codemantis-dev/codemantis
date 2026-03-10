@@ -15,6 +15,7 @@ import {
   listenActivityEvents,
   closeTerminal as closeTerminalCmd,
 } from "../lib/tauri-commands";
+import { useUiStore } from "../stores/uiStore";
 import {
   handleChatEvent,
   handleActivityEvent,
@@ -34,6 +35,7 @@ interface UseClaudeSessionReturn {
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
+  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string) => Promise<string>;
 }
 
 export function useClaudeSession(): UseClaudeSessionReturn {
@@ -180,6 +182,39 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     }
   }, []);
 
+  const resumeFromHistory = useCallback(async (
+    projectPath: string,
+    cliSessionId: string,
+    originalName: string
+  ): Promise<string> => {
+    const state = sessionStore.getState();
+    if (state.tabOrder.length >= MAX_SESSIONS) {
+      showToast(`Maximum ${MAX_SESSIONS} sessions allowed`, "error");
+      throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
+    }
+
+    try {
+      const session = await createSession(projectPath, originalName, cliSessionId);
+      sessionStore.getState().addSession(session);
+
+      const unlistenChat = await listenChatEvents(session.id, (event) =>
+        handleChatEvent(session.id, event)
+      );
+      const unlistenActivity = await listenActivityEvents(session.id, (event) =>
+        handleActivityEvent(session.id, event)
+      );
+
+      sessionListeners.set(session.id, [unlistenChat, unlistenActivity]);
+
+      useUiStore.getState().setShowClaudeHistory(false);
+
+      return session.id;
+    } catch (e) {
+      showToast(`Failed to resume session: ${String(e)}`, "error");
+      throw e;
+    }
+  }, []);
+
   return {
     startSession,
     addSessionToProject,
@@ -188,5 +223,6 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     closeAllSessionsInProject,
     switchSession,
     renameSession: renameSessionFn,
+    resumeFromHistory,
   };
 }

@@ -66,6 +66,7 @@ pub fn run() {
             commands::session::rename_session,
             commands::session::list_persisted_sessions,
             commands::session::delete_persisted_session,
+            commands::session::list_session_history,
             commands::files::read_file_tree,
             commands::files::read_file_content,
             commands::files::write_file_content,
@@ -85,6 +86,7 @@ pub fn run() {
             commands::changelog::delete_changelog_entry,
             commands::changelog::test_changelog_api_key,
             commands::changelog::get_project_changelog_entries,
+            commands::git::get_git_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

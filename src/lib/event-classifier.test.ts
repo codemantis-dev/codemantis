@@ -151,6 +151,117 @@ describe("event-classifier", () => {
       expect(useSessionStore.getState().sessionStreaming.get(SESSION_ID)?.isStreaming).toBe(false);
     });
 
+    it("turn_complete updates context with all token types (non-cached + cached)", () => {
+      handleChatEvent(SESSION_ID, {
+        type: "turn_complete",
+        session_id: SESSION_ID,
+        duration_ms: 5000,
+        usage: {
+          input_tokens: 5000,
+          output_tokens: 2000,
+          cache_creation_input_tokens: 10000,
+          cache_read_input_tokens: 150000,
+        },
+        cost_usd: 1.5,
+      });
+
+      const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+      // Total = (5000 + 10000 + 150000 + 2000) / 1 api call = 167000
+      expect(ctx?.used).toBe(167000);
+      expect(ctx?.max).toBe(200000);
+    });
+
+    it("turn_complete divides by api call count when tool calls occurred", () => {
+      // Simulate 3 tool calls during the turn
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Read",
+        tool_input: {},
+      });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t2",
+        tool_name: "Edit",
+        tool_input: {},
+      });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t3",
+        tool_name: "Read",
+        tool_input: {},
+      });
+
+      // Aggregated usage across 3 tool calls (4 API calls)
+      handleChatEvent(SESSION_ID, {
+        type: "turn_complete",
+        session_id: SESSION_ID,
+        duration_ms: 10000,
+        usage: {
+          input_tokens: 20000,
+          output_tokens: 8000,
+          cache_creation_input_tokens: 40000,
+          cache_read_input_tokens: 600000,
+        },
+        cost_usd: 5.0,
+      });
+
+      const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+      // Total = (20000 + 40000 + 600000 + 8000) / 3 tool calls = 222667
+      expect(ctx?.used).toBe(Math.round(668000 / 3));
+    });
+
+    it("turn_complete resets tool call counter for next turn", () => {
+      // First turn with 2 tool calls
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t1",
+        tool_name: "Read",
+        tool_input: {},
+      });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t2",
+        tool_name: "Read",
+        tool_input: {},
+      });
+      handleChatEvent(SESSION_ID, {
+        type: "turn_complete",
+        session_id: SESSION_ID,
+        duration_ms: 5000,
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 500,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 100000,
+        },
+        cost_usd: 1.0,
+      });
+
+      // Second turn with NO tool calls
+      handleChatEvent(SESSION_ID, {
+        type: "turn_complete",
+        session_id: SESSION_ID,
+        duration_ms: 2000,
+        usage: {
+          input_tokens: 2000,
+          output_tokens: 1000,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 160000,
+        },
+        cost_usd: 0.5,
+      });
+
+      const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+      // Second turn: no tool calls, so apiCalls=1, total = (2000+0+160000+1000)/1 = 163000
+      expect(ctx?.used).toBe(163000);
+    });
+
     it("process_error adds error message", () => {
       handleChatEvent(SESSION_ID, {
         type: "process_error",

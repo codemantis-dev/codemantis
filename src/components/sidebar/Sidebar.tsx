@@ -3,7 +3,9 @@ import { FolderTree, RefreshCw } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileTree } from "../../hooks/useFileTree";
+import { useGitStatus } from "../../hooks/useGitStatus";
 import FileTree from "./FileTree";
+import GitStatusCard from "./GitStatusCard";
 import ContextMeter from "../shared/ContextMeter";
 
 export default function Sidebar() {
@@ -22,12 +24,14 @@ export default function Sidebar() {
 
   const fileTreeRefreshTrigger = useUiStore((s) => s.fileTreeRefreshTrigger);
   const { files, loading, refresh } = useFileTree();
+  const { gitStatus, refresh: refreshGit } = useGitStatus(session?.project_path ?? null);
 
   const doRefresh = useCallback(() => {
     if (session?.project_path) {
       refresh(session.project_path);
+      refreshGit();
     }
-  }, [session?.project_path, refresh]);
+  }, [session?.project_path, refresh, refreshGit]);
 
   // Load on session open
   useEffect(() => {
@@ -79,6 +83,13 @@ export default function Sidebar() {
         )}
         {files.length > 0 && <FileTree nodes={files} />}
       </div>
+
+      {/* Git status */}
+      {gitStatus?.is_git_repo && (
+        <div className="shrink-0 border-t border-border-light">
+          <GitStatusCard gitStatus={gitStatus} />
+        </div>
+      )}
 
       {/* Context meter */}
       <div className="shrink-0 border-t border-border-light">

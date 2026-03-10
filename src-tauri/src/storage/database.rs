@@ -42,6 +42,8 @@ pub struct PersistedSession {
     pub created_at: String,
     pub model: Option<String>,
     pub icon_index: i32,
+    pub cli_session_id: Option<String>,
+    pub closed_at: Option<String>,
 }
 
 impl Database {
@@ -54,6 +56,11 @@ impl Database {
 
         conn.execute_batch(migrations::CREATE_TABLES)
             .map_err(|e| AppError::DatabaseError(format!("Failed to create tables: {}", e)))?;
+
+        // Run migrations (safe to re-run — ignores "duplicate column" errors)
+        for sql in migrations::MIGRATE_SESSION_HISTORY {
+            let _ = conn.execute_batch(sql); // ignore if column already exists
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -110,7 +117,7 @@ impl Database {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
         let mut stmt = conn
-            .prepare("SELECT id, name, project_path, status, created_at, model, icon_index FROM sessions ORDER BY created_at DESC")
+            .prepare("SELECT id, name, project_path, status, created_at, model, icon_index, cli_session_id, closed_at FROM sessions ORDER BY created_at DESC")
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
         let rows = stmt
@@ -123,6 +130,8 @@ impl Database {
                     created_at: row.get(4)?,
                     model: row.get(5)?,
                     icon_index: row.get(6)?,
+                    cli_session_id: row.get(7)?,
+                    closed_at: row.get(8)?,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -261,6 +270,65 @@ impl Database {
             );
         }
         Ok(entries)
+    }
+
+    pub fn close_session_with_details(
+        &self,
+        id: &str,
+        cli_session_id: Option<&str>,
+        model: Option<&str>,
+        closed_at: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "UPDATE sessions SET status = 'closed', cli_session_id = ?1, model = COALESCE(?2, model), closed_at = ?3 WHERE id = ?4",
+            rusqlite::params![cli_session_id, model, closed_at, id],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Close session with details failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn list_closed_sessions_for_project(
+        &self,
+        project_path: &str,
+        limit: i32,
+    ) -> Result<Vec<PersistedSession>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, project_path, status, created_at, model, icon_index, cli_session_id, closed_at \
+                 FROM sessions WHERE project_path = ?1 AND status = 'closed' AND cli_session_id IS NOT NULL \
+                 ORDER BY closed_at DESC LIMIT ?2"
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![project_path, limit], |row| {
+                Ok(PersistedSession {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    project_path: row.get(2)?,
+                    status: row.get(3)?,
+                    created_at: row.get(4)?,
+                    model: row.get(5)?,
+                    icon_index: row.get(6)?,
+                    cli_session_id: row.get(7)?,
+                    closed_at: row.get(8)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(sessions)
     }
 
     #[allow(dead_code)]

@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Session, PersistedSession } from "../types/session";
+import type { Session, PersistedSession, SessionHistoryEntry } from "../types/session";
 import type { FileNode } from "../types/file-tree";
 import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-events";
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
+import type { GitStatusInfo } from "../types/git";
 
 // --- Startup ---
 
@@ -23,11 +24,13 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
 
 export async function createSession(
   projectPath: string,
-  name?: string
+  name?: string,
+  resumeCliSessionId?: string
 ): Promise<Session> {
   return invoke<Session>("create_session", {
     projectPath,
     name,
+    resumeCliSessionId,
   });
 }
 
@@ -99,6 +102,12 @@ export async function deletePersistedSession(
   sessionId: string
 ): Promise<void> {
   return invoke("delete_persisted_session", { sessionId });
+}
+
+export async function listSessionHistory(
+  projectPath: string
+): Promise<SessionHistoryEntry[]> {
+  return invoke<SessionHistoryEntry[]>("list_session_history", { projectPath });
 }
 
 // --- Files ---
@@ -259,6 +268,12 @@ export async function testChangelogApiKey(
   apiKey: string
 ): Promise<boolean> {
   return invoke<boolean>("test_changelog_api_key", { provider, apiKey });
+}
+
+// --- Git ---
+
+export async function getGitStatus(projectPath: string): Promise<GitStatusInfo> {
+  return invoke<GitStatusInfo>("get_git_status", { projectPath });
 }
 
 // --- Event Listeners ---

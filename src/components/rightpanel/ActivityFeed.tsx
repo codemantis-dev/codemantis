@@ -13,6 +13,9 @@ const typeColors: Record<string, "blue" | "green" | "yellow" | "purple" | "accen
   write: "green",
   edit: "yellow",
   bash: "purple",
+  task: "blue",
+  search: "purple",
+  agent: "green",
   other: "accent",
 };
 

@@ -5,8 +5,20 @@ use crate::storage::database::PersistedSession;
 use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
 use log::info;
+use serde::Serialize;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionHistoryEntry {
+    pub session_id: String,
+    pub name: String,
+    pub model: Option<String>,
+    pub closed_at: String,
+    pub cli_session_id: String,
+    pub icon_index: i32,
+    pub recent_headlines: Vec<String>,
+}
 
 #[tauri::command]
 pub async fn create_session(
@@ -14,6 +26,7 @@ pub async fn create_session(
     state: State<'_, AppState>,
     project_path: String,
     name: Option<String>,
+    resume_cli_session_id: Option<String>,
 ) -> Result<SessionInfo, String> {
     let session_id = Uuid::new_v4().to_string();
 
@@ -70,7 +83,7 @@ pub async fn create_session(
         session_id.clone(),
         &project_path,
         &claude_binary,
-        None,
+        resume_cli_session_id.as_deref(),
         approval_port,
     )
     .await
@@ -263,6 +276,16 @@ pub async fn close_session(
     terminal_pool: State<'_, TerminalPool>,
     session_id: String,
 ) -> Result<(), String> {
+    // Read cli_session_id and model before shutting down
+    let cli_sid = {
+        let cli_ids = state.cli_session_ids.lock().await;
+        cli_ids.get(&session_id).cloned()
+    };
+    let model = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(&session_id).and_then(|s| s.model.clone())
+    };
+
     // Shutdown the process
     {
         let mut processes = state.processes.lock().await;
@@ -282,8 +305,20 @@ pub async fn close_session(
         }
     }
 
-    // Persist status
-    let _ = state.database.update_session_status(&session_id, "closed");
+    // Persist with CLI session ID, model, and closed_at timestamp
+    let closed_at = Utc::now().to_rfc3339();
+    let _ = state.database.close_session_with_details(
+        &session_id,
+        cli_sid.as_deref(),
+        model.as_deref(),
+        &closed_at,
+    );
+
+    // Clean up cli_session_ids entry
+    {
+        let mut cli_ids = state.cli_session_ids.lock().await;
+        cli_ids.remove(&session_id);
+    }
 
     Ok(())
 }
@@ -343,4 +378,41 @@ pub async fn delete_persisted_session(
         .database
         .delete_session(&session_id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_session_history(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<Vec<SessionHistoryEntry>, String> {
+    let closed = state
+        .database
+        .list_closed_sessions_for_project(&project_path, 20)
+        .map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for session in closed {
+        let headlines: Vec<String> = state
+            .database
+            .list_changelog_entries(&session.id)
+            .unwrap_or_default()
+            .into_iter()
+            .take(3)
+            .map(|e| e.headline)
+            .collect();
+
+        if let (Some(cli_sid), Some(closed_at)) = (session.cli_session_id, session.closed_at) {
+            entries.push(SessionHistoryEntry {
+                session_id: session.id,
+                name: session.name,
+                model: session.model,
+                closed_at,
+                cli_session_id: cli_sid,
+                icon_index: session.icon_index,
+                recent_headlines: headlines,
+            });
+        }
+    }
+
+    Ok(entries)
 }

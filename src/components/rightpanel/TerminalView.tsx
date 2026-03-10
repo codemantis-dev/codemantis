@@ -125,7 +125,10 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     <div
       ref={containerRef}
       className="h-full w-full"
-      style={{ display: isVisible ? "block" : "none" }}
+      style={{
+        display: isVisible ? "block" : "none",
+        backgroundColor: xtermColors.background,
+      }}
     />
   );
 }

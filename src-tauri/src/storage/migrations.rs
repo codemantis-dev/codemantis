@@ -40,3 +40,8 @@ CREATE TABLE IF NOT EXISTS changelog_entries (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 "#;
+
+pub const MIGRATE_SESSION_HISTORY: &[&str] = &[
+    "ALTER TABLE sessions ADD COLUMN cli_session_id TEXT",
+    "ALTER TABLE sessions ADD COLUMN closed_at TEXT",
+];

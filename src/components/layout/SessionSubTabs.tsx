@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { Plus, X, ScrollText } from "lucide-react";
+import { Plus, X, ScrollText, History } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import StatusDot from "../shared/StatusDot";
@@ -138,7 +138,9 @@ export default function SessionSubTabs({
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
   const setActiveSessionInProject = useSessionStore((s) => s.setActiveSessionInProject);
   const showProjectLog = useUiStore((s) => s.showProjectLog);
+  const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
   const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
+  const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
 
   if (!activeProjectPath) return null;
 
@@ -164,10 +166,11 @@ export default function SessionSubTabs({
             sessionId={sessionId}
             name={session.name}
             model={session.model}
-            isActive={sessionId === activeSessionId && !showProjectLog}
+            isActive={sessionId === activeSessionId && !showProjectLog && !showClaudeHistory}
             isStreaming={streaming?.isStreaming ?? false}
             onSelect={() => {
               setShowProjectLog(false);
+              setShowClaudeHistory(false);
               setActiveSessionInProject(activeProjectPath, sessionId);
             }}
             onClose={() => onCloseSession(sessionId)}
@@ -187,6 +190,24 @@ export default function SessionSubTabs({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Claude History tab */}
+      <button
+        onClick={() => setShowClaudeHistory(true)}
+        title="Claude History — resume closed sessions"
+        className={`
+          flex items-center gap-1.5 px-2.5 h-full cursor-pointer select-none shrink-0 text-label
+          transition-colors border-b-2
+          ${
+            showClaudeHistory
+              ? "bg-bg-elevated text-text-primary border-b-accent"
+              : "text-text-dim hover:text-text-secondary hover:bg-bg-subtle border-b-transparent"
+          }
+        `}
+      >
+        <History size={12} />
+        <span>History</span>
+      </button>
 
       {/* Project Log tab */}
       <button

@@ -13,6 +13,7 @@ interface UiState {
   showCliOverlay: boolean;
   claudeBinaryPath: string | null;
   showProjectLog: boolean;
+  showClaudeHistory: boolean;
   draftInput: string | null;
   fileTreeRefreshTrigger: number;
 
@@ -26,6 +27,7 @@ interface UiState {
   setShowCliOverlay: (show: boolean) => void;
   setClaudeBinaryPath: (path: string | null) => void;
   setShowProjectLog: (show: boolean) => void;
+  setShowClaudeHistory: (show: boolean) => void;
   setDraftInput: (text: string | null) => void;
   triggerFileTreeRefresh: () => void;
 }
@@ -41,6 +43,7 @@ export const useUiStore = create<UiState>((set) => ({
   showCliOverlay: false,
   claudeBinaryPath: null,
   showProjectLog: false,
+  showClaudeHistory: false,
   draftInput: null,
   fileTreeRefreshTrigger: 0,
 
@@ -55,7 +58,8 @@ export const useUiStore = create<UiState>((set) => ({
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
-  setShowProjectLog: (show) => set({ showProjectLog: show }),
+  setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
+  setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
   setDraftInput: (text) => set({ draftInput: text }),
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
 }));

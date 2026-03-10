@@ -52,4 +52,16 @@ export interface PersistedSession {
   created_at: string;
   model: string | null;
   icon_index: number;
+  cli_session_id: string | null;
+  closed_at: string | null;
+}
+
+export interface SessionHistoryEntry {
+  session_id: string;
+  name: string;
+  model: string | null;
+  closed_at: string;
+  cli_session_id: string;
+  icon_index: number;
+  recent_headlines: string[];
 }

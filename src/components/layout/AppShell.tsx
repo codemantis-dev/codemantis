@@ -6,6 +6,7 @@ import TitleBar from "./TitleBar";
 import SessionSubTabs from "./SessionSubTabs";
 import Sidebar from "../sidebar/Sidebar";
 import ChatPanel from "../chat/ChatPanel";
+import ClaudeHistory from "../chat/ClaudeHistory";
 import ProjectLogFeed from "../chat/ProjectLogFeed";
 import RightPanel from "../rightpanel/RightPanel";
 import InputArea from "../input/InputArea";
@@ -79,15 +80,18 @@ export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
   const showProjectLog = useUiStore((s) => s.showProjectLog);
+  const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
   const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
+  const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
 
-  // Reset project log view when switching projects
+  // Reset project log / history view when switching projects
   useEffect(() => {
     setShowProjectLog(false);
-  }, [activeProjectPath, setShowProjectLog]);
+    setShowClaudeHistory(false);
+  }, [activeProjectPath, setShowProjectLog, setShowClaudeHistory]);
 
   const handleCloseSession = useCallback((sessionId: string) => {
     const session = useSessionStore.getState().sessions.get(sessionId);
@@ -169,6 +173,8 @@ export default function AppShell() {
         <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden">
           {showProjectLog ? (
             <ProjectLogFeed />
+          ) : showClaudeHistory ? (
+            <ClaudeHistory />
           ) : (
             <>
               <div className="flex-1 overflow-hidden">
