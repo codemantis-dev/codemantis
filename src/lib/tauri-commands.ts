@@ -7,6 +7,7 @@ import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
+import type { McpServerConfig } from "../types/mcp";
 
 // --- Startup ---
 
@@ -302,6 +303,36 @@ export async function runOneshotCommand(
   args: string[]
 ): Promise<OneshotResult> {
   return invoke<OneshotResult>("run_oneshot_command", { projectPath, args });
+}
+
+// --- MCP Servers ---
+
+export async function getMcpServers(projectPath?: string): Promise<McpServerConfig[]> {
+  return invoke<McpServerConfig[]>("get_mcp_servers", { projectPath });
+}
+
+export async function saveMcpServer(
+  projectPath: string | null,
+  server: McpServerConfig
+): Promise<void> {
+  return invoke("save_mcp_server", { projectPath, server });
+}
+
+export async function deleteMcpServer(
+  projectPath: string | null,
+  name: string,
+  scope: string
+): Promise<void> {
+  return invoke("delete_mcp_server", { projectPath, name, scope });
+}
+
+export async function renameMcpServer(
+  projectPath: string | null,
+  oldName: string,
+  newName: string,
+  scope: string
+): Promise<void> {
+  return invoke("rename_mcp_server", { projectPath, oldName, newName, scope });
 }
 
 // --- Event Listeners ---

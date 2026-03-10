@@ -99,6 +99,18 @@ export default function InputArea() {
     }
   }, [draftInput, setDraftInput]);
 
+  // Listen for Cmd+/ to open command palette
+  useEffect(() => {
+    const handler = () => {
+      setInput("/");
+      setShowCommandPalette(true);
+      setCommandQuery("");
+      textareaRef.current?.focus();
+    };
+    window.addEventListener("open-command-palette", handler);
+    return () => window.removeEventListener("open-command-palette", handler);
+  }, []);
+
   const attachments = useAttachmentStore((s) => s.attachments);
   const addAttachment = useAttachmentStore((s) => s.addAttachment);
   const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
@@ -428,9 +440,9 @@ export default function InputArea() {
                     </span>
                   )}
                   <button
-                    onClick={() => useUiStore.getState().setShowCliOverlay(true)}
+                    onClick={() => useUiStore.getState().setShowSettingsModal(true)}
                     className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-dim hover:bg-bg-subtle transition-colors"
-                    title={`Thinking: ${effort} — click to open CLI and change with /config`}
+                    title={`Thinking: ${effort} — click to open settings`}
                   >
                     <EffortBars effort={effort} />
                     <span className="capitalize">{effort}</span>

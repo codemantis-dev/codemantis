@@ -9,6 +9,7 @@ interface UiState {
   showApprovalModal: boolean;
   showQuestionModal: boolean;
   showSettingsModal: boolean;
+  showMcpModal: boolean;
   showProjectPicker: boolean;
   showCliOverlay: boolean;
   cliOverlayInitialInput: string | null;
@@ -24,6 +25,7 @@ interface UiState {
   setShowApprovalModal: (show: boolean) => void;
   setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
+  setShowMcpModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setShowCliOverlay: (show: boolean) => void;
   setCliOverlayInitialInput: (input: string | null) => void;
@@ -41,6 +43,7 @@ export const useUiStore = create<UiState>((set) => ({
   showApprovalModal: false,
   showQuestionModal: false,
   showSettingsModal: false,
+  showMcpModal: false,
   showProjectPicker: false,
   showCliOverlay: false,
   cliOverlayInitialInput: null,
@@ -58,6 +61,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowApprovalModal: (show) => set({ showApprovalModal: show }),
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
+  setShowMcpModal: (show) => set({ showMcpModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show }),
   setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),

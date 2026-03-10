@@ -206,13 +206,10 @@ async fn scan_skills_dir(dir: &Path, seen: &mut std::collections::HashSet<String
 fn builtin_commands() -> Vec<SlashCommand> {
     let builtins = [
         ("clear", "Clear conversation and restart session"),
-        ("config", "Open settings"),
         ("cost", "Show session cost and token stats"),
         ("context", "Show context window usage"),
-        ("doctor", "Run Claude doctor diagnostics"),
         ("exit", "Close current session"),
         ("help", "Show help information"),
-        ("init", "Initialize CLAUDE.md in project"),
         ("rename", "Rename current session"),
     ];
 
@@ -240,14 +237,17 @@ fn cli_only_commands() -> Vec<SlashCommand> {
         ("agents", "Manage agent configurations"),
         ("chrome", "Open Chrome DevTools"),
         ("compact", "Compact conversation context"),
+        ("config", "Configure Claude Code preferences"),
         ("copy", "Copy last response to clipboard"),
         ("desktop", "Open desktop integration"),
         ("diff", "Show session diff"),
+        ("doctor", "Run Claude doctor diagnostics"),
         ("export", "Export conversation"),
         ("fast", "Toggle fast mode"),
         ("fork", "Fork current session"),
         ("hooks", "Manage hooks"),
         ("ide", "Open IDE integration"),
+        ("init", "Initialize CLAUDE.md in project"),
         ("keybindings", "Configure keybindings"),
         ("login", "Log in to Claude"),
         ("logout", "Log out of Claude"),

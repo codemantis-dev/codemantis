@@ -1,5 +1,15 @@
 # ClaudeForge Releases
 
+## 0.3.1
+
+- Add MCP Server Management modal for viewing, adding, editing, and deleting MCP servers across global (~/.claude.json) and project (.mcp.json) scopes
+- Support all three MCP server types: stdio, http, and sse with type-specific configuration forms
+- Rust backend reads/writes MCP config files using serde_json::Value to safely preserve all other keys in ~/.claude.json
+- Atomic file writes via temp file + rename for safe config updates
+- Scope filter toggle (All/Global/Project) and inline delete confirmation
+- Environment variable and header values masked by default with eye toggle to reveal
+- Add Blocks icon button in title bar and Cmd+Shift+M keyboard shortcut to open MCP modal
+
 ## 0.3.0
 
 - Add native slash command engine with three-tier routing: skills expand into prompts (no kill/respawn), built-in commands execute natively, CLI-only commands fall back to CliOverlay

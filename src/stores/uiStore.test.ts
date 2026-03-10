@@ -76,4 +76,15 @@ describe("uiStore", () => {
     useUiStore.getState().setShowProjectPicker(true);
     expect(useUiStore.getState().showProjectPicker).toBe(true);
   });
+
+  it("showMcpModal defaults to false", () => {
+    expect(useUiStore.getState().showMcpModal).toBe(false);
+  });
+
+  it("setShowMcpModal toggles MCP modal", () => {
+    useUiStore.getState().setShowMcpModal(true);
+    expect(useUiStore.getState().showMcpModal).toBe(true);
+    useUiStore.getState().setShowMcpModal(false);
+    expect(useUiStore.getState().showMcpModal).toBe(false);
+  });
 });

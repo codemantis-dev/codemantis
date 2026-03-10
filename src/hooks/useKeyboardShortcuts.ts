@@ -96,11 +96,19 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Cmd+/ — open CLI overlay
+      // Cmd+Shift+M — open MCP servers
+      if (key === "m" && shift) {
+        e.preventDefault();
+        useUiStore.getState().setShowMcpModal(true);
+        return;
+      }
+
+      // Cmd+/ — focus input and open command palette
       if (key === "/" && !shift) {
         e.preventDefault();
         if (useSessionStore.getState().activeSessionId) {
-          useUiStore.getState().setShowCliOverlay(true);
+          // Dispatch custom event that InputArea listens for
+          window.dispatchEvent(new CustomEvent("open-command-palette"));
         }
         return;
       }

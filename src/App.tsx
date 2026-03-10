@@ -8,6 +8,7 @@ import AppShell from "./components/layout/AppShell";
 import ToolApproval from "./components/modals/ToolApproval";
 import ProjectPicker, { addRecentProject } from "./components/modals/ProjectPicker";
 import SettingsModal from "./components/modals/SettingsModal";
+import McpModal from "./components/modals/McpModal";
 import QuestionModal from "./components/modals/QuestionModal";
 import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
@@ -141,6 +142,7 @@ export default function App() {
 
         <ProjectPicker onSelectProject={handleSelectProject} />
         <SettingsModal />
+        <McpModal />
         <Toast />
       </div>
     );
@@ -154,6 +156,7 @@ export default function App() {
       <CliOverlay />
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />
+      <McpModal />
       <Toast />
     </>
   );

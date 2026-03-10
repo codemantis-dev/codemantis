@@ -302,33 +302,45 @@ impl ClaudeProcess {
         let child_arc: Arc<tokio::sync::Mutex<Option<Child>>> =
             Arc::new(tokio::sync::Mutex::new(Some(child)));
 
-        // Process monitor task — detects when the CLI exits
+        // Process monitor task — detects when the CLI exits.
+        // Uses try_wait polling to avoid holding the child lock across await
+        // points, which would deadlock with shutdown().
         let monitor_child = Arc::clone(&child_arc);
         let monitor_stderr = Arc::clone(&stderr_buf);
         let monitor_sid = session_id.clone();
         let monitor_app = app_handle.clone();
         let spawn_instant = std::time::Instant::now();
         tokio::spawn(async move {
-            // Wait for the child process to exit
-            let exit_status = {
-                let mut guard = monitor_child.lock().await;
-                if let Some(ref mut child) = *guard {
-                    match child.wait().await {
-                        Ok(status) => {
-                            // Take the child out so shutdown() won't try to kill it again
-                            guard.take();
-                            Some(status)
+            // Poll the child process status without holding the lock across awaits
+            let exit_status = loop {
+                {
+                    let mut guard = monitor_child.lock().await;
+                    match guard.as_mut() {
+                        None => {
+                            // Child was already taken by shutdown()
+                            return;
                         }
-                        Err(e) => {
-                            error!("[monitor:{}] Failed to wait on child: {}", monitor_sid, e);
-                            guard.take();
-                            None
+                        Some(child) => {
+                            match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    // Process exited — take it out
+                                    guard.take();
+                                    break Some(status);
+                                }
+                                Ok(None) => {
+                                    // Still running — drop lock and sleep
+                                }
+                                Err(e) => {
+                                    error!("[monitor:{}] Failed to check child: {}", monitor_sid, e);
+                                    guard.take();
+                                    break None;
+                                }
+                            }
                         }
                     }
-                } else {
-                    // Child was already taken (shutdown called first)
-                    return;
+                    // guard is dropped here
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             };
 
             let elapsed_ms = spawn_instant.elapsed().as_millis() as u64;

@@ -5,7 +5,6 @@ import { useUiStore } from "../stores/uiStore";
 import { useClaudeSession } from "./useClaudeSession";
 import {
   expandSkill,
-  runOneshotCommand,
   pauseSessionProcess,
   resumeSessionProcess,
 } from "../lib/tauri-commands";
@@ -48,7 +47,7 @@ export function useCommandExecution(): {
             await executeSkill(command, args, session, activeSessionId);
             break;
           case "built-in":
-            await executeBuiltin(command, args, session, activeSessionId);
+            await executeBuiltin(command, args, activeSessionId);
             break;
           case "cli-only":
             executeCliOnly(command, args);
@@ -93,7 +92,6 @@ export function useCommandExecution(): {
   async function executeBuiltin(
     command: SlashCommand,
     args: string,
-    session: { project_path: string; cli_session_id?: string | null },
     sessionId: string
   ): Promise<void> {
     switch (command.name) {
@@ -109,10 +107,6 @@ export function useCommandExecution(): {
         showToast("Session cleared", "success");
         break;
       }
-
-      case "config":
-        useUiStore.getState().setShowSettingsModal(true);
-        break;
 
       case "help":
         addSystemMessage(sessionId, formatHelpMessage());
@@ -169,25 +163,6 @@ export function useCommandExecution(): {
         break;
       }
 
-      case "init": {
-        const result = await runOneshotCommand(session.project_path, [
-          "--init-only",
-        ]);
-        const output = result.stdout || result.stderr || "Init completed.";
-        addSystemMessage(sessionId, "```\n" + output.trim() + "\n```");
-        break;
-      }
-
-      case "doctor": {
-        addSystemMessage(sessionId, "Running `claude doctor`...");
-        const result = await runOneshotCommand(session.project_path, [
-          "doctor",
-        ]);
-        const output = result.stdout || result.stderr || "Doctor completed.";
-        addSystemMessage(sessionId, "```\n" + output.trim() + "\n```");
-        break;
-      }
-
       default:
         showToast(`Built-in command /${command.name} not implemented`, "info");
     }
@@ -219,19 +194,17 @@ function formatHelpMessage(): string {
     "",
     "**Skills** — Custom commands from `.claude/commands/` expand into prompts",
     "",
-    "**Built-in:**",
+    "**Built-in** (instant, no process restart):",
     "- `/clear` — Clear conversation and restart",
-    "- `/config` — Open settings",
     "- `/context` — Show context window usage",
     "- `/cost` — Show session cost and stats",
     "- `/exit` — Close current session",
     "- `/help` — Show this help",
-    "- `/init` — Initialize CLAUDE.md",
     "- `/rename <name>` — Rename session",
     "",
-    "**CLI-only** (opens interactive terminal):",
-    "- `/compact`, `/model`, `/mcp`, `/hooks`, `/theme`, etc.",
+    "**Opens CLI** (interactive terminal):",
+    "- `/config`, `/doctor`, `/model`, `/compact`, `/mcp`, `/hooks`, `/theme`, etc.",
     "",
-    "**Tip:** Press `Cmd+/` to open the CLI terminal directly.",
+    "**Tip:** Press `Cmd+/` to open the command palette.",
   ].join("\n");
 }

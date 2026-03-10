@@ -116,6 +116,11 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
     expect(useSessionStore.getState().sessions.has("s1")).toBe(false);
   });
 
+  it("Cmd+Shift+M opens MCP modal", () => {
+    useUiStore.getState().setShowMcpModal(true);
+    expect(useUiStore.getState().showMcpModal).toBe(true);
+  });
+
   it("switching right tabs cycles correctly", () => {
     useUiStore.getState().setRightTab("activity");
     expect(useUiStore.getState().rightTab).toBe("activity");

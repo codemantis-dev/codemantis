@@ -1,4 +1,4 @@
-import { Plus, Settings } from "lucide-react";
+import { Plus, Blocks, Settings } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import ProjectTab from "./ProjectTab";
@@ -14,6 +14,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const tabOrder = useSessionStore((s) => s.tabOrder);
   const setActiveProject = useSessionStore((s) => s.setActiveProject);
   const setShowProjectPicker = useUiStore((s) => s.setShowProjectPicker);
+  const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
 
   return (
@@ -65,6 +66,15 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         className="mx-1 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Plus size={15} />
+      </button>
+
+      {/* MCP Servers button */}
+      <button
+        onClick={() => setShowMcpModal(true)}
+        title="MCP Servers (⌘⇧M)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      >
+        <Blocks size={14} />
       </button>
 
       {/* Settings button */}
