@@ -1,5 +1,29 @@
 # ClaudeForge Releases
 
+## 0.3.4
+
+- Add trivia facts that rotate every 10 seconds while Claude is working, shown as a card below the ThinkingIndicator
+- Curated dataset of 10,500 facts (1,050 topics × 10 pieces) bundled from input_data/trivia_dataset.json
+- Easter egg facts shown every 50th rotation with distinct gold-accented styling
+- No consecutive topic repeats; fade-in animation on each new fact
+- Custom hook (useTriviaRotation) manages lifecycle, interval, and easter egg scheduling
+
+## 0.3.3
+
+- Fix incorrect MCP template configs: Supabase now uses HTTP cloud type (not stdio), Slack uses SLACK_TEAM_ID (not SLACK_APP_TOKEN), PostgreSQL passes connection URL as argument (not env var), Stripe uses STRIPE_SECRET_KEY with --tools=all flag, Cloudflare URL corrected to include /mcp path
+- Add setup hints to templates — contextual guidance shown as info box in the form (OAuth instructions, where to get API keys, how to configure arguments)
+- Add help descriptions to all form fields: Name, Scope, Type (with dynamic description per type), Command, Arguments, URL
+- Widen MCP modal (640px → 780px) so env var names display fully without truncation
+- Widen env var key column (128px → 192px) and add mouseover tooltips on key/value inputs
+- Add headers support to template system for HTTP templates
+
+## 0.3.2
+
+- Add MCP server template gallery with 15 pre-configured servers organized in 3 categories (No Setup Required, Requires API Key, Cloud Services)
+- Clicking "Add Server" now shows a template picker; selecting a template auto-fills the form with name, command, args, env vars, or URL
+- "Manual Configuration" option available for power users who want a blank form
+- Cancel from a pre-filled form returns to the template picker, not the server list
+
 ## 0.3.1
 
 - Add MCP Server Management modal for viewing, adding, editing, and deleting MCP servers across global (~/.claude.json) and project (.mcp.json) scopes

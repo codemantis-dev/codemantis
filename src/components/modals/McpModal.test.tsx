@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import McpModal from "./McpModal";
 import { useUiStore } from "../../stores/uiStore";
 import { useMcpStore } from "../../stores/mcpStore";
@@ -7,10 +7,10 @@ import { useSessionStore } from "../../stores/sessionStore";
 import type { McpServerConfig } from "../../types/mcp";
 
 // Keep reference to mock for per-test configuration
-const mockGetMcpServers = vi.fn(() => Promise.resolve([]));
+const mockGetMcpServers = vi.fn<(projectPath?: string) => Promise<McpServerConfig[]>>(() => Promise.resolve([]));
 
 vi.mock("../../lib/tauri-commands", () => ({
-  getMcpServers: (...args: unknown[]) => mockGetMcpServers(...args),
+  getMcpServers: (...args: [string?]) => mockGetMcpServers(...args),
   saveMcpServer: vi.fn(() => Promise.resolve()),
   deleteMcpServer: vi.fn(() => Promise.resolve()),
   renameMcpServer: vi.fn(() => Promise.resolve()),
@@ -55,6 +55,12 @@ function openModal(
     sessionContext: new Map(),
     tabOrder: [],
   });
+}
+
+/** Navigate Add Server → Manual Configuration to reach the blank form */
+function clickAddManual(): void {
+  fireEvent.click(screen.getByText("Add Server"));
+  fireEvent.click(screen.getByText("Manual Configuration"));
 }
 
 describe("McpModal", () => {
@@ -204,21 +210,193 @@ describe("McpModal", () => {
     expect(screen.queryByText("supabase")).not.toBeInTheDocument();
   });
 
-  // ────── Add Server Form ──────
+  // ────── Template Picker ──────
 
-  it("opens add form when Add Server clicked", async () => {
+  it("shows template picker when Add Server clicked", async () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
     fireEvent.click(screen.getByText("Add Server"));
-    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
+
+    expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
   });
+
+  it("shows all three category headings in picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByText("No Setup Required")).toBeInTheDocument();
+    expect(screen.getByText("Requires API Key")).toBeInTheDocument();
+    expect(screen.getByText("Cloud Services")).toBeInTheDocument();
+  });
+
+  it("shows template cards for each category", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    // No-auth
+    expect(screen.getByText("Context7")).toBeInTheDocument();
+    expect(screen.getByText("Playwright")).toBeInTheDocument();
+    // API key
+    expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.getByText("Stripe")).toBeInTheDocument();
+    // Cloud
+    expect(screen.getByText("Sentry")).toBeInTheDocument();
+    expect(screen.getByText("Neon")).toBeInTheDocument();
+  });
+
+  it("shows Manual Configuration option in picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByText("Manual Configuration")).toBeInTheDocument();
+    expect(screen.getByText("Start with a blank form")).toBeInTheDocument();
+  });
+
+  it("selecting template pre-fills form name and command", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Context7"));
+
+    const nameInput = screen.getByPlaceholderText("my-server") as HTMLInputElement;
+    expect(nameInput.value).toBe("context7");
+
+    const cmdInput = screen.getByPlaceholderText("npx") as HTMLInputElement;
+    expect(cmdInput.value).toBe("npx");
+
+    const argsInput = screen.getByPlaceholderText("-y, @package/name") as HTMLInputElement;
+    expect(argsInput.value).toBe("-y, @upstash/context7-mcp");
+  });
+
+  it("selecting template with env vars shows them pre-filled with hints", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("GitHub"));
+
+    // Should show an env var row with the key pre-filled
+    const keyInputs = screen.getAllByPlaceholderText("Key");
+    expect(keyInputs.length).toBeGreaterThanOrEqual(1);
+    expect((keyInputs[0] as HTMLInputElement).value).toBe("GITHUB_PERSONAL_ACCESS_TOKEN");
+
+    // Value field should have the fieldHint as placeholder, not generic "Value"
+    expect(screen.getByPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx")).toBeInTheDocument();
+  });
+
+  it("selecting HTTP template shows URL field pre-filled", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Sentry"));
+
+    const urlInput = screen.getByPlaceholderText("https://api.example.com/mcp/") as HTMLInputElement;
+    expect(urlInput.value).toBe("https://mcp.sentry.dev/mcp");
+  });
+
+  it("selecting Supabase template shows HTTP type with URL and auth header hint", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Supabase"));
+
+    const urlInput = screen.getByPlaceholderText("https://api.example.com/mcp/") as HTMLInputElement;
+    expect(urlInput.value).toBe("https://mcp.supabase.com/mcp");
+    // Should not show stdio fields
+    expect(screen.queryByPlaceholderText("npx")).not.toBeInTheDocument();
+    // Authorization header should be pre-filled with hint placeholder
+    const keyInputs = screen.getAllByPlaceholderText("Key");
+    expect((keyInputs[0] as HTMLInputElement).value).toBe("Authorization");
+    expect(screen.getByPlaceholderText("Bearer sbp_xxxxxxxxxxxxxxxxxxxx")).toBeInTheDocument();
+  });
+
+  it("shows setup hint when template has one", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("GitHub"));
+
+    expect(screen.getByText(/Personal Access Token at github\.com/)).toBeInTheDocument();
+  });
+
+  it("does not show setup hint for manual config", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    // No hint boxes should be shown
+    expect(screen.queryByText(/Personal Access Token/)).not.toBeInTheDocument();
+  });
+
+  it("shows type description text", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByText(/Runs a local process on your machine/)).toBeInTheDocument();
+  });
+
+  it("Manual Configuration opens blank form", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    const nameInput = screen.getByPlaceholderText("my-server") as HTMLInputElement;
+    expect(nameInput.value).toBe("");
+
+    const cmdInput = screen.getByPlaceholderText("npx") as HTMLInputElement;
+    expect(cmdInput.value).toBe("");
+  });
+
+  it("cancel from pre-filled form returns to picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Context7"));
+
+    // Now on the form — click Cancel
+    fireEvent.click(screen.getByText("Cancel"));
+
+    // Should be back at picker, not at server list
+    expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
+    expect(screen.getByText("Manual Configuration")).toBeInTheDocument();
+  });
+
+  it("cancel from edit form returns to server list", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    fireEvent.click(screen.getByTitle("Edit"));
+    expect(screen.getByText("Edit MCP Server")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(screen.getByText("context7")).toBeInTheDocument();
+    expect(screen.queryByText("Edit MCP Server")).not.toBeInTheDocument();
+  });
+
+  // ────── Add Server Form (via Manual) ──────
 
   it("add form shows name, scope, type fields", async () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     expect(screen.getByPlaceholderText("my-server")).toBeInTheDocument();
     expect(screen.getByText("Scope")).toBeInTheDocument();
@@ -229,29 +407,17 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     expect(screen.getByPlaceholderText("npx")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("-y, @package/name")).toBeInTheDocument();
-  });
-
-  it("cancel button closes form and returns to list", async () => {
-    openModal([STDIO_SERVER]);
-    render(<McpModal />);
-    await screen.findByText("context7");
-    fireEvent.click(screen.getByText("Add Server"));
-    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Cancel"));
-    expect(screen.getByText("context7")).toBeInTheDocument();
-    expect(screen.queryByText("Add MCP Server")).not.toBeInTheDocument();
   });
 
   it("save button disabled with empty name", async () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const addBtn = screen.getByRole("button", { name: "Add Server" });
     expect(addBtn).toBeDisabled();
@@ -261,7 +427,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const nameInput = screen.getByPlaceholderText("my-server");
     fireEvent.change(nameInput, { target: { value: "invalid name!" } });
@@ -275,7 +441,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const nameInput = screen.getByPlaceholderText("my-server");
     fireEvent.change(nameInput, { target: { value: "my-server_v2" } });
@@ -289,7 +455,7 @@ describe("McpModal", () => {
     openModal([STDIO_SERVER]);
     render(<McpModal />);
     await screen.findByText("context7");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const nameInput = screen.getByPlaceholderText("my-server");
     fireEvent.change(nameInput, { target: { value: "context7" } });
@@ -373,7 +539,7 @@ describe("McpModal", () => {
     expect(screen.queryByText(/\.mcp\.json/)).not.toBeInTheDocument();
   });
 
-  it("hides footer when editing", async () => {
+  it("hides footer when in picker", async () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
@@ -387,7 +553,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const typeSelect = screen.getByDisplayValue("stdio");
     fireEvent.change(typeSelect, { target: { value: "http" } });
@@ -400,7 +566,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const typeSelect = screen.getByDisplayValue("stdio");
     fireEvent.change(typeSelect, { target: { value: "sse" } });
@@ -441,7 +607,7 @@ describe("McpModal", () => {
     openModal([], "/my/project");
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const projectRadio = screen.getByLabelText("Project") as HTMLInputElement;
     expect(projectRadio.checked).toBe(true);
@@ -451,7 +617,7 @@ describe("McpModal", () => {
     openModal([], null);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const globalRadio = screen.getByLabelText("Global") as HTMLInputElement;
     expect(globalRadio.checked).toBe(true);
@@ -461,7 +627,7 @@ describe("McpModal", () => {
     openModal([], null);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     expect(screen.queryByLabelText("Project")).not.toBeInTheDocument();
   });
@@ -472,7 +638,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     expect(screen.getByText("+ Add environment variable")).toBeInTheDocument();
   });
@@ -481,7 +647,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
     fireEvent.click(screen.getByText("+ Add environment variable"));
 
     expect(screen.getAllByPlaceholderText("Key")).toHaveLength(1);
@@ -494,7 +660,7 @@ describe("McpModal", () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
-    fireEvent.click(screen.getByText("Add Server"));
+    clickAddManual();
 
     const typeSelect = screen.getByDisplayValue("stdio");
     fireEvent.change(typeSelect, { target: { value: "http" } });

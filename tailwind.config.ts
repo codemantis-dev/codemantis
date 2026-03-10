@@ -55,10 +55,15 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0" },
         },
+        "trivia-fade-in": {
+          "0%": { opacity: "0", transform: "translateY(4px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         pulse: "pulse 2s ease-in-out infinite",
         blink: "blink 1.06s step-end infinite",
+        "trivia-fade-in": "trivia-fade-in 0.4s ease-out",
       },
     },
   },

@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X } from "lucide-react";
+import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, Wrench, Info } from "lucide-react";
+import {
+  MCP_TEMPLATES,
+  MCP_TEMPLATE_CATEGORIES,
+  type McpTemplate,
+} from "../../types/mcp-templates";
 import { useUiStore } from "../../stores/uiStore";
 import { useMcpStore } from "../../stores/mcpStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -40,6 +45,19 @@ function serverToForm(server: McpServerConfig): FormState {
     env: Object.entries(server.env ?? {}).map(([key, value]) => ({ key, value })),
     url: server.url ?? "",
     headers: Object.entries(server.headers ?? {}).map(([key, value]) => ({ key, value })),
+  };
+}
+
+function templateToForm(template: McpTemplate, scope: McpScope): FormState {
+  return {
+    name: template.id,
+    scope,
+    serverType: template.serverType,
+    command: template.command ?? "",
+    args: template.args?.join(", ") ?? "",
+    env: Object.entries(template.env ?? {}).map(([key, value]) => ({ key, value })),
+    url: template.url ?? "",
+    headers: Object.entries(template.headers ?? {}).map(([key, value]) => ({ key, value })),
   };
 }
 
@@ -107,14 +125,18 @@ function ScopeBadge({ scope }: { scope: McpScope }) {
 
 function KeyValueRow({
   label,
+  helpText,
   pairs,
   onChange,
   maskValues,
+  valuePlaceholders,
 }: {
   label: string;
+  helpText?: string;
   pairs: { key: string; value: string }[];
   onChange: (pairs: { key: string; value: string }[]) => void;
   maskValues?: boolean;
+  valuePlaceholders?: Record<string, string>;
 }) {
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
 
@@ -130,29 +152,34 @@ function KeyValueRow({
   return (
     <div>
       <label className="text-ui text-text-secondary mb-1.5 block">{label}</label>
+      {helpText && (
+        <p className="text-[11px] text-text-ghost mb-1.5 -mt-0.5">{helpText}</p>
+      )}
       <div className="space-y-1.5">
         {pairs.map((pair, i) => (
           <div key={i} className="flex items-center gap-1.5">
             <input
               type="text"
               value={pair.key}
+              title={pair.key || undefined}
               onChange={(e) => {
                 const updated = [...pairs];
                 updated[i] = { ...updated[i], key: e.target.value };
                 onChange(updated);
               }}
               placeholder="Key"
-              className="w-32 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
+              className="w-48 shrink-0 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
             <input
               type={maskValues && !revealed.has(i) ? "password" : "text"}
               value={pair.value}
+              title={maskValues ? undefined : pair.value || undefined}
               onChange={(e) => {
                 const updated = [...pairs];
                 updated[i] = { ...updated[i], value: e.target.value };
                 onChange(updated);
               }}
-              placeholder="Value"
+              placeholder={valuePlaceholders?.[pair.key] || "Value"}
               className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
             {maskValues && (
@@ -185,6 +212,79 @@ function KeyValueRow({
   );
 }
 
+function TemplatePicker({
+  onSelect,
+  onManual,
+}: {
+  onSelect: (template: McpTemplate) => void;
+  onManual: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-text-primary font-medium">Add MCP Server</h3>
+        <p className="text-ui text-text-dim mt-0.5">
+          Choose a template or configure manually
+        </p>
+      </div>
+
+      {MCP_TEMPLATE_CATEGORIES.map((cat) => {
+        const templates = MCP_TEMPLATES.filter((t) => t.category === cat.id);
+        return (
+          <div key={cat.id}>
+            <h4 className="text-[11px] font-semibold text-text-dim uppercase tracking-wider mb-2">
+              {cat.label}
+            </h4>
+            <div className="grid grid-cols-2 gap-2">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => onSelect(t)}
+                  className="flex items-start gap-2.5 p-3 rounded-lg border border-border hover:border-accent/40 hover:bg-accent/5 transition-colors text-left group"
+                >
+                  <span className="text-lg leading-none mt-0.5">{t.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-ui font-medium text-text-primary group-hover:text-accent transition-colors">
+                        {t.displayName}
+                      </span>
+                      {cat.id === "api-key" && (
+                        <span className="text-[10px] text-text-ghost">🔑</span>
+                      )}
+                      {cat.id === "cloud" && (
+                        <span className="text-[10px] text-text-ghost">☁</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-text-dim mt-0.5 truncate">
+                      {t.description}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Manual Configuration */}
+      <button
+        onClick={onManual}
+        className="w-full flex items-center gap-2.5 p-3 rounded-lg border border-dashed border-border hover:border-text-dim hover:bg-bg-elevated transition-colors text-left"
+      >
+        <Wrench size={16} className="text-text-dim shrink-0" />
+        <div>
+          <span className="text-ui font-medium text-text-secondary">
+            Manual Configuration
+          </span>
+          <p className="text-[11px] text-text-dim mt-0.5">
+            Start with a blank form
+          </p>
+        </div>
+      </button>
+    </div>
+  );
+}
+
 function ServerForm({
   form,
   onChange,
@@ -193,6 +293,8 @@ function ServerForm({
   isEdit,
   existingNames,
   hasProject,
+  setupHint,
+  fieldHints,
 }: {
   form: FormState;
   onChange: (form: FormState) => void;
@@ -201,6 +303,8 @@ function ServerForm({
   isEdit: boolean;
   existingNames: Set<string>;
   hasProject: boolean;
+  setupHint?: string;
+  fieldHints?: Record<string, string>;
 }) {
   const nameValid = form.name.trim().length > 0 && NAME_PATTERN.test(form.name.trim());
   const nameUnique = isEdit || !existingNames.has(form.name.trim());
@@ -210,11 +314,25 @@ function ServerForm({
       : form.url.trim().length > 0;
   const canSave = nameValid && nameUnique && hasRequired;
 
+  const typeDescriptions: Record<McpServerType, string> = {
+    stdio: "Runs a local process on your machine. Communicates via stdin/stdout.",
+    http: "Connects to a remote HTTP endpoint. Used for cloud-hosted MCP servers.",
+    sse: "Server-Sent Events (legacy). Prefer HTTP for new servers.",
+  };
+
   return (
     <div className="space-y-4">
       <h3 className="text-text-primary font-medium">
         {isEdit ? "Edit MCP Server" : "Add MCP Server"}
       </h3>
+
+      {/* Setup hint from template */}
+      {setupHint && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent/8 border border-accent/15">
+          <Info size={14} className="text-accent shrink-0 mt-0.5" />
+          <p className="text-[12px] text-text-secondary leading-relaxed">{setupHint}</p>
+        </div>
+      )}
 
       {/* Name */}
       <div>
@@ -231,11 +349,12 @@ function ServerForm({
             !nameUnique ? "border-red/50" : ""
           }`}
         />
-        {form.name.trim() && !nameValid && (
+        {form.name.trim() && !nameValid ? (
           <p className="text-[11px] text-red mt-0.5">Only letters, numbers, hyphens, underscores</p>
-        )}
-        {!nameUnique && (
+        ) : !nameUnique ? (
           <p className="text-[11px] text-red mt-0.5">A server with this name already exists in this scope</p>
+        ) : (
+          <p className="text-[11px] text-text-ghost mt-0.5">Unique identifier used as the key in your config file</p>
         )}
       </div>
 
@@ -268,6 +387,9 @@ function ServerForm({
             </label>
           )}
         </div>
+        <p className="text-[11px] text-text-ghost mt-1">
+          Global: ~/.claude.json (all projects). Project: .mcp.json (this project only).
+        </p>
       </div>
 
       {/* Type */}
@@ -284,6 +406,7 @@ function ServerForm({
           <option value="http">http</option>
           <option value="sse">sse</option>
         </select>
+        <p className="text-[11px] text-text-ghost mt-0.5">{typeDescriptions[form.serverType]}</p>
       </div>
 
       {/* Type-specific fields */}
@@ -298,6 +421,7 @@ function ServerForm({
               placeholder="npx"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
+            <p className="text-[11px] text-text-ghost mt-0.5">Executable to run (npx, node, python, etc.)</p>
           </div>
           <div>
             <label className="text-ui text-text-secondary mb-1 block">Arguments</label>
@@ -308,13 +432,15 @@ function ServerForm({
               placeholder="-y, @package/name"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
-            <p className="text-[11px] text-text-ghost mt-0.5">Comma-separated</p>
+            <p className="text-[11px] text-text-ghost mt-0.5">Comma-separated arguments passed to the command</p>
           </div>
           <KeyValueRow
             label="Environment Variables"
+            helpText="Passed to the server process at startup"
             pairs={form.env}
             onChange={(env) => onChange({ ...form, env })}
             maskValues
+            valuePlaceholders={fieldHints}
           />
         </div>
       )}
@@ -330,12 +456,15 @@ function ServerForm({
               placeholder="https://api.example.com/mcp/"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
+            <p className="text-[11px] text-text-ghost mt-0.5">The HTTP endpoint of the remote MCP server</p>
           </div>
           <KeyValueRow
             label="Headers"
+            helpText="HTTP headers sent with each request to the server"
             pairs={form.headers}
             onChange={(headers) => onChange({ ...form, headers })}
             maskValues
+            valuePlaceholders={fieldHints}
           />
         </div>
       )}
@@ -350,6 +479,7 @@ function ServerForm({
             placeholder="https://mcp.example.com/sse"
             className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
           />
+          <p className="text-[11px] text-text-ghost mt-0.5">The SSE endpoint of the remote MCP server (legacy protocol)</p>
         </div>
       )}
 
@@ -389,6 +519,8 @@ export default function McpModal() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [revealedEnv, setRevealedEnv] = useState<Set<string>>(new Set());
+  const [setupHint, setSetupHint] = useState("");
+  const [fieldHints, setFieldHints] = useState<Record<string, string>>({});
 
   const hasProject = Boolean(activeProjectPath);
 
@@ -413,12 +545,28 @@ export default function McpModal() {
   );
 
   const handleAdd = () => {
+    setEditingServer("__picking__");
+  };
+
+  const handleSelectTemplate = (template: McpTemplate) => {
+    const scope = hasProject ? "project" : "global";
+    setForm(templateToForm(template, scope));
+    setSetupHint(template.setupHint ?? "");
+    setFieldHints(template.fieldHints ? { ...template.fieldHints } : {});
+    setEditingServer("__new__");
+  };
+
+  const handleManualAdd = () => {
     setForm({ ...EMPTY_FORM, scope: hasProject ? "project" : "global" });
+    setSetupHint("");
+    setFieldHints({});
     setEditingServer("__new__");
   };
 
   const handleEdit = (server: McpServerConfig) => {
     setForm(serverToForm(server));
+    setSetupHint("");
+    setFieldHints({});
     setEditingServer(server.name);
   };
 
@@ -470,8 +618,8 @@ export default function McpModal() {
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 rounded-xl border border-border overflow-hidden flex flex-col"
           style={{
             background: "var(--bg-primary)",
-            width: "min(90vw, 640px)",
-            maxHeight: "min(85vh, 600px)",
+            width: "min(90vw, 780px)",
+            height: "min(85vh, 720px)",
           }}
         >
           {/* Header */}
@@ -487,15 +635,26 @@ export default function McpModal() {
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-5">
-            {editingServer ? (
+            {editingServer === "__picking__" ? (
+              <TemplatePicker
+                onSelect={handleSelectTemplate}
+                onManual={handleManualAdd}
+              />
+            ) : editingServer ? (
               <ServerForm
                 form={form}
                 onChange={setForm}
                 onSave={handleSave}
-                onCancel={() => setEditingServer(null)}
+                onCancel={() =>
+                  setEditingServer(
+                    editingServer === "__new__" ? "__picking__" : null
+                  )
+                }
                 isEdit={editingServer !== "__new__"}
                 existingNames={existingNames}
                 hasProject={hasProject}
+                setupHint={setupHint}
+                fieldHints={fieldHints}
               />
             ) : (
               <>

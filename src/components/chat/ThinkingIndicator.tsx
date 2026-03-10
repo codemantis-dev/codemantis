@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { useTriviaRotation } from "../../hooks/useTriviaRotation";
+import TriviaCard from "./TriviaCard";
 
 export default function ThinkingIndicator() {
   const [dots, setDots] = useState(1);
+  const trivia = useTriviaRotation(true);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -11,7 +14,7 @@ export default function ThinkingIndicator() {
   }, []);
 
   return (
-    <div className="flex items-start mb-4">
+    <div className="flex flex-col items-start mb-4 gap-3">
       <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl rounded-bl-md"
         style={{ background: "var(--bg-elevated)" }}
       >
@@ -26,6 +29,13 @@ export default function ThinkingIndicator() {
           Claude is working{".".repeat(dots)}
         </span>
       </div>
+
+      <TriviaCard
+        topic={trivia.topic}
+        fact={trivia.fact}
+        isEasterEgg={trivia.isEasterEgg}
+        factKey={trivia.factKey}
+      />
     </div>
   );
 }
