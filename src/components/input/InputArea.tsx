@@ -9,6 +9,8 @@ import { saveClipboardImage, getFileInfo, readFileBytes } from "../../lib/tauri-
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
+import { useCommandExecution } from "../../hooks/useCommandExecution";
 
 /** Read a file via Rust and create a blob: URL for previewing in the webview. */
 async function createPreviewUrl(filePath: string, mimeType: string): Promise<string | undefined> {
@@ -62,7 +64,11 @@ function EffortBars({ effort }: { effort: ThinkingEffort }) {
 export default function InputArea() {
   const [input, setInput] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const paletteRef = useRef<CommandPaletteHandle>(null);
+  const { executeCommand } = useCommandExecution();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
@@ -125,12 +131,20 @@ export default function InputArea() {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // When command palette is open, intercept navigation keys
+      if (showCommandPalette && paletteRef.current) {
+        const handled = paletteRef.current.handleKeyDown(e.key);
+        if (handled) {
+          e.preventDefault();
+          return;
+        }
+      }
       if (e.key === "Enter" && e.metaKey) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend, showCommandPalette]
   );
 
   const handleInput = useCallback(() => {
@@ -305,7 +319,24 @@ export default function InputArea() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="max-w-[720px] mx-auto">
+      <div className="max-w-[720px] mx-auto relative">
+        {/* Command palette dropdown */}
+        {showCommandPalette && session && (
+          <CommandPalette
+            ref={paletteRef}
+            query={commandQuery}
+            onSelect={(cmd, args) => {
+              setShowCommandPalette(false);
+              setInput("");
+              executeCommand(cmd, args);
+            }}
+            onClose={() => {
+              setShowCommandPalette(false);
+              setInput("");
+            }}
+          />
+        )}
+
         <div
           className={`rounded-xl border transition-colors focus-within:border-accent/40 ${
             dragOver ? "border-accent/60 bg-accent/5" : "border-border bg-bg-elevated"
@@ -327,9 +358,15 @@ export default function InputArea() {
             value={input}
             onChange={(e) => {
               const newValue = e.target.value;
-              if (newValue === "/" && input === "") {
-                useUiStore.getState().setShowCliOverlay(true);
+              if (newValue.startsWith("/") && !newValue.includes("\n")) {
+                setShowCommandPalette(true);
+                setCommandQuery(newValue.slice(1));
+                setInput(newValue);
+                handleInput();
                 return;
+              }
+              if (showCommandPalette && !newValue.startsWith("/")) {
+                setShowCommandPalette(false);
               }
               setInput(newValue);
               handleInput();
@@ -367,13 +404,18 @@ export default function InputArea() {
                 <span>Agent</span>
               </button>
               <button
-                onClick={() => useUiStore.getState().setShowCliOverlay(true)}
+                onClick={() => {
+                  setInput("/");
+                  setShowCommandPalette(true);
+                  setCommandQuery("");
+                  textareaRef.current?.focus();
+                }}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
                 disabled={!session}
-                title="Open Claude CLI — separate session for /config, /doctor, /help (Cmd+/)"
+                title="Command palette (type / or Cmd+/)"
               >
                 <span className="font-mono text-xs leading-none">/</span>
-                <span>CLI</span>
+                <span>Cmd</span>
               </button>
             </div>
 

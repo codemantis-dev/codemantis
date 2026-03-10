@@ -6,6 +6,7 @@ import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-ev
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo } from "../types/git";
+import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 
 // --- Startup ---
 
@@ -274,6 +275,33 @@ export async function testChangelogApiKey(
 
 export async function getGitStatus(projectPath: string): Promise<GitStatusInfo> {
   return invoke<GitStatusInfo>("get_git_status", { projectPath });
+}
+
+// --- Slash Commands ---
+
+export async function discoverCommands(projectPath: string): Promise<SlashCommand[]> {
+  return invoke<SlashCommand[]>("discover_commands", { projectPath });
+}
+
+export async function expandSkill(
+  projectPath: string,
+  sourcePath: string,
+  arguments_: string,
+  cliSessionId: string
+): Promise<ExpandedSkill> {
+  return invoke<ExpandedSkill>("expand_skill", {
+    projectPath,
+    sourcePath,
+    arguments: arguments_,
+    cliSessionId,
+  });
+}
+
+export async function runOneshotCommand(
+  projectPath: string,
+  args: string[]
+): Promise<OneshotResult> {
+  return invoke<OneshotResult>("run_oneshot_command", { projectPath, args });
 }
 
 // --- Event Listeners ---

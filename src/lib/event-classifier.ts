@@ -1,5 +1,6 @@
 import type { FrontendEvent } from "../types/claude-events";
 import type { ActivityEntry } from "../types/activity";
+import type { PendingQuestion, QuestionItem } from "../stores/activityStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
@@ -7,6 +8,7 @@ import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerSto
 import { useSettingsStore } from "../stores/settingsStore";
 import { useChangelogStore } from "../stores/changelogStore";
 import { useAssistantStore } from "../stores/assistantStore";
+import { showToast } from "../stores/toastStore";
 
 // Tools that indicate actual changes were made (not just reads)
 const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
@@ -191,6 +193,57 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       });
       break;
     }
+
+    case "process_exited": {
+      store.setSessionBusy(sessionId, false);
+      if (store.sessionStreaming.get(sessionId)?.isStreaming) {
+        store.finalizeStreaming(sessionId);
+      }
+      store.updateSessionStatus(sessionId, "idle");
+
+      // Auth failure heuristic: quick exit + auth keywords in stderr
+      const AUTH_KEYWORDS = [
+        "auth", "login", "token", "expired", "unauthorized",
+        "401", "403", "credential", "sign in", "not logged in",
+        "authentication", "unauthenticated",
+      ];
+      const stderrLower = (event.stderr_tail ?? "").toLowerCase();
+      const isAuthFailure =
+        event.elapsed_ms < 5000 &&
+        event.exit_code !== 0 &&
+        AUTH_KEYWORDS.some((kw) => stderrLower.includes(kw));
+
+      if (isAuthFailure) {
+        store.addMessage(sessionId, {
+          id: nextMessageId(),
+          role: "assistant",
+          content:
+            "**Authentication failed.** Your Claude session may have expired.\n\n" +
+            "To fix this, open a terminal and run:\n\n```\nclaude login\n```\n\n" +
+            "Then start a new session in ClaudeForge.",
+          timestamp: now,
+          activityIds: [],
+          isStreaming: false,
+        });
+        showToast("Authentication failed — run 'claude login' in a terminal", "error", 12000);
+      } else if (event.exit_code !== 0) {
+        const stderrInfo = event.stderr_tail
+          ? `\n\n**stderr:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
+          : "";
+        store.addMessage(sessionId, {
+          id: nextMessageId(),
+          role: "assistant",
+          content:
+            `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
+            `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
+          timestamp: now,
+          activityIds: [],
+          isStreaming: false,
+        });
+      }
+      // Clean exit (code 0): no message needed
+      break;
+    }
   }
 }
 
@@ -222,6 +275,18 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         sessionId,
       };
       activityStore.addEntry(sessionId, entry);
+
+      // Wire AskUserQuestion tool to the QuestionModal
+      if (event.tool_name === "AskUserQuestion") {
+        const input = event.tool_input;
+        const pendingQuestion: PendingQuestion = {
+          toolUseId: event.tool_use_id,
+          question: typeof input.question === "string" ? input.question : undefined,
+          questions: Array.isArray(input.questions) ? (input.questions as QuestionItem[]) : undefined,
+        };
+        activityStore.setPendingQuestion(sessionId, pendingQuestion);
+        useUiStore.getState().setShowQuestionModal(true);
+      }
       break;
     }
 

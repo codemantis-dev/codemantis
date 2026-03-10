@@ -1,10 +1,12 @@
-use crate::claude::event_types::StdinMessage;
+use crate::claude::event_types::{FrontendEvent, StdinMessage};
 use crate::claude::message_router::route_events;
+use crate::claude::session::{AppState, SessionStatus};
 use crate::claude::stream_parser::parse_stream;
 use crate::errors::AppError;
 use log::{debug, error, info, warn};
 use std::process::Stdio;
-use tauri::AppHandle;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
@@ -155,8 +157,11 @@ fn cleanup_legacy_hook_config(project_path: &str) {
     }
 }
 
+/// Max stderr lines kept in the ring buffer for the process exit event.
+const STDERR_BUFFER_LINES: usize = 20;
+
 pub struct ClaudeProcess {
-    child: Option<Child>,
+    child: Arc<tokio::sync::Mutex<Option<Child>>>,
     stdin_tx: mpsc::UnboundedSender<Vec<u8>>,
     session_id: String,
 }
@@ -260,14 +265,24 @@ impl ClaudeProcess {
             debug!("Stdin writer task finished");
         });
 
-        // Stderr logger task
-        let sid_clone = session_id.clone();
+        // Shared stderr buffer (ring buffer of last N lines)
+        let stderr_buf: Arc<tokio::sync::Mutex<Vec<String>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        // Stderr logger + buffer task
+        let sid_stderr = session_id.clone();
+        let stderr_buf_clone = Arc::clone(&stderr_buf);
         tokio::spawn(async move {
             use tokio::io::{AsyncBufReadExt, BufReader};
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                debug!("[stderr:{}] {}", sid_clone, line);
+                debug!("[stderr:{}] {}", sid_stderr, line);
+                let mut buf = stderr_buf_clone.lock().await;
+                buf.push(line);
+                if buf.len() > STDERR_BUFFER_LINES {
+                    buf.remove(0);
+                }
             }
         });
 
@@ -277,13 +292,92 @@ impl ClaudeProcess {
         });
 
         // Message router task
+        let router_app = app_handle.clone();
         let sid_clone = session_id.clone();
         tokio::spawn(async move {
-            route_events(app_handle, sid_clone, event_rx).await;
+            route_events(router_app, sid_clone, event_rx).await;
+        });
+
+        // Wrap child in Arc<Mutex> so the monitor task and shutdown() can share it
+        let child_arc: Arc<tokio::sync::Mutex<Option<Child>>> =
+            Arc::new(tokio::sync::Mutex::new(Some(child)));
+
+        // Process monitor task — detects when the CLI exits
+        let monitor_child = Arc::clone(&child_arc);
+        let monitor_stderr = Arc::clone(&stderr_buf);
+        let monitor_sid = session_id.clone();
+        let monitor_app = app_handle.clone();
+        let spawn_instant = std::time::Instant::now();
+        tokio::spawn(async move {
+            // Wait for the child process to exit
+            let exit_status = {
+                let mut guard = monitor_child.lock().await;
+                if let Some(ref mut child) = *guard {
+                    match child.wait().await {
+                        Ok(status) => {
+                            // Take the child out so shutdown() won't try to kill it again
+                            guard.take();
+                            Some(status)
+                        }
+                        Err(e) => {
+                            error!("[monitor:{}] Failed to wait on child: {}", monitor_sid, e);
+                            guard.take();
+                            None
+                        }
+                    }
+                } else {
+                    // Child was already taken (shutdown called first)
+                    return;
+                }
+            };
+
+            let elapsed_ms = spawn_instant.elapsed().as_millis() as u64;
+
+            // Brief delay to let stderr flush
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let exit_code = exit_status.and_then(|s| s.code());
+            let stderr_tail = {
+                let buf = monitor_stderr.lock().await;
+                if buf.is_empty() {
+                    None
+                } else {
+                    Some(buf.join("\n"))
+                }
+            };
+
+            info!(
+                "[monitor:{}] Process exited with code {:?} after {}ms",
+                monitor_sid, exit_code, elapsed_ms
+            );
+
+            // Update session status in AppState (if not already Closed)
+            if let Some(state) = monitor_app.try_state::<Arc<AppState>>() {
+                let mut sessions = state.sessions.lock().await;
+                if let Some(session_info) = sessions.get_mut(&monitor_sid) {
+                    if session_info.status != SessionStatus::Closed {
+                        session_info.status = SessionStatus::Idle;
+                    }
+                }
+            }
+
+            // Emit ProcessExited event to frontend
+            let event = FrontendEvent::ProcessExited {
+                session_id: monitor_sid.clone(),
+                exit_code,
+                stderr_tail,
+                elapsed_ms,
+            };
+            if let Err(e) = monitor_app.emit("claude-event", &event) {
+                error!(
+                    "[monitor:{}] Failed to emit process_exited: {}",
+                    monitor_sid, e
+                );
+            }
         });
 
         Ok(Self {
-            child: Some(child),
+            child: child_arc,
             stdin_tx,
             session_id,
         })
@@ -311,12 +405,18 @@ impl ClaudeProcess {
 
     pub async fn shutdown(&mut self) {
         info!("Shutting down Claude process for session {}", self.session_id);
-        if let Some(mut child) = self.child.take() {
+        let mut guard = self.child.lock().await;
+        if let Some(mut child) = guard.take() {
             let _ = child.kill().await;
         }
     }
 
     pub fn is_running(&self) -> bool {
-        self.child.is_some()
+        // Try to check if the child is still present.
+        // If the lock is held (monitor task awaiting), assume running.
+        match self.child.try_lock() {
+            Ok(guard) => guard.is_some(),
+            Err(_) => true,
+        }
     }
 }

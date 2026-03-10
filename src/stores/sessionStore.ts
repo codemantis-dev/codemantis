@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Session, Message, TurnStats, SessionStats, SessionMode, ThinkingEffort } from "../types/session";
+import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionStatus, ThinkingEffort } from "../types/session";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -48,6 +48,7 @@ interface SessionState {
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   setSessionBusy: (sessionId: string, busy: boolean) => void;
   setSessionEffort: (sessionId: string, effort: ThinkingEffort) => void;
+  updateSessionStatus: (sessionId: string, status: SessionStatus) => void;
   clearSessionData: (sessionId: string) => void;
 
   // Derived helpers (for active session)
@@ -399,6 +400,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionEffort = new Map(state.sessionEffort);
       sessionEffort.set(sessionId, effort);
       return { sessionEffort };
+    }),
+
+  updateSessionStatus: (sessionId, status) =>
+    set((state) => {
+      const sessions = new Map(state.sessions);
+      const session = sessions.get(sessionId);
+      if (session) {
+        sessions.set(sessionId, { ...session, status });
+      }
+      return { sessions };
     }),
 
   clearSessionData: (sessionId) =>

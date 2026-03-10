@@ -1,5 +1,23 @@
 # ClaudeForge Releases
 
+## 0.3.0
+
+- Add native slash command engine with three-tier routing: skills expand into prompts (no kill/respawn), built-in commands execute natively, CLI-only commands fall back to CliOverlay
+- Add command palette dropdown (type `/` in input area) with fuzzy search, keyboard navigation, and category badges
+- Discover custom skills from `.claude/commands/` and `.claude/skills/` directories (project and user level)
+- Expand skill templates with `$ARGUMENTS`, positional args, `${CLAUDE_SESSION_ID}`, `${CLAUDE_SKILL_DIR}`, and shell command substitution
+- Native built-in commands: `/clear`, `/config`, `/cost`, `/context`, `/help`, `/exit`, `/rename`, `/init`, `/doctor`
+- CLI-only commands (`/compact`, `/model`, `/mcp`, etc.) open CliOverlay with command pre-typed
+- `Cmd+/` remains as direct CLI escape hatch
+
+## 0.2.9
+
+- Detect CLI process exit and emit `ProcessExited` event to frontend with exit code, stderr tail, and elapsed time
+- Show auth failure guidance (with `claude login` instructions + toast) when CLI exits quickly with auth-related stderr
+- Show error message with stderr when CLI exits with non-zero code
+- Wire `AskUserQuestion` tool to the existing QuestionModal so interactive CLI questions are surfaced to the user
+- Add `updateSessionStatus` action to session store for process lifecycle transitions
+
 ## 0.2.8
 
 - Add Git status card in sidebar showing branch name, uncommitted change count, last commit time, and last push time

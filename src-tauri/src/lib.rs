@@ -87,6 +87,9 @@ pub fn run() {
             commands::changelog::test_changelog_api_key,
             commands::changelog::get_project_changelog_entries,
             commands::git::get_git_status,
+            commands::slash_commands::discover_commands,
+            commands::slash_commands::expand_skill,
+            commands::slash_commands::run_oneshot_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

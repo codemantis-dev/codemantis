@@ -49,7 +49,7 @@ describe("InputArea", () => {
   it("renders action buttons", () => {
     render(<InputArea />);
     expect(screen.getByText("File")).toBeInTheDocument();
-    expect(screen.getByText("CLI")).toBeInTheDocument();
+    expect(screen.getByText("Cmd")).toBeInTheDocument();
     expect(screen.getByText("Agent")).toBeInTheDocument();
     expect(screen.getByText("Send")).toBeInTheDocument();
   });

@@ -7,6 +7,7 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import {
   createTerminal as createTerminalCmd,
   closeTerminal as closeTerminalCmd,
+  sendTerminalInput,
   pauseSessionProcess,
   resumeSessionProcess,
 } from "../../lib/tauri-commands";
@@ -80,6 +81,17 @@ export default function CliOverlay() {
         terminalIdRef.current = info.id;
         setTerminalId(info.id);
         setLoading(false);
+
+        // Send pre-typed command if set (from command palette cli-only routing)
+        const initialInput = useUiStore.getState().cliOverlayInitialInput;
+        if (initialInput) {
+          setTimeout(() => {
+            sendTerminalInput(info.id, initialInput + "\n").catch((e) =>
+              console.error("[cli-overlay] Failed to send initial input:", e)
+            );
+            useUiStore.getState().setCliOverlayInitialInput(null);
+          }, 800);
+        }
       } catch (e) {
         if (!cancelled) {
           console.error("[cli-overlay] Failed to open:", e);

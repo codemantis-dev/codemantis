@@ -229,6 +229,14 @@ pub enum FrontendEvent {
         session_id: String,
         error: String,
     },
+
+    #[serde(rename = "process_exited")]
+    ProcessExited {
+        session_id: String,
+        exit_code: Option<i32>,
+        stderr_tail: Option<String>,
+        elapsed_ms: u64,
+    },
 }
 
 // --- Stdin messages to CLI ---

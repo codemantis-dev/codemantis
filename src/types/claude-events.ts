@@ -6,6 +6,7 @@ export type FrontendEvent =
   | ToolResultEvent
   | TurnCompleteEvent
   | ProcessErrorEvent
+  | ProcessExitedEvent
   | CliSessionIdEvent;
 
 export interface SessionInitEvent {
@@ -55,6 +56,14 @@ export interface ProcessErrorEvent {
   type: "process_error";
   session_id: string;
   error: string;
+}
+
+export interface ProcessExitedEvent {
+  type: "process_exited";
+  session_id: string;
+  exit_code: number | null;
+  stderr_tail: string | null;
+  elapsed_ms: number;
 }
 
 export interface CliSessionIdEvent {

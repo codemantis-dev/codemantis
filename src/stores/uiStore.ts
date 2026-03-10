@@ -11,6 +11,7 @@ interface UiState {
   showSettingsModal: boolean;
   showProjectPicker: boolean;
   showCliOverlay: boolean;
+  cliOverlayInitialInput: string | null;
   claudeBinaryPath: string | null;
   showProjectLog: boolean;
   showClaudeHistory: boolean;
@@ -25,6 +26,7 @@ interface UiState {
   setShowSettingsModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setShowCliOverlay: (show: boolean) => void;
+  setCliOverlayInitialInput: (input: string | null) => void;
   setClaudeBinaryPath: (path: string | null) => void;
   setShowProjectLog: (show: boolean) => void;
   setShowClaudeHistory: (show: boolean) => void;
@@ -41,6 +43,7 @@ export const useUiStore = create<UiState>((set) => ({
   showSettingsModal: false,
   showProjectPicker: false,
   showCliOverlay: false,
+  cliOverlayInitialInput: null,
   claudeBinaryPath: null,
   showProjectLog: false,
   showClaudeHistory: false,
@@ -57,6 +60,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show }),
+  setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
   setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
   setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
