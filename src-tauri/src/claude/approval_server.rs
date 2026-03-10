@@ -14,7 +14,6 @@ const AUTO_APPROVED_TOOLS: &[&str] = &[
     "Read",
     "Glob",
     "Grep",
-    "AskUserQuestion",
     "ListDirectory",
     "LS",
     "TodoRead",

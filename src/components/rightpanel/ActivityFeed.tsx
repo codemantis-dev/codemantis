@@ -16,15 +16,28 @@ const typeColors: Record<string, "blue" | "green" | "yellow" | "purple" | "accen
   task: "blue",
   search: "purple",
   agent: "green",
+  question: "accent",
   other: "accent",
 };
 
-function formatToolInput(_toolName: string, input: Record<string, unknown>): string {
+/** Friendly display names for tools that have ugly internal names. */
+const toolDisplayNames: Record<string, string> = {
+  AskUserQuestion: "User Question",
+};
+
+function formatToolInput(toolName: string, input: Record<string, unknown>): string {
   if (input.file_path) return String(input.file_path);
   if (input.pattern) return String(input.pattern);
   if (input.command) return String(input.command);
   if (input.regex) return `"${input.regex}" in ${input.path ?? "."}`;
   if (input.question) return String(input.question);
+  // AskUserQuestion: show the question headers instead of raw JSON
+  if (toolName === "AskUserQuestion" && Array.isArray(input.questions)) {
+    const headers = (input.questions as { header?: string }[])
+      .map((q) => q.header)
+      .filter(Boolean);
+    if (headers.length > 0) return headers.join(", ");
+  }
   if (input.questions) return JSON.stringify(input.questions).slice(0, 120);
   const keys = Object.keys(input);
   if (keys.length === 0) return "";
@@ -146,7 +159,7 @@ export default function ActivityFeed() {
               <div className="flex items-center gap-1.5">
                 <ToolBadge toolName={entry.toolName} />
                 <span className="text-ui text-text-secondary font-medium truncate">
-                  {entry.toolName}
+                  {toolDisplayNames[entry.toolName] ?? entry.toolName}
                 </span>
                 {entry.approvalStatus && (
                   <span
@@ -184,7 +197,12 @@ export default function ActivityFeed() {
                   {entry.result}
                 </p>
               )}
-              {entry.status === "error" && (
+              {entry.status === "error" && activityType === "question" && entry.result && (
+                <p className="text-label text-accent mt-0.5 break-all line-clamp-3">
+                  Answer: {entry.result}
+                </p>
+              )}
+              {entry.status === "error" && activityType !== "question" && (
                 <p className="text-label text-red mt-0.5 break-all line-clamp-3">
                   Error{entry.result ? `: ${entry.result}` : ""}
                 </p>

@@ -59,7 +59,6 @@ pub fn run() {
             commands::session::send_message,
             commands::session::set_session_mode,
             commands::session::resolve_tool_approval,
-            commands::session::respond_to_question,
             commands::session::close_session,
             commands::session::get_session,
             commands::session::list_sessions,

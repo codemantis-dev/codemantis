@@ -18,7 +18,7 @@ export interface ActivityEntry {
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";
 
-export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "other";
+export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "other";
 
 export function getActivityType(toolName: string): ActivityType {
   const readTools = ["Read", "Glob", "Grep"];
@@ -28,6 +28,7 @@ export function getActivityType(toolName: string): ActivityType {
   const taskTools = ["TodoWrite", "TodoRead", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"];
   const searchTools = ["ToolSearch", "WebSearch", "WebFetch"];
   const agentTools = ["Agent"];
+  const questionTools = ["AskUserQuestion"];
 
   if (readTools.includes(toolName)) return "read";
   if (writeTools.includes(toolName)) return "write";
@@ -36,5 +37,6 @@ export function getActivityType(toolName: string): ActivityType {
   if (taskTools.includes(toolName)) return "task";
   if (searchTools.includes(toolName)) return "search";
   if (agentTools.includes(toolName)) return "agent";
+  if (questionTools.includes(toolName)) return "question";
   return "other";
 }

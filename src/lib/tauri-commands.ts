@@ -70,14 +70,6 @@ export async function resolveToolApproval(
   return invoke("resolve_tool_approval", { requestId, approved, reason });
 }
 
-export async function respondToQuestion(
-  sessionId: string,
-  toolUseId: string,
-  answer: string
-): Promise<void> {
-  return invoke("respond_to_question", { sessionId, toolUseId, answer });
-}
-
 export async function closeSession(sessionId: string): Promise<void> {
   return invoke("close_session", { sessionId });
 }

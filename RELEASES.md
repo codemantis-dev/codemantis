@@ -10,6 +10,9 @@
 - Add "API Logs" tab in Settings showing cost summary and scrollable call history
 - Auto-delete API logs older than 5 days on tab open
 - Pass selected model to `test_changelog_api_key` for accurate validation
+- Fix: question text not showing in "Claude has a question" modal (tool input was empty at ContentBlockStart)
+- Fix: answers in question modal now sent as regular user messages (old tool_result format was rejected by CLI)
+- Fix: changelog model validation ensures model matches the selected provider (prevents cross-provider model mismatch)
 
 ## 0.4.0
 

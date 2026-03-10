@@ -32,7 +32,7 @@ TOOL_NAME=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' 
 
 # Auto-approve read-only tools without network roundtrip
 case "$TOOL_NAME" in
-  Read|Glob|Grep|AskUserQuestion|ListDirectory|LS|TodoRead)
+  Read|Glob|Grep|ListDirectory|LS|TodoRead)
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
     exit 0
     ;;
@@ -402,16 +402,6 @@ impl ClaudeProcess {
         json.push('\n');
         self.stdin_tx
             .send(json.into_bytes())
-            .map_err(|e| AppError::SendFailed(e.to_string()))
-    }
-
-    pub fn send_raw(&self, json_str: &str) -> Result<(), AppError> {
-        let mut data = json_str.to_string();
-        if !data.ends_with('\n') {
-            data.push('\n');
-        }
-        self.stdin_tx
-            .send(data.into_bytes())
             .map_err(|e| AppError::SendFailed(e.to_string()))
     }
 

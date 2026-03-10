@@ -1,8 +1,16 @@
 use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
 use crate::claude::session::AppState;
 use log::debug;
+use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
+
+/// Tracks a tool_use content block as its input is streamed via InputJsonDelta.
+struct PendingToolBlock {
+    id: String,
+    name: String,
+    input_json: String,
+}
 
 pub async fn route_events(
     app_handle: AppHandle,
@@ -15,6 +23,8 @@ pub async fn route_events(
     let mut accumulated_text = String::new();
     let mut cli_session_id_emitted = false;
     let mut emitted_tool_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track tool_use blocks being streamed so we can emit with complete input
+    let mut pending_tools: HashMap<u32, PendingToolBlock> = HashMap::new();
 
     while let Some(event) = receiver.recv().await {
         match event {
@@ -129,29 +139,41 @@ pub async fn route_events(
                 }
             }
 
-            RawStreamEvent::ContentBlockDelta { delta, .. } => {
-                if let Some(StreamDelta::TextDelta { text }) = delta {
-                    accumulated_text.push_str(&text);
-                    let fe = FrontendEvent::TextDelta {
-                        session_id: session_id.clone(),
-                        text,
-                    };
-                    let _ = app_handle.emit(&chat_event, &fe);
+            RawStreamEvent::ContentBlockDelta { index, delta, .. } => {
+                match delta {
+                    Some(StreamDelta::TextDelta { text }) => {
+                        accumulated_text.push_str(&text);
+                        let fe = FrontendEvent::TextDelta {
+                            session_id: session_id.clone(),
+                            text,
+                        };
+                        let _ = app_handle.emit(&chat_event, &fe);
+                    }
+                    Some(StreamDelta::InputJsonDelta { partial_json }) => {
+                        // Accumulate tool input JSON fragments
+                        if let (Some(idx), Some(fragment)) = (index, partial_json) {
+                            if let Some(pending) = pending_tools.get_mut(&idx) {
+                                pending.input_json.push_str(&fragment);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
 
-            RawStreamEvent::ContentBlockStart { content_block, .. } => {
+            RawStreamEvent::ContentBlockStart { index, content_block, .. } => {
                 if let Some(block) = content_block {
                     match block {
-                        ContentBlock::ToolUse { id, name, input } => {
-                            if emitted_tool_ids.insert(id.clone()) {
-                                let fe = FrontendEvent::ToolUseStart {
-                                    session_id: session_id.clone(),
-                                    tool_use_id: id.clone(),
-                                    tool_name: name.clone(),
-                                    tool_input: input.clone(),
-                                };
-                                let _ = app_handle.emit(&activity_event, &fe);
+                        ContentBlock::ToolUse { id, name, .. } => {
+                            // Don't emit yet — input is empty. Track the block and
+                            // emit from ContentBlockStop once all InputJsonDelta
+                            // fragments have been accumulated.
+                            if let Some(idx) = index {
+                                pending_tools.insert(idx, PendingToolBlock {
+                                    id,
+                                    name,
+                                    input_json: String::new(),
+                                });
                             }
                         }
                         ContentBlock::Text { text } => {
@@ -169,7 +191,24 @@ pub async fn route_events(
                 }
             }
 
-            RawStreamEvent::ContentBlockStop { .. } => {}
+            RawStreamEvent::ContentBlockStop { index, .. } => {
+                // If this was a tool_use block, emit with complete accumulated input
+                if let Some(idx) = index {
+                    if let Some(pending) = pending_tools.remove(&idx) {
+                        let input = serde_json::from_str(&pending.input_json)
+                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                        if emitted_tool_ids.insert(pending.id.clone()) {
+                            let fe = FrontendEvent::ToolUseStart {
+                                session_id: session_id.clone(),
+                                tool_use_id: pending.id,
+                                tool_name: pending.name,
+                                tool_input: input,
+                            };
+                            let _ = app_handle.emit(&activity_event, &fe);
+                        }
+                    }
+                }
+            }
 
             RawStreamEvent::Result {
                 duration_ms,

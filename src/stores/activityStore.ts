@@ -11,6 +11,7 @@ export interface PendingApproval {
 }
 
 export interface QuestionOption {
+  label: string;
   value: string;
   description: string;
 }
@@ -23,6 +24,8 @@ export interface QuestionItem {
 
 export interface PendingQuestion {
   toolUseId: string;
+  requestId: string;
+  sessionId: string;
   question?: string;
   questions?: QuestionItem[];
 }

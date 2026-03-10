@@ -248,29 +248,6 @@ pub async fn resolve_tool_approval(
 }
 
 #[tauri::command]
-pub async fn respond_to_question(
-    state: State<'_, AppState>,
-    session_id: String,
-    tool_use_id: String,
-    answer: String,
-) -> Result<(), String> {
-    let processes = state.processes.lock().await;
-    let process = processes
-        .get(&session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()).to_string())?;
-
-    let response = serde_json::json!({
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": answer,
-    });
-
-    process
-        .send_raw(&response.to_string())
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn close_session(
     state: State<'_, AppState>,
     terminal_pool: State<'_, TerminalPool>,

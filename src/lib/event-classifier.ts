@@ -1,6 +1,5 @@
 import type { FrontendEvent } from "../types/claude-events";
 import type { ActivityEntry } from "../types/activity";
-import type { PendingQuestion, QuestionItem } from "../stores/activityStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
@@ -339,18 +338,6 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         sessionId,
       };
       activityStore.addEntry(sessionId, entry);
-
-      // Wire AskUserQuestion tool to the QuestionModal
-      if (event.tool_name === "AskUserQuestion") {
-        const input = event.tool_input;
-        const pendingQuestion: PendingQuestion = {
-          toolUseId: event.tool_use_id,
-          question: typeof input.question === "string" ? input.question : undefined,
-          questions: Array.isArray(input.questions) ? (input.questions as QuestionItem[]) : undefined,
-        };
-        activityStore.setPendingQuestion(sessionId, pendingQuestion);
-        useUiStore.getState().setShowQuestionModal(true);
-      }
       break;
     }
 

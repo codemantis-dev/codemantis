@@ -15,6 +15,7 @@ const badgeConfig: Record<
   task: { label: "TD", color: "var(--tool-read)", bg: "rgba(96,165,250,0.12)" },
   search: { label: "SR", color: "var(--tool-bash)", bg: "rgba(192,132,252,0.12)" },
   agent: { label: "AG", color: "var(--tool-write)", bg: "rgba(52,211,153,0.12)" },
+  question: { label: "Q?", color: "var(--accent)", bg: "rgba(124,58,237,0.12)" },
   other: { label: "??", color: "var(--text-dim)", bg: "rgba(255,255,255,0.06)" },
 };
 

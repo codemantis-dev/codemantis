@@ -5,6 +5,21 @@ use crate::commands::settings;
 use serde::Serialize;
 use tauri::State;
 
+/// Ensure the model is valid for the given provider. If not, return the first valid model.
+fn validate_model_for_provider(provider: &str, model: &str) -> String {
+    let valid_models: &[&str] = match provider {
+        "gemini" => &["gemini-2.5-flash-lite", "gemini-2.5-flash"],
+        "openai" => &["gpt-4.1", "gpt-5-nano", "gpt-5-mini"],
+        "anthropic" => &["claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"],
+        _ => &[],
+    };
+    if valid_models.contains(&model) {
+        model.to_string()
+    } else {
+        valid_models.first().unwrap_or(&model).to_string()
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangelogEntry {
@@ -48,7 +63,7 @@ pub async fn generate_changelog_entry(
     }
 
     let provider = &app_settings.changelog_provider;
-    let model = &app_settings.changelog_model;
+    let model = validate_model_for_provider(provider, &app_settings.changelog_model);
     let api_key = app_settings
         .changelog_api_keys
         .get(provider)
@@ -80,7 +95,7 @@ pub async fn generate_changelog_entry(
     } else {
         Some(app_settings.changelog_prompt.as_str())
     };
-    let response = summarizer::summarize_turn(provider, &api_key, model, &request, custom_prompt).await;
+    let response = summarizer::summarize_turn(provider, &api_key, &model, &request, custom_prompt).await;
 
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().to_rfc3339();
@@ -91,14 +106,14 @@ pub async fn generate_changelog_entry(
             Ok(r) => (true, None, r.input_tokens, r.output_tokens),
             Err(e) => (false, Some(e.clone()), 0, 0),
         };
-        let cost = pricing::calculate_cost(model, input_tokens, output_tokens);
+        let cost = pricing::calculate_cost(&model, input_tokens, output_tokens);
         let log_id = uuid::Uuid::new_v4().to_string();
         let db = &state.database;
         let _ = db.insert_api_log(
             &log_id,
             &timestamp,
             provider,
-            model,
+            &model,
             &session_id,
             input_tokens,
             output_tokens,
