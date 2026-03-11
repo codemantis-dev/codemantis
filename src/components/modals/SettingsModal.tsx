@@ -3,8 +3,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Settings, Terminal, Zap, ScrollText, MessageSquare, Keyboard, X, RotateCcw, BarChart3 } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider } from "../../types/settings";
-import { THEMES, DEFAULT_CHANGELOG_PROMPT, CHANGELOG_MODELS } from "../../types/settings";
+import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, ModelPricing } from "../../types/settings";
+import { THEMES, DEFAULT_CHANGELOG_PROMPT, CHANGELOG_MODELS, getDefaultModelPricing } from "../../types/settings";
 import type { ApiLogEntry, ApiCostSummary } from "../../types/api-logs";
 import { testChangelogApiKey, getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../lib/tauri-commands";
 import { SHORTCUT_CATEGORIES } from "../../data/shortcuts";
@@ -44,6 +44,7 @@ export default function SettingsModal() {
   const [changelogProvider, setChangelogProvider] = useState<ChangelogProvider>(settings.changelogProvider);
   const [changelogModel, setChangelogModel] = useState(settings.changelogModel);
   const [changelogApiKeys, setChangelogApiKeys] = useState<Record<string, string>>(settings.changelogApiKeys);
+  const [changelogModelPricing, setChangelogModelPricing] = useState<Record<string, ModelPricing>>(settings.changelogModelPricing);
   const [changelogPrompt, setChangelogPrompt] = useState(settings.changelogPrompt);
   const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
   const [testingKey, setTestingKey] = useState(false);
@@ -61,6 +62,7 @@ export default function SettingsModal() {
       setChangelogProvider(settings.changelogProvider);
       setChangelogModel(settings.changelogModel);
       setChangelogApiKeys({ ...settings.changelogApiKeys });
+      setChangelogModelPricing({ ...getDefaultModelPricing(), ...settings.changelogModelPricing });
       setChangelogPrompt(settings.changelogPrompt);
       setAssistantShortcuts([...settings.assistantShortcuts]);
       setTestResult(null);
@@ -79,6 +81,7 @@ export default function SettingsModal() {
       changelogProvider,
       changelogModel,
       changelogApiKeys,
+      changelogModelPricing,
       changelogPrompt,
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
     });
@@ -225,6 +228,7 @@ export default function SettingsModal() {
                 provider={changelogProvider}
                 model={changelogModel}
                 apiKeys={changelogApiKeys}
+                modelPricing={changelogModelPricing}
                 prompt={changelogPrompt}
                 testingKey={testingKey}
                 testResult={testResult}
@@ -232,6 +236,7 @@ export default function SettingsModal() {
                 onProviderChange={handleProviderChange}
                 onModelChange={(m) => { setChangelogModel(m); setTestResult(null); }}
                 onApiKeyChange={(v) => { setChangelogApiKeys({ ...changelogApiKeys, [changelogProvider]: v }); setTestResult(null); }}
+                onModelPricingChange={(modelId, pricing) => { setChangelogModelPricing({ ...changelogModelPricing, [modelId]: pricing }); }}
                 onPromptChange={setChangelogPrompt}
                 onTestKey={handleTestKey}
               />
@@ -413,13 +418,14 @@ function QuickCommandsTab({
 }
 
 function ChangelogTab({
-  enabled, provider, model, apiKeys, prompt, testingKey, testResult,
-  onEnabledChange, onProviderChange, onModelChange, onApiKeyChange, onPromptChange, onTestKey,
+  enabled, provider, model, apiKeys, modelPricing, prompt, testingKey, testResult,
+  onEnabledChange, onProviderChange, onModelChange, onApiKeyChange, onModelPricingChange, onPromptChange, onTestKey,
 }: {
   enabled: boolean; provider: ChangelogProvider; model: string; apiKeys: Record<string, string>;
-  prompt: string; testingKey: boolean; testResult: "success" | "error" | null;
+  modelPricing: Record<string, ModelPricing>; prompt: string; testingKey: boolean; testResult: "success" | "error" | null;
   onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
   onModelChange: (m: string) => void; onApiKeyChange: (v: string) => void;
+  onModelPricingChange: (modelId: string, pricing: ModelPricing) => void;
   onPromptChange: (v: string) => void; onTestKey: () => void;
 }) {
   const availableModels = CHANGELOG_MODELS[provider] ?? [];
@@ -474,6 +480,43 @@ function ChangelogTab({
                 ))}
               </select>
             </FieldRow>
+
+            {/* Token pricing per 1M tokens */}
+            <div>
+              <label className="text-ui text-text-secondary mb-1.5 block">Token Pricing (per 1M tokens, USD)</label>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-label text-text-dim">Input:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={modelPricing[model]?.input ?? 0}
+                    onChange={(e) => onModelPricingChange(model, {
+                      input: parseFloat(e.target.value) || 0,
+                      output: modelPricing[model]?.output ?? 0,
+                    })}
+                    className="w-20 px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 text-right"
+                  />
+                  <span className="text-label text-text-ghost">$</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-label text-text-dim">Output:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={modelPricing[model]?.output ?? 0}
+                    onChange={(e) => onModelPricingChange(model, {
+                      input: modelPricing[model]?.input ?? 0,
+                      output: parseFloat(e.target.value) || 0,
+                    })}
+                    className="w-20 px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 text-right"
+                  />
+                  <span className="text-label text-text-ghost">$</span>
+                </div>
+              </div>
+            </div>
 
             <div>
               <label className="text-ui text-text-secondary mb-1.5 block">API Key</label>

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AppSettings, ThemeId } from "../types/settings";
-import { THEMES, DEFAULT_CHANGELOG_PROMPT } from "../types/settings";
+import { THEMES, DEFAULT_CHANGELOG_PROMPT, getDefaultModelPricing } from "../types/settings";
 import { getSettings, updateSettings as updateSettingsCmd } from "../lib/tauri-commands";
 
 function normalizeTheme(theme: string): ThemeId {
@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   changelogProvider: "gemini",
   changelogModel: "gemini-2.5-flash-lite",
   changelogApiKeys: {},
+  changelogModelPricing: getDefaultModelPricing(),
   changelogPrompt: DEFAULT_CHANGELOG_PROMPT,
   assistantShortcuts: [],
 };

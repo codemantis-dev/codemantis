@@ -26,10 +26,18 @@ pub struct AppSettings {
     pub changelog_model: String,
     #[serde(default)]
     pub changelog_api_keys: HashMap<String, String>,
+    #[serde(default = "default_changelog_model_pricing")]
+    pub changelog_model_pricing: HashMap<String, ModelPricing>,
     #[serde(default = "default_changelog_prompt")]
     pub changelog_prompt: String,
     #[serde(default)]
     pub assistant_shortcuts: Vec<AssistantShortcut>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPricing {
+    pub input: f64,
+    pub output: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +71,17 @@ fn default_changelog_provider() -> String {
 fn default_changelog_model() -> String {
     "gemini-2.5-flash-lite".to_string()
 }
+fn default_changelog_model_pricing() -> HashMap<String, ModelPricing> {
+    let mut m = HashMap::new();
+    m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
+    m.insert("gpt-5-nano".into(), ModelPricing { input: 0.5, output: 2.0 });
+    m.insert("gpt-5-mini".into(), ModelPricing { input: 1.0, output: 4.0 });
+    m.insert("gemini-2.5-flash-lite".into(), ModelPricing { input: 0.0, output: 0.0 });
+    m.insert("gemini-2.5-flash".into(), ModelPricing { input: 0.15, output: 0.60 });
+    m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
+    m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
+    m
+}
 fn default_changelog_prompt() -> String {
     r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
 
@@ -90,6 +109,7 @@ impl Default for AppSettings {
             changelog_provider: default_changelog_provider(),
             changelog_model: default_changelog_model(),
             changelog_api_keys: HashMap::new(),
+            changelog_model_pricing: default_changelog_model_pricing(),
             changelog_prompt: default_changelog_prompt(),
             assistant_shortcuts: Vec::new(),
         }

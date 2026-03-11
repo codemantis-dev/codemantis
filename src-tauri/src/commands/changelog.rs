@@ -1,4 +1,3 @@
-use crate::changelog::pricing;
 use crate::changelog::summarizer::{self, SummarizeRequest};
 use crate::claude::session::AppState;
 use crate::commands::settings;
@@ -106,7 +105,12 @@ pub async fn generate_changelog_entry(
             Ok(r) => (true, None, r.input_tokens, r.output_tokens),
             Err(e) => (false, Some(e.clone()), 0, 0),
         };
-        let cost = pricing::calculate_cost(&model, input_tokens, output_tokens);
+        let cost = if let Some(pricing) = app_settings.changelog_model_pricing.get(&model) {
+            (input_tokens as f64 / 1_000_000.0 * pricing.input)
+                + (output_tokens as f64 / 1_000_000.0 * pricing.output)
+        } else {
+            0.0
+        };
         let log_id = uuid::Uuid::new_v4().to_string();
         let db = &state.database;
         let _ = db.insert_api_log(
