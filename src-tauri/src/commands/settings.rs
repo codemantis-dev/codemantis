@@ -18,20 +18,30 @@ pub struct AppSettings {
     pub terminal_font_size: u32,
     #[serde(default = "default_quick_commands")]
     pub quick_commands: Vec<QuickCommand>,
+
+    // --- Shared AI provider settings ---
+    #[serde(default, alias = "changelogApiKeys")]
+    pub api_keys: HashMap<String, String>,
+    #[serde(default = "default_model_pricing", alias = "changelogModelPricing")]
+    pub model_pricing: HashMap<String, ModelPricing>,
+
+    // --- Changelog-specific settings ---
     #[serde(default)]
     pub changelog_enabled: bool,
     #[serde(default = "default_changelog_provider")]
     pub changelog_provider: String,
     #[serde(default = "default_changelog_model")]
     pub changelog_model: String,
-    #[serde(default)]
-    pub changelog_api_keys: HashMap<String, String>,
-    #[serde(default = "default_changelog_model_pricing")]
-    pub changelog_model_pricing: HashMap<String, ModelPricing>,
     #[serde(default = "default_changelog_prompt")]
     pub changelog_prompt: String,
+
+    // --- Assistant settings ---
     #[serde(default)]
     pub assistant_shortcuts: Vec<AssistantShortcut>,
+    #[serde(default = "default_assistant_provider")]
+    pub assistant_default_provider: String,
+    #[serde(default)]
+    pub assistant_default_model: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +81,10 @@ fn default_changelog_provider() -> String {
 fn default_changelog_model() -> String {
     "gemini-2.5-flash-lite".to_string()
 }
-fn default_changelog_model_pricing() -> HashMap<String, ModelPricing> {
+fn default_assistant_provider() -> String {
+    "claude-code".to_string()
+}
+fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
     m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
     m.insert("gpt-5-nano".into(), ModelPricing { input: 0.5, output: 2.0 });
@@ -105,13 +118,15 @@ impl Default for AppSettings {
             terminal_shell: None,
             terminal_font_size: default_terminal_font_size(),
             quick_commands: default_quick_commands(),
+            api_keys: HashMap::new(),
+            model_pricing: default_model_pricing(),
             changelog_enabled: false,
             changelog_provider: default_changelog_provider(),
             changelog_model: default_changelog_model(),
-            changelog_api_keys: HashMap::new(),
-            changelog_model_pricing: default_changelog_model_pricing(),
             changelog_prompt: default_changelog_prompt(),
             assistant_shortcuts: Vec::new(),
+            assistant_default_provider: default_assistant_provider(),
+            assistant_default_model: HashMap::new(),
         }
     }
 }

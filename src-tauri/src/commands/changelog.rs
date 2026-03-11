@@ -64,7 +64,7 @@ pub async fn generate_changelog_entry(
     let provider = &app_settings.changelog_provider;
     let model = validate_model_for_provider(provider, &app_settings.changelog_model);
     let api_key = app_settings
-        .changelog_api_keys
+        .api_keys
         .get(provider)
         .cloned()
         .unwrap_or_default();
@@ -105,7 +105,7 @@ pub async fn generate_changelog_entry(
             Ok(r) => (true, None, r.input_tokens, r.output_tokens),
             Err(e) => (false, Some(e.clone()), 0, 0),
         };
-        let cost = if let Some(pricing) = app_settings.changelog_model_pricing.get(&model) {
+        let cost = if let Some(pricing) = app_settings.model_pricing.get(&model) {
             (input_tokens as f64 / 1_000_000.0 * pricing.input)
                 + (output_tokens as f64 / 1_000_000.0 * pricing.output)
         } else {

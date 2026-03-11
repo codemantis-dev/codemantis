@@ -1,5 +1,22 @@
 # CodeMantis Releases
 
+## 0.5.0
+
+- Add multi-AI assistant support: create assistant tabs with OpenAI, Google Gemini, or Anthropic API providers alongside Claude Code
+- Add Rust SSE streaming backend for all 3 API providers (OpenAI, Gemini, Anthropic) with proper token counting
+- Add provider selection dropdown when creating new assistant tabs
+- Add provider badges (CC/OA/G/A) on assistant tabs with color coding
+- Add per-session token usage tracking and cost display on tabs
+- Add "Chat only" capability indicator for API assistants
+- Add slash command palette (/ commands) support in Claude Code assistant tabs
+- Expand textarea input to 4-row minimum (96px) with 200px max height
+- Rename settings fields: `changelogApiKeys` → `apiKeys`, `changelogModelPricing` → `modelPricing` (shared across changelog + assistant)
+- Add serde aliases for backward-compatible settings migration
+- Add `assistantDefaultProvider` and `assistantDefaultModel` to settings
+- Refactor `AssistantInstance` type: add `provider`, `model`, `sessionCost` tracking
+- Refactor `useAssistantSession` hook: branch `createAssistant` and `sendMessage` by provider type
+- Add 37 new tests: assistantStore (18), assistant-provider types (12), AssistantTabs component (7)
+
 ## 0.4.1
 
 - Add model selection dropdown in Changelog settings (per provider: OpenAI, Gemini, Anthropic)

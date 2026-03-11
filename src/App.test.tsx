@@ -19,8 +19,9 @@ vi.mock("./lib/tauri-commands", () => ({
   getSettings: vi.fn(() => Promise.resolve({
     theme: "dark", fontSize: 14, sendShortcut: "enter", terminalShell: null,
     terminalFontSize: 13, quickCommands: [], changelogEnabled: false,
-    changelogProvider: "gemini", changelogApiKeys: {}, changelogPrompt: "",
-    assistantShortcuts: [],
+    changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
+    apiKeys: {}, modelPricing: {}, changelogPrompt: "",
+    assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
   })),
   updateSettings: vi.fn(() => Promise.resolve()),
 }));
@@ -83,7 +84,7 @@ vi.mock("./hooks/useToolApprovalListener", () => ({
 
 // Define global __APP_VERSION__ that Vite normally provides
 // @ts-expect-error Vite global define
-globalThis.__APP_VERSION__ = "0.4.1";
+globalThis.__APP_VERSION__ = "0.5.0";
 
 describe("App welcome screen", () => {
   beforeEach(() => {

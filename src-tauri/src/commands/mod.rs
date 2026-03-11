@@ -1,4 +1,5 @@
 pub mod api_logs;
+pub mod assistant_chat;
 pub mod attachments;
 pub mod changelog;
 pub mod files;

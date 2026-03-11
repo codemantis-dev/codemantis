@@ -4,18 +4,20 @@ import { Settings, Terminal, Zap, ScrollText, MessageSquare, Keyboard, X, Rotate
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, ModelPricing } from "../../types/settings";
-import { THEMES, DEFAULT_CHANGELOG_PROMPT, CHANGELOG_MODELS, getDefaultModelPricing } from "../../types/settings";
+import { THEMES, DEFAULT_CHANGELOG_PROMPT } from "../../types/settings";
+import { AI_MODELS, getDefaultModelPricing } from "../../types/assistant-provider";
+import type { APIProvider } from "../../types/assistant-provider";
 import type { ApiLogEntry, ApiCostSummary } from "../../types/api-logs";
 import { testChangelogApiKey, getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../lib/tauri-commands";
 import { SHORTCUT_CATEGORIES } from "../../data/shortcuts";
 
-type SettingsTab = "general" | "terminal" | "quick-commands" | "changelog" | "assistant" | "shortcuts" | "api-logs";
+type SettingsTab = "general" | "terminal" | "quick-commands" | "ai-providers" | "assistant" | "shortcuts" | "api-logs";
 
 const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "quick-commands", label: "Quick Commands", icon: Zap },
-  { id: "changelog", label: "Changelog", icon: ScrollText },
+  { id: "ai-providers", label: "AI Providers", icon: ScrollText },
   { id: "assistant", label: "Assistant", icon: MessageSquare },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "api-logs", label: "API Logs", icon: BarChart3 },
@@ -43,8 +45,8 @@ export default function SettingsModal() {
   const [changelogEnabled, setChangelogEnabled] = useState(settings.changelogEnabled);
   const [changelogProvider, setChangelogProvider] = useState<ChangelogProvider>(settings.changelogProvider);
   const [changelogModel, setChangelogModel] = useState(settings.changelogModel);
-  const [changelogApiKeys, setChangelogApiKeys] = useState<Record<string, string>>(settings.changelogApiKeys);
-  const [changelogModelPricing, setChangelogModelPricing] = useState<Record<string, ModelPricing>>(settings.changelogModelPricing);
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>(settings.apiKeys);
+  const [modelPricing, setModelPricing] = useState<Record<string, ModelPricing>>(settings.modelPricing);
   const [changelogPrompt, setChangelogPrompt] = useState(settings.changelogPrompt);
   const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
   const [testingKey, setTestingKey] = useState(false);
@@ -61,8 +63,8 @@ export default function SettingsModal() {
       setChangelogEnabled(settings.changelogEnabled);
       setChangelogProvider(settings.changelogProvider);
       setChangelogModel(settings.changelogModel);
-      setChangelogApiKeys({ ...settings.changelogApiKeys });
-      setChangelogModelPricing({ ...getDefaultModelPricing(), ...settings.changelogModelPricing });
+      setApiKeys({ ...settings.apiKeys });
+      setModelPricing({ ...getDefaultModelPricing(), ...settings.modelPricing });
       setChangelogPrompt(settings.changelogPrompt);
       setAssistantShortcuts([...settings.assistantShortcuts]);
       setTestResult(null);
@@ -80,8 +82,8 @@ export default function SettingsModal() {
       changelogEnabled,
       changelogProvider,
       changelogModel,
-      changelogApiKeys,
-      changelogModelPricing,
+      apiKeys,
+      modelPricing,
       changelogPrompt,
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
     });
@@ -99,7 +101,7 @@ export default function SettingsModal() {
   };
 
   const handleTestKey = async () => {
-    const apiKey = changelogApiKeys[changelogProvider] ?? "";
+    const apiKey = apiKeys[changelogProvider] ?? "";
     if (!apiKey.trim()) return;
     setTestingKey(true);
     setTestResult(null);
@@ -117,7 +119,7 @@ export default function SettingsModal() {
     setChangelogProvider(p);
     setTestResult(null);
     // Auto-select first model for the new provider
-    const models = CHANGELOG_MODELS[p];
+    const models = AI_MODELS[p as APIProvider];
     if (models.length > 0) {
       setChangelogModel(models[0].id);
     }
@@ -222,21 +224,21 @@ export default function SettingsModal() {
               />
             )}
 
-            {activeTab === "changelog" && (
+            {activeTab === "ai-providers" && (
               <ChangelogTab
                 enabled={changelogEnabled}
                 provider={changelogProvider}
                 model={changelogModel}
-                apiKeys={changelogApiKeys}
-                modelPricing={changelogModelPricing}
+                apiKeys={apiKeys}
+                modelPricing={modelPricing}
                 prompt={changelogPrompt}
                 testingKey={testingKey}
                 testResult={testResult}
                 onEnabledChange={setChangelogEnabled}
                 onProviderChange={handleProviderChange}
                 onModelChange={(m) => { setChangelogModel(m); setTestResult(null); }}
-                onApiKeyChange={(v) => { setChangelogApiKeys({ ...changelogApiKeys, [changelogProvider]: v }); setTestResult(null); }}
-                onModelPricingChange={(modelId, pricing) => { setChangelogModelPricing({ ...changelogModelPricing, [modelId]: pricing }); }}
+                onApiKeyChange={(v) => { setApiKeys({ ...apiKeys, [changelogProvider]: v }); setTestResult(null); }}
+                onModelPricingChange={(modelId, pricing) => { setModelPricing({ ...modelPricing, [modelId]: pricing }); }}
                 onPromptChange={setChangelogPrompt}
                 onTestKey={handleTestKey}
               />
@@ -428,7 +430,7 @@ function ChangelogTab({
   onModelPricingChange: (modelId: string, pricing: ModelPricing) => void;
   onPromptChange: (v: string) => void; onTestKey: () => void;
 }) {
-  const availableModels = CHANGELOG_MODELS[provider] ?? [];
+  const availableModels = AI_MODELS[provider as APIProvider] ?? [];
   return (
     <div>
       <SectionTitle>Changelog</SectionTitle>

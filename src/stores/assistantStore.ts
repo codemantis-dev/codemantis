@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Message } from "../types/session";
+import type { AIProvider } from "../types/assistant-provider";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -7,10 +8,17 @@ interface StreamingState {
   currentMessageId: string | null;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AssistantInstance {
-  id: string;          // sessionId from the CLI
+  id: string;          // sessionId from the CLI, or a generated ID for API providers
   projectPath: string;
   name: string;
+  provider: AIProvider;
+  model: string | null; // null for claude-code (uses CLI's model)
   sortOrder: number;
   createdAt: string;
 }
@@ -30,6 +38,7 @@ interface AssistantState {
   messages: Map<string, Message[]>;       // sessionId → messages
   streaming: Map<string, StreamingState>; // sessionId → streaming state
   busy: Map<string, boolean>;             // sessionId → is processing
+  sessionCost: Map<string, TokenUsage>;   // sessionId → cumulative token usage
 
   // Instance management
   addAssistant: (projectPath: string, instance: AssistantInstance) => void;
@@ -47,6 +56,11 @@ interface AssistantState {
   finalizeStreaming: (sessionId: string, fullText?: string) => void;
   setBusy: (sessionId: string, busy: boolean) => void;
   clearMessages: (sessionId: string) => void;
+  addTokenUsage: (sessionId: string, inputTokens: number, outputTokens: number) => void;
+  getTokenUsage: (sessionId: string) => TokenUsage;
+
+  // Lookup helpers
+  findAssistantInstance: (sessionId: string) => AssistantInstance | undefined;
 }
 
 export const useAssistantStore = create<AssistantState>((set, get) => ({
@@ -55,6 +69,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   messages: new Map(),
   streaming: new Map(),
   busy: new Map(),
+  sessionCost: new Map(),
 
   addAssistant: (projectPath, instance) =>
     set((state) => {
@@ -71,8 +86,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       streaming.set(instance.id, { ...DEFAULT_STREAMING });
       const busy = new Map(state.busy);
       busy.set(instance.id, false);
+      const sessionCost = new Map(state.sessionCost);
+      sessionCost.set(instance.id, { inputTokens: 0, outputTokens: 0 });
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
     }),
 
   removeAssistant: (projectPath, sessionId) =>
@@ -97,8 +114,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       streaming.delete(sessionId);
       const busy = new Map(state.busy);
       busy.delete(sessionId);
+      const sessionCost = new Map(state.sessionCost);
+      sessionCost.delete(sessionId);
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
     }),
 
   setActiveAssistant: (projectPath, sessionId) =>
@@ -128,13 +147,15 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const messages = new Map(state.messages);
       const streaming = new Map(state.streaming);
       const busy = new Map(state.busy);
+      const sessionCost = new Map(state.sessionCost);
       for (const a of assistants) {
         messages.delete(a.id);
         streaming.delete(a.id);
         busy.delete(a.id);
+        sessionCost.delete(a.id);
       }
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
     }),
 
   // Per-session message actions
@@ -209,4 +230,26 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       streaming.set(sessionId, { ...DEFAULT_STREAMING });
       return { messages, streaming };
     }),
+
+  addTokenUsage: (sessionId, inputTokens, outputTokens) =>
+    set((state) => {
+      const sessionCost = new Map(state.sessionCost);
+      const existing = sessionCost.get(sessionId) ?? { inputTokens: 0, outputTokens: 0 };
+      sessionCost.set(sessionId, {
+        inputTokens: existing.inputTokens + inputTokens,
+        outputTokens: existing.outputTokens + outputTokens,
+      });
+      return { sessionCost };
+    }),
+
+  getTokenUsage: (sessionId) =>
+    get().sessionCost.get(sessionId) ?? { inputTokens: 0, outputTokens: 0 },
+
+  findAssistantInstance: (sessionId) => {
+    for (const instances of get().projectAssistants.values()) {
+      const found = instances.find((a) => a.id === sessionId);
+      if (found) return found;
+    }
+    return undefined;
+  },
 }));

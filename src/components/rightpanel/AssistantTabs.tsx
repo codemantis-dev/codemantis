@@ -1,11 +1,22 @@
 import { Plus, X } from "lucide-react";
-import type { AssistantInstance } from "../../stores/assistantStore";
+import type { AssistantInstance, TokenUsage } from "../../stores/assistantStore";
+import type { AIProvider } from "../../types/assistant-provider";
+import { calculateCost } from "../../types/assistant-provider";
+import { useSettingsStore } from "../../stores/settingsStore";
 import StatusDot from "../shared/StatusDot";
+
+const PROVIDER_BADGES: Record<AIProvider, { short: string; color: string }> = {
+  "claude-code": { short: "CC", color: "var(--accent)" },
+  openai: { short: "OA", color: "#10a37f" },
+  gemini: { short: "G", color: "#4285f4" },
+  anthropic: { short: "A", color: "#d4a574" },
+};
 
 interface AssistantTabsProps {
   assistants: AssistantInstance[];
   activeAssistantId: string | null;
   busyMap: Map<string, boolean>;
+  costMap: Map<string, TokenUsage>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onCreate: () => void;
@@ -15,14 +26,27 @@ export default function AssistantTabs({
   assistants,
   activeAssistantId,
   busyMap,
+  costMap,
   onSelect,
   onClose,
   onCreate,
 }: AssistantTabsProps) {
+  const modelPricing = useSettingsStore((s) => s.settings.modelPricing);
+
+  const formatCost = (usage: TokenUsage | undefined, model: string | null): string => {
+    if (!usage || !model) return "";
+    const cost = calculateCost(model, usage.inputTokens, usage.outputTokens, modelPricing);
+    if (cost === 0) return "";
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    return `$${cost.toFixed(2)}`;
+  };
+
   return (
     <div className="flex items-center h-7 border-b border-border-light px-1 gap-0.5 shrink-0">
       {assistants.map((asst) => {
         const isBusy = busyMap.get(asst.id) ?? false;
+        const badge = PROVIDER_BADGES[asst.provider];
+        const costStr = formatCost(costMap.get(asst.id), asst.model);
         return (
           <button
             key={asst.id}
@@ -40,7 +64,17 @@ export default function AssistantTabs({
               color={isBusy ? "yellow" : "green"}
               size={4}
             />
-            <span className="truncate max-w-[80px]" title={asst.name}>{asst.name}</span>
+            <span
+              className="text-[9px] font-bold px-1 rounded leading-none py-0.5"
+              style={{ backgroundColor: badge.color + "20", color: badge.color }}
+              title={asst.provider}
+            >
+              {badge.short}
+            </span>
+            <span className="truncate max-w-[60px]" title={asst.name}>{asst.name}</span>
+            {costStr && (
+              <span className="text-[9px] text-text-ghost">{costStr}</span>
+            )}
             <span
               onClick={(e) => {
                 e.stopPropagation();

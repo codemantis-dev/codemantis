@@ -281,6 +281,35 @@ export async function cleanupApiLogs(maxAgeDays: number): Promise<number> {
   return invoke<number>("cleanup_api_logs", { maxAgeDays });
 }
 
+// --- Assistant Chat (API providers) ---
+
+export interface AssistantStreamEvent {
+  type: "delta" | "done" | "error";
+  text?: string;
+  content?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  message?: string;
+}
+
+export async function sendAssistantChat(params: {
+  assistantId: string;
+  provider: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  messages: { role: string; content: string }[];
+}): Promise<void> {
+  return invoke("send_assistant_chat", params);
+}
+
+export async function listenAssistantStream(
+  assistantId: string,
+  handler: (event: AssistantStreamEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<AssistantStreamEvent>(`assistant-stream-${assistantId}`, (e) => handler(e.payload));
+}
+
 // --- Git ---
 
 export async function getGitStatus(projectPath: string): Promise<GitStatusInfo> {

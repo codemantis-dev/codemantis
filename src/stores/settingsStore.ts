@@ -32,13 +32,15 @@ const DEFAULT_SETTINGS: AppSettings = {
     { label: "Lint", command: "pnpm lint" },
     { label: "Dev", command: "pnpm dev" },
   ],
+  apiKeys: {},
+  modelPricing: getDefaultModelPricing(),
   changelogEnabled: false,
   changelogProvider: "gemini",
   changelogModel: "gemini-2.5-flash-lite",
-  changelogApiKeys: {},
-  changelogModelPricing: getDefaultModelPricing(),
   changelogPrompt: DEFAULT_CHANGELOG_PROMPT,
   assistantShortcuts: [],
+  assistantDefaultProvider: "claude-code",
+  assistantDefaultModel: {},
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

@@ -96,6 +96,7 @@ pub fn run() {
             commands::api_logs::get_api_logs,
             commands::api_logs::get_api_cost_summary,
             commands::api_logs::cleanup_api_logs,
+            commands::assistant_chat::send_assistant_chat,
             commands::scaffold::list_templates,
             commands::scaffold::scaffold_from_template,
             commands::scaffold::scaffold_from_cli,
