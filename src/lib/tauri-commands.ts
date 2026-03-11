@@ -9,6 +9,7 @@ import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
+import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent } from "../types/project-templates";
 
 // --- Startup ---
 
@@ -341,6 +342,48 @@ export async function renameMcpServer(
   scope: string
 ): Promise<void> {
   return invoke("rename_mcp_server", { projectPath, oldName, newName, scope });
+}
+
+// --- Scaffold ---
+
+export async function listTemplates(): Promise<TemplateEntry[]> {
+  return invoke<TemplateEntry[]>("list_templates");
+}
+
+export async function scaffoldFromTemplate(
+  templateId: string,
+  projectPath: string,
+  projectName: string
+): Promise<ScaffoldResult> {
+  return invoke<ScaffoldResult>("scaffold_from_template", {
+    templateId,
+    projectPath,
+    projectName,
+  });
+}
+
+export async function scaffoldFromCli(
+  templateId: string,
+  cliCommand: string,
+  projectPath: string,
+  projectName: string,
+  postCommands: string[]
+): Promise<ScaffoldResult> {
+  return invoke<ScaffoldResult>("scaffold_from_cli", {
+    templateId,
+    cliCommand,
+    projectPath,
+    projectName,
+    postCommands,
+  });
+}
+
+export function listenScaffoldProgress(
+  callback: (event: ScaffoldProgressEvent) => void
+): Promise<UnlistenFn> {
+  return listen<ScaffoldProgressEvent>("scaffold-progress", (e) =>
+    callback(e.payload)
+  );
 }
 
 // --- Event Listeners ---

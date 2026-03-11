@@ -12,7 +12,8 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
   {
     name: "Global",
     shortcuts: [
-      { keys: "⌘ ⇧ N", description: "New project" },
+      { keys: "⌘ ⇧ N", description: "New project from template" },
+      { keys: "⌘ O", description: "Open existing project" },
       { keys: "⌘ ,", description: "Settings" },
       { keys: "⌘ ⇧ M", description: "MCP Servers" },
       { keys: "⌘ /", description: "CLI Overlay" },

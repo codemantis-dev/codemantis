@@ -50,10 +50,23 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
     });
   });
 
-  it("Cmd+N opens project picker", () => {
+  it("Cmd+N opens project picker on open tab (no active project)", () => {
     // Simulate what the shortcut handler does
-    useUiStore.getState().setShowProjectPicker(true);
+    useUiStore.getState().openProjectPicker("open");
     expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("open");
+  });
+
+  it("Cmd+Shift+N opens project picker on templates tab", () => {
+    useUiStore.getState().openProjectPicker("templates");
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("templates");
+  });
+
+  it("Cmd+O opens project picker on open tab", () => {
+    useUiStore.getState().openProjectPicker("open");
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("open");
   });
 
   it("Cmd+, opens settings modal", () => {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
+export type ProjectPickerTab = "templates" | "open" | "recent";
 
 interface UiState {
   sidebarWidth: number;
@@ -11,6 +12,7 @@ interface UiState {
   showSettingsModal: boolean;
   showMcpModal: boolean;
   showProjectPicker: boolean;
+  projectPickerTab: ProjectPickerTab;
   showCliOverlay: boolean;
   cliOverlayInitialInput: string | null;
   claudeBinaryPath: string | null;
@@ -27,6 +29,8 @@ interface UiState {
   setShowSettingsModal: (show: boolean) => void;
   setShowMcpModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
+  setProjectPickerTab: (tab: ProjectPickerTab) => void;
+  openProjectPicker: (tab: ProjectPickerTab) => void;
   setShowCliOverlay: (show: boolean) => void;
   setCliOverlayInitialInput: (input: string | null) => void;
   setClaudeBinaryPath: (path: string | null) => void;
@@ -45,6 +49,7 @@ export const useUiStore = create<UiState>((set) => ({
   showSettingsModal: false,
   showMcpModal: false,
   showProjectPicker: false,
+  projectPickerTab: "templates",
   showCliOverlay: false,
   cliOverlayInitialInput: null,
   claudeBinaryPath: null,
@@ -63,6 +68,8 @@ export const useUiStore = create<UiState>((set) => ({
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowMcpModal: (show) => set({ showMcpModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
+  setProjectPickerTab: (tab) => set({ projectPickerTab: tab }),
+  openProjectPicker: (tab) => set({ showProjectPicker: true, projectPickerTab: tab }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show }),
   setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),

@@ -57,15 +57,22 @@ export function useKeyboardShortcuts(): void {
         if (store.activeProjectPath) {
           addSessionToProject();
         } else {
-          useUiStore.getState().setShowProjectPicker(true);
+          useUiStore.getState().openProjectPicker("open");
         }
         return;
       }
 
-      // Cmd+Shift+N — always open project picker for a new project
+      // Cmd+Shift+N — new project from template
       if (key === "n" && shift) {
         e.preventDefault();
-        useUiStore.getState().setShowProjectPicker(true);
+        useUiStore.getState().openProjectPicker("templates");
+        return;
+      }
+
+      // Cmd+O — open existing project
+      if (key === "o" && !shift) {
+        e.preventDefault();
+        useUiStore.getState().openProjectPicker("open");
         return;
       }
 

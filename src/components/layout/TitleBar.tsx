@@ -1,4 +1,4 @@
-import { Plus, Blocks, Settings } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import ProjectTab from "./ProjectTab";
@@ -13,7 +13,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const sessions = useSessionStore((s) => s.sessions);
   const tabOrder = useSessionStore((s) => s.tabOrder);
   const setActiveProject = useSessionStore((s) => s.setActiveProject);
-  const setShowProjectPicker = useUiStore((s) => s.setShowProjectPicker);
+  const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
 
@@ -59,19 +59,28 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         )}
       </div>
 
-      {/* New project button */}
+      {/* New project button (templates) */}
       <button
-        onClick={() => setShowProjectPicker(true)}
-        title="New project (⌘⇧N)"
-        className="mx-1 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+        onClick={() => openProjectPicker("templates")}
+        title="New project from template (Cmd+Shift+N)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Plus size={15} />
+      </button>
+
+      {/* Open existing project */}
+      <button
+        onClick={() => openProjectPicker("open")}
+        title="Open existing project (Cmd+O)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      >
+        <FolderOpen size={14} />
       </button>
 
       {/* MCP Servers button */}
       <button
         onClick={() => setShowMcpModal(true)}
-        title="MCP Servers (⌘⇧M)"
+        title="MCP Servers (Cmd+Shift+M)"
         className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Blocks size={14} />
@@ -80,7 +89,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       {/* Settings button */}
       <button
         onClick={() => setShowSettingsModal(true)}
-        title="Settings (⌘,)"
+        title="Settings (Cmd+,)"
         className="mr-3 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Settings size={14} />

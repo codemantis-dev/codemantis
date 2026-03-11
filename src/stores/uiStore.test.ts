@@ -87,4 +87,32 @@ describe("uiStore", () => {
     useUiStore.getState().setShowMcpModal(false);
     expect(useUiStore.getState().showMcpModal).toBe(false);
   });
+
+  it("projectPickerTab defaults to templates", () => {
+    expect(useUiStore.getState().projectPickerTab).toBe("templates");
+  });
+
+  it("setProjectPickerTab changes the active tab", () => {
+    useUiStore.getState().setProjectPickerTab("open");
+    expect(useUiStore.getState().projectPickerTab).toBe("open");
+    useUiStore.getState().setProjectPickerTab("recent");
+    expect(useUiStore.getState().projectPickerTab).toBe("recent");
+  });
+
+  it("openProjectPicker sets both showProjectPicker and tab", () => {
+    useUiStore.getState().openProjectPicker("templates");
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("templates");
+  });
+
+  it("openProjectPicker can open on different tabs", () => {
+    useUiStore.getState().openProjectPicker("open");
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("open");
+
+    useUiStore.getState().setShowProjectPicker(false);
+    useUiStore.getState().openProjectPicker("recent");
+    expect(useUiStore.getState().showProjectPicker).toBe(true);
+    expect(useUiStore.getState().projectPickerTab).toBe("recent");
+  });
 });
