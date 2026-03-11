@@ -99,8 +99,8 @@ export default function App() {
     return (
       <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
         <div className="h-12 shrink-0" data-tauri-drag-region />
-        <div className="flex-1 overflow-y-auto flex items-start justify-center">
-          <div className="w-full max-w-lg p-8 my-auto">
+        <div className="flex-1 flex items-center justify-center overflow-hidden">
+          <div className="w-full max-w-lg p-8 flex flex-col max-h-full">
             {/* Logo and title */}
             <div className="text-center mb-8">
               <img
@@ -152,9 +152,9 @@ export default function App() {
 
             {/* Inline recent projects */}
             {recentProjects.length > 0 && (
-              <div>
-                <p className="text-text-ghost text-label uppercase tracking-wider mb-2">Recent Projects</p>
-                <div className="space-y-1">
+              <div className="min-h-0 flex flex-col">
+                <p className="text-text-ghost text-label uppercase tracking-wider mb-2 shrink-0">Recent Projects</p>
+                <div className="space-y-1 overflow-y-auto min-h-0">
                   {recentProjects.map((path) => {
                     const name = path.split("/").filter(Boolean).pop();
                     return (
