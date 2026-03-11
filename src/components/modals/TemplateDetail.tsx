@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
   Zap, Component, Triangle, CreditCard, FolderTree,
-  Server, Database, Rocket, Smartphone,
+  Server, Database, Rocket, Smartphone, Globe,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { TemplateEntry } from "../../types/project-templates";
@@ -17,6 +17,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   database: Database,
   rocket: Rocket,
   smartphone: Smartphone,
+  globe: Globe,
 };
 
 const LAST_SCAFFOLD_DIR_KEY = "codemantis-last-scaffold-dir";

@@ -1,6 +1,6 @@
 import {
   Zap, Component, Triangle, CreditCard, FolderTree,
-  Server, Database, Rocket, Smartphone,
+  Server, Database, Rocket, Smartphone, Globe,
 } from "lucide-react";
 import type { TemplateEntry } from "../../types/project-templates";
 
@@ -14,6 +14,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   database: Database,
   rocket: Rocket,
   smartphone: Smartphone,
+  globe: Globe,
 };
 
 function formatStars(stars?: number): string {

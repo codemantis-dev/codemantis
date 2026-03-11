@@ -178,6 +178,26 @@
       "last_verified": "2026-03-10",
       "scaffold_type": "cli",
       "cli_command": "npx create-expo-app@latest {{PROJECT_NAME}} --template default"
+    },
+    {
+      "id": "nextplate",
+      "name": "Nextplate (Website + Blog)",
+      "description": "General-purpose Next.js + Tailwind website template with built-in blog, dark mode, and CMS integration.",
+      "long_description": "A low-barrier Next.js starter for marketing sites, landing pages, and blogs. Includes 15+ pre-built pages, multi-author blog with MDX, dark mode via next-themes, SEO with next-sitemap, Disqus comments, i18n support, and Tailwind CSS 4. Simple and approachable — no complex auth or database setup needed.",
+      "category": "static",
+      "tags": ["next.js", "react", "typescript", "tailwind", "blog", "mdx", "seo"],
+      "repo_url": "https://github.com/zeon-studio/nextplate",
+      "branch": "main",
+      "stars": 438,
+      "license": "MIT",
+      "install_command": "npm install",
+      "dev_command": "npm run dev",
+      "dev_port": 3000,
+      "post_clone_cleanup": [".git", "LICENSE", "netlify.toml"],
+      "icon": "globe",
+      "verified": true,
+      "last_verified": "2026-03-11",
+      "scaffold_type": "git-clone"
     }
   ]
 }
