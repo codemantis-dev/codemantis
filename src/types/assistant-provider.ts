@@ -30,10 +30,15 @@ export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
     { id: "gpt-4.1", label: "GPT-4.1", defaultPricing: { input: 2.0, output: 8.0 } },
     { id: "gpt-5-nano", label: "GPT-5 Nano", defaultPricing: { input: 0.5, output: 2.0 } },
     { id: "gpt-5-mini", label: "GPT-5 Mini", defaultPricing: { input: 1.0, output: 4.0 } },
+    { id: "gpt-5.4", label: "GPT-5.4", defaultPricing: { input: 2.0, output: 8.0 } },
   ],
   gemini: [
     { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", defaultPricing: { input: 0.0, output: 0.0 } },
     { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", defaultPricing: { input: 0.15, output: 0.60 } },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", defaultPricing: { input: 1.25, output: 10.0 } },
+    { id: "gemini-3-flash-preview", label: "Gemini 3.0 Flash", defaultPricing: { input: 0.15, output: 0.60 } },
+    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", defaultPricing: { input: 1.25, output: 10.0 } },
+    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", defaultPricing: { input: 0.0, output: 0.0 } },
   ],
   anthropic: [
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultPricing: { input: 3.0, output: 15.0 } },

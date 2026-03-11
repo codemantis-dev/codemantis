@@ -292,13 +292,17 @@ export interface AssistantStreamEvent {
   message?: string;
 }
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mime_type: string; data: string };
+
 export async function sendAssistantChat(params: {
   assistantId: string;
   provider: string;
   apiKey: string;
   model: string;
   systemPrompt: string;
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: string | ContentPart[] }[];
 }): Promise<void> {
   return invoke("send_assistant_chat", params);
 }

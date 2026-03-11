@@ -1,11 +1,95 @@
+use crate::claude::session::AppState;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: ChatContent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChatContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { mime_type: String, data: String },
+}
+
+// --- Provider-specific content formatting helpers ---
+
+fn openai_content(content: &ChatContent) -> serde_json::Value {
+    match content {
+        ChatContent::Text(s) => serde_json::json!(s),
+        ChatContent::Parts(parts) => {
+            let arr: Vec<serde_json::Value> = parts
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text { text } => {
+                        serde_json::json!({"type": "text", "text": text})
+                    }
+                    ContentPart::Image { mime_type, data } => {
+                        serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": format!("data:{};base64,{}", mime_type, data) }
+                        })
+                    }
+                })
+                .collect();
+            serde_json::json!(arr)
+        }
+    }
+}
+
+fn gemini_parts(content: &ChatContent) -> Vec<serde_json::Value> {
+    match content {
+        ChatContent::Text(s) => vec![serde_json::json!({"text": s})],
+        ChatContent::Parts(parts) => parts
+            .iter()
+            .map(|p| match p {
+                ContentPart::Text { text } => serde_json::json!({"text": text}),
+                ContentPart::Image { mime_type, data } => {
+                    serde_json::json!({"inlineData": {"mimeType": mime_type, "data": data}})
+                }
+            })
+            .collect(),
+    }
+}
+
+fn anthropic_content(content: &ChatContent) -> serde_json::Value {
+    match content {
+        ChatContent::Text(s) => serde_json::json!(s),
+        ChatContent::Parts(parts) => {
+            let arr: Vec<serde_json::Value> = parts
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text { text } => {
+                        serde_json::json!({"type": "text", "text": text})
+                    }
+                    ContentPart::Image { mime_type, data } => {
+                        serde_json::json!({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": data
+                            }
+                        })
+                    }
+                })
+                .collect();
+            serde_json::json!(arr)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -28,6 +112,7 @@ pub enum StreamEvent {
 #[tauri::command]
 pub async fn send_assistant_chat(
     app_handle: AppHandle,
+    state: State<'_, AppState>,
     assistant_id: String,
     provider: String,
     api_key: String,
@@ -51,6 +136,47 @@ pub async fn send_assistant_chat(
         _ => Err(format!("Unknown provider: {}", provider)),
     };
 
+    // Log the API call regardless of success/failure
+    log::info!(
+        "[assistant_chat] provider={}, model={}, result={}",
+        provider,
+        model,
+        if result.is_ok() { "ok" } else { "err" }
+    );
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let log_id = uuid::Uuid::new_v4().to_string();
+    let (success, error_msg, input_tokens, output_tokens) = match &result {
+        Ok((it, ot)) => (true, None, *it, *ot),
+        Err(e) => (false, Some(e.clone()), 0, 0),
+    };
+    let app_settings = crate::commands::settings::get_settings().unwrap_or_default();
+    let cost = if let Some(pricing) = app_settings.model_pricing.get(&model) {
+        (input_tokens as f64 / 1_000_000.0 * pricing.input)
+            + (output_tokens as f64 / 1_000_000.0 * pricing.output)
+    } else {
+        0.0
+    };
+    let db = &state.database;
+    if let Err(e) = db.insert_api_log(
+        &log_id,
+        &timestamp,
+        &provider,
+        &model,
+        &assistant_id,
+        input_tokens,
+        output_tokens,
+        cost,
+        success,
+        error_msg.as_deref(),
+    ) {
+        log::error!("[assistant_chat] Failed to insert API log: {}", e);
+    } else {
+        log::info!(
+            "[assistant_chat] Logged API call: provider={}, model={}, tokens={}/{}, cost={:.6}",
+            provider, model, input_tokens, output_tokens, cost
+        );
+    }
+
     if let Err(e) = result {
         let _ = app_handle.emit(&event_name, StreamEvent::Error { message: e.clone() });
         return Err(e);
@@ -69,10 +195,10 @@ async fn stream_openai(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
-) -> Result<(), String> {
+) -> Result<(u32, u32), String> {
     let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for msg in messages {
-        api_messages.push(serde_json::json!({"role": msg.role, "content": msg.content}));
+        api_messages.push(serde_json::json!({"role": msg.role, "content": openai_content(&msg.content)}));
     }
 
     let body = serde_json::json!({
@@ -149,7 +275,7 @@ async fn stream_openai(
         output_tokens,
     });
 
-    Ok(())
+    Ok((input_tokens, output_tokens))
 }
 
 // --- Gemini SSE streaming ---
@@ -162,7 +288,7 @@ async fn stream_gemini(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
-) -> Result<(), String> {
+) -> Result<(u32, u32), String> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
         model, api_key
@@ -174,7 +300,7 @@ async fn stream_gemini(
             let role = if msg.role == "assistant" { "model" } else { &msg.role };
             serde_json::json!({
                 "role": role,
-                "parts": [{"text": &msg.content}]
+                "parts": gemini_parts(&msg.content)
             })
         })
         .collect();
@@ -246,7 +372,7 @@ async fn stream_gemini(
         output_tokens,
     });
 
-    Ok(())
+    Ok((input_tokens, output_tokens))
 }
 
 // --- Anthropic SSE streaming ---
@@ -259,10 +385,10 @@ async fn stream_anthropic(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
-) -> Result<(), String> {
+) -> Result<(u32, u32), String> {
     let api_messages: Vec<serde_json::Value> = messages
         .iter()
-        .map(|msg| serde_json::json!({"role": msg.role, "content": msg.content}))
+        .map(|msg| serde_json::json!({"role": msg.role, "content": anthropic_content(&msg.content)}))
         .collect();
 
     let body = serde_json::json!({
@@ -355,5 +481,5 @@ async fn stream_anthropic(
         output_tokens,
     });
 
-    Ok(())
+    Ok((input_tokens, output_tokens))
 }

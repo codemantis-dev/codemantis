@@ -7,8 +7,8 @@ use tauri::State;
 /// Ensure the model is valid for the given provider. If not, return the first valid model.
 fn validate_model_for_provider(provider: &str, model: &str) -> String {
     let valid_models: &[&str] = match provider {
-        "gemini" => &["gemini-2.5-flash-lite", "gemini-2.5-flash"],
-        "openai" => &["gpt-4.1", "gpt-5-nano", "gpt-5-mini"],
+        "gemini" => &["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview"],
+        "openai" => &["gpt-4.1", "gpt-5-nano", "gpt-5-mini", "gpt-5.4"],
         "anthropic" => &["claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"],
         _ => &[],
     };

@@ -30,11 +30,13 @@ Scaffolded from Nextplate (zeon-studio/nextplate) on {{DATE}}.
 
 ## Commands
 
-- `npm run dev` — Start development server (http://localhost:3000)
-- `npm run build` — Production build (generates theme + JSON data, then next build + sitemap)
-- `npm run preview` — Start production server (next start)
-- `npm run lint` — Run ESLint
-- `npm run format` — Run Prettier
+- `yarn dev` — Start development server (http://localhost:3000)
+- `yarn build` — Production build (generates theme + JSON data, then next build + sitemap)
+- `yarn preview` — Start production server (next start)
+- `yarn lint` — Run ESLint
+- `yarn format` — Run Prettier
+
+**Note:** This project uses Yarn. Scripts internally call `yarn` (e.g., `yarn generate-json`), so npm/pnpm will not work as a drop-in replacement.
 
 ## Content
 

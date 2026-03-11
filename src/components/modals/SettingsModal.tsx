@@ -1,23 +1,24 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Settings, Terminal, Zap, ScrollText, MessageSquare, Keyboard, X, RotateCcw, BarChart3 } from "lucide-react";
+import { Settings, Terminal, Zap, Layers, ScrollText, MessageSquare, Keyboard, X, RotateCcw, BarChart3 } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, ModelPricing } from "../../types/settings";
 import { THEMES, DEFAULT_CHANGELOG_PROMPT } from "../../types/settings";
-import { AI_MODELS, getDefaultModelPricing } from "../../types/assistant-provider";
-import type { APIProvider } from "../../types/assistant-provider";
+import { AI_PROVIDERS, AI_MODELS, getDefaultModelPricing } from "../../types/assistant-provider";
+import type { AIProvider, APIProvider } from "../../types/assistant-provider";
 import type { ApiLogEntry, ApiCostSummary } from "../../types/api-logs";
 import { testChangelogApiKey, getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../lib/tauri-commands";
 import { SHORTCUT_CATEGORIES } from "../../data/shortcuts";
 
-type SettingsTab = "general" | "terminal" | "quick-commands" | "ai-providers" | "assistant" | "shortcuts" | "api-logs";
+type SettingsTab = "general" | "terminal" | "quick-commands" | "ai-providers" | "changelog" | "assistant" | "shortcuts" | "api-logs";
 
 const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "quick-commands", label: "Quick Commands", icon: Zap },
-  { id: "ai-providers", label: "AI Providers", icon: ScrollText },
+  { id: "ai-providers", label: "AI Providers", icon: Layers },
+  { id: "changelog", label: "Changelog", icon: ScrollText },
   { id: "assistant", label: "Assistant", icon: MessageSquare },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "api-logs", label: "API Logs", icon: BarChart3 },
@@ -49,8 +50,10 @@ export default function SettingsModal() {
   const [modelPricing, setModelPricing] = useState<Record<string, ModelPricing>>(settings.modelPricing);
   const [changelogPrompt, setChangelogPrompt] = useState(settings.changelogPrompt);
   const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
-  const [testingKey, setTestingKey] = useState(false);
-  const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
+  const [assistantDefaultProvider, setAssistantDefaultProvider] = useState<AIProvider>(settings.assistantDefaultProvider);
+  const [assistantDefaultModel, setAssistantDefaultModel] = useState<Record<string, string>>(settings.assistantDefaultModel);
+  const [testingKey, setTestingKey] = useState<string | false>(false);
+  const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
 
   useEffect(() => {
     if (showModal) {
@@ -67,7 +70,10 @@ export default function SettingsModal() {
       setModelPricing({ ...getDefaultModelPricing(), ...settings.modelPricing });
       setChangelogPrompt(settings.changelogPrompt);
       setAssistantShortcuts([...settings.assistantShortcuts]);
-      setTestResult(null);
+      setAssistantDefaultProvider(settings.assistantDefaultProvider);
+      setAssistantDefaultModel({ ...settings.assistantDefaultModel });
+      setTestingKey(false);
+      setTestResults({});
     }
   }, [showModal, settings]);
 
@@ -86,6 +92,8 @@ export default function SettingsModal() {
       modelPricing,
       changelogPrompt,
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
+      assistantDefaultProvider,
+      assistantDefaultModel,
     });
     setShowModal(false);
   };
@@ -100,29 +108,37 @@ export default function SettingsModal() {
     document.documentElement.setAttribute("data-theme", id);
   };
 
-  const handleTestKey = async () => {
-    const apiKey = apiKeys[changelogProvider] ?? "";
+  const handleTestKey = async (provider: string) => {
+    const apiKey = apiKeys[provider] ?? "";
     if (!apiKey.trim()) return;
-    setTestingKey(true);
-    setTestResult(null);
+    setTestingKey(provider);
+    setTestResults((prev) => { const next = { ...prev }; delete next[provider]; return next; });
     try {
-      const success = await testChangelogApiKey(changelogProvider, apiKey, changelogModel);
-      setTestResult(success ? "success" : "error");
+      const models = AI_MODELS[provider as APIProvider] ?? [];
+      const testModel = models[0]?.id ?? "";
+      const success = await testChangelogApiKey(provider as ChangelogProvider, apiKey, testModel);
+      setTestResults((prev) => ({ ...prev, [provider]: success ? "success" : "error" }));
     } catch {
-      setTestResult("error");
+      setTestResults((prev) => ({ ...prev, [provider]: "error" }));
     } finally {
       setTestingKey(false);
     }
   };
 
-  const handleProviderChange = (p: ChangelogProvider) => {
+  const handleChangelogProviderChange = (p: ChangelogProvider) => {
     setChangelogProvider(p);
-    setTestResult(null);
-    // Auto-select first model for the new provider
     const models = AI_MODELS[p as APIProvider];
     if (models.length > 0) {
       setChangelogModel(models[0].id);
     }
+  };
+
+  const handleAssistantProviderChange = (p: AIProvider) => {
+    setAssistantDefaultProvider(p);
+  };
+
+  const handleAssistantModelChange = (provider: string, modelId: string) => {
+    setAssistantDefaultModel((prev) => ({ ...prev, [provider]: modelId }));
   };
 
   return (
@@ -136,7 +152,7 @@ export default function SettingsModal() {
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 rounded-xl border border-border overflow-hidden flex"
-          style={{ background: "var(--bg-primary)", width: "min(90vw, 720px)", height: "min(80vh, 560px)" }}
+          style={{ background: "var(--bg-primary)", width: "min(92vw, 940px)", height: "min(88vh, 730px)" }}
         >
           {/* Sidebar */}
           <nav className="w-48 shrink-0 border-r border-border flex flex-col" style={{ background: "var(--bg-secondary)" }}>
@@ -181,7 +197,7 @@ export default function SettingsModal() {
           </nav>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6 relative">
+          <div className={`flex-1 p-6 relative ${activeTab === "api-logs" ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}>
             {/* Close button */}
             <button
               onClick={handleCancel}
@@ -217,30 +233,42 @@ export default function SettingsModal() {
               />
             )}
 
-            {activeTab === "assistant" && (
-              <AssistantShortcutsTab
-                shortcuts={assistantShortcuts}
-                onChange={setAssistantShortcuts}
+            {activeTab === "ai-providers" && (
+              <AIProvidersTab
+                apiKeys={apiKeys}
+                modelPricing={modelPricing}
+                testingKey={testingKey}
+                testResults={testResults}
+                onApiKeyChange={(provider, value) => {
+                  setApiKeys({ ...apiKeys, [provider]: value });
+                  setTestResults((prev) => { const next = { ...prev }; delete next[provider]; return next; });
+                }}
+                onModelPricingChange={(modelId, pricing) => { setModelPricing({ ...modelPricing, [modelId]: pricing }); }}
+                onTestKey={handleTestKey}
               />
             )}
 
-            {activeTab === "ai-providers" && (
-              <ChangelogTab
+            {activeTab === "changelog" && (
+              <ChangelogSettingsTab
                 enabled={changelogEnabled}
                 provider={changelogProvider}
                 model={changelogModel}
-                apiKeys={apiKeys}
-                modelPricing={modelPricing}
                 prompt={changelogPrompt}
-                testingKey={testingKey}
-                testResult={testResult}
                 onEnabledChange={setChangelogEnabled}
-                onProviderChange={handleProviderChange}
-                onModelChange={(m) => { setChangelogModel(m); setTestResult(null); }}
-                onApiKeyChange={(v) => { setApiKeys({ ...apiKeys, [changelogProvider]: v }); setTestResult(null); }}
-                onModelPricingChange={(modelId, pricing) => { setModelPricing({ ...modelPricing, [modelId]: pricing }); }}
+                onProviderChange={handleChangelogProviderChange}
+                onModelChange={setChangelogModel}
                 onPromptChange={setChangelogPrompt}
-                onTestKey={handleTestKey}
+              />
+            )}
+
+            {activeTab === "assistant" && (
+              <AssistantSettingsTab
+                defaultProvider={assistantDefaultProvider}
+                defaultModel={assistantDefaultModel}
+                shortcuts={assistantShortcuts}
+                onProviderChange={handleAssistantProviderChange}
+                onModelChange={handleAssistantModelChange}
+                onShortcutsChange={setAssistantShortcuts}
               />
             )}
 
@@ -419,16 +447,132 @@ function QuickCommandsTab({
   );
 }
 
-function ChangelogTab({
-  enabled, provider, model, apiKeys, modelPricing, prompt, testingKey, testResult,
-  onEnabledChange, onProviderChange, onModelChange, onApiKeyChange, onModelPricingChange, onPromptChange, onTestKey,
+// ─── AI Providers Tab (catalog: API keys + model pricing) ─────
+
+function AIProvidersTab({
+  apiKeys, modelPricing, testingKey, testResults,
+  onApiKeyChange, onModelPricingChange, onTestKey,
 }: {
-  enabled: boolean; provider: ChangelogProvider; model: string; apiKeys: Record<string, string>;
-  modelPricing: Record<string, ModelPricing>; prompt: string; testingKey: boolean; testResult: "success" | "error" | null;
-  onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
-  onModelChange: (m: string) => void; onApiKeyChange: (v: string) => void;
+  apiKeys: Record<string, string>;
+  modelPricing: Record<string, ModelPricing>;
+  testingKey: string | false;
+  testResults: Record<string, "success" | "error">;
+  onApiKeyChange: (provider: string, value: string) => void;
   onModelPricingChange: (modelId: string, pricing: ModelPricing) => void;
-  onPromptChange: (v: string) => void; onTestKey: () => void;
+  onTestKey: (provider: string) => void;
+}) {
+  const apiProviders = AI_PROVIDERS.filter((p) => p.requiresApiKey);
+
+  return (
+    <div>
+      <SectionTitle>AI Providers</SectionTitle>
+      <p className="text-label text-text-dim mb-4">
+        Configure API keys and token pricing for each provider. These are shared across Changelog and Assistant features.
+      </p>
+
+      {/* API Keys */}
+      <div className="space-y-4 mb-6">
+        {apiProviders.map((provider) => {
+          const key = apiKeys[provider.id] ?? "";
+          const isTesting = testingKey === provider.id;
+          const result = testResults[provider.id];
+          return (
+            <div key={provider.id}>
+              <label className="text-ui text-text-secondary mb-1.5 block">{provider.label}</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={key}
+                  onChange={(e) => onApiKeyChange(provider.id, e.target.value)}
+                  placeholder={`Enter ${provider.label} API key`}
+                  className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
+                />
+                <button
+                  onClick={() => onTestKey(provider.id)}
+                  disabled={isTesting || !key.trim()}
+                  className={`px-3 py-1.5 rounded text-ui font-medium transition-colors shrink-0 ${
+                    isTesting || !key.trim()
+                      ? "bg-bg-elevated text-text-ghost cursor-not-allowed"
+                      : "bg-accent/10 text-accent hover:bg-accent/20"
+                  }`}
+                >
+                  {isTesting ? "Testing..." : "Test"}
+                </button>
+              </div>
+              {result === "success" && (
+                <p className="text-green text-label mt-1">API key is valid</p>
+              )}
+              {result === "error" && (
+                <p className="text-red text-label mt-1">Invalid API key or connection error</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Model Pricing */}
+      <div className="border-t border-border-light pt-4">
+        <label className="text-ui text-text-secondary mb-3 block">Model Pricing (per 1M tokens, USD)</label>
+        <div className="space-y-2">
+          {(Object.entries(AI_MODELS) as [APIProvider, typeof AI_MODELS[APIProvider]][]).map(([provider, models]) => (
+            <div key={provider}>
+              <h4 className="text-label text-text-dim uppercase tracking-wider mb-1.5 mt-2">
+                {AI_PROVIDERS.find((p) => p.id === provider)?.label ?? provider}
+              </h4>
+              {models.map((m) => {
+                const pricing = modelPricing[m.id] ?? m.defaultPricing;
+                return (
+                  <div key={m.id} className="flex items-center gap-3 py-1">
+                    <span className="text-ui text-text-secondary w-40 shrink-0 truncate" title={m.label}>{m.label}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-label text-text-dim">In:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={pricing.input}
+                        onChange={(e) => onModelPricingChange(m.id, {
+                          input: parseFloat(e.target.value) || 0,
+                          output: pricing.output,
+                        })}
+                        className="w-18 px-2 py-0.5 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 text-right"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-label text-text-dim">Out:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={pricing.output}
+                        onChange={(e) => onModelPricingChange(m.id, {
+                          input: pricing.input,
+                          output: parseFloat(e.target.value) || 0,
+                        })}
+                        className="w-18 px-2 py-0.5 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 text-right"
+                      />
+                    </div>
+                    <span className="text-label text-text-ghost">$</span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Changelog Settings Tab ───────────────────────────────────
+
+function ChangelogSettingsTab({
+  enabled, provider, model, prompt,
+  onEnabledChange, onProviderChange, onModelChange, onPromptChange,
+}: {
+  enabled: boolean; provider: ChangelogProvider; model: string; prompt: string;
+  onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
+  onModelChange: (m: string) => void; onPromptChange: (v: string) => void;
 }) {
   const availableModels = AI_MODELS[provider as APIProvider] ?? [];
   return (
@@ -457,7 +601,6 @@ function ChangelogTab({
 
       {enabled && (
         <div className="space-y-4">
-          {/* Provider + API key */}
           <div className="border-t border-border-light pt-4 space-y-3">
             <FieldRow label="Provider">
               <select
@@ -482,73 +625,6 @@ function ChangelogTab({
                 ))}
               </select>
             </FieldRow>
-
-            {/* Token pricing per 1M tokens */}
-            <div>
-              <label className="text-ui text-text-secondary mb-1.5 block">Token Pricing (per 1M tokens, USD)</label>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-label text-text-dim">Input:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={modelPricing[model]?.input ?? 0}
-                    onChange={(e) => onModelPricingChange(model, {
-                      input: parseFloat(e.target.value) || 0,
-                      output: modelPricing[model]?.output ?? 0,
-                    })}
-                    className="w-20 px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 text-right"
-                  />
-                  <span className="text-label text-text-ghost">$</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-label text-text-dim">Output:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={modelPricing[model]?.output ?? 0}
-                    onChange={(e) => onModelPricingChange(model, {
-                      input: modelPricing[model]?.input ?? 0,
-                      output: parseFloat(e.target.value) || 0,
-                    })}
-                    className="w-20 px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 text-right"
-                  />
-                  <span className="text-label text-text-ghost">$</span>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-ui text-text-secondary mb-1.5 block">API Key</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  value={apiKeys[provider] ?? ""}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  placeholder={`Enter ${provider} API key`}
-                  className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
-                />
-                <button
-                  onClick={onTestKey}
-                  disabled={testingKey || !(apiKeys[provider] ?? "").trim()}
-                  className={`px-3 py-1.5 rounded text-ui font-medium transition-colors shrink-0 ${
-                    testingKey || !(apiKeys[provider] ?? "").trim()
-                      ? "bg-bg-elevated text-text-ghost cursor-not-allowed"
-                      : "bg-accent/10 text-accent hover:bg-accent/20"
-                  }`}
-                >
-                  {testingKey ? "Testing..." : "Test"}
-                </button>
-              </div>
-              {testResult === "success" && (
-                <p className="text-green text-label mt-1">API key is valid</p>
-              )}
-              {testResult === "error" && (
-                <p className="text-red text-label mt-1">Invalid API key or connection error</p>
-              )}
-            </div>
           </div>
 
           {/* Prompt editor */}
@@ -581,56 +657,123 @@ function ChangelogTab({
   );
 }
 
-function AssistantShortcutsTab({
-  shortcuts, onChange,
+// ─── Assistant Settings Tab ───────────────────────────────────
+
+function AssistantSettingsTab({
+  defaultProvider, defaultModel, shortcuts,
+  onProviderChange, onModelChange, onShortcutsChange,
 }: {
-  shortcuts: AssistantShortcut[]; onChange: (shortcuts: AssistantShortcut[]) => void;
+  defaultProvider: AIProvider;
+  defaultModel: Record<string, string>;
+  shortcuts: AssistantShortcut[];
+  onProviderChange: (p: AIProvider) => void;
+  onModelChange: (provider: string, modelId: string) => void;
+  onShortcutsChange: (shortcuts: AssistantShortcut[]) => void;
 }) {
-  const handleUpdate = (index: number, field: "name" | "prompt", value: string) => {
+  const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
+  const apiProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
+
+  const handleShortcutUpdate = (index: number, field: "name" | "prompt", value: string) => {
     const updated = [...shortcuts];
     updated[index] = { ...updated[index], [field]: value };
-    onChange(updated);
+    onShortcutsChange(updated);
   };
 
   return (
     <div>
-      <SectionTitle>Assistant Shortcuts</SectionTitle>
-      <p className="text-label text-text-dim mb-3">
-        Saved prompts available as quick-access chips in the assistant panel.
-      </p>
-      <div className="space-y-2">
-        {shortcuts.map((sc, i) => (
-          <div key={sc.id} className="space-y-1">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={sc.name}
-                onChange={(e) => handleUpdate(i, "name", e.target.value)}
-                placeholder="Name"
-                className="w-28 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
-              />
-              <textarea
-                value={sc.prompt}
-                onChange={(e) => handleUpdate(i, "prompt", e.target.value)}
-                placeholder="Prompt text"
-                rows={1}
-                className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost resize-y"
-              />
-              <button
-                onClick={() => onChange(shortcuts.filter((_, j) => j !== i))}
-                className="text-text-ghost hover:text-red transition-colors text-ui px-1.5 py-1"
-              >
-                &times;
-              </button>
+      <SectionTitle>Assistant</SectionTitle>
+
+      {/* Default Provider */}
+      <div className="mb-6">
+        <h4 className="text-ui text-text-secondary mb-3">Default Provider</h4>
+        <p className="text-label text-text-dim mb-3">
+          New assistant tabs will use this provider by default.
+        </p>
+        <div className="space-y-3">
+          <FieldRow label="Provider">
+            <select
+              value={defaultProvider}
+              onChange={(e) => onProviderChange(e.target.value as AIProvider)}
+              className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40"
+            >
+              {AI_PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          </FieldRow>
+        </div>
+      </div>
+
+      {/* Per-provider default models */}
+      <div className="mb-6">
+        <h4 className="text-ui text-text-secondary mb-3">Default Models</h4>
+        <p className="text-label text-text-dim mb-3">
+          Select which model to use for each AI provider when creating new assistant tabs.
+        </p>
+        <div className="space-y-3">
+          {apiProviders.map((p) => {
+            const models = AI_MODELS[p.id as APIProvider] ?? [];
+            const hasKey = !!(apiKeys[p.id] ?? "").trim();
+            const currentModel = defaultModel[p.id] ?? models[0]?.id ?? "";
+            return (
+              <FieldRow key={p.id} label={p.label}>
+                <select
+                  value={currentModel}
+                  onChange={(e) => onModelChange(p.id, e.target.value)}
+                  disabled={!hasKey}
+                  className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 disabled:opacity-40"
+                  title={!hasKey ? `Set API key in Settings > AI Providers` : undefined}
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </FieldRow>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Shortcuts */}
+      <div className="border-t border-border-light pt-4">
+        <h4 className="text-ui text-text-secondary mb-2">Shortcuts</h4>
+        <p className="text-label text-text-dim mb-3">
+          Saved prompts available as quick-access chips in the assistant panel.
+        </p>
+        <div className="space-y-2">
+          {shortcuts.map((sc, i) => (
+            <div key={sc.id} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={sc.name}
+                  onChange={(e) => handleShortcutUpdate(i, "name", e.target.value)}
+                  placeholder="Name"
+                  className="w-28 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost"
+                />
+                <textarea
+                  value={sc.prompt}
+                  onChange={(e) => handleShortcutUpdate(i, "prompt", e.target.value)}
+                  placeholder="Prompt text"
+                  rows={1}
+                  className="flex-1 px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40 placeholder:text-text-ghost resize-y"
+                />
+                <button
+                  onClick={() => onShortcutsChange(shortcuts.filter((_, j) => j !== i))}
+                  className="text-text-ghost hover:text-red transition-colors text-ui px-1.5 py-1"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
-        <button
-          onClick={() => onChange([...shortcuts, { id: crypto.randomUUID(), name: "", prompt: "" }])}
-          className="text-label text-accent hover:text-accent-light transition-colors"
-        >
-          + Add shortcut
-        </button>
+          ))}
+          <button
+            onClick={() => onShortcutsChange([...shortcuts, { id: crypto.randomUUID(), name: "", prompt: "" }])}
+            className="text-label text-accent hover:text-accent-light transition-colors"
+          >
+            + Add shortcut
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -724,12 +867,12 @@ function ApiLogsTab() {
   }
 
   return (
-    <div>
+    <div className="flex flex-col h-full">
       <SectionTitle>API Logs</SectionTitle>
 
       {/* Cost summary card */}
       {summary && summary.totalCalls > 0 && (
-        <div className="rounded-lg border border-border p-4 mb-4" style={{ background: "var(--bg-elevated)" }}>
+        <div className="rounded-lg border border-border p-4 mb-4 shrink-0" style={{ background: "var(--bg-elevated)" }}>
           <div className="flex items-baseline justify-between mb-3">
             <span className="text-ui text-text-secondary">Total Cost</span>
             <span className="text-lg font-semibold text-text-primary">{formatCost(summary.totalCost)}</span>
@@ -755,13 +898,13 @@ function ApiLogsTab() {
 
       {/* Log list */}
       {logs.length === 0 ? (
-        <div className="text-center py-8">
+        <div className="text-center py-8 flex-1">
           <BarChart3 size={24} className="mx-auto mb-2 text-text-ghost" />
           <p className="text-ui text-text-dim">No API calls logged yet</p>
-          <p className="text-label text-text-ghost mt-1">Calls will appear here when changelog entries are generated</p>
+          <p className="text-label text-text-ghost mt-1">Calls will appear here when API providers are used</p>
         </div>
       ) : (
-        <div className="space-y-1 max-h-[280px] overflow-y-auto">
+        <div className="space-y-1 flex-1 min-h-0 overflow-y-auto">
           {logs.map((log) => (
             <div
               key={log.id}
@@ -785,7 +928,7 @@ function ApiLogsTab() {
         </div>
       )}
 
-      <p className="text-[11px] text-text-ghost mt-3">
+      <p className="text-[11px] text-text-ghost mt-3 shrink-0">
         Logs older than 5 days are automatically deleted.
       </p>
     </div>

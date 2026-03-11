@@ -1,5 +1,33 @@
 # CodeMantis Releases
 
+## 0.5.3
+
+- Add file upload, image paste, and drag-drop attachment support to Assistant panel
+- Add multimodal image support for API providers (OpenAI, Gemini, Anthropic) with base64 encoding
+- Add AssistantAttachmentBar component for per-session attachment display
+- Fix slash command palette: solid background, shadow, z-index layering, hide shortcuts when palette open
+- Fix slash command execution: /clear restarts CLI, /context shows token usage, /cost shows stats, /exit closes tab, /rename renames tab
+- Route CLI-only commands (/model, /config, etc.) to CLI overlay instead of sending as chat text
+- Show info message for unknown commands instead of sending raw text
+- Add `renameAssistant` action to assistant store
+- Add per-session attachments map to assistant store
+- Show per-provider default model dropdowns in Settings > Assistant (all providers visible at once)
+- Add model submenu to provider selection when creating new assistant tabs
+- Add diagnostic logging for API call logging (insert success/failure)
+
+## 0.5.2
+
+- Enlarge Settings modal ~30% (720×560 → 940×730) to better fit 8-tab layout
+- Add 5 new AI models: GPT-5.4, Gemini 2.5 Pro, Gemini 3.0 Flash, Gemini 3.1 Pro, Gemini 3.1 Flash Lite
+
+## 0.5.1
+
+- Restructure Settings: split AI Providers tab into separate AI Providers (API keys + pricing) and Changelog (toggle, provider/model, prompt) tabs
+- Add Assistant settings: default provider and model selection for new assistant tabs
+- Log assistant API calls to database (visible in Settings > API Logs)
+- Fix provider dropdown background from near-invisible to solid opaque color
+- Read default model from settings when creating new assistant tabs
+
 ## 0.5.0
 
 - Add multi-AI assistant support: create assistant tabs with OpenAI, Google Gemini, or Anthropic API providers alongside Claude Code

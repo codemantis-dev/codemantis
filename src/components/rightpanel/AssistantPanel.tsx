@@ -1,15 +1,26 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, MessageSquare, Info } from "lucide-react";
+import { Send, Plus, MessageSquare, Info } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useUiStore } from "../../stores/uiStore";
 import { useAssistantSession } from "../../hooks/useAssistantSession";
 import { AI_PROVIDERS, AI_MODELS } from "../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../types/assistant-provider";
 import type { SlashCommand } from "../../types/slash-commands";
-import { discoverCommands, expandSkill } from "../../lib/tauri-commands";
+import {
+  discoverCommands,
+  expandSkill,
+  pauseSessionProcess,
+  resumeSessionProcess,
+  saveClipboardImage,
+  getFileInfo,
+  readFileBytes,
+} from "../../lib/tauri-commands";
 import AssistantTabs from "./AssistantTabs";
+import AssistantAttachmentBar from "./AssistantAttachmentBar";
 import AssistantMessageMenu from "./AssistantMessageMenu";
 import MessageBubble from "../chat/MessageBubble";
 import type { AssistantShortcut } from "../../types/settings";
@@ -21,10 +32,12 @@ export default function AssistantPanel() {
   const [shortcutDraft, setShortcutDraft] = useState<{ prompt: string } | null>(null);
   const [shortcutName, setShortcutName] = useState("");
   const [showProviderMenu, setShowProviderMenu] = useState(false);
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [commandIndex, setCommandIndex] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const providerMenuRef = useRef<HTMLDivElement>(null);
@@ -39,9 +52,14 @@ export default function AssistantPanel() {
   const allBusy = useAssistantStore((s) => s.busy);
   const allCost = useAssistantStore((s) => s.sessionCost);
   const setActiveAssistant = useAssistantStore((s) => s.setActiveAssistant);
+  const allAttachments = useAssistantStore((s) => s.attachments);
+  const addAssistantAttachment = useAssistantStore((s) => s.addAssistantAttachment);
+  const removeAssistantAttachment = useAssistantStore((s) => s.removeAssistantAttachment);
+  const clearAssistantAttachments = useAssistantStore((s) => s.clearAssistantAttachments);
 
   const shortcuts = useSettingsStore((s) => s.settings.assistantShortcuts);
   const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
+  const defaultModels = useSettingsStore((s) => s.settings.assistantDefaultModel);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   const { createAssistant, sendMessage, closeAssistant } = useAssistantSession();
@@ -64,6 +82,7 @@ export default function AssistantPanel() {
   const isClaudeCode = activeInstance?.provider === "claude-code";
   const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
 
+  const currentAttachments = activeAssistantId ? allAttachments.get(activeAssistantId) ?? [] : [];
   const showThinking = busy && !streaming?.isStreaming;
 
   // Auto-scroll to bottom on new messages
@@ -111,16 +130,23 @@ export default function AssistantPanel() {
       return; // shouldn't happen since button is disabled, but guard
     }
 
+    // Use settings default model if none provided
+    const resolvedModel = model ?? (
+      provider !== "claude-code"
+        ? (defaultModels[provider] ?? AI_MODELS[provider as APIProvider]?.[0]?.id)
+        : undefined
+    );
+
     setCreating(true);
     setShowProviderMenu(false);
     try {
-      await createAssistant(activeProjectPath, provider, model);
+      await createAssistant(activeProjectPath, provider, resolvedModel);
     } catch (e) {
       console.error("Failed to create assistant:", e);
     } finally {
       setCreating(false);
     }
-  }, [activeProjectPath, creating, createAssistant, apiKeys]);
+  }, [activeProjectPath, creating, createAssistant, apiKeys, defaultModels]);
 
   const handleClose = useCallback(async (sessionId: string) => {
     if (!activeProjectPath) return;
@@ -134,7 +160,8 @@ export default function AssistantPanel() {
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || !activeAssistantId || busy) return;
+    const hasAttachments = currentAttachments.length > 0;
+    if ((!trimmed && !hasAttachments) || !activeAssistantId || busy) return;
 
     // Handle slash commands for Claude Code assistants
     if (isClaudeCode && trimmed.startsWith("/")) {
@@ -142,12 +169,13 @@ export default function AssistantPanel() {
       return;
     }
 
-    sendMessage(activeAssistantId, trimmed);
+    sendMessage(activeAssistantId, trimmed, hasAttachments ? currentAttachments : undefined);
+    clearAssistantAttachments(activeAssistantId);
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, activeAssistantId, busy, sendMessage, isClaudeCode]);
+  }, [input, activeAssistantId, busy, sendMessage, isClaudeCode, currentAttachments, clearAssistantAttachments]);
 
   const handleSlashCommand = useCallback(async (rawInput: string) => {
     if (!activeAssistantId || !activeProjectPath) return;
@@ -158,8 +186,16 @@ export default function AssistantPanel() {
 
     const cmd = commands.find((c) => c.name.toLowerCase() === cmdName.toLowerCase());
     if (!cmd) {
-      // Not a recognized command — send as-is
-      sendMessage(activeAssistantId, rawInput);
+      // Not a recognized command — show info message
+      const store = useAssistantStore.getState();
+      store.addMessage(activeAssistantId, {
+        id: `sys-${Date.now()}`,
+        role: "assistant",
+        content: `Unknown command \`/${cmdName}\`. Type \`/\` to see available commands.`,
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+      });
       setInput("");
       return;
     }
@@ -194,22 +230,76 @@ export default function AssistantPanel() {
           case "help":
             sysMsg("**Available Commands**\n\nType `/` to see available slash commands. Skills from `.claude/commands/` will be expanded and sent as prompts.");
             break;
-          case "clear":
+          case "clear": {
             store.clearMessages(activeAssistantId);
+            // Restart the CLI process for a fresh context
+            try {
+              await pauseSessionProcess(activeAssistantId);
+              await resumeSessionProcess(activeAssistantId);
+            } catch {
+              // Non-fatal: session may be API-only or already closed
+            }
             break;
+          }
+          case "context": {
+            const sessionCtx = useSessionStore.getState().sessionContext.get(activeAssistantId);
+            if (sessionCtx) {
+              const pct = sessionCtx.max > 0 ? Math.round((sessionCtx.used / sessionCtx.max) * 100) : 0;
+              sysMsg(`**Context:** ${sessionCtx.used.toLocaleString()} / ${sessionCtx.max.toLocaleString()} tokens (${pct}%)`);
+            } else {
+              sysMsg("Context info is not available for this assistant type.");
+            }
+            break;
+          }
+          case "cost": {
+            const usage = store.getTokenUsage(activeAssistantId);
+            const stats = useSessionStore.getState().sessionStats.get(activeAssistantId);
+            if (stats) {
+              sysMsg(`**Session Cost**\n- Cost: $${stats.totalCostUsd.toFixed(4)}\n- Input: ${stats.totalInputTokens.toLocaleString()} tokens\n- Output: ${stats.totalOutputTokens.toLocaleString()} tokens\n- Turns: ${stats.turnCount}`);
+            } else if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+              sysMsg(`**Token Usage**\n- Input: ${usage.inputTokens.toLocaleString()} tokens\n- Output: ${usage.outputTokens.toLocaleString()} tokens`);
+            } else {
+              sysMsg("No usage data available yet.");
+            }
+            break;
+          }
+          case "exit":
+            handleClose(activeAssistantId);
+            break;
+          case "rename": {
+            if (args.trim()) {
+              store.renameAssistant(activeProjectPath, activeAssistantId, args.trim());
+              sysMsg(`Renamed to **${args.trim()}**`);
+            } else {
+              sysMsg("Usage: `/rename New Name`");
+            }
+            break;
+          }
           default:
-            // For other built-in commands, send as regular message to Claude
-            sendMessage(activeAssistantId, rawInput);
+            sysMsg(`The \`/${cmd.name}\` command is not available in assistant tabs.`);
             break;
         }
       } else {
-        // cli-only or unknown: send as regular message
-        sendMessage(activeAssistantId, rawInput);
+        // cli-only commands: open CLI overlay for Claude Code, show message for API
+        if (isClaudeCode) {
+          useUiStore.getState().setCliOverlayInitialInput(rawInput);
+          useUiStore.getState().setShowCliOverlay(true);
+        } else {
+          const store = useAssistantStore.getState();
+          store.addMessage(activeAssistantId, {
+            id: `sys-${Date.now()}`,
+            role: "assistant",
+            content: `The \`/${cmd.name}\` command requires the Claude Code CLI and is not available for API providers.`,
+            timestamp: new Date().toISOString(),
+            activityIds: [],
+            isStreaming: false,
+          });
+        }
       }
     } catch (e) {
       console.error("[assistant] Slash command error:", e);
     }
-  }, [activeAssistantId, activeProjectPath, commands, sendMessage]);
+  }, [activeAssistantId, activeProjectPath, commands, sendMessage, handleClose, isClaudeCode]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -312,6 +402,155 @@ export default function AssistantPanel() {
     setShortcutName("");
   }, [shortcutDraft, shortcutName, shortcuts, updateSettings]);
 
+  /** Read a file via Rust and create a blob: URL for previewing in the webview. */
+  const createPreviewUrl = useCallback(async (filePath: string, mimeType: string): Promise<string | undefined> => {
+    try {
+      const bytes = await readFileBytes(filePath);
+      const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+      return URL.createObjectURL(blob);
+    } catch {
+      return undefined;
+    }
+  }, []);
+
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      if (!activeAssistantId || !activeProjectPath) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+
+          const now = new Date();
+          const timeStr = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+          const filename = `clipboard_${timeStr}.png`;
+
+          const arrayBuffer = await blob.arrayBuffer();
+          const imageData = Array.from(new Uint8Array(arrayBuffer));
+
+          try {
+            const info = await saveClipboardImage(activeProjectPath, imageData, filename);
+            const thumbnailUrl = info.is_image
+              ? await createPreviewUrl(info.file_path, info.mime_type)
+              : undefined;
+            addAssistantAttachment(activeAssistantId, {
+              id: `att-${Date.now()}`,
+              fileName: info.file_name,
+              filePath: info.file_path,
+              fileSize: info.file_size,
+              mimeType: info.mime_type,
+              isImage: info.is_image,
+              thumbnailUrl,
+            });
+          } catch (err) {
+            console.error("Failed to save clipboard image:", err);
+          }
+          return;
+        }
+      }
+    },
+    [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      if (!activeAssistantId || !activeProjectPath) return;
+
+      const files = e.dataTransfer?.files;
+      if (!files) return;
+
+      for (const file of files) {
+        try {
+          const isImage = file.type.startsWith("image/");
+          if (isImage) {
+            const arrayBuffer = await file.arrayBuffer();
+            const imageData = Array.from(new Uint8Array(arrayBuffer));
+            const info = await saveClipboardImage(activeProjectPath, imageData, file.name);
+            const thumbUrl = await createPreviewUrl(info.file_path, info.mime_type);
+            addAssistantAttachment(activeAssistantId, {
+              id: `att-${Date.now()}-${file.name}`,
+              fileName: info.file_name,
+              filePath: info.file_path,
+              fileSize: info.file_size,
+              mimeType: info.mime_type,
+              isImage: true,
+              thumbnailUrl: thumbUrl,
+            });
+          } else {
+            addAssistantAttachment(activeAssistantId, {
+              id: `att-${Date.now()}-${file.name}`,
+              fileName: file.name,
+              filePath: file.name,
+              fileSize: file.size,
+              mimeType: file.type || "application/octet-stream",
+              isImage: false,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to process dropped file:", err);
+        }
+      }
+    },
+    [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]
+  );
+
+  const handleFileDialog = useCallback(async () => {
+    if (!activeAssistantId || !activeProjectPath) return;
+
+    try {
+      const result = await open({
+        multiple: true,
+        filters: [
+          { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
+          { name: "Documents", extensions: ["pdf", "txt", "md"] },
+          { name: "Code", extensions: ["ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "rb"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!result) return;
+
+      const paths = Array.isArray(result) ? result : [result];
+      for (const filePath of paths) {
+        try {
+          const info = await getFileInfo(filePath);
+          const previewUrl = info.is_image
+            ? await createPreviewUrl(info.file_path, info.mime_type)
+            : undefined;
+          addAssistantAttachment(activeAssistantId, {
+            id: `att-${Date.now()}-${info.file_name}`,
+            fileName: info.file_name,
+            filePath: info.file_path,
+            fileSize: info.file_size,
+            mimeType: info.mime_type,
+            isImage: info.is_image,
+            thumbnailUrl: previewUrl,
+          });
+        } catch (err) {
+          console.error("Failed to get file info:", err);
+        }
+      }
+    } catch (err) {
+      console.error("File dialog error:", err);
+    }
+  }, [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]);
+
   // No project open
   if (!activeProjectPath) {
     return (
@@ -331,24 +570,49 @@ export default function AssistantPanel() {
         <p className="text-text-faint text-ui text-center">
           Ask questions about your project, get help with code, or chat with AI.
         </p>
-        <div className="flex flex-col gap-1.5 w-full max-w-[200px]">
+        <div className="flex flex-col gap-1.5 w-full max-w-[240px]">
           {AI_PROVIDERS.map((p) => {
             const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-            const models = p.id !== "claude-code" ? AI_MODELS[p.id as APIProvider] : [];
-            const defaultModel = models.length > 0 ? models[0].id : undefined;
+            const isApi = p.id !== "claude-code";
+            const models = isApi ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
+            const isExpanded = expandedProvider === p.id;
             return (
-              <button
-                key={p.id}
-                onClick={() => handleCreate(p.id, defaultModel)}
-                disabled={creating || !hasKey}
-                className="px-3 py-2 rounded-lg text-ui text-left transition-colors border border-border-light hover:border-accent/30 hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                title={!hasKey ? `Set API key in Settings > AI Providers` : `New ${p.label} assistant`}
-              >
-                <span className="text-text-primary">{p.label}</span>
-                {!hasKey && (
-                  <span className="text-[10px] text-text-ghost block">No API key</span>
+              <div key={p.id}>
+                <button
+                  onClick={() => {
+                    if (!hasKey || creating) return;
+                    if (isApi && models.length > 0) {
+                      setExpandedProvider(isExpanded ? null : p.id);
+                    } else {
+                      handleCreate(p.id);
+                    }
+                  }}
+                  disabled={creating || !hasKey}
+                  className="w-full px-3 py-2 rounded-lg text-ui text-left transition-colors border border-border-light hover:border-accent/30 hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between"
+                  title={!hasKey ? `Set API key in Settings > AI Providers` : `New ${p.label} assistant`}
+                >
+                  <span className="text-text-primary">{p.label}</span>
+                  {!hasKey ? (
+                    <span className="text-[10px] text-text-ghost">No API key</span>
+                  ) : isApi && models.length > 0 ? (
+                    <span className="text-[10px] text-text-ghost">{isExpanded ? "▴" : "▾"}</span>
+                  ) : null}
+                </button>
+                {isExpanded && models.length > 0 && (
+                  <div className="ml-3 mt-1 space-y-0.5">
+                    {models.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => handleCreate(p.id, m.id)}
+                        disabled={creating}
+                        className="w-full px-3 py-1.5 rounded-md text-label text-left text-text-secondary hover:bg-accent/5 hover:text-text-primary transition-colors disabled:opacity-40"
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -375,25 +639,50 @@ export default function AssistantPanel() {
       {showProviderMenu && (
         <div
           ref={providerMenuRef}
-          className="absolute top-8 right-1 z-20 rounded-lg border border-border shadow-lg py-1 min-w-[180px]"
-          style={{ background: "var(--bg-elevated)" }}
+          className="absolute top-8 right-1 z-20 rounded-lg border shadow-lg py-1 min-w-[180px]"
+          style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
         >
           {AI_PROVIDERS.map((p) => {
             const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-            const models = p.id !== "claude-code" ? AI_MODELS[p.id as APIProvider] : [];
-            const defaultModel = models.length > 0 ? models[0].id : undefined;
+            const isApi = p.id !== "claude-code";
+            const models = isApi ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
+            const isExpanded = expandedProvider === p.id;
             return (
-              <button
-                key={p.id}
-                onClick={() => handleCreate(p.id, defaultModel)}
-                disabled={creating || !hasKey}
-                className="w-full text-left px-3 py-1.5 text-ui hover:bg-bg-subtle transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between"
-              >
-                <span className="text-text-primary">{p.label}</span>
-                {!hasKey && (
-                  <span className="text-[9px] text-text-ghost">No key</span>
+              <div key={p.id}>
+                <button
+                  onClick={() => {
+                    if (!hasKey || creating) return;
+                    if (isApi && models.length > 0) {
+                      setExpandedProvider(isExpanded ? null : p.id);
+                    } else {
+                      handleCreate(p.id);
+                    }
+                  }}
+                  disabled={creating || !hasKey}
+                  className="w-full text-left px-3 py-1.5 text-ui hover:bg-bg-subtle transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between"
+                >
+                  <span className="text-text-primary">{p.label}</span>
+                  {!hasKey ? (
+                    <span className="text-[9px] text-text-ghost">No key</span>
+                  ) : isApi && models.length > 0 ? (
+                    <span className="text-[9px] text-text-ghost">{isExpanded ? "▴" : "▾"}</span>
+                  ) : null}
+                </button>
+                {isExpanded && models.length > 0 && (
+                  <div className="border-t border-border-light" style={{ background: "var(--bg-elevated)" }}>
+                    {models.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => handleCreate(p.id, m.id)}
+                        disabled={creating}
+                        className="w-full text-left pl-6 pr-3 py-1.5 text-label hover:bg-bg-subtle transition-colors disabled:opacity-40"
+                      >
+                        <span className="text-text-secondary">{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -470,10 +759,41 @@ export default function AssistantPanel() {
 
       {/* Input area */}
       <div
-        className="shrink-0 border-t"
+        className={`shrink-0 border-t relative ${dragOver ? "bg-accent/5" : ""}`}
         style={{ borderColor: "var(--border-light)" }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
-        {shortcuts.length > 0 && (
+        {/* Slash command palette — positioned in outer container for z-index layering */}
+        {showCommandPalette && isClaudeCode && filteredCommands.length > 0 && (
+          <div
+            ref={commandPaletteRef}
+            className="absolute bottom-full left-2 right-2 mb-1 rounded-lg border border-border shadow-xl overflow-hidden z-30"
+            style={{ background: "var(--bg-elevated)", maxHeight: 240 }}
+          >
+            <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
+              {filteredCommands.map((cmd, i) => (
+                <button
+                  key={`${cmd.category}-${cmd.name}`}
+                  className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
+                    i === commandIndex ? "bg-bg-subtle" : "hover:bg-bg-subtle/50"
+                  }`}
+                  onClick={() => {
+                    setShowCommandPalette(false);
+                    setInput("");
+                    handleSlashCommand("/" + cmd.name);
+                  }}
+                  onMouseEnter={() => setCommandIndex(i)}
+                >
+                  <span className="font-mono text-label text-accent shrink-0">/{cmd.name}</span>
+                  <span className="text-label text-text-dim truncate flex-1">{cmd.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {shortcuts.length > 0 && !showCommandPalette && (
           <div className="flex flex-wrap gap-1 px-2 pt-1.5">
             {shortcuts.map((sc) => (
               <button
@@ -487,40 +807,26 @@ export default function AssistantPanel() {
             ))}
           </div>
         )}
-        <div className="p-2 flex gap-2 items-end relative">
-          {/* Slash command palette */}
-          {showCommandPalette && isClaudeCode && filteredCommands.length > 0 && (
-            <div
-              ref={commandPaletteRef}
-              className="absolute bottom-full left-2 right-2 mb-1 rounded-lg border border-border shadow-lg overflow-hidden z-10"
-              style={{ background: "var(--bg-elevated)", maxHeight: 240 }}
-            >
-              <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
-                {filteredCommands.map((cmd, i) => (
-                  <button
-                    key={`${cmd.category}-${cmd.name}`}
-                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
-                      i === commandIndex ? "bg-bg-subtle" : "hover:bg-bg-subtle/50"
-                    }`}
-                    onClick={() => {
-                      setShowCommandPalette(false);
-                      setInput("");
-                      handleSlashCommand("/" + cmd.name);
-                    }}
-                    onMouseEnter={() => setCommandIndex(i)}
-                  >
-                    <span className="font-mono text-label text-accent shrink-0">/{cmd.name}</span>
-                    <span className="text-label text-text-dim truncate flex-1">{cmd.description}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        {/* Attachment bar */}
+        {activeAssistantId && (
+          <AssistantAttachmentBar
+            attachments={currentAttachments}
+            onRemove={(id) => removeAssistantAttachment(activeAssistantId, id)}
+          />
+        )}
+        {/* Drop zone overlay */}
+        {dragOver && (
+          <div className="px-4 py-2 text-center text-accent text-ui">
+            Drop files to attach
+          </div>
+        )}
+        <div className="p-2 flex gap-2 items-end">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={isClaudeCode ? "Ask the assistant... (/ for commands)" : "Ask the assistant..."}
             disabled={!activeAssistantId || busy}
             rows={4}
@@ -532,14 +838,24 @@ export default function AssistantPanel() {
               maxHeight: 200,
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || !activeAssistantId || busy}
-            className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Send (Cmd+Enter)"
-          >
-            <Send size={16} />
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={handleFileDialog}
+              disabled={!activeAssistantId || busy}
+              className="p-1.5 rounded-lg text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Attach file"
+            >
+              <Plus size={16} />
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId || busy}
+              className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Send (Cmd+Enter)"
+            >
+              <Send size={16} />
+            </button>
+          </div>
         </div>
       </div>
 

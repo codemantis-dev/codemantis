@@ -190,14 +190,15 @@
       "branch": "main",
       "stars": 438,
       "license": "MIT",
-      "install_command": "npm install",
-      "dev_command": "npm run dev",
+      "install_command": "yarn install",
+      "dev_command": "yarn dev",
       "dev_port": 3000,
       "post_clone_cleanup": [".git", "LICENSE", "netlify.toml"],
       "icon": "globe",
       "verified": true,
       "last_verified": "2026-03-11",
-      "scaffold_type": "git-clone"
+      "scaffold_type": "git-clone",
+      "prerequisites": "Requires Yarn (install: npm install -g yarn)"
     }
   ]
 }

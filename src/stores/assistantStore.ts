@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Message } from "../types/session";
 import type { AIProvider } from "../types/assistant-provider";
+import type { Attachment } from "../types/attachment";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -39,11 +40,13 @@ interface AssistantState {
   streaming: Map<string, StreamingState>; // sessionId → streaming state
   busy: Map<string, boolean>;             // sessionId → is processing
   sessionCost: Map<string, TokenUsage>;   // sessionId → cumulative token usage
+  attachments: Map<string, Attachment[]>; // sessionId → attachments
 
   // Instance management
   addAssistant: (projectPath: string, instance: AssistantInstance) => void;
   removeAssistant: (projectPath: string, sessionId: string) => void;
   setActiveAssistant: (projectPath: string, sessionId: string | null) => void;
+  renameAssistant: (projectPath: string, sessionId: string, newName: string) => void;
   getAssistants: (projectPath: string) => AssistantInstance[];
   getActiveAssistantId: (projectPath: string) => string | null;
   getAllSessionIds: (projectPath: string) => string[];
@@ -59,6 +62,11 @@ interface AssistantState {
   addTokenUsage: (sessionId: string, inputTokens: number, outputTokens: number) => void;
   getTokenUsage: (sessionId: string) => TokenUsage;
 
+  // Per-session attachment actions
+  addAssistantAttachment: (sessionId: string, attachment: Attachment) => void;
+  removeAssistantAttachment: (sessionId: string, attachmentId: string) => void;
+  clearAssistantAttachments: (sessionId: string) => void;
+
   // Lookup helpers
   findAssistantInstance: (sessionId: string) => AssistantInstance | undefined;
 }
@@ -70,6 +78,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   streaming: new Map(),
   busy: new Map(),
   sessionCost: new Map(),
+  attachments: new Map(),
 
   addAssistant: (projectPath, instance) =>
     set((state) => {
@@ -88,8 +97,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       busy.set(instance.id, false);
       const sessionCost = new Map(state.sessionCost);
       sessionCost.set(instance.id, { inputTokens: 0, outputTokens: 0 });
+      const attachments = new Map(state.attachments);
+      attachments.set(instance.id, []);
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments };
     }),
 
   removeAssistant: (projectPath, sessionId) =>
@@ -116,8 +127,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       busy.delete(sessionId);
       const sessionCost = new Map(state.sessionCost);
       sessionCost.delete(sessionId);
+      const attachments = new Map(state.attachments);
+      attachments.delete(sessionId);
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments };
     }),
 
   setActiveAssistant: (projectPath, sessionId) =>
@@ -125,6 +138,18 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const activeAssistantId = new Map(state.activeAssistantId);
       activeAssistantId.set(projectPath, sessionId);
       return { activeAssistantId };
+    }),
+
+  renameAssistant: (projectPath, sessionId, newName) =>
+    set((state) => {
+      const projectAssistants = new Map(state.projectAssistants);
+      const list = [...(projectAssistants.get(projectPath) ?? [])];
+      const idx = list.findIndex((a) => a.id === sessionId);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], name: newName };
+        projectAssistants.set(projectPath, list);
+      }
+      return { projectAssistants };
     }),
 
   getAssistants: (projectPath) =>
@@ -148,14 +173,16 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const streaming = new Map(state.streaming);
       const busy = new Map(state.busy);
       const sessionCost = new Map(state.sessionCost);
+      const attachments = new Map(state.attachments);
       for (const a of assistants) {
         messages.delete(a.id);
         streaming.delete(a.id);
         busy.delete(a.id);
         sessionCost.delete(a.id);
+        attachments.delete(a.id);
       }
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments };
     }),
 
   // Per-session message actions
@@ -244,6 +271,29 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 
   getTokenUsage: (sessionId) =>
     get().sessionCost.get(sessionId) ?? { inputTokens: 0, outputTokens: 0 },
+
+  addAssistantAttachment: (sessionId, attachment) =>
+    set((state) => {
+      const attachments = new Map(state.attachments);
+      const existing = attachments.get(sessionId) ?? [];
+      attachments.set(sessionId, [...existing, attachment]);
+      return { attachments };
+    }),
+
+  removeAssistantAttachment: (sessionId, attachmentId) =>
+    set((state) => {
+      const attachments = new Map(state.attachments);
+      const existing = attachments.get(sessionId) ?? [];
+      attachments.set(sessionId, existing.filter((a) => a.id !== attachmentId));
+      return { attachments };
+    }),
+
+  clearAssistantAttachments: (sessionId) =>
+    set((state) => {
+      const attachments = new Map(state.attachments);
+      attachments.set(sessionId, []);
+      return { attachments };
+    }),
 
   findAssistantInstance: (sessionId) => {
     for (const instances of get().projectAssistants.values()) {

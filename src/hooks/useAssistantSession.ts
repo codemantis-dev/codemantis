@@ -2,7 +2,10 @@ import { useCallback } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useAssistantStore } from "../stores/assistantStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { AI_MODELS } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
+import type { Attachment } from "../types/attachment";
+import type { ContentPart } from "../lib/tauri-commands";
 import {
   createSession,
   sendMessage as sendMessageCmd,
@@ -14,6 +17,7 @@ import {
 } from "../lib/tauri-commands";
 import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
+import { fileToBase64 } from "../lib/file-utils";
 
 // Module-level listener map for assistant sessions
 const assistantListeners = new Map<string, UnlistenFn[]>();
@@ -24,7 +28,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. You help with
 
 interface UseAssistantSessionReturn {
   createAssistant: (projectPath: string, provider: AIProvider, model?: string) => Promise<string>;
-  sendMessage: (sessionId: string, prompt: string) => void;
+  sendMessage: (sessionId: string, prompt: string, attachments?: Attachment[]) => void;
   closeAssistant: (projectPath: string, sessionId: string) => Promise<void>;
   closeAllAssistants: (projectPath: string) => Promise<void>;
 }
@@ -73,13 +77,20 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       return session.id;
     } else {
       // API provider: generate a local ID, no CLI session
+      // Resolve model: explicit param > settings default > first model in catalog
+      const settings = useSettingsStore.getState().settings;
+      const resolvedModel = model
+        ?? settings.assistantDefaultModel[provider]
+        ?? AI_MODELS[provider as APIProvider]?.[0]?.id
+        ?? null;
+
       const id = `api-asst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       store.addAssistant(projectPath, {
         id,
         projectPath,
         name,
         provider,
-        model: model ?? null,
+        model: resolvedModel,
         sortOrder: num,
         createdAt: new Date().toISOString(),
       });
@@ -87,16 +98,23 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     }
   }, []);
 
-  const sendMessage = useCallback((sessionId: string, prompt: string) => {
+  const sendMessage = useCallback((sessionId: string, prompt: string, attachments?: Attachment[]) => {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
     if (!instance) return;
+
+    // For Claude Code with attachments, prepend file references
+    let finalPrompt = prompt;
+    if (instance.provider === "claude-code" && attachments && attachments.length > 0) {
+      const refs = attachments.map((a) => `[Attached file: ${a.filePath}]`).join("\n");
+      finalPrompt = refs + (prompt ? "\n\n" + prompt : "");
+    }
 
     const msgId = `asst-user-${Date.now()}`;
     store.addMessage(sessionId, {
       id: msgId,
       role: "user",
-      content: prompt,
+      content: finalPrompt,
       timestamp: new Date().toISOString(),
       activityIds: [],
       isStreaming: false,
@@ -105,13 +123,13 @@ export function useAssistantSession(): UseAssistantSessionReturn {
 
     if (instance.provider === "claude-code") {
       // Send via CLI
-      sendMessageCmd(sessionId, prompt).catch((e) => {
+      sendMessageCmd(sessionId, finalPrompt).catch((e) => {
         console.error("Failed to send assistant message:", e);
         store.setBusy(sessionId, false);
       });
     } else {
-      // Send via API
-      sendApiMessage(sessionId, instance.provider as APIProvider, instance.model).catch((e) => {
+      // Send via API (pass attachments for multimodal)
+      sendApiMessage(sessionId, instance.provider as APIProvider, instance.model, attachments).catch((e) => {
         console.error("Failed to send API assistant message:", e);
         store.setBusy(sessionId, false);
         store.addMessage(sessionId, {
@@ -181,6 +199,7 @@ async function sendApiMessage(
   sessionId: string,
   provider: APIProvider,
   model: string | null,
+  attachments?: Attachment[],
 ): Promise<void> {
   const store = useAssistantStore.getState();
   const settings = useSettingsStore.getState().settings;
@@ -196,9 +215,39 @@ async function sendApiMessage(
 
   // Build conversation history from stored messages
   const allMessages = store.messages.get(sessionId) ?? [];
-  const chatHistory = allMessages
+  const chatHistory: { role: string; content: string | ContentPart[] }[] = allMessages
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({ role: m.role, content: m.content as string | ContentPart[] }));
+
+  // For the last user message, attach images as multimodal content
+  if (attachments && attachments.length > 0 && chatHistory.length > 0) {
+    const lastMsg = chatHistory[chatHistory.length - 1];
+    if (lastMsg.role === "user") {
+      const parts: ContentPart[] = [];
+      // Add text part
+      const textContent = typeof lastMsg.content === "string" ? lastMsg.content : "";
+      if (textContent) {
+        parts.push({ type: "text", text: textContent });
+      }
+      // Add image attachments as base64
+      for (const att of attachments) {
+        if (att.isImage) {
+          try {
+            const { data, mimeType } = await fileToBase64(att.filePath);
+            parts.push({ type: "image", mime_type: mimeType, data });
+          } catch (e) {
+            console.error("[assistant] Failed to encode image:", e);
+          }
+        } else {
+          // Non-image files: include as text reference
+          parts.push({ type: "text", text: `[Attached file: ${att.filePath} (${att.fileName})]` });
+        }
+      }
+      if (parts.length > 0) {
+        lastMsg.content = parts;
+      }
+    }
+  }
 
   // Create streaming message placeholder
   const assistantMsgId = `asst-api-${Date.now()}`;
