@@ -114,6 +114,7 @@ export default function TemplatePicker({ onProjectCreated }: TemplatePickerProps
           template={selectedTemplate}
           projectName={scaffoldProjectName}
           resultPath={scaffoldResult?.project_path ?? null}
+          warnings={scaffoldResult?.warnings ?? []}
           scaffoldError={scaffoldError}
           onOpenProject={handleOpenProject}
           onRetry={handleRetry}

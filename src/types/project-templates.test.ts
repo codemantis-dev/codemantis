@@ -18,12 +18,12 @@ describe("project-templates types", () => {
 
   it("GIT_CLONE_STEPS has the correct pipeline order", () => {
     const steps = GIT_CLONE_STEPS.map((s) => s.step);
-    expect(steps).toEqual(["validate", "clone", "clean", "install", "claude_md", "commit"]);
+    expect(steps).toEqual(["validate", "clone", "clean", "install", "verify", "claude_md", "commit"]);
   });
 
-  it("CLI_SCAFFOLD_STEPS has the correct pipeline order", () => {
+  it("CLI_SCAFFOLD_STEPS has install before configure", () => {
     const steps = CLI_SCAFFOLD_STEPS.map((s) => s.step);
-    expect(steps).toEqual(["validate", "generate", "configure", "install", "claude_md", "commit"]);
+    expect(steps).toEqual(["validate", "generate", "install", "configure", "verify", "claude_md", "commit"]);
   });
 
   it("all steps have non-empty labels", () => {

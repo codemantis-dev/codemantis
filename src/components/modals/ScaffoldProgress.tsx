@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, Loader2 } from "lucide-react";
+import { Check, X, Loader2, AlertTriangle } from "lucide-react";
 import { listenScaffoldProgress } from "../../lib/tauri-commands";
 import type {
   TemplateEntry,
@@ -12,12 +12,14 @@ import { GIT_CLONE_STEPS, CLI_SCAFFOLD_STEPS } from "../../types/project-templat
 interface StepState {
   status: ScaffoldStepStatus;
   error?: string;
+  output?: string;
 }
 
 interface ScaffoldProgressProps {
   template: TemplateEntry;
   projectName: string;
   resultPath: string | null;
+  warnings: string[];
   scaffoldError: string | null;
   onOpenProject: () => void;
   onRetry: () => void;
@@ -28,6 +30,7 @@ export default function ScaffoldProgress({
   template,
   projectName,
   resultPath,
+  warnings,
   scaffoldError,
   onOpenProject,
   onRetry,
@@ -45,7 +48,11 @@ export default function ScaffoldProgress({
     }
     setStepStates((prev) => {
       const next = new Map(prev);
-      next.set(event.step, { status: event.status, error: event.error });
+      next.set(event.step, {
+        status: event.status,
+        error: event.error,
+        output: event.output,
+      });
       return next;
     });
     if (event.status === "error") {
@@ -91,50 +98,90 @@ export default function ScaffoldProgress({
   }
 
   const isFinished = complete || resultPath !== null;
+  const hasWarnings = warnings.length > 0;
 
   return (
     <div className="flex flex-col items-center px-4">
       <h3 className="text-text-primary text-base font-medium mb-1">
-        {isFinished ? "Project ready!" : `Setting up: ${projectName}`}
+        {isFinished
+          ? hasWarnings
+            ? "Project ready (with warnings)"
+            : "Project ready!"
+          : `Setting up: ${projectName}`}
       </h3>
       {!isFinished && !hasError && (
         <p className="text-text-dim text-label mb-6">This may take a minute...</p>
       )}
-      {isFinished && (
+      {isFinished && !hasWarnings && (
         <p className="text-text-dim text-label mb-6">Your project has been scaffolded successfully.</p>
+      )}
+      {isFinished && hasWarnings && (
+        <p className="text-text-dim text-label mb-4">
+          Project was created but some steps had issues.
+        </p>
       )}
 
       {/* Step list */}
-      <div className="w-full max-w-xs space-y-3 mb-8">
+      <div className="w-full max-w-xs space-y-3 mb-4">
         {steps.map(({ step, label }) => {
           const state = stepStates.get(step);
           return (
-            <div key={step} className="flex items-start gap-3">
-              <div className="mt-0.5">{getStepIcon(step)}</div>
-              <div className="min-w-0 flex-1">
-                <span
-                  className={`text-ui ${
-                    state?.status === "in_progress"
-                      ? "text-text-primary"
-                      : state?.status === "done"
-                        ? "text-text-secondary"
-                        : state?.status === "error"
-                          ? "text-red"
-                          : "text-text-ghost"
-                  }`}
-                >
-                  {label}
-                </span>
-                {state?.error && (
-                  <p className="text-label text-red/80 mt-0.5 break-words line-clamp-2">
-                    {state.error}
-                  </p>
-                )}
+            <div key={step}>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">{getStepIcon(step)}</div>
+                <div className="min-w-0 flex-1">
+                  <span
+                    className={`text-ui ${
+                      state?.status === "in_progress"
+                        ? "text-text-primary"
+                        : state?.status === "done"
+                          ? "text-text-secondary"
+                          : state?.status === "error"
+                            ? "text-red"
+                            : "text-text-ghost"
+                    }`}
+                  >
+                    {label}
+                  </span>
+                  {state?.error && (
+                    <p className="text-label text-red/80 mt-0.5 break-words line-clamp-2">
+                      {state.error}
+                    </p>
+                  )}
+                </div>
               </div>
+              {/* Collapsible command output for error steps */}
+              {state?.output && state?.status === "error" && (
+                <details className="ml-7 mt-1">
+                  <summary className="text-label text-text-ghost cursor-pointer hover:text-text-dim select-none">
+                    Show output
+                  </summary>
+                  <pre className="text-[11px] text-text-dim mt-1 whitespace-pre-wrap bg-bg-subtle rounded p-2 max-h-32 overflow-y-auto font-mono">
+                    {state.output}
+                  </pre>
+                </details>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Warnings summary */}
+      {isFinished && hasWarnings && (
+        <div className="w-full max-w-xs mb-4 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle size={12} className="text-yellow-400" />
+            <span className="text-yellow-200/80 text-label font-medium">
+              {warnings.length} warning{warnings.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <ul className="text-yellow-200/60 text-label space-y-0.5">
+            {warnings.map((w, i) => (
+              <li key={i} className="break-words">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Top-level error */}
       {scaffoldError && !stepStates.size && (

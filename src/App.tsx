@@ -99,14 +99,14 @@ export default function App() {
     return (
       <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
         <div className="h-12 shrink-0" data-tauri-drag-region />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="w-full max-w-lg p-8">
+        <div className="flex-1 overflow-y-auto flex items-start justify-center">
+          <div className="w-full max-w-lg p-8 my-auto">
             {/* Logo and title */}
             <div className="text-center mb-8">
               <img
                 src="/codemantis_app_icon.png"
                 alt="CodeMantis"
-                className="w-16 h-16 rounded-2xl mb-4 inline-block"
+                className="w-28 h-28 rounded-2xl mb-4 inline-block"
               />
               <h2 className="text-2xl text-text-primary font-semibold mb-1">
                 CodeMantis

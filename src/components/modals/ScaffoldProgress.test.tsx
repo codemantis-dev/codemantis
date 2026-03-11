@@ -37,6 +37,7 @@ describe("ScaffoldProgress", () => {
     template: TEMPLATE,
     projectName: "my-project",
     resultPath: null,
+    warnings: [],
     scaffoldError: null,
     onOpenProject: vi.fn(),
     onRetry: vi.fn(),
@@ -58,6 +59,7 @@ describe("ScaffoldProgress", () => {
     expect(screen.getByText("Cloning template")).toBeInTheDocument();
     expect(screen.getByText("Cleaning up")).toBeInTheDocument();
     expect(screen.getByText("Installing dependencies")).toBeInTheDocument();
+    expect(screen.getByText("Verifying project")).toBeInTheDocument();
     expect(screen.getByText("Setting up CLAUDE.md")).toBeInTheDocument();
     expect(screen.getByText("Finalizing project")).toBeInTheDocument();
   });
@@ -65,7 +67,17 @@ describe("ScaffoldProgress", () => {
   it("shows CLI steps for CLI-generated templates", () => {
     render(<ScaffoldProgress {...defaultProps} template={CLI_TEMPLATE} />);
     expect(screen.getByText("Generating project")).toBeInTheDocument();
+    expect(screen.getByText("Installing dependencies")).toBeInTheDocument();
     expect(screen.getByText("Running post-setup")).toBeInTheDocument();
+    expect(screen.getByText("Verifying project")).toBeInTheDocument();
+  });
+
+  it("CLI steps have install before configure", () => {
+    const { container } = render(<ScaffoldProgress {...defaultProps} template={CLI_TEMPLATE} />);
+    const stepTexts = Array.from(container.querySelectorAll(".text-ui")).map((el) => el.textContent);
+    const installIdx = stepTexts.indexOf("Installing dependencies");
+    const configureIdx = stepTexts.indexOf("Running post-setup");
+    expect(installIdx).toBeLessThan(configureIdx);
   });
 
   it("shows cancel button while in progress", () => {
@@ -115,5 +127,45 @@ describe("ScaffoldProgress", () => {
     );
     fireEvent.click(screen.getByText("Retry"));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("shows 'ready with warnings' when finished with warnings", () => {
+    render(
+      <ScaffoldProgress
+        {...defaultProps}
+        resultPath="/tmp/my-project"
+        warnings={["Dependencies not installed — run 'npm install' manually"]}
+      />
+    );
+    expect(screen.getByText("Project ready (with warnings)")).toBeInTheDocument();
+    expect(screen.getByText("1 warning")).toBeInTheDocument();
+    expect(screen.getByText("Dependencies not installed — run 'npm install' manually")).toBeInTheDocument();
+    expect(screen.getByText("Open in CodeMantis")).toBeInTheDocument();
+  });
+
+  it("shows multiple warnings", () => {
+    render(
+      <ScaffoldProgress
+        {...defaultProps}
+        resultPath="/tmp/my-project"
+        warnings={[
+          "Install failed: 'npm install' failed (exit code 1)",
+          "node_modules appears empty — run 'npm install' manually",
+        ]}
+      />
+    );
+    expect(screen.getByText("2 warnings")).toBeInTheDocument();
+  });
+
+  it("shows 'Project ready!' with no warnings when clean finish", () => {
+    render(
+      <ScaffoldProgress
+        {...defaultProps}
+        resultPath="/tmp/my-project"
+        warnings={[]}
+      />
+    );
+    expect(screen.getByText("Project ready!")).toBeInTheDocument();
+    expect(screen.getByText("Your project has been scaffolded successfully.")).toBeInTheDocument();
   });
 });

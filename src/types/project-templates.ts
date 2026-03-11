@@ -46,6 +46,7 @@ export type ScaffoldStepName =
   | "clean"
   | "configure"
   | "install"
+  | "verify"
   | "claude_md"
   | "commit"
   | "complete";
@@ -56,12 +57,14 @@ export interface ScaffoldProgressEvent {
   step: ScaffoldStepName;
   status: ScaffoldStepStatus;
   error?: string;
+  output?: string;
 }
 
 export interface ScaffoldResult {
   project_path: string;
   project_name: string;
   template_id: string;
+  warnings: string[];
 }
 
 /** Steps displayed in the progress UI for git-clone scaffolds */
@@ -70,16 +73,18 @@ export const GIT_CLONE_STEPS: readonly { step: ScaffoldStepName; label: string }
   { step: "clone", label: "Cloning template" },
   { step: "clean", label: "Cleaning up" },
   { step: "install", label: "Installing dependencies" },
+  { step: "verify", label: "Verifying project" },
   { step: "claude_md", label: "Setting up CLAUDE.md" },
   { step: "commit", label: "Finalizing project" },
 ] as const;
 
-/** Steps displayed in the progress UI for CLI-generated scaffolds */
+/** Steps displayed in the progress UI for CLI-generated scaffolds (install before configure) */
 export const CLI_SCAFFOLD_STEPS: readonly { step: ScaffoldStepName; label: string }[] = [
   { step: "validate", label: "Validating environment" },
   { step: "generate", label: "Generating project" },
-  { step: "configure", label: "Running post-setup" },
   { step: "install", label: "Installing dependencies" },
+  { step: "configure", label: "Running post-setup" },
+  { step: "verify", label: "Verifying project" },
   { step: "claude_md", label: "Setting up CLAUDE.md" },
   { step: "commit", label: "Finalizing project" },
 ] as const;

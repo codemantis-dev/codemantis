@@ -106,8 +106,6 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
     ? projectPath.split("/").filter(Boolean).pop()
     : "";
 
-  const isWide = activeTab === "templates";
-
   return (
     <Dialog.Root open={showProjectPicker} onOpenChange={setShowProjectPicker}>
       <Dialog.Portal>
@@ -116,9 +114,8 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 rounded-xl border border-border flex flex-col"
           style={{
             background: "var(--bg-primary)",
-            width: isWide ? "min(90vw, 680px)" : "min(90vw, 480px)",
-            maxHeight: isWide ? "min(85vh, 600px)" : "min(80vh, 520px)",
-            transition: "width 200ms ease, max-height 200ms ease",
+            width: "min(90vw, 680px)",
+            height: "min(85vh, 600px)",
           }}
         >
           {/* Header with tabs */}
@@ -167,7 +164,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           <div className="border-b border-border mx-5 mt-2" />
 
           {/* Tab content */}
-          <div className="flex-1 overflow-hidden p-5">
+          <div className="flex-1 min-h-0 overflow-y-auto p-5">
             {activeTab === "templates" && (
               <div className="h-full">
                 <TemplatePicker onProjectCreated={handleTemplateProjectCreated} />
