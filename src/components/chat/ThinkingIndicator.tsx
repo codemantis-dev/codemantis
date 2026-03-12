@@ -20,9 +20,10 @@ function formatElapsed(ms: number): string {
 
 interface ThinkingIndicatorProps {
   sessionId: string;
+  onContentResize?: () => void;
 }
 
-export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps) {
+export default function ThinkingIndicator({ sessionId, onContentResize }: ThinkingIndicatorProps) {
   const triviaEnabled = useSettingsStore((s) => s.settings.triviaEnabled);
   const activity = useSessionStore((s) => s.sessionActivity.get(sessionId));
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
@@ -49,9 +50,12 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
   // Delay trivia display by 3 seconds after mount
   useEffect(() => {
     setShowTrivia(false);
-    const timer = setTimeout(() => setShowTrivia(true), TRIVIA_DELAY_MS);
+    const timer = setTimeout(() => {
+      setShowTrivia(true);
+      if (triviaEnabled) onContentResize?.();
+    }, TRIVIA_DELAY_MS);
     return () => clearTimeout(timer);
-  }, []);
+  }, [triviaEnabled, onContentResize]);
 
   const activityInfo: SessionActivityInfo = activity ?? { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null };
   const displayLabel = isCompacting ? "Compacting context..." : activityInfo.label;

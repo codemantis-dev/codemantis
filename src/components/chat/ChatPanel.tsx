@@ -50,6 +50,16 @@ export default function ChatPanel() {
     }
   }, []);
 
+  const handleContentResize = useCallback(() => {
+    if (isAtBottomRef.current && scrollRef.current) {
+      requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      });
+    }
+  }, []);
+
   // Force-scroll to bottom when the user sends a new message (even if scrolled up)
   useEffect(() => {
     const prevCount = prevMessageCountRef.current;
@@ -115,7 +125,7 @@ export default function ChatPanel() {
 
           {/* Working indicator — show when busy but no text is streaming yet */}
           {isBusy && !streaming.isStreaming && activeSessionId && (
-            <ThinkingIndicator sessionId={activeSessionId} />
+            <ThinkingIndicator sessionId={activeSessionId} onContentResize={handleContentResize} />
           )}
         </div>
       </div>
