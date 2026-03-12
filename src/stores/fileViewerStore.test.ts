@@ -283,8 +283,8 @@ describe("getLanguageFromPath", () => {
   });
 
   it("handles files without extension", () => {
-    expect(getLanguageFromPath("Makefile")).toBe("plaintext");
-    expect(getLanguageFromPath("Dockerfile")).toBe("plaintext");
+    expect(getLanguageFromPath("Makefile")).toBe("makefile");
+    expect(getLanguageFromPath("Dockerfile")).toBe("dockerfile");
   });
 
   it("handles paths with multiple dots", () => {

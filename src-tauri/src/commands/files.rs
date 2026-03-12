@@ -187,6 +187,18 @@ pub fn duplicate_file(file_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn create_directory(dir_path: String) -> Result<(), String> {
+    let path = Path::new(&dir_path);
+
+    if path.exists() {
+        return Err(format!("Already exists: {}", dir_path));
+    }
+
+    fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn create_file(file_path: String) -> Result<(), String> {
     let path = Path::new(&file_path);
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useSessionStore } from "./sessionStore";
 import type { Session } from "../types/session";
+import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
 
 const TEST_SESSION: Session = {
   id: "s1",
@@ -167,6 +168,100 @@ describe("sessionStore", () => {
     useSessionStore.getState().clearSessionData("s1");
     expect(useSessionStore.getState().sessionMessages.get("s1")).toEqual([]);
     expect(useSessionStore.getState().sessionStreaming.get("s1")?.isStreaming).toBe(false);
+  });
+
+  it("setSessionCapabilities stores and retrieves capabilities", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    const caps: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [{ value: "sonnet", displayName: "Sonnet", description: "Fast" }],
+      commands: [{ name: "compact", description: "Compact" }],
+      agents: [],
+      account: null,
+      output_styles: ["text"],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps);
+    const stored = useSessionStore.getState().sessionCapabilities.get("s1");
+    expect(stored).toBeDefined();
+    expect(stored?.models).toHaveLength(1);
+    expect(stored?.models[0].value).toBe("sonnet");
+    expect(stored?.commands[0].name).toBe("compact");
+    expect(stored?.output_styles).toEqual(["text"]);
+  });
+
+  it("setSessionCapabilities overwrites previous value", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    const caps1: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [{ value: "sonnet", displayName: "Sonnet", description: "Fast" }],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps1);
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models).toHaveLength(1);
+
+    const caps2: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [
+        { value: "sonnet", displayName: "Sonnet", description: "Fast" },
+        { value: "opus", displayName: "Opus", description: "Smart" },
+      ],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps2);
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models).toHaveLength(2);
+  });
+
+  it("clearSessionData removes capabilities", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    const caps: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps);
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeDefined();
+    useSessionStore.getState().clearSessionData("s1");
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeUndefined();
+  });
+
+  it("capabilities are isolated between sessions", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    useSessionStore.getState().addSession({ ...TEST_SESSION, id: "s2", name: "Test2" });
+    const caps1: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [{ value: "sonnet", displayName: "Sonnet", description: "" }],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    const caps2: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s2",
+      models: [{ value: "opus", displayName: "Opus", description: "" }],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps1);
+    useSessionStore.getState().setSessionCapabilities("s2", caps2);
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models[0].value).toBe("sonnet");
+    expect(useSessionStore.getState().sessionCapabilities.get("s2")?.models[0].value).toBe("opus");
   });
 
   it("multi-session isolation", () => {

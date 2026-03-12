@@ -16,6 +16,14 @@ pub enum SessionMode {
     Plan,
 }
 
+/// Tracks a pending control_request so we can match the response.
+#[derive(Debug, Clone)]
+pub enum ControlRequestKind {
+    Interrupt,
+    SetModel(String),
+    Initialize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
     pub id: String,
@@ -51,6 +59,8 @@ pub struct AppState {
     pub approval_server_port: Mutex<Option<u16>>,
     /// Session permission modes, enforced by the approval server.
     pub session_modes: Mutex<HashMap<String, SessionMode>>,
+    /// Pending control_request tracking: request_id → (session_id, kind).
+    pub pending_control_requests: Mutex<HashMap<String, (String, ControlRequestKind)>>,
 }
 
 impl AppState {
@@ -64,6 +74,7 @@ impl AppState {
             approval_state: Arc::new(ApprovalServerState::new()),
             approval_server_port: Mutex::new(None),
             session_modes: Mutex::new(HashMap::new()),
+            pending_control_requests: Mutex::new(HashMap::new()),
         }
     }
 }

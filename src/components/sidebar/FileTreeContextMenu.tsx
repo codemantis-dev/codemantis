@@ -6,6 +6,9 @@ import {
   Copy,
   ClipboardCopy,
   FilePlus,
+  FolderPlus,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Pencil,
   Trash2,
   Files,
@@ -25,6 +28,7 @@ import {
   deleteFile,
   duplicateFile,
   createFile,
+  createDirectory,
 } from "../../lib/tauri-commands";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
@@ -36,6 +40,8 @@ interface FileTreeContextMenuProps {
   onClose: () => void;
   onRefresh: () => void;
   onStartRename: (path: string) => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
 }
 
 function Separator() {
@@ -77,6 +83,8 @@ export default function FileTreeContextMenu({
   onClose,
   onRefresh,
   onStartRename,
+  onExpandAll,
+  onCollapseAll,
 }: FileTreeContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const { openFile } = useFileViewer();
@@ -100,7 +108,7 @@ export default function FileTreeContextMenu({
   }, [onClose]);
 
   const menuWidth = 220;
-  const menuHeight = node ? (node.is_dir ? 240 : 380) : 60;
+  const menuHeight = node ? (node.is_dir ? 270 : 380) : 160;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -242,6 +250,19 @@ export default function FileTreeContextMenu({
     onClose();
   }
 
+  async function handleNewFolder(parentPath: string) {
+    const name = window.prompt("Folder name:");
+    if (!name?.trim()) return;
+    const dirPath = `${parentPath}/${name.trim()}`;
+    try {
+      await createDirectory(dirPath);
+      onRefresh();
+    } catch (e) {
+      console.error("Failed to create folder:", e);
+    }
+    onClose();
+  }
+
   // Empty space context menu
   if (!node) {
     return (
@@ -251,6 +272,10 @@ export default function FileTreeContextMenu({
         style={{ background: "var(--bg-primary)", left: clampedX, top: clampedY, minWidth: menuWidth }}
       >
         <MenuItem icon={FilePlus} label="New File" onClick={() => handleNewFile(projectPath)} />
+        <MenuItem icon={FolderPlus} label="New Folder" onClick={() => handleNewFolder(projectPath)} />
+        <Separator />
+        <MenuItem icon={ChevronsUpDown} label="Expand All Folders" onClick={() => { onExpandAll(); onClose(); }} />
+        <MenuItem icon={ChevronsDownUp} label="Collapse All Folders" onClick={() => { onCollapseAll(); onClose(); }} />
       </div>
     );
   }
@@ -264,6 +289,7 @@ export default function FileTreeContextMenu({
         style={{ background: "var(--bg-primary)", left: clampedX, top: clampedY, minWidth: menuWidth }}
       >
         <MenuItem icon={FilePlus} label="New File" onClick={() => handleNewFile(node.path)} />
+        <MenuItem icon={FolderPlus} label="New Folder" onClick={() => handleNewFolder(node.path)} />
         <MenuItem icon={Pencil} label="Rename" onClick={handleRename} />
         <MenuItem icon={Trash2} label="Delete" onClick={handleDelete} danger />
         <Separator />

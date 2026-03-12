@@ -1,5 +1,6 @@
+use crate::claude::event_types::ControlRequestPayload;
 use crate::claude::process::ClaudeProcess;
-use crate::claude::session::{AppState, SessionInfo, SessionStatus};
+use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionStatus};
 use crate::errors::AppError;
 use crate::storage::database::PersistedSession;
 use crate::terminal::pty_manager::TerminalPool;
@@ -297,6 +298,12 @@ pub async fn close_session(
         cli_ids.remove(&session_id);
     }
 
+    // Clean up any pending control requests for this session
+    {
+        let mut pending = state.pending_control_requests.lock().await;
+        pending.retain(|_, (sid, _)| sid != &session_id);
+    }
+
     Ok(())
 }
 
@@ -406,4 +413,76 @@ pub async fn list_session_history(
     }
 
     Ok(entries)
+}
+
+#[tauri::command]
+pub async fn interrupt_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+
+    let request_id = process
+        .send_control_request(ControlRequestPayload::Interrupt)
+        .map_err(|e| e.to_string())?;
+
+    let mut pending = state.pending_control_requests.lock().await;
+    pending.insert(
+        request_id,
+        (session_id, ControlRequestKind::Interrupt),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_session_model(
+    state: State<'_, AppState>,
+    session_id: String,
+    model: String,
+) -> Result<(), String> {
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+
+    let request_id = process
+        .send_control_request(ControlRequestPayload::SetModel {
+            model: model.clone(),
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut pending = state.pending_control_requests.lock().await;
+    pending.insert(
+        request_id,
+        (session_id, ControlRequestKind::SetModel(model)),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn initialize_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+
+    let request_id = process
+        .send_control_request(ControlRequestPayload::Initialize)
+        .map_err(|e| e.to_string())?;
+
+    let mut pending = state.pending_control_requests.lock().await;
+    pending.insert(
+        request_id,
+        (session_id, ControlRequestKind::Initialize),
+    );
+
+    Ok(())
 }

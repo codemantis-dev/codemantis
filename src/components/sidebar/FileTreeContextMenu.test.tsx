@@ -20,6 +20,7 @@ vi.mock("../../lib/tauri-commands", () => ({
   deleteFile: vi.fn().mockResolvedValue(undefined),
   duplicateFile: vi.fn().mockResolvedValue("/project/src/main copy.ts"),
   createFile: vi.fn().mockResolvedValue(undefined),
+  createDirectory: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock @tauri-apps/plugin-opener
@@ -57,6 +58,8 @@ const defaultProps = {
   onClose: vi.fn(),
   onRefresh: vi.fn(),
   onStartRename: vi.fn(),
+  onExpandAll: vi.fn(),
+  onCollapseAll: vi.fn(),
 };
 
 describe("FileTreeContextMenu", () => {
@@ -180,6 +183,7 @@ describe("FileTreeContextMenu", () => {
       render(<FileTreeContextMenu {...defaultProps} node={DIR_NODE} />);
 
       expect(screen.getByText("New File")).toBeInTheDocument();
+      expect(screen.getByText("New Folder")).toBeInTheDocument();
       expect(screen.getByText("Rename")).toBeInTheDocument();
       expect(screen.getByText("Delete")).toBeInTheDocument();
       expect(screen.getByText("Reveal in Finder")).toBeInTheDocument();
@@ -198,14 +202,35 @@ describe("FileTreeContextMenu", () => {
   });
 
   describe("empty space context menu", () => {
-    it("renders only New File for empty space", () => {
+    it("renders New File, New Folder, and expand/collapse for empty space", () => {
       render(<FileTreeContextMenu {...defaultProps} node={null} />);
 
       expect(screen.getByText("New File")).toBeInTheDocument();
+      expect(screen.getByText("New Folder")).toBeInTheDocument();
+      expect(screen.getByText("Expand All Folders")).toBeInTheDocument();
+      expect(screen.getByText("Collapse All Folders")).toBeInTheDocument();
       // Should not show any other items
       expect(screen.queryByText("Rename")).not.toBeInTheDocument();
       expect(screen.queryByText("Delete")).not.toBeInTheDocument();
       expect(screen.queryByText("Copy Path")).not.toBeInTheDocument();
+    });
+
+    it("calls onExpandAll when Expand All Folders clicked", () => {
+      const onExpandAll = vi.fn();
+      const onClose = vi.fn();
+      render(<FileTreeContextMenu {...defaultProps} node={null} onExpandAll={onExpandAll} onClose={onClose} />);
+      fireEvent.click(screen.getByText("Expand All Folders"));
+      expect(onExpandAll).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("calls onCollapseAll when Collapse All Folders clicked", () => {
+      const onCollapseAll = vi.fn();
+      const onClose = vi.fn();
+      render(<FileTreeContextMenu {...defaultProps} node={null} onCollapseAll={onCollapseAll} onClose={onClose} />);
+      fireEvent.click(screen.getByText("Collapse All Folders"));
+      expect(onCollapseAll).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
     });
   });
 

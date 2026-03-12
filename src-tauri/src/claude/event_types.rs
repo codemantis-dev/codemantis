@@ -106,6 +106,13 @@ pub enum RawStreamEvent {
         extra: serde_json::Value,
     },
 
+    #[serde(rename = "control_response")]
+    ControlResponse {
+        response: Option<serde_json::Value>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
     #[serde(other)]
     Unknown,
 }
@@ -289,9 +296,45 @@ pub enum FrontendEvent {
         session_id: String,
         usage: UsageInfo,
     },
+
+    #[serde(rename = "interrupt_result")]
+    InterruptResult {
+        session_id: String,
+        success: bool,
+        error: Option<String>,
+    },
+
+    #[serde(rename = "model_changed")]
+    ModelChanged {
+        session_id: String,
+        model: String,
+        success: bool,
+        error: Option<String>,
+    },
+
+    #[serde(rename = "capabilities_discovered")]
+    CapabilitiesDiscovered {
+        session_id: String,
+        models: serde_json::Value,
+        commands: serde_json::Value,
+        agents: serde_json::Value,
+        account: serde_json::Value,
+        output_styles: serde_json::Value,
+    },
 }
 
 // --- Stdin messages to CLI ---
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "subtype")]
+pub enum ControlRequestPayload {
+    #[serde(rename = "interrupt")]
+    Interrupt,
+    #[serde(rename = "set_model")]
+    SetModel { model: String },
+    #[serde(rename = "initialize")]
+    Initialize,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
@@ -303,6 +346,11 @@ pub enum StdinMessage {
     ToolResult {
         tool_use_id: String,
         approved: bool,
+    },
+    #[serde(rename = "control_request")]
+    ControlRequest {
+        request_id: String,
+        request: ControlRequestPayload,
     },
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { usePreviewStore } from "../stores/previewStore";
 import { useSessionStore } from "../stores/sessionStore";
@@ -18,40 +18,55 @@ export function usePreviewWindow(): {
   togglePreview: () => Promise<void>;
 } {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const activeProjectPathRef = useRef(activeProjectPath);
+  activeProjectPathRef.current = activeProjectPath;
 
-  // Listen for preview window close events
+  // Listen for preview window close events — register once, read project from ref
   useEffect(() => {
-    const unlisten = listen("preview-window-closed", () => {
-      if (activeProjectPath) {
-        usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
+
+    listen("preview-window-closed", () => {
+      const projectPath = activeProjectPathRef.current;
+      if (projectPath) {
+        usePreviewStore.getState().setPreviewOpen(projectPath, false);
+      }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenFn = fn;
       }
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      cancelled = true;
+      unlistenFn?.();
     };
-  }, [activeProjectPath]);
+  }, []);
 
   const openPreview = useCallback(
     async (url?: string) => {
-      if (!activeProjectPath) return;
+      const projectPath = activeProjectPathRef.current;
+      if (!projectPath) return;
 
       const targetUrl = url ?? "http://localhost:3000";
       const projectName =
-        activeProjectPath.split("/").filter(Boolean).pop() ?? "Preview";
+        projectPath.split("/").filter(Boolean).pop() ?? "Preview";
 
       await openPreviewWindow(targetUrl, projectName);
-      usePreviewStore.getState().setPreviewOpen(activeProjectPath, true);
+      usePreviewStore.getState().setPreviewOpen(projectPath, true);
     },
-    [activeProjectPath],
+    [],
   );
 
   const closePreview = useCallback(async () => {
     await closePreviewWindow();
-    if (activeProjectPath) {
-      usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
+    const projectPath = activeProjectPathRef.current;
+    if (projectPath) {
+      usePreviewStore.getState().setPreviewOpen(projectPath, false);
     }
-  }, [activeProjectPath]);
+  }, []);
 
   const navigateTo = useCallback(async (url: string) => {
     await navigatePreview(url);
@@ -62,23 +77,22 @@ export function usePreviewWindow(): {
   }, []);
 
   const togglePreview = useCallback(async () => {
-    if (!activeProjectPath) return;
+    const projectPath = activeProjectPathRef.current;
+    if (!projectPath) return;
 
-    const isOpen = usePreviewStore.getState().previewOpen.get(activeProjectPath);
+    const isOpen = usePreviewStore.getState().previewOpen.get(projectPath);
     if (isOpen) {
-      // Try to focus first, if window doesn't exist, mark as closed
       const focused = await focusPreviewWindow();
       if (!focused) {
-        usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
+        usePreviewStore.getState().setPreviewOpen(projectPath, false);
       }
     } else {
-      // Check if we have a known dev server URL
-      const devServer = usePreviewStore.getState().devServer.get(activeProjectPath);
+      const devServer = usePreviewStore.getState().devServer.get(projectPath);
       if (devServer?.url) {
         await openPreview(devServer.url);
       }
     }
-  }, [activeProjectPath, openPreview]);
+  }, [openPreview]);
 
   return { openPreview, closePreview, navigateTo, refresh, togglePreview };
 }

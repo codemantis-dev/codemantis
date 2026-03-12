@@ -12,7 +12,10 @@ export type FrontendEvent =
   | CompactCompleteEvent
   | ToolProgressEvent
   | RateLimitWarningEvent
-  | UsageUpdateEvent;
+  | UsageUpdateEvent
+  | InterruptResultEvent
+  | ModelChangedEvent
+  | CapabilitiesDiscoveredEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -117,6 +120,60 @@ export interface UsageUpdateEvent {
   type: "usage_update";
   session_id: string;
   usage: UsageInfo;
+}
+
+export interface InterruptResultEvent {
+  type: "interrupt_result";
+  session_id: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface ModelChangedEvent {
+  type: "model_changed";
+  session_id: string;
+  model: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface CapabilitiesDiscoveredEvent {
+  type: "capabilities_discovered";
+  session_id: string;
+  models: CliModelInfo[];
+  commands: CliSlashCommand[];
+  agents: CliAgentInfo[];
+  account: CliAccountInfo | null;
+  output_styles: string[];
+}
+
+export interface CliModelInfo {
+  value: string;
+  displayName: string;
+  description: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: string[];
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
+  supportsAutoMode?: boolean;
+}
+
+export interface CliSlashCommand {
+  name: string;
+  description: string;
+  argumentHint?: string;
+}
+
+export interface CliAgentInfo {
+  name: string;
+  description: string;
+  model?: string;
+}
+
+export interface CliAccountInfo {
+  email: string;
+  organization: string;
+  subscriptionType: string;
 }
 
 /** Emitted globally by the approval HTTP server (not per-session). */

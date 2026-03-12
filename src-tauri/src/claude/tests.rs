@@ -404,6 +404,186 @@ mod tests {
     }
 
     // ──────────────────────────────────────────────────────────
+    // CONTROL PROTOCOL — request/response serialization
+    // ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn stdin_control_request_interrupt_serializes() {
+        let msg = StdinMessage::ControlRequest {
+            request_id: "req_abc123".into(),
+            request: ControlRequestPayload::Interrupt,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "control_request");
+        assert_eq!(parsed["request_id"], "req_abc123");
+        assert_eq!(parsed["request"]["subtype"], "interrupt");
+    }
+
+    #[test]
+    fn stdin_control_request_set_model_serializes() {
+        let msg = StdinMessage::ControlRequest {
+            request_id: "req_def456".into(),
+            request: ControlRequestPayload::SetModel {
+                model: "sonnet".into(),
+            },
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "control_request");
+        assert_eq!(parsed["request_id"], "req_def456");
+        assert_eq!(parsed["request"]["subtype"], "set_model");
+        assert_eq!(parsed["request"]["model"], "sonnet");
+    }
+
+    #[test]
+    fn stdin_control_request_initialize_serializes() {
+        let msg = StdinMessage::ControlRequest {
+            request_id: "req_ghi789".into(),
+            request: ControlRequestPayload::Initialize,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "control_request");
+        assert_eq!(parsed["request_id"], "req_ghi789");
+        assert_eq!(parsed["request"]["subtype"], "initialize");
+    }
+
+    #[test]
+    fn parse_control_response_event() {
+        let json = r#"{"type":"control_response","response":{"subtype":"success","request_id":"req_abc123","response":{"models":[],"commands":[]}}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ControlResponse { response, .. } => {
+                let resp = response.unwrap();
+                assert_eq!(resp["subtype"], "success");
+                assert_eq!(resp["request_id"], "req_abc123");
+            }
+            other => panic!("Expected ControlResponse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_control_response_error_event() {
+        let json = r#"{"type":"control_response","response":{"subtype":"error","request_id":"req_xyz","error":"model not found"}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ControlResponse { response, .. } => {
+                let resp = response.unwrap();
+                assert_eq!(resp["subtype"], "error");
+                assert_eq!(resp["error"], "model not found");
+            }
+            other => panic!("Expected ControlResponse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_control_response_null_response_field() {
+        let json = r#"{"type":"control_response","response":null}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ControlResponse { response, .. } => {
+                assert!(response.is_none());
+            }
+            other => panic!("Expected ControlResponse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn frontend_interrupt_result_serializes() {
+        let fe = FrontendEvent::InterruptResult {
+            session_id: "s1".into(),
+            success: true,
+            error: None,
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "interrupt_result");
+        assert_eq!(parsed["session_id"], "s1");
+        assert_eq!(parsed["success"], true);
+        assert!(parsed["error"].is_null());
+    }
+
+    #[test]
+    fn frontend_interrupt_result_error_serializes() {
+        let fe = FrontendEvent::InterruptResult {
+            session_id: "s1".into(),
+            success: false,
+            error: Some("not running".into()),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "interrupt_result");
+        assert_eq!(parsed["success"], false);
+        assert_eq!(parsed["error"], "not running");
+    }
+
+    #[test]
+    fn frontend_model_changed_serializes() {
+        let fe = FrontendEvent::ModelChanged {
+            session_id: "s1".into(),
+            model: "sonnet".into(),
+            success: true,
+            error: None,
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "model_changed");
+        assert_eq!(parsed["model"], "sonnet");
+        assert_eq!(parsed["success"], true);
+    }
+
+    #[test]
+    fn frontend_model_changed_error_serializes() {
+        let fe = FrontendEvent::ModelChanged {
+            session_id: "s1".into(),
+            model: "nonexistent".into(),
+            success: false,
+            error: Some("invalid model".into()),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "model_changed");
+        assert_eq!(parsed["success"], false);
+        assert_eq!(parsed["error"], "invalid model");
+    }
+
+    #[test]
+    fn frontend_capabilities_discovered_serializes() {
+        let fe = FrontendEvent::CapabilitiesDiscovered {
+            session_id: "s1".into(),
+            models: serde_json::json!([{"value": "sonnet", "displayName": "Sonnet"}]),
+            commands: serde_json::json!([{"name": "compact", "description": "Compact context"}]),
+            agents: serde_json::json!([]),
+            account: serde_json::json!({"email": "test@example.com"}),
+            output_styles: serde_json::json!(["text", "json"]),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "capabilities_discovered");
+        assert_eq!(parsed["models"][0]["value"], "sonnet");
+        assert_eq!(parsed["commands"][0]["name"], "compact");
+        assert_eq!(parsed["account"]["email"], "test@example.com");
+        assert_eq!(parsed["output_styles"][0], "text");
+    }
+
+    #[test]
+    fn frontend_capabilities_discovered_empty_serializes() {
+        let fe = FrontendEvent::CapabilitiesDiscovered {
+            session_id: "s1".into(),
+            models: serde_json::Value::Null,
+            commands: serde_json::Value::Null,
+            agents: serde_json::Value::Null,
+            account: serde_json::Value::Null,
+            output_styles: serde_json::Value::Null,
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "capabilities_discovered");
+        assert!(parsed["models"].is_null());
+    }
+
+    // ──────────────────────────────────────────────────────────
     // FILE TREE — scan directories, filter ignored, depth limit
     // ──────────────────────────────────────────────────────────
 

@@ -217,6 +217,62 @@ async fn handle_tool_approval(
         return (StatusCode::OK, Json(HookResponse::allow()));
     }
 
+    // Mode-control tools: auto-approve and update session mode
+    if tool_name == "ExitPlanMode" || tool_name == "EnterPlanMode" {
+        let new_mode = if tool_name == "EnterPlanMode" {
+            SessionMode::Plan
+        } else {
+            SessionMode::Normal
+        };
+
+        let app_handle = {
+            let h = state.app_handle.lock().await;
+            match h.as_ref() {
+                Some(handle) => handle.clone(),
+                None => {
+                    info!(
+                        "[approval-server] Auto-approving {} (no app handle for mode update)",
+                        tool_name
+                    );
+                    return (StatusCode::OK, Json(HookResponse::allow()));
+                }
+            }
+        };
+
+        let forge_session_id = find_forge_session_id(
+            &app_handle,
+            input.forge_session_id.as_deref(),
+            input.session_id.as_deref(),
+            input.cwd.as_deref(),
+        )
+        .await;
+
+        if let Some(ref sid) = forge_session_id {
+            if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
+                let mut modes = app_state.session_modes.lock().await;
+                info!(
+                    "[approval-server] {} → switching session {} to {:?}",
+                    tool_name, sid, new_mode
+                );
+                modes.insert(sid.clone(), new_mode.clone());
+            }
+            let _ = app_handle.emit(
+                "session-mode-changed",
+                serde_json::json!({
+                    "sessionId": sid,
+                    "mode": new_mode
+                }),
+            );
+        } else {
+            warn!(
+                "[approval-server] {} approved but session not found — mode not updated",
+                tool_name
+            );
+        }
+
+        return (StatusCode::OK, Json(HookResponse::allow()));
+    }
+
     debug!(
         "[approval-server] Tool needs approval: {} (session: {:?})",
         tool_name, input.session_id

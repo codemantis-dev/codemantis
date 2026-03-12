@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionStatus, ThinkingEffort } from "../types/session";
+import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -46,6 +47,7 @@ interface SessionState {
   sessionCompacting: Map<string, boolean>;
   busySince: Map<string, number>;       // timestamp when busy started
   rateLimitUtilization: Map<string, number>;  // 0-1
+  sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
   tabOrder: string[];
 
   // Project grouping
@@ -86,6 +88,7 @@ interface SessionState {
   setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
+  setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
   accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number) => void;
 
   // Derived helpers (for active session)
@@ -131,6 +134,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionCompacting: new Map(),
   busySince: new Map(),
   rateLimitUtilization: new Map(),
+  sessionCapabilities: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -501,7 +505,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
       rateLimitUtilization.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization };
+      const sessionCapabilities = new Map(state.sessionCapabilities);
+      sessionCapabilities.delete(sessionId);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -556,6 +562,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
       rateLimitUtilization.set(sessionId, utilization);
       return { rateLimitUtilization };
+    }),
+
+  setSessionCapabilities: (sessionId, caps) =>
+    set((state) => {
+      const sessionCapabilities = new Map(state.sessionCapabilities);
+      sessionCapabilities.set(sessionId, caps);
+      return { sessionCapabilities };
     }),
 
   accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead) =>

@@ -8,7 +8,7 @@ const SESSION: Session = {
   id: "s1", name: "Test", project_path: "/tmp", status: "connected", created_at: "", model: null, icon_index: 0,
 };
 
-function setSessionState(session: Session | null): void {
+function setSessionState(session: Session | null, busy = false): void {
   if (session) {
     useSessionStore.setState({
       sessions: new Map([[session.id, session]]),
@@ -16,6 +16,8 @@ function setSessionState(session: Session | null): void {
       sessionMessages: new Map([[session.id, []]]),
       sessionStreaming: new Map([[session.id, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
       sessionContext: new Map([[session.id, { used: 0, max: 200000 }]]),
+      sessionBusy: new Map([[session.id, busy]]),
+      sessionCapabilities: new Map(),
       tabOrder: [session.id],
     });
   } else {
@@ -25,6 +27,8 @@ function setSessionState(session: Session | null): void {
       sessionMessages: new Map(),
       sessionStreaming: new Map(),
       sessionContext: new Map(),
+      sessionBusy: new Map(),
+      sessionCapabilities: new Map(),
       tabOrder: [],
     });
   }
@@ -59,5 +63,27 @@ describe("InputArea", () => {
     render(<InputArea />);
     const sendButton = screen.getByText("Send").closest("button");
     expect(sendButton).toBeDisabled();
+  });
+
+  it("shows Stop button when session is busy", () => {
+    setSessionState(SESSION, true);
+    render(<InputArea />);
+    expect(screen.getByText("Stop")).toBeInTheDocument();
+    expect(screen.getByText("Esc")).toBeInTheDocument();
+    expect(screen.queryByText("Send")).not.toBeInTheDocument();
+  });
+
+  it("shows Send button when session is not busy", () => {
+    setSessionState(SESSION, false);
+    render(<InputArea />);
+    expect(screen.getByText("Send")).toBeInTheDocument();
+    expect(screen.queryByText("Stop")).not.toBeInTheDocument();
+  });
+
+  it("Stop button is clickable when busy", () => {
+    setSessionState(SESSION, true);
+    render(<InputArea />);
+    const stopButton = screen.getByText("Stop").closest("button");
+    expect(stopButton).not.toBeDisabled();
   });
 });

@@ -1,5 +1,6 @@
 import type { FrontendEvent } from "../types/claude-events";
 import type { ActivityEntry } from "../types/activity";
+import type { SessionMode } from "../types/session";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
@@ -27,6 +28,8 @@ function toolActivityLabel(toolName: string): string {
     case "WebSearch": return "Searching the web...";
     case "WebFetch": return "Fetching web page...";
     case "TodoRead": case "TodoWrite": return "Managing tasks...";
+    case "EnterPlanMode": return "Entering plan mode...";
+    case "ExitPlanMode": return "Exiting plan mode...";
     default:
       if (toolName.startsWith("mcp__")) {
         // mcp__server__tool → "Running tool (server)..."
@@ -402,6 +405,31 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       }
       break;
     }
+
+    case "interrupt_result": {
+      if (event.success) {
+        store.setSessionActivity(sessionId, { label: "Stopping...", toolName: null, toolElapsed: 0, filePath: null });
+        // The subsequent turn_complete (with stop_reason: null) will clear busy state
+      } else {
+        showToast(`Failed to interrupt: ${event.error ?? "unknown error"}`, "error");
+      }
+      break;
+    }
+
+    case "model_changed": {
+      if (event.success) {
+        store.updateModel(sessionId, event.model);
+        showToast(`Switched to ${event.model}`, "info", 3000);
+      } else {
+        showToast(`Model switch failed: ${event.error ?? "unknown error"}`, "error");
+      }
+      break;
+    }
+
+    case "capabilities_discovered": {
+      store.setSessionCapabilities(sessionId, event);
+      break;
+    }
   }
 }
 
@@ -425,6 +453,12 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         toolElapsed: 0,
         filePath,
       });
+
+      // Defense-in-depth: sync session mode when CLI calls mode-control tools
+      if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
+        const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
+        sessionStore.setSessionMode(sessionId, newMode);
+      }
 
       // Check main session store first, then assistant store for the streaming messageId
       let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;

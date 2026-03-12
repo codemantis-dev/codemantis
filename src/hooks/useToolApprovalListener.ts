@@ -1,6 +1,7 @@
 import { useEffect } from "react";
-import { listenToolApprovalRequests, resolveToolApproval } from "../lib/tauri-commands";
+import { listenToolApprovalRequests, listenSessionModeChanged, resolveToolApproval } from "../lib/tauri-commands";
 import type { ToolApprovalRequestEvent } from "../types/claude-events";
+import type { SessionMode } from "../types/session";
 import { useActivityStore, type PendingQuestion } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
 import { useSessionStore } from "../stores/sessionStore";
@@ -65,6 +66,15 @@ export function useToolApprovalListener(): void {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
+    let unlistenModeChange: (() => void) | null = null;
+
+    listenSessionModeChanged(({ sessionId, mode }) => {
+      console.log("[session-mode-changed]", sessionId, mode);
+      useSessionStore.getState().setSessionMode(sessionId, mode as SessionMode);
+    }).then((fn) => {
+      unlistenModeChange = fn;
+    });
+
     listenToolApprovalRequests((event: ToolApprovalRequestEvent) => {
       console.log("[tool-approval-request]", event);
 
@@ -116,6 +126,7 @@ export function useToolApprovalListener(): void {
 
     return () => {
       if (unlisten) unlisten();
+      if (unlistenModeChange) unlistenModeChange();
     };
   }, []);
 }

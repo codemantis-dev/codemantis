@@ -15,6 +15,7 @@ import {
   listenChatEvents,
   listenActivityEvents,
   closeTerminal as closeTerminalCmd,
+  initializeSession,
 } from "../lib/tauri-commands";
 import { useUiStore } from "../stores/uiStore";
 import {
@@ -72,6 +73,11 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     ]);
 
     startStaleDetection(session.id);
+
+    // Discover CLI capabilities (models, commands, account info)
+    initializeSession(session.id).catch((e) =>
+      console.error("Failed to discover session capabilities:", e)
+    );
 
     return session.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
@@ -224,6 +230,11 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       sessionListeners.set(session.id, [unlistenChat, unlistenActivity]);
 
       startStaleDetection(session.id);
+
+      initializeSession(session.id).catch((e) =>
+        console.error("Failed to discover session capabilities:", e)
+      );
+
       useUiStore.getState().setShowClaudeHistory(false);
 
       return session.id;

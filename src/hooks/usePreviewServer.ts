@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { usePreviewStore } from "../stores/previewStore";
 import { useTerminalStore } from "../stores/terminalStore";
@@ -7,9 +7,9 @@ import {
   startDevServer,
   stopDevServer,
   getDevServerStatus,
+  openPreviewWindow,
 } from "../lib/tauri-commands";
 import type { DevServerReadyEvent, DevServerErrorEvent } from "../types/preview";
-import { usePreviewWindow } from "./usePreviewWindow";
 
 export function usePreviewServer(): {
   startServer: (devCommand?: string, devPort?: number) => Promise<void>;
@@ -17,11 +17,16 @@ export function usePreviewServer(): {
   checkStatus: () => Promise<void>;
 } {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
-  const { openPreview } = usePreviewWindow();
+  const activeProjectPathRef = useRef(activeProjectPath);
+  activeProjectPathRef.current = activeProjectPath;
 
-  // Listen for dev server events
+  // Listen for dev server events — register once, read state from refs/stores
   useEffect(() => {
-    const unlistenReady = listen<DevServerReadyEvent>("dev-server-ready", (e) => {
+    let cancelled = false;
+    let unlistenReadyFn: (() => void) | null = null;
+    let unlistenErrorFn: (() => void) | null = null;
+
+    listen<DevServerReadyEvent>("dev-server-ready", (e) => {
       const { port, url, terminalId, projectPath } = e.payload;
       usePreviewStore.getState().setDevServer(projectPath, {
         port,
@@ -30,31 +35,57 @@ export function usePreviewServer(): {
         status: "running",
       });
 
-      // Auto-open preview window
-      if (activeProjectPath === projectPath) {
-        openPreview(url);
+      // Auto-open preview window if this project is active
+      if (activeProjectPathRef.current === projectPath) {
+        const projectName =
+          projectPath.split("/").filter(Boolean).pop() ?? "Preview";
+        openPreviewWindow(url, projectName)
+          .then(() => {
+            usePreviewStore.getState().setPreviewOpen(projectPath, true);
+          })
+          .catch((err) => {
+            console.error("Failed to open preview window:", err);
+            usePreviewStore.getState().setDevServer(projectPath, {
+              status: "error",
+              errorMessage: `Failed to open preview: ${String(err)}`,
+            });
+          });
+      }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenReadyFn = fn;
       }
     });
 
-    const unlistenError = listen<DevServerErrorEvent>("dev-server-error", (e) => {
+    listen<DevServerErrorEvent>("dev-server-error", (e) => {
       const { message, projectPath } = e.payload;
       usePreviewStore.getState().setDevServer(projectPath, {
         status: "error",
         errorMessage: message,
       });
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenErrorFn = fn;
+      }
     });
 
     return () => {
-      unlistenReady.then((fn) => fn());
-      unlistenError.then((fn) => fn());
+      cancelled = true;
+      unlistenReadyFn?.();
+      unlistenErrorFn?.();
     };
-  }, [activeProjectPath, openPreview]);
+  }, []);
 
   const startServer = useCallback(
     async (devCommand?: string, devPort?: number) => {
-      if (!activeProjectPath) return;
+      const projectPath = activeProjectPathRef.current;
+      if (!projectPath) return;
 
-      usePreviewStore.getState().setDevServer(activeProjectPath, {
+      usePreviewStore.getState().setDevServer(projectPath, {
         terminalId: "",
         sessionId: "",
         port: null,
@@ -64,22 +95,20 @@ export function usePreviewServer(): {
 
       try {
         const terminalId = await startDevServer(
-          activeProjectPath,
+          projectPath,
           devCommand ?? null,
           devPort ?? null,
         );
 
-        // Hash the project path to get the synthetic session ID
-        const hash = simpleHash(activeProjectPath);
+        const hash = simpleHash(projectPath);
         const syntheticSessionId = `devserver-${hash}`;
 
-        usePreviewStore.getState().setDevServer(activeProjectPath, {
+        usePreviewStore.getState().setDevServer(projectPath, {
           terminalId,
           sessionId: syntheticSessionId,
           status: "scanning",
         });
 
-        // Add terminal to terminal store so it shows up in the terminal tab
         useTerminalStore.getState().addTerminal(syntheticSessionId, {
           id: terminalId,
           sessionId: syntheticSessionId,
@@ -90,7 +119,7 @@ export function usePreviewServer(): {
           kind: "shell",
         });
       } catch (e) {
-        usePreviewStore.getState().setDevServer(activeProjectPath, {
+        usePreviewStore.getState().setDevServer(projectPath, {
           terminalId: "",
           sessionId: "",
           port: null,
@@ -100,30 +129,31 @@ export function usePreviewServer(): {
         });
       }
     },
-    [activeProjectPath],
+    [],
   );
 
   const stopServer = useCallback(async () => {
-    if (!activeProjectPath) return;
+    const projectPath = activeProjectPathRef.current;
+    if (!projectPath) return;
 
-    const devServer = usePreviewStore.getState().devServer.get(activeProjectPath);
+    const devServer = usePreviewStore.getState().devServer.get(projectPath);
     if (devServer) {
-      await stopDevServer(activeProjectPath);
-      usePreviewStore.getState().clearDevServer(activeProjectPath);
+      await stopDevServer(projectPath);
+      usePreviewStore.getState().clearDevServer(projectPath);
 
-      // Clean up terminal store
       if (devServer.sessionId) {
         useTerminalStore.getState().clearSession(devServer.sessionId);
       }
     }
-  }, [activeProjectPath]);
+  }, []);
 
   const checkStatus = useCallback(async () => {
-    if (!activeProjectPath) return;
+    const projectPath = activeProjectPathRef.current;
+    if (!projectPath) return;
 
-    const status = await getDevServerStatus(activeProjectPath);
+    const status = await getDevServerStatus(projectPath);
     if (status) {
-      usePreviewStore.getState().setDevServer(activeProjectPath, {
+      usePreviewStore.getState().setDevServer(projectPath, {
         terminalId: status.terminal_id,
         sessionId: status.synthetic_session_id,
         port: status.port ?? null,
@@ -133,10 +163,12 @@ export function usePreviewServer(): {
             ? "running"
             : status.status === "failed"
               ? "error"
-              : "scanning",
+              : status.status === "starting"
+                ? "starting"
+                : "scanning",
       });
     }
-  }, [activeProjectPath]);
+  }, []);
 
   return { startServer, stopServer, checkStatus };
 }

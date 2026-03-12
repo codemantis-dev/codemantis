@@ -1,14 +1,15 @@
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent, type DragEvent } from "react";
-import { Send, Plus, AtSign } from "lucide-react";
+import { Send, Square, Plus, AtSign } from "lucide-react";
 import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useUiStore } from "../../stores/uiStore";
-import { saveClipboardImage, getFileInfo, readFileBytes } from "../../lib/tauri-commands";
+import { saveClipboardImage, getFileInfo, readFileBytes, interruptSession } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+import ModelSelector from "./ModelSelector";
 import type { Attachment } from "../../types/attachment";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
@@ -25,25 +26,6 @@ async function createPreviewUrl(filePath: string, mimeType: string): Promise<str
   } catch {
     return undefined;
   }
-}
-
-function formatModelName(model: string | null | undefined): string | null {
-  if (!model) return null;
-  // "claude-opus-4-20250514" → "Opus 4"
-  // "claude-sonnet-4-6-20250514" → "Sonnet 4.6"
-  // "claude-haiku-4-5-20241022" → "Haiku 4.5"
-  const m = model.toLowerCase();
-  const families = ["opus", "sonnet", "haiku"];
-  for (const family of families) {
-    const idx = m.indexOf(family);
-    if (idx === -1) continue;
-    const after = m.slice(idx + family.length).replace(/^-/, "");
-    // Extract version numbers before the date stamp (8+ digits)
-    const versionPart = after.replace(/-?\d{8,}.*$/, "").replace(/-/g, ".");
-    const name = family.charAt(0).toUpperCase() + family.slice(1);
-    return versionPart ? `${name} ${versionPart}` : name;
-  }
-  return model;
 }
 
 function EffortBars({ effort }: { effort: ThinkingEffort }) {
@@ -78,11 +60,14 @@ export default function InputArea() {
   const sessions = useSessionStore((s) => s.sessions);
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
 
+  const sessionBusy = useSessionStore((s) => s.sessionBusy);
+
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const streaming = activeSessionId
     ? sessionStreaming.get(activeSessionId)
     : undefined;
   const isStreaming = streaming?.isStreaming ?? false;
+  const isBusy = activeSessionId ? sessionBusy.get(activeSessionId) ?? false : false;
 
   // Save/restore input drafts per session
   useEffect(() => {
@@ -125,6 +110,23 @@ export default function InputArea() {
     }
   }, [draftInput, setDraftInput]);
 
+  // Global Escape key to interrupt generation
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!activeSessionId || !isBusy) return;
+      // Don't intercept if a modal is open
+      const ui = useUiStore.getState();
+      if (ui.showSettingsModal || ui.showClaudeHistory) return;
+      e.preventDefault();
+      interruptSession(activeSessionId).catch((e) =>
+        console.error("Failed to interrupt session:", e)
+      );
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeSessionId, isBusy]);
+
   // Listen for Cmd+/ to open command palette
   useEffect(() => {
     const handler = () => {
@@ -166,6 +168,13 @@ export default function InputArea() {
 
     await sendMessage(activeSessionId, prompt);
   }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments]);
+
+  const handleStop = useCallback(() => {
+    if (!activeSessionId || !isBusy) return;
+    interruptSession(activeSessionId).catch((e) =>
+      console.error("Failed to interrupt session:", e)
+    );
+  }, [activeSessionId, isBusy]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -347,7 +356,6 @@ export default function InputArea() {
     ? sessionEffort.get(activeSessionId) ?? "high"
     : "high";
 
-  const modelName = formatModelName(session?.model);
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
 
   return (
@@ -460,11 +468,7 @@ export default function InputArea() {
             <div className="flex items-center gap-3">
               {session && (
                 <div className="flex items-center gap-2 select-none">
-                  {modelName && (
-                    <span className="text-label text-text-ghost">
-                      {modelName}
-                    </span>
-                  )}
+                  <ModelSelector />
                   <button
                     onClick={() => useUiStore.getState().setShowSettingsModal(true)}
                     className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-dim hover:bg-bg-subtle transition-colors"
@@ -475,19 +479,30 @@ export default function InputArea() {
                   </button>
                 </div>
               )}
-              <button
-                onClick={handleSend}
-                disabled={!isActive}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
-                  isActive
-                    ? "bg-accent text-white hover:bg-accent-light"
-                    : "bg-bg-subtle text-text-ghost cursor-not-allowed"
-                }`}
-              >
-                <Send size={13} />
-                <span>Send</span>
-                <span className="text-label opacity-60">{"⌘↵"}</span>
-              </button>
+              {isBusy ? (
+                <button
+                  onClick={handleStop}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all bg-red-600 text-white hover:bg-red-500"
+                >
+                  <Square size={12} />
+                  <span>Stop</span>
+                  <span className="text-label opacity-60">Esc</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!isActive}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
+                    isActive
+                      ? "bg-accent text-white hover:bg-accent-light"
+                      : "bg-bg-subtle text-text-ghost cursor-not-allowed"
+                  }`}
+                >
+                  <Send size={13} />
+                  <span>Send</span>
+                  <span className="text-label opacity-60">{"⌘↵"}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

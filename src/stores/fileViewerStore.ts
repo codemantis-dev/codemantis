@@ -36,7 +36,10 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   md: "markdown",
   rs: "rust",
   css: "css",
+  scss: "scss",
+  less: "less",
   html: "html",
+  htm: "html",
   py: "python",
   yaml: "yaml",
   yml: "yaml",
@@ -57,10 +60,47 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   h: "c",
   hpp: "cpp",
   cs: "csharp",
+  env: "ini",
+  ini: "ini",
+  cfg: "ini",
+  conf: "ini",
+  properties: "ini",
+  r: "r",
+  lua: "lua",
+  php: "php",
+  pl: "perl",
+  tf: "hcl",
+  graphql: "graphql",
+  gql: "graphql",
+  proto: "protobuf",
+  dart: "dart",
+  dockerfile: "dockerfile",
+};
+
+/** Map exact filenames (lowercased) to Monaco language IDs */
+const FILENAME_TO_LANGUAGE: Record<string, string> = {
+  dockerfile: "dockerfile",
+  makefile: "makefile",
+  "docker-compose.yml": "yaml",
+  "docker-compose.yaml": "yaml",
+  ".gitignore": "ini",
+  ".dockerignore": "ini",
+  ".editorconfig": "ini",
+  ".npmrc": "ini",
+  ".nvmrc": "plaintext",
 };
 
 export function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const fileName = filePath.split("/").pop()?.toLowerCase() ?? "";
+
+  // Check exact filename matches first (Dockerfile, Makefile, etc.)
+  const byName = FILENAME_TO_LANGUAGE[fileName];
+  if (byName) return byName;
+
+  // .env files: .env, .env.local, .env.development, .env.production, etc.
+  if (fileName === ".env" || fileName.startsWith(".env.")) return "ini";
+
+  const ext = fileName.split(".").pop() ?? "";
   return EXT_TO_LANGUAGE[ext] ?? "plaintext";
 }
 

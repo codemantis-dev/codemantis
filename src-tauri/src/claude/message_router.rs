@@ -1,6 +1,6 @@
 use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
-use crate::claude::session::AppState;
-use log::debug;
+use crate::claude::session::{AppState, ControlRequestKind};
+use log::{debug, warn};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -360,6 +360,87 @@ pub async fn route_events(
                                 let _ = app_handle.emit(&activity_event, &fe);
                             }
                         }
+                    }
+                }
+            }
+
+            RawStreamEvent::ControlResponse { response, .. } => {
+                if let Some(resp_val) = response {
+                    // The CLI nests the actual response: { response: { subtype, request_id, ... } }
+                    let inner_resp = resp_val
+                        .get("response")
+                        .unwrap_or(&resp_val);
+                    let subtype = inner_resp.get("subtype").and_then(|v| v.as_str());
+                    let req_id = inner_resp
+                        .get("request_id")
+                        .or_else(|| resp_val.get("request_id"))
+                        .and_then(|v| v.as_str());
+
+                    if let Some(request_id) = req_id {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let kind = {
+                                let mut pending = state.pending_control_requests.lock().await;
+                                pending.remove(request_id)
+                            };
+
+                            let is_success = subtype == Some("success");
+                            let error_msg = inner_resp
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let inner = inner_resp
+                                .get("response")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+
+                            match kind {
+                                Some((_, ControlRequestKind::Interrupt)) => {
+                                    let fe = FrontendEvent::InterruptResult {
+                                        session_id: session_id.clone(),
+                                        success: is_success,
+                                        error: error_msg,
+                                    };
+                                    let _ = app_handle.emit(&chat_event, &fe);
+                                }
+                                Some((_, ControlRequestKind::SetModel(model))) => {
+                                    if is_success {
+                                        let mut sessions = state.sessions.lock().await;
+                                        if let Some(session) = sessions.get_mut(&session_id) {
+                                            session.model = Some(model.clone());
+                                        }
+                                    }
+                                    let fe = FrontendEvent::ModelChanged {
+                                        session_id: session_id.clone(),
+                                        model,
+                                        success: is_success,
+                                        error: error_msg,
+                                    };
+                                    let _ = app_handle.emit(&chat_event, &fe);
+                                }
+                                Some((_, ControlRequestKind::Initialize)) => {
+                                    let fe = FrontendEvent::CapabilitiesDiscovered {
+                                        session_id: session_id.clone(),
+                                        models: inner.get("models").cloned().unwrap_or_default(),
+                                        commands: inner.get("commands").cloned().unwrap_or_default(),
+                                        agents: inner.get("agents").cloned().unwrap_or_default(),
+                                        account: inner.get("account").cloned().unwrap_or_default(),
+                                        output_styles: inner
+                                            .get("available_output_styles")
+                                            .cloned()
+                                            .unwrap_or_default(),
+                                    };
+                                    let _ = app_handle.emit(&chat_event, &fe);
+                                }
+                                None => {
+                                    warn!(
+                                        "Control response for unknown request_id: {}",
+                                        request_id
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        debug!("Control response missing request_id");
                     }
                 }
             }

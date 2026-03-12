@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import { useFileViewer } from "../../hooks/useFileViewer";
@@ -33,6 +33,7 @@ interface FileTreeNodeProps {
   projectPath: string;
   onRefresh: () => void;
   onContextMenu: (x: number, y: number, node: FileNode) => void;
+  expandOverride: boolean | null; // null = use local state, true = expand all, false = collapse all
 }
 
 function InlineRenameInput({
@@ -106,9 +107,17 @@ function FileTreeNode({
   projectPath,
   onRefresh,
   onContextMenu,
+  expandOverride,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(depth < 1);
   const { openFile } = useFileViewer();
+
+  // Sync local state when expand override changes
+  useEffect(() => {
+    if (expandOverride !== null) {
+      setExpanded(expandOverride);
+    }
+  }, [expandOverride]);
 
   const isSpecial = node.name === "CLAUDE.md" || node.name === ".claude";
   const iconColor = node.extension
@@ -167,6 +176,7 @@ function FileTreeNode({
                 projectPath={projectPath}
                 onRefresh={onRefresh}
                 onContextMenu={onContextMenu}
+                expandOverride={expandOverride}
               />
             ))}
           </div>
@@ -211,6 +221,8 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
     node: FileNode | null;
   } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  // null = no override (use local state), true/false = expand/collapse all
+  const [expandOverride, setExpandOverride] = useState<boolean | null>(null);
 
   function handleContextMenu(x: number, y: number, node: FileNode) {
     setContextMenu({ x, y, node });
@@ -220,6 +232,17 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, node: null });
   }
+
+  const handleExpandAll = useCallback(() => {
+    setExpandOverride(true);
+    // Reset override so subsequent manual toggles work
+    setTimeout(() => setExpandOverride(null), 0);
+  }, []);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandOverride(false);
+    setTimeout(() => setExpandOverride(null), 0);
+  }, []);
 
   return (
     <div className="py-1" onContextMenu={handleEmptyContextMenu}>
@@ -233,6 +256,7 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
           projectPath={projectPath}
           onRefresh={onRefresh}
           onContextMenu={handleContextMenu}
+          expandOverride={expandOverride}
         />
       ))}
       {contextMenu && (
@@ -244,6 +268,8 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
           onClose={() => setContextMenu(null)}
           onRefresh={onRefresh}
           onStartRename={setEditingPath}
+          onExpandAll={handleExpandAll}
+          onCollapseAll={handleCollapseAll}
         />
       )}
     </div>

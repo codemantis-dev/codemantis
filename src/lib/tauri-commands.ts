@@ -104,6 +104,18 @@ export async function deletePersistedSession(
   return invoke("delete_persisted_session", { sessionId });
 }
 
+export async function interruptSession(sessionId: string): Promise<void> {
+  return invoke("interrupt_session", { sessionId });
+}
+
+export async function setSessionModel(sessionId: string, model: string): Promise<void> {
+  return invoke("set_session_model", { sessionId, model });
+}
+
+export async function initializeSession(sessionId: string): Promise<void> {
+  return invoke("initialize_session", { sessionId });
+}
+
 export async function listSessionHistory(
   projectPath: string
 ): Promise<SessionHistoryEntry[]> {
@@ -138,6 +150,10 @@ export async function duplicateFile(filePath: string): Promise<string> {
 
 export async function createFile(filePath: string): Promise<void> {
   return invoke("create_file", { filePath });
+}
+
+export async function createDirectory(dirPath: string): Promise<void> {
+  return invoke("create_directory", { dirPath });
 }
 
 // --- Attachments ---
@@ -516,6 +532,14 @@ export function listenToolApprovalRequests(
   callback: (event: ToolApprovalRequestEvent) => void
 ): Promise<UnlistenFn> {
   return listen<ToolApprovalRequestEvent>("tool-approval-request", (e) =>
+    callback(e.payload)
+  );
+}
+
+export function listenSessionModeChanged(
+  callback: (event: { sessionId: string; mode: string }) => void
+): Promise<UnlistenFn> {
+  return listen<{ sessionId: string; mode: string }>("session-mode-changed", (e) =>
     callback(e.payload)
   );
 }

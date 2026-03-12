@@ -1,4 +1,4 @@
-use crate::claude::event_types::{FrontendEvent, StdinMessage};
+use crate::claude::event_types::{ControlRequestPayload, FrontendEvent, StdinMessage};
 use crate::claude::message_router::route_events;
 use crate::claude::session::{AppState, SessionStatus};
 use crate::claude::stream_parser::parse_stream;
@@ -408,6 +408,21 @@ impl ClaudeProcess {
             stdin_tx,
             session_id,
         })
+    }
+
+    pub fn send_control_request(&self, payload: ControlRequestPayload) -> Result<String, AppError> {
+        let request_id = format!("req_{}", uuid::Uuid::new_v4().simple());
+        let msg = StdinMessage::ControlRequest {
+            request_id: request_id.clone(),
+            request: payload,
+        };
+        let mut json =
+            serde_json::to_string(&msg).map_err(|e| AppError::SendFailed(e.to_string()))?;
+        json.push('\n');
+        self.stdin_tx
+            .send(json.into_bytes())
+            .map_err(|e| AppError::SendFailed(e.to_string()))?;
+        Ok(request_id)
     }
 
     pub fn send_message(&self, text: &str) -> Result<(), AppError> {
