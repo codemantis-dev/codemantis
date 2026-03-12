@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
+import type { ActivityEntry } from "../../types/activity";
 import { getActivityType } from "../../types/activity";
 import StatusDot from "../shared/StatusDot";
 
@@ -13,7 +14,10 @@ export default function ActivityChip({ messageId, sessionId }: ActivityChipProps
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessionEntries = useActivityStore((s) => s.sessionEntries);
   const effectiveSessionId = sessionId ?? activeSessionId;
-  const allEntries = effectiveSessionId ? sessionEntries.get(effectiveSessionId) ?? [] : [];
+  const allEntries: ActivityEntry[] = useMemo(
+    () => effectiveSessionId ? sessionEntries.get(effectiveSessionId) ?? [] : [],
+    [effectiveSessionId, sessionEntries]
+  );
   const entries = useMemo(
     () => allEntries.filter((e) => e.messageId === messageId),
     [allEntries, messageId]

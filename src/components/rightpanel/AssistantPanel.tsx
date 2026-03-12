@@ -175,6 +175,7 @@ export default function AssistantPanel() {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSlashCommand is defined below and uses callbacks that would create a circular dependency
   }, [input, activeAssistantId, busy, sendMessage, isClaudeCode, currentAttachments, clearAssistantAttachments]);
 
   const handleSlashCommand = useCallback(async (rawInput: string) => {
@@ -303,6 +304,14 @@ export default function AssistantPanel() {
     }
   }, [activeAssistantId, activeProjectPath, commands, sendMessage, handleClose, isClaudeCode]);
 
+  const getFilteredCommands = useCallback((): SlashCommand[] => {
+    if (!commandQuery) return commands;
+    const q = commandQuery.toLowerCase().split(/\s/)[0];
+    return commands.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)
+    );
+  }, [commands, commandQuery]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       // Command palette navigation
@@ -352,16 +361,8 @@ export default function AssistantPanel() {
         handleSend();
       }
     },
-    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand]
+    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, getFilteredCommands]
   );
-
-  const getFilteredCommands = useCallback((): SlashCommand[] => {
-    if (!commandQuery) return commands;
-    const q = commandQuery.toLowerCase().split(/\s/)[0];
-    return commands.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)
-    );
-  }, [commands, commandQuery]);
 
   // Auto-resize textarea + slash command detection
   const handleInputChange = useCallback(

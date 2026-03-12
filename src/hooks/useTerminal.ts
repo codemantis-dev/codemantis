@@ -54,6 +54,7 @@ export function useTerminal(): UseTerminalReturn {
       console.error("Failed to create terminal:", e);
       return null;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store and sessionStore are stable Zustand store references
   }, []);
 
   const closeTerminalFn = useCallback(async (sessionId: string, terminalId: string) => {
@@ -63,6 +64,7 @@ export function useTerminal(): UseTerminalReturn {
       console.error("Failed to close terminal:", e);
     }
     store.getState().removeTerminal(sessionId, terminalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store is a stable Zustand store reference
   }, []);
 
   const sendInput = useCallback(async (terminalId: string, data: string) => {

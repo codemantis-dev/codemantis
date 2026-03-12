@@ -60,6 +60,7 @@ export function useCommandExecution(): {
         setIsExecuting(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- executeBuiltin and executeSkill are stable inner functions that only use sendMessage/closeSession/renameSession
     [sendMessage, closeSession, renameSession]
   );
 

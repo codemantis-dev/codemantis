@@ -119,7 +119,6 @@ export default function InputArea() {
   const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
 
   const { sendMessage } = useClaudeSession();
-  const sessionModes = useSessionStore((s) => s.sessionModes);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -142,7 +141,7 @@ export default function InputArea() {
     }
 
     await sendMessage(activeSessionId, prompt);
-  }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments, sessionModes]);
+  }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -215,7 +214,7 @@ export default function InputArea() {
         }
       }
     },
-    [session, addAttachment]
+    [session, activeSessionId, addAttachment]
   );
 
   const handleDragOver = useCallback((e: DragEvent) => {
@@ -275,7 +274,7 @@ export default function InputArea() {
         }
       }
     },
-    [session, addAttachment]
+    [session, activeSessionId, addAttachment]
   );
 
   const handleFileDialog = useCallback(async () => {
@@ -317,7 +316,7 @@ export default function InputArea() {
     } catch (err) {
       console.error("File dialog error:", err);
     }
-  }, [session, addAttachment]);
+  }, [session, activeSessionId, addAttachment]);
 
   const sessionEffort = useSessionStore((s) => s.sessionEffort);
   const effort: ThinkingEffort = activeSessionId

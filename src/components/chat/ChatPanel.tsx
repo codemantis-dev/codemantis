@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
@@ -12,7 +12,10 @@ export default function ChatPanel() {
   const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
   const sessions = useSessionStore((s) => s.sessions);
 
-  const messages = activeSessionId ? sessionMessages.get(activeSessionId) ?? [] : [];
+  const messages = useMemo(
+    () => activeSessionId ? sessionMessages.get(activeSessionId) ?? [] : [],
+    [activeSessionId, sessionMessages]
+  );
   const streaming = activeSessionId
     ? sessionStreaming.get(activeSessionId) ?? { isStreaming: false, streamingContent: "", currentMessageId: null }
     : { isStreaming: false, streamingContent: "", currentMessageId: null };

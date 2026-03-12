@@ -73,6 +73,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     startStaleDetection(session.id);
 
     return session.id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
   const addSessionToProject = useCallback(async (projectPath?: string) => {
@@ -88,6 +89,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       console.error("Failed to add session to project:", e);
       showToast(`Failed to create session: ${String(e)}`, "error");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [startSession]);
 
   const sendMessage = useCallback(async (sessionId: string, prompt: string) => {
@@ -110,6 +112,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     } catch (e) {
       console.error("Failed to send message:", e);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
   const closeSessionFn = useCallback(async (sessionId: string) => {
@@ -145,6 +148,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     activityStore.getState().clearEntries(sessionId);
     useAttachmentStore.getState().clearSession(sessionId);
     changelogStore.getState().clearSession(sessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store refs (sessionStore, activityStore, terminalStore, changelogStore) are stable Zustand singletons
   }, []);
 
   const closeAllSessionsInProject = useCallback(async (projectPath: string) => {
@@ -175,10 +179,12 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       }
     }
     aStore.clearProject(projectPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [closeSessionFn]);
 
   const switchSession = useCallback((sessionId: string) => {
     sessionStore.getState().setActiveSession(sessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
   const renameSessionFn = useCallback(async (sessionId: string, name: string) => {
@@ -188,6 +194,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     } catch (e) {
       console.error("Failed to rename session:", e);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
   const resumeFromHistory = useCallback(async (
@@ -222,6 +229,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       showToast(`Failed to resume session: ${String(e)}`, "error");
       throw e;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
   return {

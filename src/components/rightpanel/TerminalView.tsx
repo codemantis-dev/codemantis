@@ -102,6 +102,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- xtermColors used only for initial creation; theme changes handled by separate effect above
   }, [terminalId, resizeTerminal]);
 
   // Re-fit and focus when visibility changes

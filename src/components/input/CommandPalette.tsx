@@ -52,7 +52,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
       return () => {
         cancelled = true;
       };
-    }, [session?.project_path]);
+    }, [session]);
 
     // Filter commands by query
     const filtered = commands.filter((cmd) => {
