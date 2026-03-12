@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .codemantis
+_guidance
 
 # Editor directories and files
 .vscode/*

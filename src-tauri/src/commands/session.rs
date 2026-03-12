@@ -300,6 +300,20 @@ pub async fn close_session(
     Ok(())
 }
 
+/// Checks whether the CLI process for a session is still alive.
+/// Returns true if the process exists and appears to be running.
+#[tauri::command]
+pub async fn check_process_alive(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let processes = state.processes.lock().await;
+    match processes.get(&session_id) {
+        Some(process) => Ok(process.is_running()),
+        None => Ok(false),
+    }
+}
+
 #[tauri::command]
 pub async fn get_session(
     state: State<'_, AppState>,

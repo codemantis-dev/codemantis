@@ -7,6 +7,19 @@ import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
 import TurnStatsPopover from "./TurnStatsPopover";
 
+function formatMessageTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDurationShort(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const min = Math.floor(ms / 60000);
+  const sec = Math.round((ms % 60000) / 1000);
+  return `${min}m ${sec}s`;
+}
+
 interface MessageBubbleProps {
   message: Message;
   streamingContent?: string;
@@ -25,19 +38,25 @@ export default function MessageBubble({
     ? streamingContent ?? ""
     : message.content;
 
+  const timeStr = formatMessageTime(message.timestamp);
+  const durationMs = message.turnStats?.durationMs;
+
   if (isUser) {
     return (
       <div className="flex justify-end mb-4">
-        <div
-          className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable"
-          style={{
-            background: "var(--accent-dim)",
-            border: "1px solid rgba(124,58,237,0.2)",
-          }}
-        >
-          <p className="text-chat text-text-primary whitespace-pre-wrap">
-            {message.content}
-          </p>
+        <div className="flex flex-col items-end gap-0.5">
+          <div
+            className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable"
+            style={{
+              background: "var(--accent-dim)",
+              border: "1px solid rgba(124,58,237,0.2)",
+            }}
+          >
+            <p className="text-chat text-text-primary whitespace-pre-wrap">
+              {message.content}
+            </p>
+          </div>
+          <span className="text-[10px] text-text-ghost px-1">{timeStr}</span>
         </div>
       </div>
     );
@@ -68,10 +87,16 @@ export default function MessageBubble({
             Restart Session
           </button>
         )}
-        {/* Turn stats (shown after streaming completes) */}
-        {!message.isStreaming && message.turnStats && (
-          <div className="mt-1.5">
-            <TurnStatsPopover stats={message.turnStats} />
+        {/* Turn stats + timestamp (shown after streaming completes) */}
+        {!message.isStreaming && !message.restartable && (
+          <div className="mt-1.5 flex items-center gap-2">
+            {message.turnStats && <TurnStatsPopover stats={message.turnStats} />}
+            <span className="text-[10px] text-text-ghost">
+              {timeStr}
+              {durationMs != null && durationMs > 0 && (
+                <> · took {formatDurationShort(durationMs)}</>
+              )}
+            </span>
           </div>
         )}
       </div>

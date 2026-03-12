@@ -42,6 +42,10 @@ pub struct AppSettings {
     pub assistant_default_provider: String,
     #[serde(default)]
     pub assistant_default_model: HashMap<String, String>,
+
+    // --- Trivia ---
+    #[serde(default = "default_true")]
+    pub trivia_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +87,9 @@ fn default_changelog_model() -> String {
 }
 fn default_assistant_provider() -> String {
     "claude-code".to_string()
+}
+fn default_true() -> bool {
+    true
 }
 fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
@@ -132,6 +139,7 @@ impl Default for AppSettings {
             assistant_shortcuts: Vec::new(),
             assistant_default_provider: default_assistant_provider(),
             assistant_default_model: HashMap::new(),
+            trivia_enabled: true,
         }
     }
 }

@@ -3,6 +3,8 @@ import { listenToolApprovalRequests, resolveToolApproval } from "../lib/tauri-co
 import type { ToolApprovalRequestEvent } from "../types/claude-events";
 import { useActivityStore, type PendingQuestion } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
+import { useSessionStore } from "../stores/sessionStore";
+import { useAssistantStore } from "../stores/assistantStore";
 
 /**
  * Parse the AskUserQuestion tool_input into a PendingQuestion.
@@ -79,9 +81,16 @@ export function useToolApprovalListener(): void {
         return;
       }
 
-      // Auto-approve if user previously clicked "Always allow" for this tool
-      if (activityStore.isToolAlwaysAllowed(toolName)) {
-        console.log("[approval] Auto-approving always-allowed tool:", toolName);
+      // Look up the project path for this session
+      const session = useSessionStore.getState().sessions.get(forgeSessionId);
+      const assistantInstance = session
+        ? undefined
+        : useAssistantStore.getState().findAssistantInstance(forgeSessionId);
+      const projectPath = session?.project_path ?? assistantInstance?.projectPath ?? "";
+
+      // Auto-approve if user previously clicked "Always allow" for this tool in this project
+      if (projectPath && activityStore.isToolAlwaysAllowed(projectPath, toolName)) {
+        console.log("[approval] Auto-approving always-allowed tool:", toolName, "for project:", projectPath);
         resolveToolApproval(requestId, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
         );

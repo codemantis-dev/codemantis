@@ -4,6 +4,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
+import SessionStatusBar from "./SessionStatusBar";
 
 export default function ChatPanel() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -29,6 +30,7 @@ export default function ChatPanel() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const checkAtBottom = useCallback(() => {
@@ -45,7 +47,24 @@ export default function ChatPanel() {
     }
   }, []);
 
+  // Force-scroll to bottom when the user sends a new message (even if scrolled up)
   useEffect(() => {
+    const prevCount = prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    if (messages.length > prevCount && prevCount > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg?.role === "user") {
+        // User just sent a message — always scroll to bottom
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          isAtBottomRef.current = true;
+          setShowScrollButton(false);
+        }
+        return;
+      }
+    }
+
     if (isAtBottomRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -65,11 +84,11 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full flex flex-col">
       <div
         ref={scrollRef}
         onScroll={checkAtBottom}
-        className="h-full overflow-y-auto px-6 py-4"
+        className="flex-1 overflow-y-auto px-6 py-4"
       >
         <div className="max-w-[720px] mx-auto">
           {messages.length === 0 && !streaming.isStreaming && (
@@ -92,8 +111,8 @@ export default function ChatPanel() {
           ))}
 
           {/* Working indicator — show when busy but no text is streaming yet */}
-          {isBusy && !streaming.isStreaming && (
-            <ThinkingIndicator />
+          {isBusy && !streaming.isStreaming && activeSessionId && (
+            <ThinkingIndicator sessionId={activeSessionId} />
           )}
         </div>
       </div>
@@ -102,11 +121,17 @@ export default function ChatPanel() {
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elevated border border-border text-text-secondary text-ui shadow-lg hover:bg-bg-subtle transition-colors"
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-text-secondary text-ui shadow-lg hover:brightness-95 transition-colors z-10"
+          style={{ background: "var(--bg-primary)" }}
         >
           <ArrowDown size={13} />
           <span>New messages</span>
         </button>
+      )}
+
+      {/* Session status bar — always visible at bottom */}
+      {activeSessionId && (
+        <SessionStatusBar sessionId={activeSessionId} />
       )}
     </div>
   );

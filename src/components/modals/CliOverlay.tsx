@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { TerminalSquare, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useAssistantStore } from "../../stores/assistantStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import {
   createTerminal as createTerminalCmd,
@@ -18,8 +19,13 @@ export default function CliOverlay() {
   const showOverlay = useUiStore((s) => s.showCliOverlay);
   const setShowOverlay = useUiStore((s) => s.setShowCliOverlay);
   const claudeBinaryPath = useUiStore((s) => s.claudeBinaryPath);
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const cliOverlaySessionId = useUiStore((s) => s.cliOverlaySessionId);
+  const cliOverlayProjectPath = useUiStore((s) => s.cliOverlayProjectPath);
+  const mainActiveSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
+
+  // Use the explicit target session (from assistant), falling back to main session
+  const activeSessionId = cliOverlaySessionId ?? mainActiveSessionId;
 
   const [terminalId, setTerminalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,12 +34,15 @@ export default function CliOverlay() {
   const terminalIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
-  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-  const cliSessionId = session?.cli_session_id;
+  // For main sessions: look up from sessionStore. For assistants: use explicit project path + assistant store.
+  const mainSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const projectPath = mainSession?.project_path ?? cliOverlayProjectPath;
+  const assistantCliSessionId = useAssistantStore((s) => activeSessionId ? s.cliSessionIds.get(activeSessionId) : undefined);
+  const cliSessionId = mainSession?.cli_session_id ?? assistantCliSessionId;
 
   // Open flow: pause stream-json → spawn interactive claude --resume → user interacts
   useEffect(() => {
-    if (!showOverlay || !activeSessionId || !session || !claudeBinaryPath) return;
+    if (!showOverlay || !activeSessionId || !projectPath || !claudeBinaryPath) return;
 
     let cancelled = false;
     sessionIdRef.current = activeSessionId;
@@ -58,7 +67,7 @@ export default function CliOverlay() {
         console.log("[cli-overlay] Spawning interactive CLI with args:", termArgs);
         const info = await createTerminalCmd(
           activeSessionId,
-          session.project_path,
+          projectPath,
           claudeBinaryPath,
           "Claude CLI",
           termArgs.length > 0 ? termArgs : undefined
@@ -110,7 +119,7 @@ export default function CliOverlay() {
     return () => {
       cancelled = true;
     };
-  }, [showOverlay, activeSessionId, session, claudeBinaryPath, cliSessionId]);
+  }, [showOverlay, activeSessionId, projectPath, claudeBinaryPath, cliSessionId]);
 
   // Close flow: kill PTY → resume stream-json with --resume
   const handleClose = useCallback(async () => {
@@ -119,7 +128,9 @@ export default function CliOverlay() {
 
     const tid = terminalIdRef.current;
     const sid = sessionIdRef.current;
-    const currentCliSessionId = useSessionStore.getState().sessions.get(sid ?? "")?.cli_session_id;
+    const currentCliSessionId =
+      useSessionStore.getState().sessions.get(sid ?? "")?.cli_session_id
+      ?? useAssistantStore.getState().cliSessionIds.get(sid ?? "");
 
     // Close the overlay UI immediately
     terminalIdRef.current = null;

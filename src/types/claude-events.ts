@@ -7,7 +7,11 @@ export type FrontendEvent =
   | TurnCompleteEvent
   | ProcessErrorEvent
   | ProcessExitedEvent
-  | CliSessionIdEvent;
+  | CliSessionIdEvent
+  | CompactingStatusEvent
+  | CompactCompleteEvent
+  | ToolProgressEvent
+  | RateLimitWarningEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -77,6 +81,34 @@ export interface UsageInfo {
   output_tokens: number | null;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
+}
+
+export interface CompactingStatusEvent {
+  type: "compacting_status";
+  session_id: string;
+  is_compacting: boolean;
+}
+
+export interface CompactCompleteEvent {
+  type: "compact_complete";
+  session_id: string;
+  trigger: string;
+  pre_tokens: number | null;
+}
+
+export interface ToolProgressEvent {
+  type: "tool_progress";
+  session_id: string;
+  tool_use_id: string;
+  tool_name: string;
+  elapsed_seconds: number;
+}
+
+export interface RateLimitWarningEvent {
+  type: "rate_limit_warning";
+  session_id: string;
+  utilization: number;
+  resets_at: number | null;
 }
 
 /** Emitted globally by the approval HTTP server (not per-session). */

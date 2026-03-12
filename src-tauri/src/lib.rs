@@ -60,6 +60,7 @@ pub fn run() {
             commands::session::set_session_mode,
             commands::session::resolve_tool_approval,
             commands::session::close_session,
+            commands::session::check_process_alive,
             commands::session::get_session,
             commands::session::list_sessions,
             commands::session::rename_session,

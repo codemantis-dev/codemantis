@@ -41,6 +41,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   assistantShortcuts: [],
   assistantDefaultProvider: "claude-code",
   assistantDefaultModel: {},
+  triviaEnabled: true,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

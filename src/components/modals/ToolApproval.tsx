@@ -2,6 +2,8 @@ import { useCallback, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useAssistantStore } from "../../stores/assistantStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
 import ToolBadge from "../shared/ToolBadge";
@@ -14,6 +16,17 @@ export default function ToolApproval() {
 
   const currentApproval = approvalQueue[currentApprovalIndex];
   const queueSize = approvalQueue.length;
+
+  // Derive project path and name from the current approval's session
+  const sessionId = currentApproval?.sessionId;
+  const session = sessionId ? useSessionStore.getState().sessions.get(sessionId) : undefined;
+  const assistantInstance = session
+    ? undefined
+    : sessionId
+      ? useAssistantStore.getState().findAssistantInstance(sessionId)
+      : undefined;
+  const projectPath = session?.project_path ?? assistantInstance?.projectPath ?? "";
+  const projectName = projectPath.split("/").pop() ?? projectPath;
 
   // Auto-open modal when items enqueue
   useEffect(() => {
@@ -148,6 +161,9 @@ export default function ToolApproval() {
               </Dialog.Title>
               <Dialog.Description className="text-ui text-text-dim">
                 Claude wants to use a tool
+                {projectName && (
+                  <> in <span className="text-accent font-medium">{projectName}</span></>
+                )}
               </Dialog.Description>
             </div>
             {queueSize > 1 && (
@@ -188,12 +204,14 @@ export default function ToolApproval() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => {
-                useActivityStore.getState().addAlwaysAllowedTool(currentApproval.toolName);
+                if (projectPath) {
+                  useActivityStore.getState().addAlwaysAllowedTool(projectPath, currentApproval.toolName);
+                }
                 handleResponse(true);
               }}
               className="text-label text-text-faint hover:text-text-dim transition-colors"
             >
-              Always allow {currentApproval.toolName}
+              Always allow {currentApproval.toolName} in this project
             </button>
             <div className="flex gap-2">
               {queueSize > 1 && (

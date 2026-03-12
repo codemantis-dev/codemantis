@@ -33,7 +33,7 @@ export interface PendingQuestion {
 interface ActivityState {
   sessionEntries: Map<string, ActivityEntry[]>;
   sessionQuestions: Map<string, PendingQuestion | null>;
-  alwaysAllowedTools: Set<string>;
+  alwaysAllowedTools: Map<string, Set<string>>; // projectPath → Set of tool names
 
   // Queue-based approval system
   approvalQueue: PendingApproval[];
@@ -62,8 +62,8 @@ interface ActivityState {
     sessionId: string,
     question: PendingQuestion | null
   ) => void;
-  addAlwaysAllowedTool: (toolName: string) => void;
-  isToolAlwaysAllowed: (toolName: string) => boolean;
+  addAlwaysAllowedTool: (projectPath: string, toolName: string) => void;
+  isToolAlwaysAllowed: (projectPath: string, toolName: string) => boolean;
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
   getActiveEntries: (sessionId: string) => ActivityEntry[];
   clearEntries: (sessionId: string) => void;
@@ -73,7 +73,7 @@ interface ActivityState {
 export const useActivityStore = create<ActivityState>((set, get) => ({
   sessionEntries: new Map(),
   sessionQuestions: new Map(),
-  alwaysAllowedTools: new Set<string>(),
+  alwaysAllowedTools: new Map<string, Set<string>>(),
 
   approvalQueue: [],
   approvalSeenIds: new Set<string>(),
@@ -162,14 +162,19 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       return { sessionQuestions };
     }),
 
-  addAlwaysAllowedTool: (toolName) =>
+  addAlwaysAllowedTool: (projectPath, toolName) =>
     set((state) => {
-      const updated = new Set(state.alwaysAllowedTools);
-      updated.add(toolName);
+      const updated = new Map(state.alwaysAllowedTools);
+      const tools = new Set(updated.get(projectPath) ?? []);
+      tools.add(toolName);
+      updated.set(projectPath, tools);
       return { alwaysAllowedTools: updated };
     }),
 
-  isToolAlwaysAllowed: (toolName) => get().alwaysAllowedTools.has(toolName),
+  isToolAlwaysAllowed: (projectPath, toolName) => {
+    const tools = get().alwaysAllowedTools.get(projectPath);
+    return tools?.has(toolName) ?? false;
+  },
 
   getEntriesForMessage: (sessionId, messageId) => {
     const entries = get().sessionEntries.get(sessionId) ?? [];

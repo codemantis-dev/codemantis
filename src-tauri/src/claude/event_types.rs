@@ -83,9 +83,18 @@ pub enum RawStreamEvent {
         extra: serde_json::Value,
     },
 
-    // Events we receive but don't need to process
     #[serde(rename = "rate_limit_event")]
     RateLimitEvent {
+        rate_limit_info: Option<RateLimitInfo>,
+        #[serde(flatten)]
+        extra: serde_json::Value,
+    },
+
+    #[serde(rename = "tool_progress")]
+    ToolProgress {
+        tool_use_id: Option<String>,
+        tool_name: Option<String>,
+        elapsed_time_seconds: Option<f64>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
@@ -169,6 +178,14 @@ pub struct UsageInfo {
     pub cache_read_input_tokens: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitInfo {
+    pub status: Option<String>,
+    #[serde(rename = "resetsAt")]
+    pub resets_at: Option<f64>,
+    pub utilization: Option<f64>,
+}
+
 // --- Outgoing events to the frontend ---
 
 #[derive(Debug, Clone, Serialize)]
@@ -236,6 +253,34 @@ pub enum FrontendEvent {
         exit_code: Option<i32>,
         stderr_tail: Option<String>,
         elapsed_ms: u64,
+    },
+
+    #[serde(rename = "compacting_status")]
+    CompactingStatus {
+        session_id: String,
+        is_compacting: bool,
+    },
+
+    #[serde(rename = "compact_complete")]
+    CompactComplete {
+        session_id: String,
+        trigger: String,
+        pre_tokens: Option<u64>,
+    },
+
+    #[serde(rename = "tool_progress")]
+    ToolProgress {
+        session_id: String,
+        tool_use_id: String,
+        tool_name: String,
+        elapsed_seconds: f64,
+    },
+
+    #[serde(rename = "rate_limit_warning")]
+    RateLimitWarning {
+        session_id: String,
+        utilization: f64,
+        resets_at: Option<f64>,
     },
 }
 

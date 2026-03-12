@@ -281,8 +281,10 @@ export default function AssistantPanel() {
         }
       } else {
         // cli-only commands: open CLI overlay for Claude Code, show message for API
-        if (isClaudeCode) {
+        if (isClaudeCode && activeProjectPath) {
           useUiStore.getState().setCliOverlayInitialInput(rawInput);
+          useUiStore.getState().setCliOverlaySessionId(activeAssistantId);
+          useUiStore.getState().setCliOverlayProjectPath(activeProjectPath);
           useUiStore.getState().setShowCliOverlay(true);
         } else {
           const store = useAssistantStore.getState();

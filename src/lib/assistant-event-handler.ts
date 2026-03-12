@@ -41,8 +41,10 @@ export function handleAssistantChatEvent(sessionId: string, event: FrontendEvent
 
   switch (event.type) {
     case "session_init":
+      break;
+
     case "cli_session_id":
-      // Not needed for assistant
+      store.setCliSessionId(sessionId, event.cli_session_id);
       break;
 
     case "text_delta": {

@@ -63,7 +63,7 @@ export default {
       animation: {
         pulse: "pulse 2s ease-in-out infinite",
         blink: "blink 1.06s step-end infinite",
-        "trivia-fade-in": "trivia-fade-in 0.4s ease-out",
+        "trivia-fade-in": "trivia-fade-in 1s ease-out",
       },
     },
   },

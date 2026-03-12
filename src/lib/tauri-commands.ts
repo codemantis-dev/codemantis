@@ -49,6 +49,10 @@ export async function resumeSessionProcess(
   return invoke("resume_session_process", { sessionId, cliSessionId });
 }
 
+export async function checkProcessAlive(sessionId: string): Promise<boolean> {
+  return invoke("check_process_alive", { sessionId });
+}
+
 export async function sendMessage(
   sessionId: string,
   prompt: string

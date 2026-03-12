@@ -57,7 +57,6 @@ pub const MIGRATE_API_LOGS: &[&str] = &[
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cost_usd REAL NOT NULL DEFAULT 0.0,
         success INTEGER NOT NULL DEFAULT 1,
-        error_message TEXT,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        error_message TEXT
     )",
 ];

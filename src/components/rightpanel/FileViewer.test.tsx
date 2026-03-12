@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import FileViewer from "./FileViewer";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
+import { useSessionStore } from "../../stores/sessionStore";
+
+const PROJECT = "/tmp/project";
 
 // Mock Monaco Editor — it requires a browser canvas context
 vi.mock("@monaco-editor/react", () => {
@@ -37,10 +40,14 @@ vi.mock("@monaco-editor/react", () => {
 
 function resetStore(): void {
   useFileViewerStore.setState({
-    openFiles: [],
-    activeFilePath: null,
-    editedContents: new Map(),
-    dirtyFiles: new Set(),
+    projectOpenFiles: new Map(),
+    projectActiveFile: new Map(),
+    projectEditedContents: new Map(),
+    projectDirtyFiles: new Map(),
+  });
+  // Set an active project path so FileViewer can read per-project state
+  useSessionStore.setState({
+    activeProjectPath: PROJECT,
   });
 }
 
@@ -56,7 +63,7 @@ describe("FileViewer", () => {
   });
 
   it("renders file name in header and tab", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/src/main.rs",
       fileName: "main.rs",
       language: "rust",
@@ -72,7 +79,7 @@ describe("FileViewer", () => {
   });
 
   it("renders extension badge", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/src/app.tsx",
       fileName: "app.tsx",
       language: "typescript",
@@ -86,7 +93,7 @@ describe("FileViewer", () => {
   });
 
   it("renders file size for normal files", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/data.json",
       fileName: "data.json",
       language: "json",
@@ -100,7 +107,7 @@ describe("FileViewer", () => {
   });
 
   it("renders Monaco editor with file content", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/test.py",
       fileName: "test.py",
       language: "python",
@@ -117,7 +124,7 @@ describe("FileViewer", () => {
   });
 
   it("renders DiffEditor for diff mode", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -140,7 +147,7 @@ describe("FileViewer", () => {
   });
 
   it("shows diff summary (+N -M) for diff files", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -158,7 +165,7 @@ describe("FileViewer", () => {
   });
 
   it("renders multiple tabs when multiple files are open", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -167,7 +174,7 @@ describe("FileViewer", () => {
       content: "a",
       isDiff: false,
     });
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/b.rs",
       fileName: "b.rs",
       language: "rust",
@@ -185,7 +192,7 @@ describe("FileViewer", () => {
   });
 
   it("renders word wrap toggle button", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -201,7 +208,7 @@ describe("FileViewer", () => {
 
   it("renders side-by-side toggle only in diff mode", () => {
     // Normal mode — no side-by-side button
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -217,7 +224,7 @@ describe("FileViewer", () => {
     resetStore();
 
     // Diff mode — has side-by-side button
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -235,7 +242,7 @@ describe("FileViewer", () => {
   });
 
   it("does not show file size for diff files", () => {
-    useFileViewerStore.getState().openFile({
+    useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",

@@ -345,8 +345,11 @@ impl ClaudeProcess {
 
             let elapsed_ms = spawn_instant.elapsed().as_millis() as u64;
 
-            // Brief delay to let stderr flush
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            // Wait for the message router to finish processing all buffered events.
+            // The stdout pipe closes → stream parser exits → message router drains
+            // its channel. We need to give this chain enough time to complete before
+            // emitting ProcessExited, which the frontend uses as a recovery signal.
+            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
 
             let exit_code = exit_status.and_then(|s| s.code());
             let stderr_tail = {
@@ -373,14 +376,16 @@ impl ClaudeProcess {
                 }
             }
 
-            // Emit ProcessExited event to frontend
+            // Emit ProcessExited event to frontend on the session-specific channel
+            // (must match the channel the frontend listens on: "claude-chat-{sessionId}")
+            let chat_channel = format!("claude-chat-{}", monitor_sid);
             let event = FrontendEvent::ProcessExited {
                 session_id: monitor_sid.clone(),
                 exit_code,
                 stderr_tail,
                 elapsed_ms,
             };
-            if let Err(e) = monitor_app.emit("claude-event", &event) {
+            if let Err(e) = monitor_app.emit(&chat_channel, &event) {
                 error!(
                     "[monitor:{}] Failed to emit process_exited: {}",
                     monitor_sid, e

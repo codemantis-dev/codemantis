@@ -52,6 +52,7 @@ export default function SettingsModal() {
   const [assistantShortcuts, setAssistantShortcuts] = useState<AssistantShortcut[]>(settings.assistantShortcuts);
   const [assistantDefaultProvider, setAssistantDefaultProvider] = useState<AIProvider>(settings.assistantDefaultProvider);
   const [assistantDefaultModel, setAssistantDefaultModel] = useState<Record<string, string>>(settings.assistantDefaultModel);
+  const [triviaEnabled, setTriviaEnabled] = useState(settings.triviaEnabled);
   const [testingKey, setTestingKey] = useState<string | false>(false);
   const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
 
@@ -72,6 +73,7 @@ export default function SettingsModal() {
       setAssistantShortcuts([...settings.assistantShortcuts]);
       setAssistantDefaultProvider(settings.assistantDefaultProvider);
       setAssistantDefaultModel({ ...settings.assistantDefaultModel });
+      setTriviaEnabled(settings.triviaEnabled);
       setTestingKey(false);
       setTestResults({});
     }
@@ -94,6 +96,7 @@ export default function SettingsModal() {
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
       assistantDefaultProvider,
       assistantDefaultModel,
+      triviaEnabled,
     });
     setShowModal(false);
   };
@@ -211,9 +214,11 @@ export default function SettingsModal() {
                 theme={theme}
                 fontSize={fontSize}
                 sendShortcut={sendShortcut}
+                triviaEnabled={triviaEnabled}
                 onThemeChange={handleThemeChange}
                 onFontSizeChange={setFontSize}
                 onSendShortcutChange={setSendShortcut}
+                onTriviaEnabledChange={setTriviaEnabled}
               />
             )}
 
@@ -298,11 +303,11 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 function GeneralTab({
-  theme, fontSize, sendShortcut,
-  onThemeChange, onFontSizeChange, onSendShortcutChange,
+  theme, fontSize, sendShortcut, triviaEnabled,
+  onThemeChange, onFontSizeChange, onSendShortcutChange, onTriviaEnabledChange,
 }: {
-  theme: ThemeId; fontSize: number; sendShortcut: string;
-  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void;
+  theme: ThemeId; fontSize: number; sendShortcut: string; triviaEnabled: boolean;
+  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void; onTriviaEnabledChange: (v: boolean) => void;
 }) {
   return (
     <div>
@@ -356,6 +361,25 @@ function GeneralTab({
             <option value="enter">Enter</option>
           </select>
         </FieldRow>
+
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <label className="text-ui text-text-secondary">Show trivia while waiting</label>
+            <p className="text-label text-text-ghost">Display fun facts while Claude is working</p>
+          </div>
+          <button
+            onClick={() => onTriviaEnabledChange(!triviaEnabled)}
+            className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+              triviaEnabled ? "bg-accent" : "bg-bg-elevated border border-border"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
+                triviaEnabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
       </div>
     </div>
   );

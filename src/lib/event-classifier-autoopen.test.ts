@@ -6,6 +6,7 @@ import { useFileViewerStore } from "../stores/fileViewerStore";
 import { useUiStore } from "../stores/uiStore";
 
 const SESSION_ID = "s1";
+const PROJECT_PATH = "/tmp";
 
 // Mock the dynamic import of tauri-commands used inside event-classifier
 vi.mock("./tauri-commands", () => ({
@@ -17,7 +18,7 @@ function resetStores(): void {
   const session = {
     id: SESSION_ID,
     name: "Test",
-    project_path: "/tmp",
+    project_path: PROJECT_PATH,
     status: "connected" as const,
     created_at: "",
     model: null,
@@ -27,6 +28,7 @@ function resetStores(): void {
   useSessionStore.setState({
     sessions: new Map([[SESSION_ID, session]]),
     activeSessionId: SESSION_ID,
+    activeProjectPath: PROJECT_PATH,
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[
       SESSION_ID,
@@ -41,14 +43,14 @@ function resetStores(): void {
     approvalQueue: [],
     approvalSeenIds: new Set(),
     currentApprovalIndex: 0,
-    alwaysAllowedTools: new Set(),
+    alwaysAllowedTools: new Map(),
   });
 
   useFileViewerStore.setState({
-    openFiles: [],
-    activeFilePath: null,
-    editedContents: new Map(),
-    dirtyFiles: new Set(),
+    projectOpenFiles: new Map(),
+    projectActiveFile: new Map(),
+    projectEditedContents: new Map(),
+    projectDirtyFiles: new Map(),
   });
 
   useUiStore.setState({

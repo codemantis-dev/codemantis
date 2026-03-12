@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { X } from "lucide-react";
+import { useSessionStore } from "../../stores/sessionStore";
 
 interface ProjectTabProps {
   projectPath: string;
@@ -10,7 +11,38 @@ interface ProjectTabProps {
   onClose: () => void;
 }
 
+/** Returns "busy" | "stale" | "idle" for a project's sessions. */
+function useProjectBusyStatus(projectPath: string): "busy" | "stale" | "idle" {
+  const tabOrder = useSessionStore((s) => s.tabOrder);
+  const sessions = useSessionStore((s) => s.sessions);
+  const sessionBusy = useSessionStore((s) => s.sessionBusy);
+  const lastEventTimestamp = useSessionStore((s) => s.lastEventTimestamp);
+
+  const projectSessionIds = tabOrder.filter((id) => {
+    const s = sessions.get(id);
+    return s && s.project_path === projectPath;
+  });
+
+  let anyBusy = false;
+  let anyStale = false;
+
+  for (const id of projectSessionIds) {
+    if (sessionBusy.get(id)) {
+      anyBusy = true;
+      const lastTs = lastEventTimestamp.get(id) ?? 0;
+      if (Date.now() - lastTs > 30_000) {
+        anyStale = true;
+      }
+    }
+  }
+
+  if (anyStale) return "stale";
+  if (anyBusy) return "busy";
+  return "idle";
+}
+
 export default function ProjectTab({
+  projectPath,
   projectName,
   sessionCount,
   isActive,
@@ -18,6 +50,7 @@ export default function ProjectTab({
   onClose,
 }: ProjectTabProps) {
   const [hovered, setHovered] = useState(false);
+  const busyStatus = useProjectBusyStatus(projectPath);
 
   const handleCloseClick = useCallback(
     (e: React.MouseEvent) => {
@@ -43,18 +76,31 @@ export default function ProjectTab({
         }
       `}
     >
+      {/* Status dot */}
+      {busyStatus !== "idle" && (
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            busyStatus === "busy"
+              ? "bg-green-400 animate-pulse"
+              : "bg-yellow-400"
+          }`}
+        />
+      )}
+
       {/* Folder icon */}
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        className="text-text-dim shrink-0"
-      >
-        <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-      </svg>
+      {busyStatus === "idle" && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="text-text-dim shrink-0"
+        >
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+      )}
 
       {/* Name + session count */}
       <div className="flex-1 min-w-0 overflow-hidden">

@@ -34,8 +34,7 @@ pub async fn route_events(
                 session_id: cli_sid,
                 ref extra,
                 ..
-            } => {
-                if subtype.as_deref() == Some("init") {
+            } if subtype.as_deref() == Some("init") => {
                     debug!("System init extra fields: {}", extra);
 
                     // Store model in SessionInfo so it's available at close time
@@ -83,7 +82,6 @@ pub async fn route_events(
                             let _ = app_handle.emit(&chat_event, &fe);
                         }
                     }
-                }
             }
 
             RawStreamEvent::Assistant { message, .. } => {
@@ -253,10 +251,81 @@ pub async fn route_events(
                 accumulated_text.clear();
             }
 
+            RawStreamEvent::System {
+                subtype,
+                ref extra,
+                ..
+            } if subtype.as_deref() == Some("status") => {
+                let status = extra.get("status").and_then(|v| v.as_str());
+                let is_compacting = status == Some("compacting");
+                let fe = FrontendEvent::CompactingStatus {
+                    session_id: session_id.clone(),
+                    is_compacting,
+                };
+                let _ = app_handle.emit(&chat_event, &fe);
+            }
+
+            RawStreamEvent::System {
+                subtype,
+                ref extra,
+                ..
+            } if subtype.as_deref() == Some("compact_boundary") => {
+                let metadata = extra.get("compact_metadata");
+                let trigger = metadata
+                    .and_then(|m| m.get("trigger"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let pre_tokens = metadata
+                    .and_then(|m| m.get("pre_tokens"))
+                    .and_then(|v| v.as_u64());
+                let fe = FrontendEvent::CompactComplete {
+                    session_id: session_id.clone(),
+                    trigger,
+                    pre_tokens,
+                };
+                let _ = app_handle.emit(&chat_event, &fe);
+            }
+
+            RawStreamEvent::ToolProgress {
+                tool_use_id,
+                tool_name,
+                elapsed_time_seconds,
+                ..
+            } => {
+                if let (Some(id), Some(name), Some(elapsed)) =
+                    (tool_use_id, tool_name, elapsed_time_seconds)
+                {
+                    let fe = FrontendEvent::ToolProgress {
+                        session_id: session_id.clone(),
+                        tool_use_id: id,
+                        tool_name: name,
+                        elapsed_seconds: elapsed,
+                    };
+                    let _ = app_handle.emit(&activity_event, &fe);
+                }
+            }
+
+            RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
+                if let Some(info) = rate_limit_info {
+                    let utilization = info.utilization.unwrap_or(0.0);
+                    if utilization > 0.7 || info.status.as_deref() == Some("allowed_warning") {
+                        let fe = FrontendEvent::RateLimitWarning {
+                            session_id: session_id.clone(),
+                            utilization,
+                            resets_at: info.resets_at,
+                        };
+                        let _ = app_handle.emit(&chat_event, &fe);
+                    }
+                }
+            }
+
+            // Unhandled System subtypes (task_started, hook_*, etc.)
+            RawStreamEvent::System { .. } => {}
+
             RawStreamEvent::MessageStart { .. }
             | RawStreamEvent::MessageDelta { .. }
-            | RawStreamEvent::MessageStop { .. }
-            | RawStreamEvent::RateLimitEvent { .. } => {}
+            | RawStreamEvent::MessageStop { .. } => {}
 
             RawStreamEvent::User { message, .. } => {
                 // User events contain tool_result content blocks

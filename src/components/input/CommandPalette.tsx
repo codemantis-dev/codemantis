@@ -141,7 +141,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
         <div
           ref={listRef}
           className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-border shadow-lg overflow-hidden z-10"
-          style={{ background: "var(--bg-elevated)" }}
+          style={{ background: "var(--bg-primary)" }}
         >
           <div className="px-4 py-3 text-ui text-text-dim">Loading commands...</div>
         </div>
@@ -153,7 +153,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
         <div
           ref={listRef}
           className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-border shadow-lg overflow-hidden z-10"
-          style={{ background: "var(--bg-elevated)" }}
+          style={{ background: "var(--bg-primary)" }}
         >
           <div className="px-4 py-3 text-ui text-text-dim">
             No commands matching &ldquo;/{query}&rdquo;
@@ -166,7 +166,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
       <div
         ref={listRef}
         className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-border shadow-lg overflow-hidden z-10"
-        style={{ background: "var(--bg-elevated)", maxHeight: 300 }}
+        style={{ background: "var(--bg-primary)", maxHeight: 300 }}
       >
         <div className="overflow-y-auto" style={{ maxHeight: 300 }}>
           {filtered.map((cmd, i) => {

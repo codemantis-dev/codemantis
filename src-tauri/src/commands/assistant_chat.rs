@@ -206,7 +206,6 @@ async fn stream_openai(
         "messages": api_messages,
         "stream": true,
         "stream_options": {"include_usage": true},
-        "temperature": 0.7,
     });
 
     let resp = client
@@ -308,7 +307,6 @@ async fn stream_gemini(
     let body = serde_json::json!({
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
-        "generationConfig": {"temperature": 0.7}
     });
 
     let resp = client
@@ -397,7 +395,6 @@ async fn stream_anthropic(
         "system": system_prompt,
         "messages": api_messages,
         "stream": true,
-        "temperature": 0.7,
     });
 
     let resp = client

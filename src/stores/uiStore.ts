@@ -15,6 +15,8 @@ interface UiState {
   projectPickerTab: ProjectPickerTab;
   showCliOverlay: boolean;
   cliOverlayInitialInput: string | null;
+  cliOverlaySessionId: string | null;
+  cliOverlayProjectPath: string | null;
   claudeBinaryPath: string | null;
   showProjectLog: boolean;
   showClaudeHistory: boolean;
@@ -33,6 +35,8 @@ interface UiState {
   openProjectPicker: (tab: ProjectPickerTab) => void;
   setShowCliOverlay: (show: boolean) => void;
   setCliOverlayInitialInput: (input: string | null) => void;
+  setCliOverlaySessionId: (id: string | null) => void;
+  setCliOverlayProjectPath: (path: string | null) => void;
   setClaudeBinaryPath: (path: string | null) => void;
   setShowProjectLog: (show: boolean) => void;
   setShowClaudeHistory: (show: boolean) => void;
@@ -52,6 +56,8 @@ export const useUiStore = create<UiState>((set) => ({
   projectPickerTab: "templates",
   showCliOverlay: false,
   cliOverlayInitialInput: null,
+  cliOverlaySessionId: null,
+  cliOverlayProjectPath: null,
   claudeBinaryPath: null,
   showProjectLog: false,
   showClaudeHistory: false,
@@ -70,8 +76,10 @@ export const useUiStore = create<UiState>((set) => ({
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setProjectPickerTab: (tab) => set({ projectPickerTab: tab }),
   openProjectPicker: (tab) => set({ showProjectPicker: true, projectPickerTab: tab }),
-  setShowCliOverlay: (show) => set({ showCliOverlay: show }),
+  setShowCliOverlay: (show) => set({ showCliOverlay: show, ...(!show ? { cliOverlaySessionId: null, cliOverlayProjectPath: null } : {}) }),
   setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),
+  setCliOverlaySessionId: (id) => set({ cliOverlaySessionId: id }),
+  setCliOverlayProjectPath: (path) => set({ cliOverlayProjectPath: path }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
   setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
   setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),

@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerStore";
+import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { readFileContent } from "../lib/tauri-commands";
 
@@ -15,13 +16,15 @@ interface UseFileViewerReturn {
 
 export function useFileViewer(): UseFileViewerReturn {
   const openFile = useCallback(async (filePath: string) => {
+    const projectPath = useSessionStore.getState().activeProjectPath;
+    if (!projectPath) return;
     try {
       const content = await readFileContent(filePath);
       const fileName = filePath.split("/").pop() ?? filePath;
       const language = getLanguageFromPath(filePath);
       const extension = getExtension(filePath);
 
-      useFileViewerStore.getState().openFile({
+      useFileViewerStore.getState().openFile(projectPath, {
         filePath,
         fileName,
         language,
@@ -38,11 +41,13 @@ export function useFileViewer(): UseFileViewerReturn {
 
   const openDiff = useCallback(
     (filePath: string, oldContent: string, newContent: string) => {
+      const projectPath = useSessionStore.getState().activeProjectPath;
+      if (!projectPath) return;
       const fileName = filePath.split("/").pop() ?? filePath;
       const language = getLanguageFromPath(filePath);
       const extension = getExtension(filePath);
 
-      useFileViewerStore.getState().openFile({
+      useFileViewerStore.getState().openFile(projectPath, {
         filePath,
         fileName,
         language,

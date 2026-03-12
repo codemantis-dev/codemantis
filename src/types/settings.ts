@@ -58,6 +58,9 @@ export interface AppSettings {
   assistantShortcuts: AssistantShortcut[];
   assistantDefaultProvider: AIProvider;
   assistantDefaultModel: Record<string, string>;
+
+  // Trivia
+  triviaEnabled: boolean;
 }
 
 export { getDefaultModelPricing };

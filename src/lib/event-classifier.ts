@@ -12,6 +12,25 @@ import { showToast } from "../stores/toastStore";
 // Tools that indicate actual changes were made (not just reads)
 const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
 
+/** Maps tool names to human-readable activity labels for the ThinkingIndicator. */
+function toolActivityLabel(toolName: string): string {
+  switch (toolName) {
+    case "Read": return "Reading file...";
+    case "Glob": return "Searching files...";
+    case "Grep": return "Searching code...";
+    case "Write": return "Writing file...";
+    case "Edit": return "Editing code...";
+    case "Bash": return "Running command...";
+    case "Agent": return "Running sub-agent...";
+    case "NotebookEdit": return "Editing notebook...";
+    case "ListDirectory": case "LS": return "Listing files...";
+    case "WebSearch": return "Searching the web...";
+    case "WebFetch": return "Fetching web page...";
+    case "TodoRead": case "TodoWrite": return "Managing tasks...";
+    default: return `Running ${toolName}...`;
+  }
+}
+
 let messageCounter = 0;
 
 // Track tool calls per turn for context window estimation.
@@ -76,6 +95,7 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
 
     case "text_delta": {
       store.touchLastEvent(sessionId);
+      store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0 });
       const streaming = store.sessionStreaming.get(sessionId);
       if (!streaming?.isStreaming) {
         const msgId = nextMessageId();
@@ -198,9 +218,17 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
     }
 
     case "process_exited": {
-      store.setSessionBusy(sessionId, false);
-      if (store.sessionStreaming.get(sessionId)?.isStreaming) {
-        store.finalizeStreaming(sessionId);
+      // Safety net: if turn_complete already cleared busy/streaming, this is a no-op.
+      // Only act if the session is still stuck (e.g., process crashed before emitting result).
+      const wasBusy = store.sessionBusy.get(sessionId) ?? false;
+      const wasStreaming = store.sessionStreaming.get(sessionId)?.isStreaming ?? false;
+
+      if (wasBusy || wasStreaming) {
+        console.warn("[process_exited] Session still busy/streaming — recovering:", sessionId);
+        store.setSessionBusy(sessionId, false);
+        if (wasStreaming) {
+          store.finalizeStreaming(sessionId);
+        }
       }
       store.updateSessionStatus(sessionId, "idle");
 
@@ -306,6 +334,39 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       // Clean exit (code 0): no message needed
       break;
     }
+
+    case "compacting_status": {
+      store.touchLastEvent(sessionId);
+      store.setSessionCompacting(sessionId, event.is_compacting);
+      if (event.is_compacting) {
+        store.setSessionActivity(sessionId, { label: "Compacting context...", toolName: null, toolElapsed: 0 });
+        showToast("Compacting context — this may take a moment...", "info", 5000);
+      }
+      break;
+    }
+
+    case "compact_complete": {
+      store.touchLastEvent(sessionId);
+      store.setSessionCompacting(sessionId, false);
+      const tokenInfo = event.pre_tokens
+        ? ` (was ${Math.round(event.pre_tokens / 1000)}K tokens)`
+        : "";
+      const triggerLabel = event.trigger === "manual" ? "Manual" : "Auto";
+      showToast(`${triggerLabel} compaction complete${tokenInfo}`, "info", 6000);
+      break;
+    }
+
+    case "rate_limit_warning": {
+      store.touchLastEvent(sessionId);
+      store.setRateLimitUtilization(sessionId, event.utilization);
+      const pct = Math.round(event.utilization * 100);
+      if (event.utilization >= 0.9) {
+        showToast(`Rate limit ${pct}% utilized — requests may be throttled soon`, "error", 10000);
+      } else if (event.utilization >= 0.7) {
+        showToast(`Rate limit ${pct}% utilized`, "info", 6000);
+      }
+      break;
+    }
   }
 }
 
@@ -320,6 +381,13 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       useSessionStore.getState().touchLastEvent(sessionId);
       // Track tool calls per turn for context estimation
       turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
+
+      // Update activity label to reflect what tool is running
+      sessionStore.setSessionActivity(sessionId, {
+        label: toolActivityLabel(event.tool_name),
+        toolName: event.tool_name,
+        toolElapsed: 0,
+      });
 
       // Check main session store first, then assistant store for the streaming messageId
       let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;
@@ -341,7 +409,20 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       break;
     }
 
+    case "tool_progress": {
+      useSessionStore.getState().touchLastEvent(sessionId);
+      // Update activity with elapsed time — this is the heartbeat signal
+      sessionStore.setSessionActivity(sessionId, {
+        label: toolActivityLabel(event.tool_name),
+        toolName: event.tool_name,
+        toolElapsed: event.elapsed_seconds,
+      });
+      break;
+    }
+
     case "tool_result": {
+      // Tool finished — revert activity to "Thinking..." for next tool or text
+      sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0 });
       activityStore.updateEntryStatus(
         sessionId,
         event.tool_use_id,
@@ -360,12 +441,15 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       }
 
       // Auto-open file when Write or Edit tool completes successfully
-      // Only auto-switch tab for main sessions, not assistant sessions
+      // Only auto-switch tab for the active session's project
       if (!event.is_error) {
+        const isActiveSession = sessionId === sessionStore.activeSessionId;
         const isMainSession = sessionStore.sessions.has(sessionId);
+        const session = sessionStore.sessions.get(sessionId);
+        const projectPath = session?.project_path;
         const entries = activityStore.getActiveEntries(sessionId);
         const entry = entries.find((e) => e.toolUseId === event.tool_use_id);
-        if (entry) {
+        if (entry && projectPath) {
           const toolName = entry.toolName;
           const filePath = entry.toolInput.file_path as string | undefined;
           if (filePath && (toolName === "Write" || toolName === "Edit")) {
@@ -375,7 +459,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
             // Read the file content asynchronously for auto-open
             import("./tauri-commands").then(({ readFileContent }) => {
               readFileContent(filePath).then((content) => {
-                useFileViewerStore.getState().openFile({
+                useFileViewerStore.getState().openFile(projectPath, {
                   filePath,
                   fileName,
                   language,
@@ -384,7 +468,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
                   content,
                   isDiff: false,
                 });
-                if (isMainSession) {
+                if (isMainSession && isActiveSession) {
                   useUiStore.getState().setRightTab("files");
                 }
               }).catch(() => {
@@ -424,43 +508,80 @@ function checkContextThresholds(sessionId: string): void {
   }
 }
 
-// ── Stale connection detection ──
-// If the session is busy and no events arrive for 60+ seconds, warn.
+// ── Stale connection detection (progressive) ──
+// Monitors for silent sessions and provides escalating feedback.
+// Thresholds: 120s (first warning), 300s (second), 600s (third with action).
 const staleTimers = new Map<string, ReturnType<typeof setInterval>>();
+const staleWarningCount = new Map<string, number>();
 
 export function startStaleDetection(sessionId: string): void {
   stopStaleDetection(sessionId);
   const store = useSessionStore.getState();
   store.touchLastEvent(sessionId);
+  staleWarningCount.set(sessionId, 0);
 
-  const timer = setInterval(() => {
+  const timer = setInterval(async () => {
     const s = useSessionStore.getState();
     const isBusy = s.sessionBusy.get(sessionId) ?? false;
-    if (!isBusy) return;
+    if (!isBusy) {
+      staleWarningCount.set(sessionId, 0);
+      return;
+    }
 
     const lastTs = s.lastEventTimestamp.get(sessionId) ?? 0;
     const elapsed = Date.now() - lastTs;
-    if (elapsed > 60_000) {
-      // Show stale warning (only once per stale period)
-      const streaming = s.sessionStreaming.get(sessionId);
-      if (streaming?.isStreaming) return; // Still streaming text, not truly stale
 
-      s.addMessage(sessionId, {
-        id: `stale-${Date.now()}`,
-        role: "assistant",
-        content:
-          "**No response received for 60+ seconds.** The connection may be stale.\n\n" +
-          "You can wait for the response or restart the session.",
-        timestamp: new Date().toISOString(),
-        activityIds: [],
-        isStreaming: false,
-        restartable: true,
-      });
-      showToast("No response for 60s — connection may be stale", "info", 10000);
-      // Reset so we don't spam
-      s.touchLastEvent(sessionId);
+    // Only check if truly silent for >120s and not streaming text
+    if (elapsed <= 120_000) return;
+    const streaming = s.sessionStreaming.get(sessionId);
+    if (streaming?.isStreaming) return;
+
+    // Check if the process is actually still alive
+    try {
+      const { checkProcessAlive } = await import("./tauri-commands");
+      const alive = await checkProcessAlive(sessionId);
+
+      if (!alive) {
+        const now = new Date().toISOString();
+        s.setSessionBusy(sessionId, false);
+        if (s.sessionStreaming.get(sessionId)?.isStreaming) {
+          s.finalizeStreaming(sessionId);
+        }
+        s.addMessage(sessionId, {
+          id: `recovered-${Date.now()}`,
+          role: "assistant",
+          content:
+            "**Session ended.** The Claude Code process exited without a completion signal.\n\n" +
+            "Your work is saved. You can send a new message to continue.",
+          timestamp: now,
+          activityIds: [],
+          isStreaming: false,
+          restartable: true,
+        });
+        showToast("Session recovered — process had ended", "info", 6000);
+        staleWarningCount.set(sessionId, 0);
+        return;
+      }
+    } catch (e) {
+      console.error("[stale-detection] Failed to check process health:", e);
     }
-  }, 10_000);
+
+    // Process is alive — progressive warnings
+    const count = (staleWarningCount.get(sessionId) ?? 0) + 1;
+    staleWarningCount.set(sessionId, count);
+
+    const elapsedMin = Math.round(elapsed / 60_000);
+    if (count === 1) {
+      showToast(`No events for ${elapsedMin}m — Claude may be working on a complex task`, "info", 10000);
+    } else if (count === 2) {
+      showToast(`Still no events after ${elapsedMin}m — process is alive, likely deep in analysis`, "info", 10000);
+    } else if (count % 3 === 0) {
+      // Every 3rd check (~45s intervals after first), remind the user
+      showToast(`No events for ${elapsedMin}m — process still running`, "info", 8000);
+    }
+
+    // Don't reset timestamp — let elapsed accumulate for accurate reporting
+  }, 15_000);
 
   staleTimers.set(sessionId, timer);
 }

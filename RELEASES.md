@@ -1,5 +1,34 @@
 # CodeMantis Releases
 
+## 0.5.5
+
+- Add contextual activity labels: tool-specific status messages (Reading file, Editing code, Running command, Searching code, etc.)
+- Add tool_progress heartbeat parsing for liveness detection during long-running tool operations
+- Add compacting_status and compact_complete event handling with visual indicator
+- Add rate_limit_warning event parsing with utilization tracking (shown when >50%)
+- Add SessionStatusBar: persistent bottom bar showing status dot, elapsed time, tokens, cost, context %, rate limit
+- Add elapsed timer on ThinkingIndicator ticking from busySince timestamp
+- Add tool elapsed time display for long-running tools (>5s)
+- Add message timestamps on user and assistant message bubbles
+- Add "took Xm Ys" duration display on completed assistant messages
+- Add project tab busy indicators: green pulsing dot (active), yellow static dot (stale >30s)
+- Improve stale detection to progressive escalation instead of single-shot toast
+- Add SessionActivityInfo interface and busySince/sessionCompacting/rateLimitUtilization state to session store
+- Add comprehensive transparency test suite (event-classifier-transparency.test.ts)
+
+## 0.5.4
+
+- Fix ProcessExited event emitted to wrong channel causing sessions stuck in "busy" state forever
+- Fix race condition: delay ProcessExited 2s to let message router finish draining buffered events
+- Fix cross-project contamination: scope file viewer state per-project (openFiles, activeFile, editedContents, dirtyFiles)
+- Fix cross-project tool approval leakage: scope alwaysAllowedTools per project path
+- Fix auto-open guard: only open files/switch tabs for the active session, not background projects
+- Add project name to tool approval modal so users know which project is requesting
+- Add `checkProcessAlive` Tauri command for stale connection health checks
+- Reduce stale detection aggressiveness: 120s timeout, toast-only (no inline messages), auto-recovery when process dead
+- Fix auto-scroll on send: chat scrolls to bottom when new message sent while scrolled up
+- Fix "New messages" button background from transparent to opaque
+
 ## 0.5.3
 
 - Add file upload, image paste, and drag-drop attachment support to Assistant panel

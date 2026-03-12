@@ -14,6 +14,19 @@ interface RetryState {
   retryTimerId: ReturnType<typeof setTimeout> | null;
 }
 
+/** Tracks what Claude is currently doing for UI display. */
+export interface SessionActivityInfo {
+  label: string;        // e.g., "Reading files...", "Editing code..."
+  toolName: string | null;
+  toolElapsed: number;  // seconds
+}
+
+const DEFAULT_ACTIVITY: SessionActivityInfo = {
+  label: "Thinking...",
+  toolName: null,
+  toolElapsed: 0,
+};
+
 interface SessionState {
   sessions: Map<string, Session>;
   activeSessionId: string | null;
@@ -27,6 +40,10 @@ interface SessionState {
   sessionRetry: Map<string, RetryState>;
   lastEventTimestamp: Map<string, number>;
   contextToastFired: Map<string, Set<number>>;
+  sessionActivity: Map<string, SessionActivityInfo>;
+  sessionCompacting: Map<string, boolean>;
+  busySince: Map<string, number>;       // timestamp when busy started
+  rateLimitUtilization: Map<string, number>;  // 0-1
   tabOrder: string[];
 
   // Project grouping
@@ -64,6 +81,9 @@ interface SessionState {
   clearRetry: (sessionId: string) => void;
   touchLastEvent: (sessionId: string) => void;
   markContextToastFired: (sessionId: string, threshold: number) => void;
+  setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
+  setSessionCompacting: (sessionId: string, compacting: boolean) => void;
+  setRateLimitUtilization: (sessionId: string, utilization: number) => void;
 
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
@@ -103,6 +123,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionRetry: new Map(),
   lastEventTimestamp: new Map(),
   contextToastFired: new Map(),
+  sessionActivity: new Map(),
+  sessionCompacting: new Map(),
+  busySince: new Map(),
+  rateLimitUtilization: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -409,7 +433,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => {
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(sessionId, busy);
-      return { sessionBusy };
+      const busySince = new Map(state.busySince);
+      const sessionActivity = new Map(state.sessionActivity);
+      if (busy) {
+        busySince.set(sessionId, Date.now());
+        sessionActivity.set(sessionId, { ...DEFAULT_ACTIVITY });
+      } else {
+        busySince.delete(sessionId);
+        sessionActivity.delete(sessionId);
+      }
+      return { sessionBusy, busySince, sessionActivity };
     }),
 
   setSessionEffort: (sessionId, effort) =>
@@ -447,7 +480,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionEffort.set(sessionId, "high");
       const contextToastFired = new Map(state.contextToastFired);
       contextToastFired.set(sessionId, new Set());
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired };
+      const sessionActivity = new Map(state.sessionActivity);
+      sessionActivity.delete(sessionId);
+      const sessionCompacting = new Map(state.sessionCompacting);
+      sessionCompacting.delete(sessionId);
+      const busySince = new Map(state.busySince);
+      busySince.delete(sessionId);
+      const rateLimitUtilization = new Map(state.rateLimitUtilization);
+      rateLimitUtilization.delete(sessionId);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -481,6 +522,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       updated.add(threshold);
       contextToastFired.set(sessionId, updated);
       return { contextToastFired };
+    }),
+
+  setSessionActivity: (sessionId, activity) =>
+    set((state) => {
+      const sessionActivity = new Map(state.sessionActivity);
+      sessionActivity.set(sessionId, activity);
+      return { sessionActivity };
+    }),
+
+  setSessionCompacting: (sessionId, compacting) =>
+    set((state) => {
+      const sessionCompacting = new Map(state.sessionCompacting);
+      sessionCompacting.set(sessionId, compacting);
+      return { sessionCompacting };
+    }),
+
+  setRateLimitUtilization: (sessionId, utilization) =>
+    set((state) => {
+      const rateLimitUtilization = new Map(state.rateLimitUtilization);
+      rateLimitUtilization.set(sessionId, utilization);
+      return { rateLimitUtilization };
     }),
 
   // Derived helpers

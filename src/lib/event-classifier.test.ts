@@ -35,7 +35,7 @@ function resetStores(): void {
     approvalQueue: [],
     approvalSeenIds: new Set(),
     currentApprovalIndex: 0,
-    alwaysAllowedTools: new Set(),
+    alwaysAllowedTools: new Map(),
   });
 
   useUiStore.setState({

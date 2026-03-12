@@ -94,6 +94,39 @@ impl Database {
             let _ = conn.execute_batch(sql);
         }
 
+        // Migrate api_logs: remove FOREIGN KEY constraint if present.
+        // API assistant sessions use frontend-generated IDs that are not in the sessions table,
+        // so the FK constraint silently rejects all API provider log inserts.
+        let needs_fk_migration: bool = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='api_logs'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|sql| sql.contains("FOREIGN KEY"))
+            .unwrap_or(false);
+
+        if needs_fk_migration {
+            log::info!("[database] Migrating api_logs to remove FOREIGN KEY constraint");
+            let _ = conn.execute_batch(
+                "CREATE TABLE api_logs_new (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0.0,
+                    success INTEGER NOT NULL DEFAULT 1,
+                    error_message TEXT
+                );
+                INSERT INTO api_logs_new SELECT * FROM api_logs;
+                DROP TABLE api_logs;
+                ALTER TABLE api_logs_new RENAME TO api_logs;"
+            );
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })

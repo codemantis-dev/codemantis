@@ -2,9 +2,15 @@ import { useCallback, useState, useMemo, useEffect } from "react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { X, FileText, WrapText, Columns2, Save } from "lucide-react";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
+import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getMonacoTheme } from "../../lib/editor-themes";
 import { writeFileContent } from "../../lib/tauri-commands";
+
+// Stable empty defaults to avoid re-render loops from zustand selectors
+const EMPTY_TABS: import("../../stores/fileViewerStore").FileViewerTab[] = [];
+const EMPTY_DIRTY = new Set<string>();
+const EMPTY_EDITED = new Map<string, string>();
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -29,19 +35,27 @@ function computeDiffSummary(oldContent: string, newContent: string): { added: nu
 }
 
 export default function FileViewer() {
-  const openFiles = useFileViewerStore((s) => s.openFiles);
-  const activeFilePath = useFileViewerStore((s) => s.activeFilePath);
-  const dirtyFiles = useFileViewerStore((s) => s.dirtyFiles);
-  const editedContents = useFileViewerStore((s) => s.editedContents);
-  const closeFile = useFileViewerStore((s) => s.closeFile);
-  const setActiveFile = useFileViewerStore((s) => s.setActiveFile);
-  const setEditedContent = useFileViewerStore((s) => s.setEditedContent);
-  const markSaved = useFileViewerStore((s) => s.markSaved);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const pp = activeProjectPath ?? "";
+
+  const openFiles = useFileViewerStore((s) => s.projectOpenFiles.get(pp) ?? EMPTY_TABS);
+  const activeFilePath = useFileViewerStore((s) => s.projectActiveFile.get(pp) ?? null);
+  const dirtyFiles = useFileViewerStore((s) => s.projectDirtyFiles.get(pp) ?? EMPTY_DIRTY);
+  const editedContents = useFileViewerStore((s) => s.projectEditedContents.get(pp) ?? EMPTY_EDITED);
+  const storeCloseFile = useFileViewerStore((s) => s.closeFile);
+  const storeSetActiveFile = useFileViewerStore((s) => s.setActiveFile);
+  const storeSetEditedContent = useFileViewerStore((s) => s.setEditedContent);
+  const storeMarkSaved = useFileViewerStore((s) => s.markSaved);
   const themeId = useSettingsStore((s) => s.settings.theme);
   const [wordWrap, setWordWrap] = useState(true);
   const [sideBySide, setSideBySide] = useState(false);
   const [saving, setSaving] = useState(false);
   const monacoColors = useMemo(() => getMonacoTheme(themeId), [themeId]);
+
+  const closeFile = useCallback((filePath: string) => storeCloseFile(pp, filePath), [pp, storeCloseFile]);
+  const setActiveFile = useCallback((filePath: string) => storeSetActiveFile(pp, filePath), [pp, storeSetActiveFile]);
+  const setEditedContent = useCallback((filePath: string, content: string) => storeSetEditedContent(pp, filePath, content), [pp, storeSetEditedContent]);
+  const markSaved = useCallback((filePath: string) => storeMarkSaved(pp, filePath), [pp, storeMarkSaved]);
 
   const activeTab = useMemo(
     () => openFiles.find((f) => f.filePath === activeFilePath) ?? null,
@@ -52,7 +66,7 @@ export default function FileViewer() {
 
   const handleSave = useCallback(async () => {
     if (!activeFilePath || !isDirty) return;
-    const content = useFileViewerStore.getState().editedContents.get(activeFilePath);
+    const content = useFileViewerStore.getState().projectEditedContents.get(pp)?.get(activeFilePath);
     if (content == null) return;
     setSaving(true);
     try {
@@ -63,7 +77,7 @@ export default function FileViewer() {
     } finally {
       setSaving(false);
     }
-  }, [activeFilePath, isDirty, markSaved]);
+  }, [activeFilePath, isDirty, markSaved, pp]);
 
   // Cmd+S keyboard shortcut for saving
   useEffect(() => {

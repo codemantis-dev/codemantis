@@ -41,6 +41,7 @@ interface AssistantState {
   busy: Map<string, boolean>;             // sessionId → is processing
   sessionCost: Map<string, TokenUsage>;   // sessionId → cumulative token usage
   attachments: Map<string, Attachment[]>; // sessionId → attachments
+  cliSessionIds: Map<string, string>;    // sessionId → Claude CLI session ID (for --resume)
 
   // Instance management
   addAssistant: (projectPath: string, instance: AssistantInstance) => void;
@@ -62,6 +63,10 @@ interface AssistantState {
   addTokenUsage: (sessionId: string, inputTokens: number, outputTokens: number) => void;
   getTokenUsage: (sessionId: string) => TokenUsage;
 
+  // CLI session ID tracking (for Claude Code assistants)
+  setCliSessionId: (sessionId: string, cliSessionId: string) => void;
+  getCliSessionId: (sessionId: string) => string | undefined;
+
   // Per-session attachment actions
   addAssistantAttachment: (sessionId: string, attachment: Attachment) => void;
   removeAssistantAttachment: (sessionId: string, attachmentId: string) => void;
@@ -79,6 +84,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   busy: new Map(),
   sessionCost: new Map(),
   attachments: new Map(),
+  cliSessionIds: new Map(),
 
   addAssistant: (projectPath, instance) =>
     set((state) => {
@@ -129,8 +135,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       sessionCost.delete(sessionId);
       const attachments = new Map(state.attachments);
       attachments.delete(sessionId);
+      const cliSessionIds = new Map(state.cliSessionIds);
+      cliSessionIds.delete(sessionId);
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments, cliSessionIds };
     }),
 
   setActiveAssistant: (projectPath, sessionId) =>
@@ -174,15 +182,17 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const busy = new Map(state.busy);
       const sessionCost = new Map(state.sessionCost);
       const attachments = new Map(state.attachments);
+      const cliSessionIds = new Map(state.cliSessionIds);
       for (const a of assistants) {
         messages.delete(a.id);
         streaming.delete(a.id);
         busy.delete(a.id);
         sessionCost.delete(a.id);
         attachments.delete(a.id);
+        cliSessionIds.delete(a.id);
       }
 
-      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments };
+      return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments, cliSessionIds };
     }),
 
   // Per-session message actions
@@ -271,6 +281,16 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 
   getTokenUsage: (sessionId) =>
     get().sessionCost.get(sessionId) ?? { inputTokens: 0, outputTokens: 0 },
+
+  setCliSessionId: (sessionId, cliSessionId) =>
+    set((state) => {
+      const cliSessionIds = new Map(state.cliSessionIds);
+      cliSessionIds.set(sessionId, cliSessionId);
+      return { cliSessionIds };
+    }),
+
+  getCliSessionId: (sessionId) =>
+    get().cliSessionIds.get(sessionId),
 
   addAssistantAttachment: (sessionId, attachment) =>
     set((state) => {
