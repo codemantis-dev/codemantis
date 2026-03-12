@@ -1,94 +1,72 @@
-# CLAUDE.md — CodeMantis Build Instructions
+# CLAUDE.md — CodeMantis
 
-## What This Project Is
+## What This Is
+CodeMantis is a native macOS desktop app (Tauri v2 + React 19 + TypeScript + Rust) that wraps the Claude Code CLI with a modern UI. Uses the user's existing Claude Pro/Max subscription — no API key needed for Claude Code features.
 
-CodeMantis is a native macOS desktop app (Tauri v2 + React + TypeScript) that wraps the Claude Code CLI with a modern UI. It uses the user's existing Claude Pro/Max subscription — no API key.
+## Architecture
+- **Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 3.4, Zustand 5, Radix UI, Monaco Editor, xterm.js
+- **Backend:** Tauri v2, Rust, tokio, serde, rusqlite (bundled SQLite), portable-pty, axum (approval server)
+- **CLI Integration:** `claude --input-format stream-json --output-format stream-json --include-partial-messages`
 
-## Primary Specification
-
-**Read `docs/requirements/` before any implementation work.** It contains the complete product specification with architecture, module details, data models, and implementation phases.
-
-## Implementation Approach
-
-Follow the phases defined in Section 24 of REQUIREMENTS.md. Build Phase 1 completely before starting Phase 2.
-
-### Phase 1 checklist:
-1. Scaffold Tauri v2 project: `pnpm create tauri-app codemantis` (TypeScript, React, pnpm)
-2. Install frontend deps: tailwindcss, @radix-ui/react-dialog, zustand, lucide-react, react-markdown, remark-gfm
-3. Set up the three-panel layout (AppShell component)
-4. Build the Rust CLI process manager (spawn `claude` in stream-json mode)
-5. Build the NDJSON stream parser and event router
-6. Wire up Chat Panel with streaming text display
-7. Wire up Activity Feed with tool operation entries
-8. Build Tool Approval modal
-9. Build basic File Tree in sidebar
-10. Build Input Area
-
-### Key architectural rules:
-- Chat Panel shows ONLY text. All tool operations go to the Activity Feed.
+### Key Architectural Rules
+- **Chat Panel** shows ONLY conversation text. All tool operations (file reads, writes, edits, bash) go to the **Activity Feed**
 - Each session = one Claude CLI process in bidirectional stream-json mode
-- Use Zustand for state (no Redux, no Context API for global state)
+- Zustand for all global state. No Redux, no Context API for global state
 - All Tauri IPC is async via invoke/listen
-- Rust backend handles all process spawning, filesystem access, and persistence
-- Frontend NEVER directly accesses the filesystem — always go through Tauri commands
+- Frontend NEVER directly accesses the filesystem — always through Tauri commands
 
-## Tech Stack (exact versions)
+## Project Structure
+```
+src/                          # React frontend
+  components/
+    chat/                     # ChatPanel, MessageBubble, CodeBlock, ThinkingIndicator, TriviaCard
+    input/                    # InputArea, CommandPalette, ModeSelector, AttachmentBar
+    layout/                   # AppShell, TitleBar, SessionTab, ProjectTab
+    modals/                   # SettingsModal, ProjectPicker, TemplatePicker, McpModal, CliOverlay, ToolApproval
+    rightpanel/               # RightPanel, ActivityFeed, FileViewer, TerminalView, AssistantPanel, ChangelogFeed
+    sidebar/                  # Sidebar, FileTree, GitStatusCard
+    shared/                   # ContextMeter, StatusDot, Toast, ToolBadge
+  stores/                     # Zustand stores (session, activity, settings, assistant, terminal, etc.)
+  hooks/                      # Custom hooks (useClaudeSession, useAssistantSession, useTerminal, etc.)
+  types/                      # TypeScript type definitions
+  lib/                        # Utilities (tauri-commands, event-classifier, editor-themes)
+  data/                       # Static data (shortcuts, trivia)
 
-- Tauri v2 (latest stable)
-- React 18+
-- TypeScript (strict mode)
-- Vite
-- Tailwind CSS v3
-- Zustand
-- xterm.js (@xterm/xterm) for terminals (Phase 2)
-- Monaco Editor for file viewer (Phase 3)
-- rusqlite with bundled feature for SQLite
-- tokio with full features for async Rust
-- serde + serde_json for JSON parsing
-- portable-pty for terminal PTY management (Phase 2)
-
-## Commands
-
-```bash
-# Development
-pnpm tauri dev
-
-# Build
-pnpm tauri build
-
-# Frontend only (for UI development)
-pnpm dev
-
-# Lint
-pnpm lint
-
-# Type check
-pnpm tsc --noEmit
+src-tauri/                    # Rust backend
+  src/
+    claude/                   # CLI process manager, stream parser, approval server
+    commands/                 # Tauri IPC commands (session, files, terminal, scaffold, mcp, etc.)
+    changelog/                # LLM-powered changelog summarizer (Gemini, OpenAI, Anthropic)
+    storage/                  # SQLite database (sessions, changelog entries, API logs)
+    terminal/                 # PTY manager for integrated terminals
+  resources/
+    templates.json            # Project template registry
+    claude-md/                # CLAUDE.md templates for each scaffold
 ```
 
-## File Organization Rules
-
-- React components: one component per file, default export
-- Rust modules: one module per file, re-export from mod.rs
-- Types: separate files in types/ directory, imported where needed
-- No barrel exports (index.ts re-exporting everything) — import directly from the file
-
-## Coding Standards
-
-- TypeScript: strict mode, no `any` types, explicit return types on exported functions
-- React: functional components only, hooks for all state/effects
-- Rust: handle all Results (no unwrap in production code), use thiserror for error types
-- CSS: Tailwind classes only, CSS variables for colors (defined in index.css)
-- Naming: camelCase for TS/JS, snake_case for Rust, PascalCase for components
+## Commands
+```bash
+pnpm tauri dev          # Full app with hot reload
+pnpm tauri build        # Production .dmg build
+pnpm dev                # Frontend only (Vite)
+pnpm lint               # ESLint
+pnpm tsc --noEmit       # Type check
+pnpm test               # Vitest
+cd src-tauri && cargo test  # Rust tests
+```
 
 ## Versioning
+Semantic versioning across THREE locations (must stay in sync):
+- `package.json` → `"version"`
+- `src-tauri/Cargo.toml` → `version`
+- `src-tauri/tauri.conf.json` → `"version"`
 
-CodeMantis uses semantic versioning (major.minor.patch).
+Add entry to `RELEASES.md` with every version bump.
 
-**On every commit that changes functionality:**
-1. Bump the patch version (or minor for features, major for breaking)
-2. Update version in ALL THREE locations:
-   - `package.json` → `"version"`
-   - `src-tauri/Cargo.toml` → `version`
-   - `src-tauri/tauri.conf.json` → `"version"`
-3. Add entry to `RELEASES.md` with version number and bullet list of changes
+## Code Standards
+- **TypeScript:** strict mode, no `any`, explicit return types on exports
+- **React:** functional components only, hooks for state/effects
+- **Rust:** handle all Results (no `.unwrap()` in production), thiserror for errors
+- **CSS:** Tailwind only, CSS variables for theme colors (defined in `index.css`)
+- **Naming:** camelCase (TS/JS), snake_case (Rust), PascalCase (components)
+- **Files:** one component per file, default export. One Rust module per file.
