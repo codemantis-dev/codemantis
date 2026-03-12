@@ -41,10 +41,10 @@ function toolActivityLabel(toolName: string): string {
 
 let messageCounter = 0;
 
-// Track tool calls per turn for context window estimation.
-// The CLI result event aggregates usage across all API calls in a turn
-// (each tool use triggers a new API call), so we divide by call count
-// to estimate the actual context window usage.
+// Track tool calls per turn for context window estimation (fallback only).
+// When usage_update events are available (modern CLI), context is updated
+// in real-time per API call. This counter is only used as a fallback for
+// older CLI versions that don't emit usage_update events.
 const turnToolCallCount = new Map<string, number>();
 
 function nextMessageId(): string {
@@ -157,24 +157,23 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         store.finalizeStreaming(sessionId);
       }
       if (event.usage) {
-        // Context window estimation:
-        // input_tokens = non-cached input only; cache_creation and cache_read
-        // are SEPARATE categories (not subsets). Total input sent to the model
-        // = input_tokens + cache_creation + cache_read.
-        //
-        // The result event aggregates usage across ALL API calls in a turn
-        // (each tool use triggers a new call). Divide by call count to
-        // estimate the per-call context, which reflects actual window usage.
         const totalInput =
           (event.usage.input_tokens ?? 0) +
           (event.usage.cache_creation_input_tokens ?? 0) +
           (event.usage.cache_read_input_tokens ?? 0);
         const totalOutput = event.usage.output_tokens ?? 0;
 
-        const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
-        const apiCalls = Math.max(toolCalls, 1);
-        const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
-        store.updateContext(sessionId, estimatedContext, 200000);
+        // Only use aggregate estimation as fallback when no per-call
+        // usage_update events arrived (backward compat with older CLI).
+        // When usage_updates are available, context is already up-to-date.
+        const stats = store.sessionStats.get(sessionId);
+        const hadIncrementalUpdates = stats && stats.apiCallCount > 0;
+        if (!hadIncrementalUpdates) {
+          const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
+          const apiCalls = Math.max(toolCalls, 1);
+          const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
+          store.updateContext(sessionId, estimatedContext, 200000);
+        }
       }
       // Reset tool call counter for next turn
       turnToolCallCount.delete(sessionId);
@@ -390,6 +389,17 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         event.usage.cache_creation_input_tokens ?? 0,
         event.usage.cache_read_input_tokens ?? 0,
       );
+      // Real-time context update: each usage_update represents a single API
+      // call, so the total tokens IS the context window size at that point.
+      const callContext =
+        (event.usage.input_tokens ?? 0) +
+        (event.usage.cache_creation_input_tokens ?? 0) +
+        (event.usage.cache_read_input_tokens ?? 0) +
+        (event.usage.output_tokens ?? 0);
+      if (callContext > 0) {
+        store.updateContext(sessionId, callContext, 200000);
+        checkContextThresholds(sessionId);
+      }
       break;
     }
   }

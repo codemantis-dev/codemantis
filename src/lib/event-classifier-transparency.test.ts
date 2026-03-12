@@ -338,6 +338,77 @@ describe("Transparency: Live Token Usage (usage_update)", () => {
   });
 });
 
+describe("Transparency: Real-time Context Updates", () => {
+  beforeEach(resetStores);
+
+  it("usage_update sets context in real-time", () => {
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: 1000, cache_read_input_tokens: 3000 },
+    });
+    const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    // 5000 + 1000 + 3000 + 500 = 9500
+    expect(ctx?.used).toBe(9500);
+    expect(ctx?.max).toBe(200000);
+  });
+
+  it("context grows with each successive usage_update", () => {
+    // First API call — small context
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 5000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    });
+    const ctx1 = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    expect(ctx1?.used).toBe(5200);
+
+    // Second API call — context grew (more input from tool results)
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 8000, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 5000 },
+    });
+    const ctx2 = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    expect(ctx2?.used).toBe(13300);
+    expect(ctx2!.used).toBeGreaterThan(ctx1!.used);
+  });
+
+  it("turn_complete does NOT overwrite context when usage_update was received", () => {
+    // usage_update sets context to 15000
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 10000, output_tokens: 5000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    });
+    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.used).toBe(15000);
+
+    // turn_complete with aggregate totals — should NOT overwrite
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 5000,
+      usage: { input_tokens: 20000, output_tokens: 10000, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      cost_usd: 0.05,
+    });
+    // Context should still be 15000 (from usage_update), not 30000 (from aggregate)
+    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.used).toBe(15000);
+  });
+
+  it("turn_complete DOES set context when no usage_update arrived (fallback)", () => {
+    // No usage_update — simulate older CLI
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 3000,
+      usage: { input_tokens: 8000, output_tokens: 2000, cache_creation_input_tokens: 500, cache_read_input_tokens: 4000 },
+      cost_usd: 0.02,
+    });
+    // 8000 + 500 + 4000 + 2000 = 14500, no tool calls so apiCalls=1
+    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.used).toBe(14500);
+  });
+});
+
 describe("Transparency: Busy State Tracking", () => {
   beforeEach(resetStores);
 
