@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import ActivityDetailPanel from "./ActivityDetailPanel";
 import { useUiStore } from "../../stores/uiStore";
+import { useFileViewerStore } from "../../stores/fileViewerStore";
+import { useSessionStore } from "../../stores/sessionStore";
 import type { ActivityEntry } from "../../types/activity";
 
 // Mock Monaco DiffEditor
@@ -29,11 +31,10 @@ vi.mock("@monaco-editor/react", () => {
   };
 });
 
-// Mock useFileViewer
-const mockOpenFile = vi.fn();
-const mockOpenDiff = vi.fn();
-vi.mock("../../hooks/useFileViewer", () => ({
-  useFileViewer: () => ({ openFile: mockOpenFile, openDiff: mockOpenDiff }),
+// Mock tauri-commands
+const mockReadFileContent = vi.fn<(path: string) => Promise<string>>(() => Promise.resolve("file content"));
+vi.mock("../../lib/tauri-commands", () => ({
+  readFileContent: (path: string) => mockReadFileContent(path),
 }));
 
 function makeEntry(overrides: Partial<ActivityEntry> = {}): ActivityEntry {
@@ -58,9 +59,9 @@ function showEntry(entry: ActivityEntry): void {
 
 describe("ActivityDetailPanel", () => {
   beforeEach(() => {
-    useUiStore.setState({ selectedActivityEntry: null });
-    mockOpenFile.mockReset();
-    mockOpenDiff.mockReset();
+    useUiStore.setState({ selectedActivityEntry: null, rightTab: "activity" });
+    useSessionStore.setState({ activeProjectPath: "/project" });
+    mockReadFileContent.mockReset().mockResolvedValue("file content");
   });
 
   it("renders nothing when no entry is selected", () => {
@@ -189,7 +190,9 @@ describe("ActivityDetailPanel", () => {
     expect(useUiStore.getState().selectedActivityEntry).toBeNull();
   });
 
-  it("calls openDiff for Edit tool footer action", () => {
+  it("opens diff in file viewer for Edit tool footer action", () => {
+    const openFileSpy = vi.spyOn(useFileViewerStore.getState(), "openFile");
+
     showEntry(
       makeEntry({
         toolName: "Edit",
@@ -204,11 +207,22 @@ describe("ActivityDetailPanel", () => {
 
     fireEvent.click(screen.getByText("Open Diff in File Viewer"));
 
-    expect(mockOpenDiff).toHaveBeenCalledWith("src/main.ts", "old", "new");
+    // Should dismiss the panel
     expect(useUiStore.getState().selectedActivityEntry).toBeNull();
+    // Should open diff in file viewer
+    expect(openFileSpy).toHaveBeenCalledWith("/project", expect.objectContaining({
+      filePath: "src/main.ts",
+      isDiff: true,
+      oldContent: "old",
+      newContent: "new",
+    }));
+    // Should switch to files tab
+    expect(useUiStore.getState().rightTab).toBe("files");
+
+    openFileSpy.mockRestore();
   });
 
-  it("calls openFile for Read tool footer action", () => {
+  it("opens file in file viewer for Read tool footer action", async () => {
     showEntry(
       makeEntry({
         toolName: "Read",
@@ -220,8 +234,12 @@ describe("ActivityDetailPanel", () => {
 
     fireEvent.click(screen.getByText("Open in File Viewer"));
 
-    expect(mockOpenFile).toHaveBeenCalledWith("src/main.ts");
+    // Should dismiss the panel immediately
     expect(useUiStore.getState().selectedActivityEntry).toBeNull();
+    // readFileContent is async, wait for it
+    await vi.waitFor(() => {
+      expect(mockReadFileContent).toHaveBeenCalledWith("src/main.ts");
+    });
   });
 
   it("renders MCP tool names formatted", () => {

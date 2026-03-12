@@ -3,10 +3,11 @@ import { DiffEditor } from "@monaco-editor/react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useFileViewerStore, getLanguageFromPath } from "../../stores/fileViewerStore";
 import { getActivityType } from "../../types/activity";
-import { getLanguageFromPath } from "../../stores/fileViewerStore";
 import { getMonacoTheme } from "../../lib/editor-themes";
-import { useFileViewer } from "../../hooks/useFileViewer";
+import { readFileContent } from "../../lib/tauri-commands";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
 
@@ -48,7 +49,6 @@ export default function ActivityDetailPanel() {
   const entry = useUiStore((s) => s.selectedActivityEntry);
   const setEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const themeId = useSettingsStore((s) => s.settings.theme);
-  const { openFile, openDiff } = useFileViewer();
 
   const dismiss = useCallback(() => setEntry(null), [setEntry]);
 
@@ -132,18 +132,60 @@ export default function ActivityDetailPanel() {
 
   const handleOpenInFileViewer = () => {
     if (!filePath) return;
-    if (isEdit && oldString !== undefined && newString !== undefined) {
-      openDiff(filePath, oldString, newString);
-    } else {
-      openFile(filePath);
-    }
+
+    // Capture values before dismiss unmounts the component
+    const fp = filePath;
+    const edit = isEdit;
+    const os = oldString;
+    const ns = newString;
+
+    // Dismiss first so the panel cleanly unmounts before tab switch
     dismiss();
+
+    // Then open in file viewer via direct store access (safe after unmount)
+    const projectPath = useSessionStore.getState().activeProjectPath;
+    if (!projectPath) return;
+
+    const fileName = fp.split("/").pop() ?? fp;
+    const lang = getLanguageFromPath(fp);
+    const ext = fp.split(".").pop()?.toLowerCase() ?? "";
+
+    if (edit && os !== undefined && ns !== undefined) {
+      useFileViewerStore.getState().openFile(projectPath, {
+        filePath: fp,
+        fileName,
+        language: lang,
+        extension: ext,
+        fileSize: new Blob([ns]).size,
+        content: null,
+        isDiff: true,
+        oldContent: os,
+        newContent: ns,
+      });
+      useUiStore.getState().setRightTab("files");
+    } else {
+      // Async file read — fire and forget safely
+      readFileContent(fp).then((content) => {
+        useFileViewerStore.getState().openFile(projectPath, {
+          filePath: fp,
+          fileName,
+          language: lang,
+          extension: ext,
+          fileSize: new Blob([content]).size,
+          content,
+          isDiff: false,
+        });
+        useUiStore.getState().setRightTab("files");
+      }).catch((e) => {
+        console.error("Failed to open file:", e);
+      });
+    }
   };
 
   return (
     <div
       className="absolute inset-0 z-20 flex flex-col animate-detail-slide-in"
-      style={{ background: "var(--bg-subtle)" }}
+      style={{ background: "var(--bg-primary)" }}
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border-light shrink-0">
@@ -194,7 +236,7 @@ export default function ActivityDetailPanel() {
                       key === "command" || key === "pattern" || key === "regex" ? "font-mono" : ""
                     }`}
                   >
-                    {typeof value === "string" ? value : JSON.stringify(value)}
+                    {typeof value === "string" ? value : String(value === undefined ? "" : JSON.stringify(value))}
                   </span>
                 </div>
               ))}

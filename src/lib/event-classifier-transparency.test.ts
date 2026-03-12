@@ -356,6 +356,24 @@ describe("Transparency: Busy State Tracking", () => {
     expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)).toBeUndefined();
   });
 
+  it("setSessionBusy(true) resets lastEventTimestamp to prevent false stale warnings", () => {
+    const store = useSessionStore.getState();
+    // Simulate old timestamp from a previous turn (e.g. 5 minutes ago)
+    const fiveMinutesAgo = Date.now() - 300_000;
+    useSessionStore.setState((s) => {
+      const lastEventTimestamp = new Map(s.lastEventTimestamp);
+      lastEventTimestamp.set(SESSION_ID, fiveMinutesAgo);
+      return { lastEventTimestamp };
+    });
+    expect(useSessionStore.getState().lastEventTimestamp.get(SESSION_ID)).toBe(fiveMinutesAgo);
+
+    // When user sends a new message (setSessionBusy(true)), the stale clock must reset
+    store.setSessionBusy(SESSION_ID, true);
+    const newTs = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID)!;
+    // Should be recent (within last second), not the old 5-minute-ago timestamp
+    expect(Date.now() - newTs).toBeLessThan(1000);
+  });
+
   it("turn_complete clears busy state and activity", () => {
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",

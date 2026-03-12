@@ -442,14 +442,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionBusy.set(sessionId, busy);
       const busySince = new Map(state.busySince);
       const sessionActivity = new Map(state.sessionActivity);
+      const lastEventTimestamp = new Map(state.lastEventTimestamp);
       if (busy) {
         busySince.set(sessionId, Date.now());
         sessionActivity.set(sessionId, { ...DEFAULT_ACTIVITY });
+        // Reset stale detection clock so idle time before sending
+        // a message doesn't count toward the 120s threshold
+        lastEventTimestamp.set(sessionId, Date.now());
       } else {
         busySince.delete(sessionId);
         sessionActivity.delete(sessionId);
       }
-      return { sessionBusy, busySince, sessionActivity };
+      return { sessionBusy, busySince, sessionActivity, lastEventTimestamp };
     }),
 
   setSessionEffort: (sessionId, effort) =>
