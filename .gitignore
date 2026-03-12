@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .codemantis
+.claude
 _guidance
 
 # Editor directories and files
