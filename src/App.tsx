@@ -7,7 +7,9 @@ import { useUiStore } from "./stores/uiStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import AppShell from "./components/layout/AppShell";
 import ToolApproval from "./components/modals/ToolApproval";
-import ProjectPicker, { addRecentProject, getRecentProjects } from "./components/modals/ProjectPicker";
+import ProjectPicker from "./components/modals/ProjectPicker";
+import WelcomeScreen from "./components/onboarding/WelcomeScreen";
+import { addRecentProject, getRecentProjects } from "./lib/recent-projects";
 import SettingsModal from "./components/modals/SettingsModal";
 import McpModal from "./components/modals/McpModal";
 import QuestionModal from "./components/modals/QuestionModal";
@@ -25,6 +27,11 @@ export default function App() {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const { startSession } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
+  const onboardingCompleted = useSettingsStore((s) => s.settings.onboardingCompleted);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   useKeyboardShortcuts();
   useToolApprovalListener();
@@ -41,6 +48,28 @@ export default function App() {
       .finally(() => setChecking(false));
     loadSettings();
   }, [loadSettings]);
+
+  const handleRecheck = async (): Promise<void> => {
+    setRechecking(true);
+    try {
+      const status = await checkClaudeStatus();
+      setClaudeStatus(status);
+      if (status.binary_path) {
+        useUiStore.getState().setClaudeBinaryPath(status.binary_path);
+      }
+    } catch (e) {
+      console.error("Recheck failed:", e);
+    } finally {
+      setRechecking(false);
+    }
+  };
+
+  const handleGetStarted = (skipFuture: boolean): void => {
+    if (skipFuture) {
+      updateSettings({ onboardingCompleted: true });
+    }
+    setOnboardingDismissed(true);
+  };
 
   const handleSelectProject = async (path: string) => {
     setError(null);
@@ -68,28 +97,23 @@ export default function App() {
     );
   }
 
-  if (claudeStatus && !claudeStatus.installed) {
+  // Show onboarding welcome screen on first launch (before settings are loaded or when not completed)
+  if (settingsLoaded && !onboardingCompleted && !onboardingDismissed) {
     return (
-      <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
-        <div className="h-12 shrink-0" data-tauri-drag-region />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-md p-8">
-            <h2 className="text-xl text-text-primary font-medium mb-3">
-              Claude Code Not Found
-            </h2>
-            <p className="text-text-secondary mb-4">
-              CodeMantis requires the Claude Code CLI. Install it with:
-            </p>
-            <code className="block px-4 py-2 rounded-lg bg-bg-elevated text-accent-light font-mono text-ui mb-4">
-              npm install -g @anthropic-ai/claude-code
-            </code>
-            <p className="text-text-faint text-ui">
-              Then run <code className="text-accent-light">claude login</code> to
-              authenticate.
-            </p>
-          </div>
-        </div>
-      </div>
+      <WelcomeScreen
+        claudeStatus={claudeStatus}
+        rechecking={rechecking}
+        onRecheck={handleRecheck}
+        onGetStarted={handleGetStarted}
+        onOpenProject={() => {
+          handleGetStarted(true);
+          openProjectPicker("open");
+        }}
+        onNewProject={() => {
+          handleGetStarted(true);
+          openProjectPicker("templates");
+        }}
+      />
     );
   }
 

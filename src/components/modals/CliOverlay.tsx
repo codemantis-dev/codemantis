@@ -197,6 +197,7 @@ export default function CliOverlay() {
               <span className="text-label text-text-ghost">Esc to close</span>
               <button
                 onClick={handleClose}
+                aria-label="Close CLI overlay"
                 className="text-text-dim hover:text-text-primary transition-colors p-0.5 rounded hover:bg-bg-elevated"
               >
                 <X size={15} />

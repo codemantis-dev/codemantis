@@ -46,6 +46,10 @@ pub struct AppSettings {
     // --- Trivia ---
     #[serde(default = "default_true")]
     pub trivia_enabled: bool,
+
+    // --- Onboarding ---
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +144,7 @@ impl Default for AppSettings {
             assistant_default_provider: default_assistant_provider(),
             assistant_default_model: HashMap::new(),
             trivia_enabled: true,
+            onboarding_completed: false,
         }
     }
 }

@@ -189,6 +189,7 @@ export default function FileViewer() {
                 {tab.fileName}{tabDirty ? " \u2022" : ""}
               </span>
               <span
+                role="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   closeFile(tab.filePath);

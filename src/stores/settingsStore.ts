@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   assistantDefaultProvider: "claude-code",
   assistantDefaultModel: {},
   triviaEnabled: true,
+  onboardingCompleted: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

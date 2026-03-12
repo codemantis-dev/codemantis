@@ -61,6 +61,9 @@ export interface AppSettings {
 
   // Trivia
   triviaEnabled: boolean;
+
+  // Onboarding
+  onboardingCompleted: boolean;
 }
 
 export { getDefaultModelPricing };

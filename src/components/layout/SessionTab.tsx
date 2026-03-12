@@ -113,6 +113,7 @@ export default function SessionTab({
       {(hovered || isActive) && !editing && (
         <button
           onClick={handleCloseClick}
+          aria-label={`Close ${name}`}
           className="p-0.5 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-subtle transition-colors shrink-0"
         >
           <X size={12} />

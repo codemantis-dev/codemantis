@@ -207,6 +207,7 @@ export default function SettingsModal() {
             {/* Close button */}
             <button
               onClick={handleCancel}
+              aria-label="Close settings"
               className="absolute top-4 right-4 text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
             >
               <X size={15} />

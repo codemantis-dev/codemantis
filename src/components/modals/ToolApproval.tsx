@@ -171,6 +171,7 @@ export default function ToolApproval() {
                 <button
                   onClick={() => navigateQueue(-1)}
                   disabled={currentApprovalIndex === 0}
+                  aria-label="Previous approval"
                   className="p-1 rounded hover:bg-bg-elevated transition-colors disabled:opacity-30"
                 >
                   <ChevronLeft size={16} className="text-text-secondary" />
@@ -181,6 +182,7 @@ export default function ToolApproval() {
                 <button
                   onClick={() => navigateQueue(1)}
                   disabled={currentApprovalIndex >= queueSize - 1}
+                  aria-label="Next approval"
                   className="p-1 rounded hover:bg-bg-elevated transition-colors disabled:opacity-30"
                 >
                   <ChevronRight size={16} className="text-text-secondary" />

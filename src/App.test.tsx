@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import App from "./App";
 import { useSessionStore } from "./stores/sessionStore";
 import { useUiStore } from "./stores/uiStore";
+import { useSettingsStore } from "./stores/settingsStore";
+import { getSettings } from "./lib/tauri-commands";
 
 // Mock tauri commands — must include all commands used transitively by stores/hooks
 vi.mock("./lib/tauri-commands", () => ({
@@ -22,6 +24,7 @@ vi.mock("./lib/tauri-commands", () => ({
     changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
     apiKeys: {}, modelPricing: {}, changelogPrompt: "",
     assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
+    triviaEnabled: true, onboardingCompleted: true,
   })),
   updateSettings: vi.fn(() => Promise.resolve()),
 }));
@@ -50,6 +53,8 @@ vi.mock("./components/modals/ToolApproval", () => ({
 }));
 vi.mock("./components/modals/ProjectPicker", () => ({
   default: () => null,
+}));
+vi.mock("./lib/recent-projects", () => ({
   addRecentProject: vi.fn(),
   getRecentProjects: () => {
     try {
@@ -59,6 +64,14 @@ vi.mock("./components/modals/ProjectPicker", () => ({
       return [];
     }
   },
+}));
+vi.mock("./components/onboarding/WelcomeScreen", () => ({
+  default: ({ onGetStarted }: { onGetStarted: (skipFuture: boolean) => void }) => (
+    <div data-testid="welcome-screen">
+      <h1>Welcome to CodeMantis</h1>
+      <button onClick={() => onGetStarted(true)}>Get Started</button>
+    </div>
+  ),
 }));
 vi.mock("./components/modals/QuestionModal", () => ({
   default: () => null,
@@ -98,6 +111,11 @@ describe("App welcome screen", () => {
     useUiStore.setState({
       showProjectPicker: false,
       projectPickerTab: "templates",
+    });
+    // Default: onboarding completed so existing tests see the normal home screen
+    useSettingsStore.setState({
+      loaded: true,
+      settings: { ...useSettingsStore.getState().settings, onboardingCompleted: true },
     });
   });
 
@@ -167,5 +185,69 @@ describe("App welcome screen", () => {
     });
     render(<App />);
     expect(await screen.findByTestId("app-shell")).toBeInTheDocument();
+  });
+});
+
+describe("App onboarding flow", () => {
+  const mockGetSettings = vi.mocked(getSettings);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    useSessionStore.setState({
+      tabOrder: [],
+      sessions: new Map(),
+      activeSessionId: null,
+    });
+    useUiStore.setState({
+      showProjectPicker: false,
+      projectPickerTab: "templates",
+    });
+    // Reset to fresh default state (loaded: false) so loadSettings can set it
+    useSettingsStore.setState({
+      loaded: false,
+      settings: { ...useSettingsStore.getState().settings, onboardingCompleted: false },
+    });
+  });
+
+  it("shows WelcomeScreen on first launch when onboarding not completed", async () => {
+    mockGetSettings.mockResolvedValueOnce({
+      theme: "dark", fontSize: 14, sendShortcut: "enter", terminalShell: null,
+      terminalFontSize: 13, quickCommands: [], changelogEnabled: false,
+      changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
+      apiKeys: {}, modelPricing: {}, changelogPrompt: "",
+      assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
+      triviaEnabled: true, onboardingCompleted: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    render(<App />);
+    expect(await screen.findByTestId("welcome-screen")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to CodeMantis")).toBeInTheDocument();
+  });
+
+  it("dismisses WelcomeScreen and shows home after Get Started", async () => {
+    mockGetSettings.mockResolvedValueOnce({
+      theme: "dark", fontSize: 14, sendShortcut: "enter", terminalShell: null,
+      terminalFontSize: 13, quickCommands: [], changelogEnabled: false,
+      changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
+      apiKeys: {}, modelPricing: {}, changelogPrompt: "",
+      assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
+      triviaEnabled: true, onboardingCompleted: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    render(<App />);
+    const getStartedBtn = await screen.findByText("Get Started");
+    fireEvent.click(getStartedBtn);
+    // After dismissing, should show the normal home screen
+    expect(await screen.findByText("CodeMantis")).toBeInTheDocument();
+    expect(screen.queryByTestId("welcome-screen")).not.toBeInTheDocument();
+  });
+
+  it("skips WelcomeScreen when onboarding already completed", async () => {
+    // Use default mock which returns onboardingCompleted: true
+    render(<App />);
+    // Should show home screen directly, not the welcome screen
+    expect(await screen.findByText("CodeMantis")).toBeInTheDocument();
+    expect(screen.queryByTestId("welcome-screen")).not.toBeInTheDocument();
   });
 });

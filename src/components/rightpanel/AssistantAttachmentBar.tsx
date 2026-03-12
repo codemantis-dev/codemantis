@@ -49,6 +49,7 @@ export default function AssistantAttachmentBar({ attachments, onRemove }: Props)
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onRemove(att.id); }}
+              aria-label={`Remove ${att.fileName}`}
               className="p-0.5 rounded hover:bg-bg-elevated text-text-ghost hover:text-text-secondary transition-colors shrink-0 opacity-0 group-hover:opacity-100"
             >
               <X size={10} />
@@ -79,6 +80,7 @@ export default function AssistantAttachmentBar({ attachments, onRemove }: Props)
                   <span className="text-white text-ui truncate">{preview.fileName} — {formatSize(preview.fileSize)}</span>
                   <button
                     onClick={() => setPreview(null)}
+                    aria-label="Close preview"
                     className="text-white/70 hover:text-white p-1 rounded hover:bg-white/10 transition-colors"
                   >
                     <X size={16} />

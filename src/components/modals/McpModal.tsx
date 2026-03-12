@@ -628,7 +628,10 @@ export default function McpModal() {
               <Blocks size={16} className="text-accent" />
               MCP Servers
             </Dialog.Title>
-            <Dialog.Close className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated">
+            <Dialog.Close
+              aria-label="Close MCP servers dialog"
+              className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
+            >
               <X size={15} />
             </Dialog.Close>
           </div>
