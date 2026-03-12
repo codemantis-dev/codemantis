@@ -99,7 +99,7 @@ export default function RightPanel() {
         )}
 
         <div className="flex-1 relative overflow-hidden">
-          {terminals.length === 0 ? (
+          {terminals.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center gap-2">
               <p className="text-text-faint text-ui">No terminals</p>
               <button
@@ -110,14 +110,19 @@ export default function RightPanel() {
                 Create Terminal
               </button>
             </div>
-          ) : (
-            terminals.map((terminal) => (
-              <TerminalView
-                key={terminal.id}
-                terminalId={terminal.id}
-                isVisible={terminal.id === activeTerminalId}
-              />
-            ))
+          )}
+
+          {/* Render ALL terminals across all sessions to preserve xterm state */}
+          {Array.from(sessionTerminals.entries()).flatMap(([sessionId, terms]) =>
+            terms
+              .filter((t) => t.kind !== "cli-overlay")
+              .map((terminal) => (
+                <TerminalView
+                  key={terminal.id}
+                  terminalId={terminal.id}
+                  isVisible={sessionId === activeSessionId && terminal.id === activeTerminalId}
+                />
+              ))
           )}
         </div>
 
