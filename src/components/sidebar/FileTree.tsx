@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import { useFileViewer } from "../../hooks/useFileViewer";
+import { renameFile } from "../../lib/tauri-commands";
+import FileTreeContextMenu from "./FileTreeContextMenu";
 
 interface FileTreeProps {
   nodes: FileNode[];
   depth?: number;
+  projectPath: string;
+  onRefresh: () => void;
 }
 
 const extensionColors: Record<string, string> = {
@@ -21,7 +25,88 @@ const extensionColors: Record<string, string> = {
   py: "#3572A5",
 };
 
-function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
+interface FileTreeNodeProps {
+  node: FileNode;
+  depth: number;
+  editingPath: string | null;
+  setEditingPath: (path: string | null) => void;
+  projectPath: string;
+  onRefresh: () => void;
+  onContextMenu: (x: number, y: number, node: FileNode) => void;
+}
+
+function InlineRenameInput({
+  node,
+  onRefresh,
+  onDone,
+}: {
+  node: FileNode;
+  onRefresh: () => void;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(node.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      // Select the name without extension for files
+      if (!node.is_dir && node.extension) {
+        const nameWithoutExt = node.name.slice(0, node.name.length - node.extension.length - 1);
+        inputRef.current.setSelectionRange(0, nameWithoutExt.length);
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [node]);
+
+  async function commit() {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === node.name) {
+      onDone();
+      return;
+    }
+    const parentDir = node.path.substring(0, node.path.lastIndexOf("/"));
+    const newPath = `${parentDir}/${trimmed}`;
+    try {
+      await renameFile(node.path, newPath);
+      onRefresh();
+    } catch (e) {
+      console.error("Failed to rename:", e);
+    }
+    onDone();
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onDone();
+        }
+      }}
+      onBlur={commit}
+      className="text-ui bg-bg-elevated border border-border rounded px-1 py-0 outline-none text-text-primary min-w-0 w-full"
+      style={{ fontSize: "inherit", lineHeight: "inherit" }}
+    />
+  );
+}
+
+function FileTreeNode({
+  node,
+  depth = 0,
+  editingPath,
+  setEditingPath,
+  projectPath,
+  onRefresh,
+  onContextMenu,
+}: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(depth < 1);
   const { openFile } = useFileViewer();
 
@@ -29,12 +114,20 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
   const iconColor = node.extension
     ? extensionColors[node.extension] ?? "var(--text-faint)"
     : "var(--text-faint)";
+  const isEditing = editingPath === node.path;
+
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e.clientX, e.clientY, node);
+  }
 
   if (node.is_dir) {
     return (
       <div>
         <button
           onClick={() => setExpanded(!expanded)}
+          onContextMenu={handleContextMenu}
           className="flex items-center gap-1 w-full px-2 py-0.5 hover:bg-bg-elevated rounded text-left group"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
@@ -48,11 +141,19 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
             className="shrink-0"
             style={{ color: isSpecial ? "var(--yellow)" : "var(--text-dim)" }}
           />
-          <span
-            className={`text-ui truncate ${isSpecial ? "text-yellow font-medium" : "text-text-secondary"}`}
-          >
-            {node.name}
-          </span>
+          {isEditing ? (
+            <InlineRenameInput
+              node={node}
+              onRefresh={onRefresh}
+              onDone={() => setEditingPath(null)}
+            />
+          ) : (
+            <span
+              className={`text-ui truncate ${isSpecial ? "text-yellow font-medium" : "text-text-secondary"}`}
+            >
+              {node.name}
+            </span>
+          )}
         </button>
         {expanded && node.children && (
           <div>
@@ -61,6 +162,11 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
                 key={child.path}
                 node={child}
                 depth={depth + 1}
+                editingPath={editingPath}
+                setEditingPath={setEditingPath}
+                projectPath={projectPath}
+                onRefresh={onRefresh}
+                onContextMenu={onContextMenu}
               />
             ))}
           </div>
@@ -72,6 +178,7 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
   return (
     <button
       onClick={() => openFile(node.path)}
+      onContextMenu={handleContextMenu}
       className="flex items-center gap-1 w-full px-2 py-0.5 hover:bg-bg-elevated rounded text-left"
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
     >
@@ -80,21 +187,65 @@ function FileTreeNode({ node, depth = 0 }: { node: FileNode; depth: number }) {
         className="shrink-0"
         style={{ color: isSpecial ? "var(--yellow)" : iconColor }}
       />
-      <span
-        className={`text-ui truncate ${isSpecial ? "text-yellow font-medium" : "text-text-secondary"}`}
-      >
-        {node.name}
-      </span>
+      {isEditing ? (
+        <InlineRenameInput
+          node={node}
+          onRefresh={onRefresh}
+          onDone={() => setEditingPath(null)}
+        />
+      ) : (
+        <span
+          className={`text-ui truncate ${isSpecial ? "text-yellow font-medium" : "text-text-secondary"}`}
+        >
+          {node.name}
+        </span>
+      )}
     </button>
   );
 }
 
-export default function FileTree({ nodes, depth = 0 }: FileTreeProps) {
+export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: FileTreeProps) {
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    node: FileNode | null;
+  } | null>(null);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+
+  function handleContextMenu(x: number, y: number, node: FileNode) {
+    setContextMenu({ x, y, node });
+  }
+
+  function handleEmptyContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, node: null });
+  }
+
   return (
-    <div className="py-1">
+    <div className="py-1" onContextMenu={handleEmptyContextMenu}>
       {nodes.map((node) => (
-        <FileTreeNode key={node.path} node={node} depth={depth} />
+        <FileTreeNode
+          key={node.path}
+          node={node}
+          depth={depth}
+          editingPath={editingPath}
+          setEditingPath={setEditingPath}
+          projectPath={projectPath}
+          onRefresh={onRefresh}
+          onContextMenu={handleContextMenu}
+        />
       ))}
+      {contextMenu && (
+        <FileTreeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          node={contextMenu.node}
+          projectPath={projectPath}
+          onClose={() => setContextMenu(null)}
+          onRefresh={onRefresh}
+          onStartRename={setEditingPath}
+        />
+      )}
     </div>
   );
 }

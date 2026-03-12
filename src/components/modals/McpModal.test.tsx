@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import McpModal from "./McpModal";
 import { useUiStore } from "../../stores/uiStore";
 import { useMcpStore } from "../../stores/mcpStore";
@@ -77,9 +77,11 @@ describe("McpModal", () => {
     expect(screen.queryByText("MCP Servers")).not.toBeInTheDocument();
   });
 
-  it("renders when showMcpModal is true", () => {
+  it("renders when showMcpModal is true", async () => {
     openModal();
-    render(<McpModal />);
+    await act(async () => {
+      render(<McpModal />);
+    });
     expect(screen.getByText("MCP Servers")).toBeInTheDocument();
   });
 
@@ -525,16 +527,20 @@ describe("McpModal", () => {
 
   // ────── Footer ──────
 
-  it("shows config file paths in footer", () => {
+  it("shows config file paths in footer", async () => {
     openModal([STDIO_SERVER], "/my/project");
-    render(<McpModal />);
+    await act(async () => {
+      render(<McpModal />);
+    });
     expect(screen.getByText(/~\/\.claude\.json/)).toBeInTheDocument();
     expect(screen.getByText(/\/my\/project\/\.mcp\.json/)).toBeInTheDocument();
   });
 
-  it("hides project path in footer when no project", () => {
+  it("hides project path in footer when no project", async () => {
     openModal([STDIO_SERVER], null);
-    render(<McpModal />);
+    await act(async () => {
+      render(<McpModal />);
+    });
     expect(screen.getByText(/~\/\.claude\.json/)).toBeInTheDocument();
     expect(screen.queryByText(/\.mcp\.json/)).not.toBeInTheDocument();
   });

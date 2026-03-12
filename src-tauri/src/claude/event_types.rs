@@ -282,6 +282,13 @@ pub enum FrontendEvent {
         utilization: f64,
         resets_at: Option<f64>,
     },
+
+    /// Per-API-call usage emitted from `assistant` events (fires after each tool round-trip).
+    #[serde(rename = "usage_update")]
+    UsageUpdate {
+        session_id: String,
+        usage: UsageInfo,
+    },
 }
 
 // --- Stdin messages to CLI ---

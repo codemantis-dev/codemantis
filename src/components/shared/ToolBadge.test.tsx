@@ -33,8 +33,13 @@ describe("ToolBadge", () => {
     expect(screen.getByText("BA")).toBeInTheDocument();
   });
 
-  it("renders ?? for unknown tools", () => {
-    render(<ToolBadge toolName="SomeMCPTool" />);
-    expect(screen.getByText("??")).toBeInTheDocument();
+  it("renders MC for MCP tools", () => {
+    render(<ToolBadge toolName="mcp__supabase__execute_sql" />);
+    expect(screen.getByText("MC")).toBeInTheDocument();
+  });
+
+  it("renders EX for unknown external tools", () => {
+    render(<ToolBadge toolName="SomeUnknownTool" />);
+    expect(screen.getByText("EX")).toBeInTheDocument();
   });
 });

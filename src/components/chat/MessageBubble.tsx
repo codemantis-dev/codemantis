@@ -46,13 +46,13 @@ export default function MessageBubble({
       <div className="flex justify-end mb-4">
         <div className="flex flex-col items-end gap-0.5">
           <div
-            className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable"
+            className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
             style={{
               background: "var(--accent-dim)",
               border: "1px solid rgba(124,58,237,0.2)",
             }}
           >
-            <p className="text-chat text-text-primary whitespace-pre-wrap">
+            <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden">
               {message.content}
             </p>
           </div>
@@ -63,9 +63,9 @@ export default function MessageBubble({
   }
 
   return (
-    <div className="mb-4">
+    <div className="mb-4 min-w-0">
       <ActivityChip messageId={message.id} sessionId={sessionId} />
-      <div className="mt-1 selectable">
+      <div className="mt-1 selectable min-w-0 overflow-hidden">
         <div className="markdown-content text-chat text-text-secondary">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

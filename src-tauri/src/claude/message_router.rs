@@ -85,6 +85,15 @@ pub async fn route_events(
             }
 
             RawStreamEvent::Assistant { message, .. } => {
+                // Emit per-API-call usage (fires after each tool round-trip)
+                if let Some(usage) = &message.usage {
+                    let fe = FrontendEvent::UsageUpdate {
+                        session_id: session_id.clone(),
+                        usage: usage.clone(),
+                    };
+                    let _ = app_handle.emit(&chat_event, &fe);
+                }
+
                 if let Some(content_blocks) = &message.content {
                     for block in content_blocks {
                         match block {

@@ -35,6 +35,9 @@ const PLAN_MODE_ALLOWED_TOOLS: &[&str] = &[
 /// JSON payload received from the PreToolUse hook (via the CLI).
 #[derive(Debug, Clone, Deserialize)]
 pub struct HookInput {
+    /// Injected by the hook script from CODEMANTIS_SESSION_ID env var.
+    /// Guaranteed unique per CLI process — highest priority for routing.
+    pub forge_session_id: Option<String>,
     pub session_id: Option<String>,
     pub cwd: Option<String>,
     pub tool_name: Option<String>,
@@ -143,16 +146,30 @@ impl ApprovalServerState {
     }
 }
 
-/// Look up CodeMantis session ID from the CLI's session_id or cwd.
+/// Look up CodeMantis session ID using a 3-tier priority system:
+/// 1. Direct match from `forge_session_id` (injected by hook script via env var)
+/// 2. Reverse lookup: CLI `session_id` → forge session ID
+/// 3. CWD fallback: only when exactly one session matches the path
 async fn find_forge_session_id(
     app_handle: &AppHandle,
+    forge_session_id_hint: Option<&str>,
     cli_session_id: Option<&str>,
     cwd: Option<&str>,
 ) -> Option<String> {
     use crate::claude::session::AppState;
 
+    // Tier 1: Direct match from env var (guaranteed unique per CLI process)
+    if let Some(hint) = forge_session_id_hint {
+        if let Some(state) = app_handle.try_state::<AppState>() {
+            let sessions = state.sessions.lock().await;
+            if sessions.contains_key(hint) {
+                return Some(hint.to_string());
+            }
+        }
+    }
+
     if let Some(state) = app_handle.try_state::<AppState>() {
-        // Try reverse lookup: CLI session ID → Forge session ID
+        // Tier 2: Reverse lookup — CLI session ID → Forge session ID
         if let Some(cli_sid) = cli_session_id {
             let cli_ids: tokio::sync::MutexGuard<'_, HashMap<String, String>> =
                 state.cli_session_ids.lock().await;
@@ -163,15 +180,23 @@ async fn find_forge_session_id(
             }
         }
 
-        // Fallback: match by project_path (cwd)
+        // Tier 3: CWD fallback — only when exactly one session matches
         if let Some(cwd_path) = cwd {
             let sessions = state.sessions.lock().await;
-            // Find the most recently active session in this project
-            for (id, info) in sessions.iter() {
-                if info.project_path == cwd_path {
-                    let result: String = id.clone();
-                    return Some(result);
-                }
+            let matches: Vec<&String> = sessions
+                .iter()
+                .filter(|(_, info)| info.project_path == cwd_path)
+                .map(|(id, _)| id)
+                .collect();
+            if matches.len() == 1 {
+                return Some(matches[0].clone());
+            }
+            if matches.len() > 1 {
+                warn!(
+                    "[approval-server] Ambiguous CWD match: {} sessions share path {}",
+                    matches.len(),
+                    cwd_path
+                );
             }
         }
     }
@@ -216,6 +241,7 @@ async fn handle_tool_approval(
     // Find the CodeMantis session ID
     let forge_session_id = find_forge_session_id(
         &app_handle,
+        input.forge_session_id.as_deref(),
         input.session_id.as_deref(),
         input.cwd.as_deref(),
     )
@@ -345,4 +371,46 @@ pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> 
     });
 
     port
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hook_input_deserializes_with_forge_session_id() {
+        let json = r#"{
+            "forge_session_id": "abc-123",
+            "session_id": "cli-456",
+            "cwd": "/tmp/project",
+            "tool_name": "Edit",
+            "tool_input": {"file": "main.rs"}
+        }"#;
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.forge_session_id.as_deref(), Some("abc-123"));
+        assert_eq!(input.session_id.as_deref(), Some("cli-456"));
+        assert_eq!(input.tool_name.as_deref(), Some("Edit"));
+    }
+
+    #[test]
+    fn hook_input_deserializes_without_forge_session_id() {
+        let json = r#"{
+            "session_id": "cli-456",
+            "cwd": "/tmp/project",
+            "tool_name": "Write"
+        }"#;
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert!(input.forge_session_id.is_none());
+        assert_eq!(input.session_id.as_deref(), Some("cli-456"));
+        assert_eq!(input.tool_name.as_deref(), Some("Write"));
+    }
+
+    #[test]
+    fn hook_input_deserializes_minimal() {
+        let json = r#"{}"#;
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert!(input.forge_session_id.is_none());
+        assert!(input.session_id.is_none());
+        assert!(input.tool_name.is_none());
+    }
 }

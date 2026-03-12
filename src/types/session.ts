@@ -43,6 +43,7 @@ export interface SessionStats {
   totalCacheCreationTokens: number;
   totalCacheReadTokens: number;
   turnCount: number;
+  apiCallCount: number;  // incremented on each usage_update (per API call within a turn)
 }
 
 export interface PersistedSession {

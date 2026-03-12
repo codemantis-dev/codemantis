@@ -84,6 +84,7 @@ interface SessionState {
   setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
+  accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number) => void;
 
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
@@ -108,6 +109,7 @@ const DEFAULT_STATS: SessionStats = {
   totalCacheCreationTokens: 0,
   totalCacheReadTokens: 0,
   turnCount: 0,
+  apiCallCount: 0,
 };
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -380,16 +382,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionMessages.set(sessionId, messages);
       }
 
-      // Update cumulative session stats
+      // Update cost and turn count only — token accumulation is handled
+      // incrementally by accumulateUsage (from usage_update events).
+      // If no usage_update events were received (older CLI), fall back
+      // to adding tokens from the result event.
       const sessionStats = new Map(state.sessionStats);
       const prev = sessionStats.get(sessionId) ?? { ...DEFAULT_STATS };
+      const hadIncrementalUpdates = prev.apiCallCount > 0;
       sessionStats.set(sessionId, {
         totalCostUsd: prev.totalCostUsd + (stats.costUsd ?? 0),
-        totalInputTokens: prev.totalInputTokens + stats.inputTokens,
-        totalOutputTokens: prev.totalOutputTokens + stats.outputTokens,
-        totalCacheCreationTokens: prev.totalCacheCreationTokens + stats.cacheCreationTokens,
-        totalCacheReadTokens: prev.totalCacheReadTokens + stats.cacheReadTokens,
+        totalInputTokens: hadIncrementalUpdates ? prev.totalInputTokens : prev.totalInputTokens + stats.inputTokens,
+        totalOutputTokens: hadIncrementalUpdates ? prev.totalOutputTokens : prev.totalOutputTokens + stats.outputTokens,
+        totalCacheCreationTokens: hadIncrementalUpdates ? prev.totalCacheCreationTokens : prev.totalCacheCreationTokens + stats.cacheCreationTokens,
+        totalCacheReadTokens: hadIncrementalUpdates ? prev.totalCacheReadTokens : prev.totalCacheReadTokens + stats.cacheReadTokens,
         turnCount: prev.turnCount + 1,
+        apiCallCount: 0, // reset for next turn
       });
 
       return { sessionMessages, sessionStats };
@@ -543,6 +550,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
       rateLimitUtilization.set(sessionId, utilization);
       return { rateLimitUtilization };
+    }),
+
+  accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead) =>
+    set((state) => {
+      const sessionStats = new Map(state.sessionStats);
+      const prev = sessionStats.get(sessionId) ?? { ...DEFAULT_STATS };
+      sessionStats.set(sessionId, {
+        ...prev,
+        totalInputTokens: prev.totalInputTokens + inputTokens,
+        totalOutputTokens: prev.totalOutputTokens + outputTokens,
+        totalCacheCreationTokens: prev.totalCacheCreationTokens + cacheCreation,
+        totalCacheReadTokens: prev.totalCacheReadTokens + cacheRead,
+        apiCallCount: prev.apiCallCount + 1,
+      });
+      return { sessionStats };
     }),
 
   // Derived helpers

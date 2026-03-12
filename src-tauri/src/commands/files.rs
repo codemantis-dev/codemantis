@@ -117,6 +117,92 @@ pub fn write_file_content(file_path: String, content: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+pub fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
+    let src = Path::new(&old_path);
+    let dst = Path::new(&new_path);
+
+    if !src.exists() {
+        return Err(format!("Source does not exist: {}", old_path));
+    }
+    if dst.exists() {
+        return Err(format!("Destination already exists: {}", new_path));
+    }
+
+    fs::rename(src, dst).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_file(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", file_path));
+    }
+
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())
+    } else {
+        fs::remove_file(path).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn duplicate_file(file_path: String) -> Result<String, String> {
+    let src = Path::new(&file_path);
+
+    if !src.exists() {
+        return Err(format!("File does not exist: {}", file_path));
+    }
+    if !src.is_file() {
+        return Err("Can only duplicate files, not directories".to_string());
+    }
+
+    let parent = src.parent().ok_or("Cannot determine parent directory")?;
+    let stem = src.file_stem().unwrap_or_default().to_string_lossy();
+    let ext = src.extension().map(|e| e.to_string_lossy().to_string());
+
+    let mut counter = 0u32;
+    let dest = loop {
+        let suffix = if counter == 0 {
+            " copy".to_string()
+        } else {
+            format!(" copy {}", counter + 1)
+        };
+        let name = match &ext {
+            Some(e) => format!("{}{}.{}", stem, suffix, e),
+            None => format!("{}{}", stem, suffix),
+        };
+        let candidate = parent.join(&name);
+        if !candidate.exists() {
+            break candidate;
+        }
+        counter += 1;
+        if counter > 100 {
+            return Err("Too many copies exist".to_string());
+        }
+    };
+
+    fs::copy(src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn create_file(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+
+    if path.exists() {
+        return Err(format!("File already exists: {}", file_path));
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::File::create(path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn read_file_content(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
 

@@ -81,7 +81,9 @@ export default function Sidebar() {
             Empty directory
           </div>
         )}
-        {files.length > 0 && <FileTree nodes={files} />}
+        {files.length > 0 && session && (
+          <FileTree nodes={files} projectPath={session.project_path} onRefresh={doRefresh} />
+        )}
       </div>
 
       {/* Git status */}

@@ -2,9 +2,9 @@ import { useEffect, useRef, useCallback, useMemo } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useAssistantStore } from "../../stores/assistantStore";
+import { useUiStore } from "../../stores/uiStore";
 import { getActivityType } from "../../types/activity";
 import type { ActivityEntry } from "../../types/activity";
-import { useFileViewer } from "../../hooks/useFileViewer";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
 
@@ -17,6 +17,7 @@ const typeColors: Record<string, "blue" | "green" | "yellow" | "purple" | "accen
   search: "purple",
   agent: "green",
   question: "accent",
+  mcp: "purple",
   other: "accent",
 };
 
@@ -24,6 +25,18 @@ const typeColors: Record<string, "blue" | "green" | "yellow" | "purple" | "accen
 const toolDisplayNames: Record<string, string> = {
   AskUserQuestion: "User Question",
 };
+
+/** Format MCP tool names: mcp__server__tool → "server: tool" */
+function getToolDisplayName(toolName: string): string {
+  if (toolDisplayNames[toolName]) return toolDisplayNames[toolName];
+  if (toolName.startsWith("mcp__")) {
+    const parts = toolName.split("__");
+    const server = parts[1] ?? "mcp";
+    const tool = parts.slice(2).join("_") || "tool";
+    return `${server}: ${tool}`;
+  }
+  return toolName;
+}
 
 function formatToolInput(toolName: string, input: Record<string, unknown>): string {
   if (input.file_path) return String(input.file_path);
@@ -54,8 +67,8 @@ export default function ActivityFeed() {
   const tabOrder = useSessionStore((s) => s.tabOrder);
   const sessionEntries = useActivityStore((s) => s.sessionEntries);
   const projectAssistants = useAssistantStore((s) => s.projectAssistants);
+  const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { openFile } = useFileViewer();
 
   // Build merged entries from all sessions in the project
   const { sortedEntries, showLabels } = useMemo(() => {
@@ -104,20 +117,14 @@ export default function ActivityFeed() {
   }, [sortedEntries.length]);
 
   const handleEntryClick = useCallback(
-    (_e: React.MouseEvent, toolName: string, input: Record<string, unknown>) => {
+    (entry: ActivityEntry) => {
       // Don't navigate if user is selecting text
       const selection = window.getSelection();
       if (selection && selection.toString().length > 0) return;
 
-      const filePath = input.file_path as string | undefined;
-      if (!filePath) return;
-
-      const type = getActivityType(toolName);
-      if (type === "read" || type === "write" || type === "edit") {
-        openFile(filePath);
-      }
+      setSelectedActivityEntry(entry);
     },
-    [openFile]
+    [setSelectedActivityEntry]
   );
 
   if (sortedEntries.length === 0) {
@@ -134,13 +141,12 @@ export default function ActivityFeed() {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
         const inputStr = formatToolInput(entry.toolName, entry.toolInput);
-        const hasFile = !!entry.toolInput.file_path;
 
         return (
           <div
             key={entry.id}
-            className={`flex gap-2 mb-0.5 ${hasFile ? "cursor-pointer hover:bg-bg-elevated rounded -mx-1 px-1" : ""}`}
-            onClick={hasFile ? (e) => handleEntryClick(e, entry.toolName, entry.toolInput) : undefined}
+            className="flex gap-2 mb-0.5 cursor-pointer hover:bg-bg-elevated rounded -mx-1 px-1"
+            onClick={() => handleEntryClick(entry)}
           >
             {/* Timeline dot + line */}
             <div className="flex flex-col items-center pt-2 w-4 shrink-0">
@@ -159,7 +165,7 @@ export default function ActivityFeed() {
               <div className="flex items-center gap-1.5">
                 <ToolBadge toolName={entry.toolName} />
                 <span className="text-ui text-text-secondary font-medium truncate">
-                  {toolDisplayNames[entry.toolName] ?? entry.toolName}
+                  {getToolDisplayName(entry.toolName)}
                 </span>
                 {entry.approvalStatus && (
                   <span

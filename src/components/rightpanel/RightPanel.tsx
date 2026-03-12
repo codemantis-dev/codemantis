@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare } from "lucide-react";
 import { useUiStore, type RightTab } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useTerminal } from "../../hooks/useTerminal";
 import ActivityFeed from "./ActivityFeed";
+import ActivityDetailPanel from "./ActivityDetailPanel";
 import TerminalView from "./TerminalView";
 import TerminalTabs from "./TerminalTabs";
 import QuickCommands from "./QuickCommands";
@@ -24,7 +26,13 @@ export default function RightPanel() {
   const terminals = allTerminals.filter((t) => t.kind !== "cli-overlay");
   const activeTerminalId = activeSessionId ? activeTerminalIdMap.get(activeSessionId) ?? null : null;
 
+  const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const { createTerminal, closeTerminal } = useTerminal();
+
+  // Auto-dismiss activity detail panel on tab change
+  useEffect(() => {
+    setSelectedActivityEntry(null);
+  }, [rightTab, setSelectedActivityEntry]);
 
   const handleCreateTerminal = async () => {
     if (!activeSessionId) return;
@@ -45,7 +53,7 @@ export default function RightPanel() {
   ];
 
   return (
-    <div className="h-full flex flex-col" style={{ background: "var(--bg-subtle)" }}>
+    <div className="h-full flex flex-col relative" style={{ background: "var(--bg-subtle)" }}>
       {/* Tab header */}
       <div className="h-9 flex items-center px-1 border-b border-border-light shrink-0">
         {tabs.map((tab) => {
@@ -141,6 +149,9 @@ export default function RightPanel() {
       >
         <AssistantPanel />
       </div>
+
+      {/* Activity detail overlay */}
+      <ActivityDetailPanel />
     </div>
   );
 }

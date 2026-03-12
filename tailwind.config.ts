@@ -59,11 +59,16 @@ export default {
           "0%": { opacity: "0", transform: "translateY(4px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        "detail-slide-in": {
+          "0%": { opacity: "0", transform: "translateX(100%)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
+        },
       },
       animation: {
         pulse: "pulse 2s ease-in-out infinite",
         blink: "blink 1.06s step-end infinite",
         "trivia-fade-in": "trivia-fade-in 1s ease-out",
+        "detail-slide-in": "detail-slide-in 0.2s ease-out",
       },
     },
   },

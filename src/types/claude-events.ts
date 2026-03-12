@@ -11,7 +11,8 @@ export type FrontendEvent =
   | CompactingStatusEvent
   | CompactCompleteEvent
   | ToolProgressEvent
-  | RateLimitWarningEvent;
+  | RateLimitWarningEvent
+  | UsageUpdateEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -109,6 +110,13 @@ export interface RateLimitWarningEvent {
   session_id: string;
   utilization: number;
   resets_at: number | null;
+}
+
+/** Per-API-call usage emitted from assistant events (fires after each tool round-trip). */
+export interface UsageUpdateEvent {
+  type: "usage_update";
+  session_id: string;
+  usage: UsageInfo;
 }
 
 /** Emitted globally by the approval HTTP server (not per-session). */

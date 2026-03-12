@@ -1,8 +1,21 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, act } from "@testing-library/react";
 import AppShell from "./AppShell";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
+
+// Mock hooks and commands that trigger async state updates on mount
+vi.mock("../../hooks/useFileTree", () => ({
+  useFileTree: () => ({ files: [], loading: false, refresh: vi.fn() }),
+}));
+vi.mock("../../hooks/useGitStatus", () => ({
+  useGitStatus: () => ({ gitStatus: null, refresh: vi.fn() }),
+}));
+vi.mock("../../lib/tauri-commands", () => ({
+  discoverCommands: vi.fn(() => Promise.resolve([])),
+  readFileContent: vi.fn(() => Promise.resolve("")),
+  getFileInfo: vi.fn(() => Promise.resolve(null)),
+}));
 
 const SESSION = {
   id: "s1",
@@ -37,8 +50,10 @@ describe("AppShell", () => {
     });
   });
 
-  it("renders three-panel layout", () => {
-    render(<AppShell />);
+  it("renders three-panel layout", async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
     // Project tab shows folder name "test", session sub-tab shows "Test Session"
     expect(screen.getByText("Test Session")).toBeInTheDocument();
     expect(screen.getAllByText("Files").length).toBeGreaterThanOrEqual(1);
@@ -46,8 +61,10 @@ describe("AppShell", () => {
     expect(screen.getByText("Context")).toBeInTheDocument();
   });
 
-  it("renders input area", () => {
-    render(<AppShell />);
+  it("renders input area", async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
     expect(screen.getByText("Send")).toBeInTheDocument();
   });
 });

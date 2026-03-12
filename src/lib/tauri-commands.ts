@@ -124,6 +124,22 @@ export async function writeFileContent(filePath: string, content: string): Promi
   return invoke("write_file_content", { filePath, content });
 }
 
+export async function renameFile(oldPath: string, newPath: string): Promise<void> {
+  return invoke("rename_file", { oldPath, newPath });
+}
+
+export async function deleteFile(filePath: string): Promise<void> {
+  return invoke("delete_file", { filePath });
+}
+
+export async function duplicateFile(filePath: string): Promise<string> {
+  return invoke<string>("duplicate_file", { filePath });
+}
+
+export async function createFile(filePath: string): Promise<void> {
+  return invoke("create_file", { filePath });
+}
+
 // --- Attachments ---
 
 export interface AttachmentInfo {

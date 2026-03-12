@@ -5,14 +5,16 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import type { Attachment } from "../../types/attachment";
 
+const EMPTY_ATTACHMENTS: Attachment[] = [];
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function AttachmentBar() {
-  const attachments = useAttachmentStore((s) => s.attachments);
+export default function AttachmentBar({ sessionId }: { sessionId: string }) {
+  const attachments = useAttachmentStore((s) => s.attachments.get(sessionId) ?? EMPTY_ATTACHMENTS);
   const removeAttachment = useAttachmentStore((s) => s.removeAttachment);
   const [preview, setPreview] = useState<Attachment | null>(null);
 
@@ -56,7 +58,7 @@ export default function AttachmentBar() {
               <p className="text-label text-text-ghost">{formatSize(att.fileSize)}</p>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); removeAttachment(att.id); }}
+              onClick={(e) => { e.stopPropagation(); removeAttachment(sessionId, att.id); }}
               className="p-0.5 rounded hover:bg-bg-elevated text-text-ghost hover:text-text-secondary transition-colors shrink-0 opacity-0 group-hover:opacity-100"
             >
               <X size={12} />

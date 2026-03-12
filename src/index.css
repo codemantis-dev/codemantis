@@ -225,6 +225,8 @@ body,
 /* Markdown content styles */
 .markdown-content {
   line-height: 1.65;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content p {
@@ -241,6 +243,7 @@ body,
   background: var(--code-bg);
   padding: 0.15em 0.4em;
   border-radius: 4px;
+  overflow-wrap: anywhere;
 }
 
 .markdown-content pre {
@@ -276,10 +279,17 @@ body,
 .markdown-content a {
   color: var(--accent-light);
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .markdown-content a:hover {
   text-decoration: underline;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* Textarea */

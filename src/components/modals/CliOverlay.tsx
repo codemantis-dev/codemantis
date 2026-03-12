@@ -186,6 +186,9 @@ export default function CliOverlay() {
               <Dialog.Title className="text-ui text-text-primary font-medium">
                 Claude CLI
               </Dialog.Title>
+              <Dialog.Description className="sr-only">
+                Claude CLI terminal overlay
+              </Dialog.Description>
               <span className="text-label text-text-ghost">
                 — /model, /config, /doctor, /help
               </span>

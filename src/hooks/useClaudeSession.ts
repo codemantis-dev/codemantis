@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
+import { useAttachmentStore } from "../stores/attachmentStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useChangelogStore } from "../stores/changelogStore";
 import { useAssistantStore } from "../stores/assistantStore";
@@ -142,6 +143,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
     sessionStore.getState().removeSession(sessionId);
     activityStore.getState().clearEntries(sessionId);
+    useAttachmentStore.getState().clearSession(sessionId);
     changelogStore.getState().clearSession(sessionId);
   }, []);
 

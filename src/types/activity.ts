@@ -18,7 +18,7 @@ export interface ActivityEntry {
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";
 
-export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "other";
+export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "mcp" | "other";
 
 export function getActivityType(toolName: string): ActivityType {
   const readTools = ["Read", "Glob", "Grep"];
@@ -38,5 +38,6 @@ export function getActivityType(toolName: string): ActivityType {
   if (searchTools.includes(toolName)) return "search";
   if (agentTools.includes(toolName)) return "agent";
   if (questionTools.includes(toolName)) return "question";
+  if (toolName.startsWith("mcp__")) return "mcp";
   return "other";
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import CodeBlock from "./CodeBlock";
 
 // Mock navigator.clipboard
@@ -34,7 +34,9 @@ describe("CodeBlock", () => {
     render(<CodeBlock className="language-python">print("hello")</CodeBlock>);
 
     const copyButton = screen.getByText("Copy").closest("button")!;
-    fireEvent.click(copyButton);
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
 
     expect(mockWriteText).toHaveBeenCalledWith('print("hello")');
   });
@@ -42,16 +44,18 @@ describe("CodeBlock", () => {
   it("shows 'Copied' feedback after copy", async () => {
     render(<CodeBlock className="language-js">code</CodeBlock>);
 
-    fireEvent.click(screen.getByText("Copy").closest("button")!);
-    // writeText returns a resolved promise, so state updates synchronously after microtask
-    await new Promise((r) => setTimeout(r, 0));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Copy").closest("button")!);
+    });
 
     expect(screen.getByText("Copied")).toBeInTheDocument();
   });
 
   it("strips trailing newline from copied text", async () => {
     render(<CodeBlock className="language-go">{"package main\n"}</CodeBlock>);
-    fireEvent.click(screen.getByText("Copy").closest("button")!);
+    await act(async () => {
+      fireEvent.click(screen.getByText("Copy").closest("button")!);
+    });
     expect(mockWriteText).toHaveBeenCalledWith("package main");
   });
 

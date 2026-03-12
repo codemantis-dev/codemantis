@@ -632,6 +632,9 @@ export default function McpModal() {
               <X size={15} />
             </Dialog.Close>
           </div>
+          <Dialog.Description className="sr-only">
+            Manage MCP server configurations
+          </Dialog.Description>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-5">

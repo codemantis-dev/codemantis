@@ -162,6 +162,9 @@ export default function SettingsModal() {
             <Dialog.Title className="text-ui text-text-primary font-semibold px-4 pt-4 pb-3">
               Settings
             </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Application settings and preferences
+            </Dialog.Description>
             <div className="flex-1 px-2 space-y-0.5">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;

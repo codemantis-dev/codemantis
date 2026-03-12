@@ -9,6 +9,9 @@ import { saveClipboardImage, getFileInfo, readFileBytes } from "../../lib/tauri-
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+import type { Attachment } from "../../types/attachment";
+
+const EMPTY_ATTACHMENTS: Attachment[] = [];
 import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
 
@@ -111,7 +114,7 @@ export default function InputArea() {
     return () => window.removeEventListener("open-command-palette", handler);
   }, []);
 
-  const attachments = useAttachmentStore((s) => s.attachments);
+  const attachments = useAttachmentStore((s) => activeSessionId ? s.attachments.get(activeSessionId) ?? EMPTY_ATTACHMENTS : EMPTY_ATTACHMENTS);
   const addAttachment = useAttachmentStore((s) => s.addAttachment);
   const clearAttachments = useAttachmentStore((s) => s.clearAttachments);
 
@@ -133,7 +136,7 @@ export default function InputArea() {
     }
 
     setInput("");
-    clearAttachments();
+    clearAttachments(activeSessionId!);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -196,7 +199,7 @@ export default function InputArea() {
             const thumbnailUrl = info.is_image
               ? await createPreviewUrl(info.file_path, info.mime_type)
               : undefined;
-            addAttachment({
+            addAttachment(activeSessionId!, {
               id: `att-${Date.now()}`,
               fileName: info.file_name,
               filePath: info.file_path,
@@ -247,7 +250,7 @@ export default function InputArea() {
               file.name
             );
             const thumbUrl = await createPreviewUrl(info.file_path, info.mime_type);
-            addAttachment({
+            addAttachment(activeSessionId!, {
               id: `att-${Date.now()}-${file.name}`,
               fileName: info.file_name,
               filePath: info.file_path,
@@ -258,7 +261,7 @@ export default function InputArea() {
             });
           } else {
             // Non-image files: just reference by name
-            addAttachment({
+            addAttachment(activeSessionId!, {
               id: `att-${Date.now()}-${file.name}`,
               fileName: file.name,
               filePath: file.name, // Limited in web context
@@ -298,7 +301,7 @@ export default function InputArea() {
           const previewUrl = info.is_image
             ? await createPreviewUrl(info.file_path, info.mime_type)
             : undefined;
-          addAttachment({
+          addAttachment(activeSessionId!, {
             id: `att-${Date.now()}-${info.file_name}`,
             fileName: info.file_name,
             filePath: info.file_path,
@@ -356,7 +359,7 @@ export default function InputArea() {
           style={!dragOver ? { background: "var(--bg-elevated)" } : undefined}
         >
           {/* Attachment bar */}
-          <AttachmentBar />
+          <AttachmentBar sessionId={activeSessionId ?? ""} />
 
           {/* Drop zone overlay text */}
           {dragOver && (

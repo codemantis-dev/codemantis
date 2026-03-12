@@ -16,12 +16,15 @@ const badgeConfig: Record<
   search: { label: "SR", color: "var(--tool-bash)", bg: "rgba(192,132,252,0.12)" },
   agent: { label: "AG", color: "var(--tool-write)", bg: "rgba(52,211,153,0.12)" },
   question: { label: "Q?", color: "var(--accent)", bg: "rgba(124,58,237,0.12)" },
-  other: { label: "??", color: "var(--text-dim)", bg: "rgba(255,255,255,0.06)" },
+  mcp: { label: "MC", color: "var(--tool-bash)", bg: "rgba(192,132,252,0.12)" },
+  other: { label: "EX", color: "var(--text-dim)", bg: "rgba(255,255,255,0.08)" },
 };
 
+const fallback = { label: "EX", color: "var(--text-dim)", bg: "rgba(255,255,255,0.08)" };
+
 export default function ToolBadge({ toolName }: ToolBadgeProps) {
-  const activityType = getActivityType(toolName);
-  const config = badgeConfig[activityType];
+  const activityType = toolName ? getActivityType(toolName) : "other";
+  const config = badgeConfig[activityType] ?? fallback;
 
   return (
     <span

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ActivityEntry } from "../types/activity";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
 export type ProjectPickerTab = "templates" | "open" | "recent";
@@ -21,8 +22,10 @@ interface UiState {
   showProjectLog: boolean;
   showClaudeHistory: boolean;
   draftInput: string | null;
+  selectedActivityEntry: ActivityEntry | null;
   fileTreeRefreshTrigger: number;
 
+  setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
   setRightPanelWidth: (width: number) => void;
   setRightTab: (tab: RightTab) => void;
@@ -62,8 +65,10 @@ export const useUiStore = create<UiState>((set) => ({
   showProjectLog: false,
   showClaudeHistory: false,
   draftInput: null,
+  selectedActivityEntry: null,
   fileTreeRefreshTrigger: 0,
 
+  setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
     set({ sidebarWidth: Math.max(140, width) }),
   setRightPanelWidth: (width) =>

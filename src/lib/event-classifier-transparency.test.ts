@@ -25,6 +25,7 @@ function resetStores(): void {
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
     sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+    sessionStats: new Map([[SESSION_ID, { totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheCreationTokens: 0, totalCacheReadTokens: 0, turnCount: 0, apiCallCount: 0 }]]),
     sessionBusy: new Map([[SESSION_ID, true]]),
     sessionActivity: new Map(),
     sessionCompacting: new Map(),
@@ -246,6 +247,87 @@ describe("Transparency: Rate Limit Warning", () => {
       resets_at: 1741800000,
     });
     expect(useSessionStore.getState().rateLimitUtilization.get(SESSION_ID)).toBe(0.95);
+  });
+});
+
+describe("Transparency: Live Token Usage (usage_update)", () => {
+  beforeEach(resetStores);
+
+  it("usage_update accumulates tokens incrementally", () => {
+    // First API call (initial response)
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 1000, output_tokens: 50, cache_creation_input_tokens: 200, cache_read_input_tokens: 500 },
+    });
+    let stats = useSessionStore.getState().sessionStats.get(SESSION_ID);
+    expect(stats?.totalInputTokens).toBe(1000);
+    expect(stats?.totalOutputTokens).toBe(50);
+    expect(stats?.apiCallCount).toBe(1);
+
+    // Second API call (after tool result)
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 1200, output_tokens: 80, cache_creation_input_tokens: 0, cache_read_input_tokens: 1700 },
+    });
+    stats = useSessionStore.getState().sessionStats.get(SESSION_ID);
+    expect(stats?.totalInputTokens).toBe(2200);
+    expect(stats?.totalOutputTokens).toBe(130);
+    expect(stats?.totalCacheReadTokens).toBe(2200);
+    expect(stats?.apiCallCount).toBe(2);
+  });
+
+  it("turn_complete does not double-count tokens when usage_update was received", () => {
+    // Simulate usage_update during turn
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 500, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    });
+
+    // Then turn_complete with aggregated totals (same tokens)
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 3000,
+      usage: { input_tokens: 500, output_tokens: 100, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      cost_usd: 0.01,
+    });
+    const stats = useSessionStore.getState().sessionStats.get(SESSION_ID);
+    // Should NOT be 1000 (double-counted) — should stay at 500
+    expect(stats?.totalInputTokens).toBe(500);
+    expect(stats?.totalOutputTokens).toBe(100);
+    expect(stats?.totalCostUsd).toBe(0.01);
+    expect(stats?.turnCount).toBe(1);
+    // apiCallCount reset after turn
+    expect(stats?.apiCallCount).toBe(0);
+  });
+
+  it("turn_complete falls back to token accumulation when no usage_update was received", () => {
+    // No usage_update — simulate older CLI that doesn't emit them
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 2000,
+      usage: { input_tokens: 800, output_tokens: 200, cache_creation_input_tokens: 50, cache_read_input_tokens: 300 },
+      cost_usd: 0.005,
+    });
+    const stats = useSessionStore.getState().sessionStats.get(SESSION_ID);
+    expect(stats?.totalInputTokens).toBe(800);
+    expect(stats?.totalOutputTokens).toBe(200);
+    expect(stats?.totalCostUsd).toBe(0.005);
+  });
+
+  it("usage_update touches lastEventTimestamp", () => {
+    const before = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID) ?? 0;
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 100, output_tokens: 10, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+    });
+    const after = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID) ?? 0;
+    expect(after).toBeGreaterThanOrEqual(before);
   });
 });
 

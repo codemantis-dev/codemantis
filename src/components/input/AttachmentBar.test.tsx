@@ -4,6 +4,8 @@ import AttachmentBar from "./AttachmentBar";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import type { Attachment } from "../../types/attachment";
 
+const SESSION_ID = "s1";
+
 const IMG: Attachment = {
   id: "att-1",
   fileName: "screenshot.png",
@@ -40,62 +42,68 @@ const KB_FILE: Attachment = {
   isImage: false,
 };
 
+function setAttachments(sessionId: string, attachments: Attachment[]) {
+  useAttachmentStore.setState({
+    attachments: new Map([[sessionId, attachments]]),
+  });
+}
+
 describe("AttachmentBar", () => {
   beforeEach(() => {
-    useAttachmentStore.setState({ attachments: [] });
+    useAttachmentStore.setState({ attachments: new Map() });
   });
 
   it("renders nothing when no attachments", () => {
-    const { container } = render(<AttachmentBar />);
+    const { container } = render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(container.innerHTML).toBe("");
   });
 
   it("renders attachment chip with file name", () => {
-    useAttachmentStore.setState({ attachments: [IMG] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [IMG]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("screenshot.png")).toBeInTheDocument();
   });
 
   it("renders multiple attachments", () => {
-    useAttachmentStore.setState({ attachments: [IMG, SMALL_FILE] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [IMG, SMALL_FILE]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("screenshot.png")).toBeInTheDocument();
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });
 
   it("displays file size in bytes for small files", () => {
-    useAttachmentStore.setState({ attachments: [SMALL_FILE] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [SMALL_FILE]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("128 B")).toBeInTheDocument();
   });
 
   it("displays file size in KB", () => {
-    useAttachmentStore.setState({ attachments: [KB_FILE] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [KB_FILE]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("4.0 KB")).toBeInTheDocument();
   });
 
   it("displays file size in MB", () => {
-    useAttachmentStore.setState({ attachments: [LARGE_FILE] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [LARGE_FILE]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("5.0 MB")).toBeInTheDocument();
   });
 
   it("displays image size correctly", () => {
-    useAttachmentStore.setState({ attachments: [IMG] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [IMG]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
   });
 
   it("removes attachment when X is clicked", () => {
-    useAttachmentStore.setState({ attachments: [IMG, SMALL_FILE] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [IMG, SMALL_FILE]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
 
     // Find the first remove button (there should be one per attachment)
     const removeButtons = screen.getAllByRole("button");
     fireEvent.click(removeButtons[0]);
 
-    const remaining = useAttachmentStore.getState().attachments;
+    const remaining = useAttachmentStore.getState().attachments.get(SESSION_ID) ?? [];
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe("att-3");
   });
@@ -105,11 +113,19 @@ describe("AttachmentBar", () => {
       ...IMG,
       thumbnailUrl: "data:image/png;base64,abc123",
     };
-    useAttachmentStore.setState({ attachments: [withThumb] });
-    render(<AttachmentBar />);
+    setAttachments(SESSION_ID, [withThumb]);
+    render(<AttachmentBar sessionId={SESSION_ID} />);
 
     const img = screen.getByAltText("screenshot.png");
     expect(img).toBeInTheDocument();
     expect(img.getAttribute("src")).toBe("data:image/png;base64,abc123");
+  });
+
+  it("does not show attachments from a different session", () => {
+    useAttachmentStore.setState({
+      attachments: new Map([["other-session", [IMG]]]),
+    });
+    const { container } = render(<AttachmentBar sessionId={SESSION_ID} />);
+    expect(container.innerHTML).toBe("");
   });
 });

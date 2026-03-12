@@ -30,6 +30,12 @@ pub fn ensure_hook_script() -> Result<std::path::PathBuf, AppError> {
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4)
 
+# Inject CodeMantis session ID into the JSON payload so the approval
+# server can route to the correct session (session IDs are UUIDs: [a-f0-9-])
+if [ -n "$CODEMANTIS_SESSION_ID" ]; then
+    INPUT=$(echo "$INPUT" | sed "s/^{/{\"forge_session_id\":\"${CODEMANTIS_SESSION_ID}\",/")
+fi
+
 # Auto-approve read-only tools without network roundtrip
 case "$TOOL_NAME" in
   Read|Glob|Grep|ListDirectory|LS|TodoRead)
@@ -226,6 +232,10 @@ impl ClaudeProcess {
         if let Some(port) = approval_server_port {
             cmd.env("CODEMANTIS_APPROVAL_PORT", port.to_string());
         }
+
+        // Pass the CodeMantis session ID so the hook script can inject it
+        // into the approval request for unambiguous session routing
+        cmd.env("CODEMANTIS_SESSION_ID", &session_id);
 
         let mut child = cmd.spawn().map_err(|e| {
             error!("Failed to spawn Claude CLI: {}", e);

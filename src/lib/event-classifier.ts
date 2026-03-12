@@ -27,7 +27,15 @@ function toolActivityLabel(toolName: string): string {
     case "WebSearch": return "Searching the web...";
     case "WebFetch": return "Fetching web page...";
     case "TodoRead": case "TodoWrite": return "Managing tasks...";
-    default: return `Running ${toolName}...`;
+    default:
+      if (toolName.startsWith("mcp__")) {
+        // mcp__server__tool → "Running tool (server)..."
+        const parts = toolName.split("__");
+        const server = parts[1] ?? "mcp";
+        const tool = parts.slice(2).join("_") || "tool";
+        return `Running ${tool} (${server})...`;
+      }
+      return `Running ${toolName}...`;
   }
 }
 
@@ -171,6 +179,17 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       // Reset tool call counter for next turn
       turnToolCallCount.delete(sessionId);
 
+      // Finalize session stats: add cost + turn count, and if no incremental
+      // usage_update events were received (older CLI), add aggregate tokens.
+      const turnStats: import("../types/session").TurnStats = {
+        durationMs: event.duration_ms,
+        costUsd: event.cost_usd,
+        inputTokens: event.usage?.input_tokens ?? 0,
+        outputTokens: event.usage?.output_tokens ?? 0,
+        cacheCreationTokens: event.usage?.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
+      };
+
       // Attach turn stats to the completed assistant message
       const targetMsgId = completedMessageId ?? (() => {
         const msgs = store.sessionMessages.get(sessionId) ?? [];
@@ -180,16 +199,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         return null;
       })();
 
-      if (targetMsgId) {
-        store.setTurnStats(sessionId, targetMsgId, {
-          durationMs: event.duration_ms,
-          costUsd: event.cost_usd,
-          inputTokens: event.usage?.input_tokens ?? 0,
-          outputTokens: event.usage?.output_tokens ?? 0,
-          cacheCreationTokens: event.usage?.cache_creation_input_tokens ?? 0,
-          cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
-        });
-      }
+      // setTurnStats handles both message attachment AND stats accumulation
+      // (with double-count protection for usage_update events)
+      store.setTurnStats(sessionId, targetMsgId ?? "", turnStats);
 
       // Context meter toast notifications
       checkContextThresholds(sessionId);
@@ -365,6 +377,19 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       } else if (event.utilization >= 0.7) {
         showToast(`Rate limit ${pct}% utilized`, "info", 6000);
       }
+      break;
+    }
+
+    case "usage_update": {
+      store.touchLastEvent(sessionId);
+      // Per-API-call usage from assistant events — accumulate incrementally
+      store.accumulateUsage(
+        sessionId,
+        event.usage.input_tokens ?? 0,
+        event.usage.output_tokens ?? 0,
+        event.usage.cache_creation_input_tokens ?? 0,
+        event.usage.cache_read_input_tokens ?? 0,
+      );
       break;
     }
   }

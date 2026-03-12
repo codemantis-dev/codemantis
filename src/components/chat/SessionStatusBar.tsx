@@ -28,6 +28,17 @@ interface SessionStatusBarProps {
   sessionId: string;
 }
 
+function formatModelName(model: string | null | undefined): string | null {
+  if (!model) return null;
+  // "claude-opus-4-6-..." → "Opus 4.6", "claude-sonnet-4-..." → "Sonnet 4"
+  const stripped = model.replace(/^claude-/, "");
+  const parts = stripped.split("-");
+  const name = parts[0];
+  const version = parts.slice(1).filter((p) => /^\d/.test(p)).join(".");
+  const capitalized = name.charAt(0).toUpperCase() + name.slice(1);
+  return version ? `${capitalized} ${version}` : capitalized;
+}
+
 export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const isBusy = useSessionStore((s) => s.sessionBusy.get(sessionId) ?? false);
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
@@ -36,6 +47,8 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const stats = useSessionStore((s) => s.sessionStats.get(sessionId));
   const ctx = useSessionStore((s) => s.sessionContext.get(sessionId));
   const rateLimitUtil = useSessionStore((s) => s.rateLimitUtilization.get(sessionId));
+  const session = useSessionStore((s) => s.sessions.get(sessionId));
+  const mode = useSessionStore((s) => s.sessionModes.get(sessionId));
 
   const [elapsed, setElapsed] = useState(0);
 
@@ -49,15 +62,26 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     return () => clearInterval(timer);
   }, [busySince]);
 
-  // Determine status
+  // Determine status — show current tool in status bar (not the activity label, which is in ThinkingIndicator)
   let statusLabel: string;
   let statusColor: string;
+  let toolDetail: string | null = null;
   if (isCompacting) {
     statusLabel = "Compacting";
     statusColor = "text-yellow-400";
   } else if (isBusy) {
-    statusLabel = activity?.label?.replace("...", "") ?? "Working";
+    statusLabel = "Busy";
     statusColor = "text-green-400";
+    // Show current tool name for specificity (ThinkingIndicator already shows the activity label)
+    if (activity?.toolName) {
+      const tn = activity.toolName;
+      if (tn.startsWith("mcp__")) {
+        const parts = tn.split("__");
+        toolDetail = parts.slice(2).join("_") || parts[1] || "mcp";
+      } else {
+        toolDetail = tn;
+      }
+    }
   } else {
     statusLabel = "Idle";
     statusColor = "text-text-ghost";
@@ -69,51 +93,72 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const costStr = stats ? formatCostCompact(stats.totalCostUsd) : "";
   const ctxPct = ctx && ctx.max > 0 ? Math.round((ctx.used / ctx.max) * 100) : 0;
   const ctxColor = ctxPct >= 90 ? "text-red" : ctxPct >= 70 ? "text-yellow-400" : "text-text-ghost";
+  const modelLabel = formatModelName(session?.model);
+  const turnCount = stats?.turnCount ?? 0;
+  const modeLabel = mode === "plan" ? "Plan" : mode === "auto-accept" ? "Auto" : null;
 
   return (
     <div
       className="flex items-center gap-3 px-4 py-1 border-t border-border text-label select-none shrink-0"
       style={{ background: "var(--bg-primary)" }}
     >
-      {/* Status indicator */}
-      <div className="flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full ${
+      {/* Left section: fixed width to prevent layout shifts */}
+      <div className="flex items-center gap-1.5 w-[200px] shrink-0">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
           isBusy ? "bg-green-400 animate-pulse" : isCompacting ? "bg-yellow-400 animate-pulse" : "bg-text-ghost"
         }`} />
-        <span className={`${statusColor} font-medium`}>{statusLabel}</span>
+        <span className={`${statusColor} font-medium shrink-0`}>{statusLabel}</span>
+        {toolDetail && (
+          <span className="text-text-ghost truncate">{toolDetail}</span>
+        )}
+        {isBusy && elapsed > 0 && (
+          <span className="text-text-ghost font-mono shrink-0">
+            {formatElapsedCompact(elapsed)}
+          </span>
+        )}
       </div>
 
-      {/* Elapsed time when busy */}
-      {isBusy && elapsed > 0 && (
-        <span className="text-text-ghost font-mono">
-          {formatElapsedCompact(elapsed)}
-        </span>
+      {/* Mode badge */}
+      {modeLabel && (
+        <span className="text-yellow-400 font-medium shrink-0">{modeLabel}</span>
       )}
 
       <div className="flex-1" />
 
+      {/* Model name */}
+      {modelLabel && (
+        <span className="text-text-ghost shrink-0">{modelLabel}</span>
+      )}
+
+      {/* Turn count */}
+      {turnCount > 0 && (
+        <span className="text-text-ghost shrink-0">
+          {turnCount} {turnCount === 1 ? "turn" : "turns"}
+        </span>
+      )}
+
       {/* Rate limit utilization */}
       {rateLimitUtil != null && rateLimitUtil > 0.5 && (
-        <span className={rateLimitUtil >= 0.8 ? "text-yellow-400" : "text-text-ghost"}>
+        <span className={`shrink-0 ${rateLimitUtil >= 0.8 ? "text-yellow-400" : "text-text-ghost"}`}>
           RL {Math.round(rateLimitUtil * 100)}%
         </span>
       )}
 
       {/* Session tokens */}
       {totalTokens > 0 && (
-        <span className="text-text-ghost">
+        <span className="text-text-ghost shrink-0">
           {formatTokensCompact(totalTokens)} tokens
         </span>
       )}
 
       {/* Cost */}
       {costStr && (
-        <span className="text-text-ghost">{costStr}</span>
+        <span className="text-text-ghost shrink-0">{costStr}</span>
       )}
 
       {/* Context usage */}
       {ctxPct > 0 && (
-        <span className={ctxColor}>
+        <span className={`shrink-0 ${ctxColor}`}>
           ctx {ctxPct}%
         </span>
       )}
