@@ -3,6 +3,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
+import { usePreviewWindow } from "./usePreviewWindow";
 import type { SessionMode } from "../types/session";
 
 const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
@@ -10,6 +11,7 @@ const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
 export function useKeyboardShortcuts(): void {
   const { createTerminal } = useTerminal();
   const { addSessionToProject, closeSession, closeAllSessionsInProject } = useClaudeSession();
+  const { togglePreview } = usePreviewWindow();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -103,6 +105,13 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+Shift+P — toggle preview window
+      if (key === "p" && shift) {
+        e.preventDefault();
+        togglePreview();
+        return;
+      }
+
       // Cmd+Shift+M — open MCP servers
       if (key === "m" && shift) {
         e.preventDefault();
@@ -179,5 +188,5 @@ export function useKeyboardShortcuts(): void {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [createTerminal, addSessionToProject, closeSession, closeAllSessionsInProject]);
+  }, [createTerminal, addSessionToProject, closeSession, closeAllSessionsInProject, togglePreview]);
 }

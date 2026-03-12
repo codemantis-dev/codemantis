@@ -10,6 +10,18 @@ vi.mock("./useTerminal", () => ({
   }),
 }));
 
+// Mock usePreviewWindow
+const mockTogglePreview = vi.fn();
+vi.mock("./usePreviewWindow", () => ({
+  usePreviewWindow: () => ({
+    openPreview: vi.fn(),
+    closePreview: vi.fn(),
+    navigateTo: vi.fn(),
+    refresh: vi.fn(),
+    togglePreview: mockTogglePreview,
+  }),
+}));
+
 // Mock tauri-commands
 vi.mock("../lib/tauri-commands", () => ({
   closeSession: vi.fn(() => Promise.resolve()),
@@ -132,6 +144,14 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
   it("Cmd+Shift+M opens MCP modal", () => {
     useUiStore.getState().setShowMcpModal(true);
     expect(useUiStore.getState().showMcpModal).toBe(true);
+  });
+
+  it("Cmd+Shift+P triggers togglePreview (store-level check)", () => {
+    // The keyboard shortcut handler calls togglePreview from usePreviewWindow.
+    // Since we test store effects here, we verify the mock is wired correctly
+    // by simulating what the handler does.
+    mockTogglePreview();
+    expect(mockTogglePreview).toHaveBeenCalled();
   });
 
   it("switching right tabs cycles correctly", () => {

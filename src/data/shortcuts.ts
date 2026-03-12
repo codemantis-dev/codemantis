@@ -41,6 +41,12 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
     ],
   },
   {
+    name: "Preview",
+    shortcuts: [
+      { keys: "⌘ ⇧ P", description: "Toggle Preview Window" },
+    ],
+  },
+  {
     name: "Editor",
     shortcuts: [
       { keys: "⌘ S", description: "Save file" },

@@ -43,6 +43,16 @@ pub struct AppSettings {
     #[serde(default)]
     pub assistant_default_model: HashMap<String, String>,
 
+    // --- Preview ---
+    #[serde(default = "default_preview_width")]
+    pub preview_default_width: u32,
+    #[serde(default = "default_preview_height")]
+    pub preview_default_height: u32,
+    #[serde(default)]
+    pub preview_auto_start: bool,
+    #[serde(default)]
+    pub preview_custom_dev_command: Option<String>,
+
     // --- Trivia ---
     #[serde(default = "default_true")]
     pub trivia_enabled: bool,
@@ -95,6 +105,12 @@ fn default_assistant_provider() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_preview_width() -> u32 {
+    1024
+}
+fn default_preview_height() -> u32 {
+    768
+}
 fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
     m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
@@ -143,6 +159,10 @@ impl Default for AppSettings {
             assistant_shortcuts: Vec::new(),
             assistant_default_provider: default_assistant_provider(),
             assistant_default_model: HashMap::new(),
+            preview_default_width: default_preview_width(),
+            preview_default_height: default_preview_height(),
+            preview_auto_start: false,
+            preview_custom_dev_command: None,
             trivia_enabled: true,
             onboarding_completed: false,
         }

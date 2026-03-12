@@ -5,6 +5,7 @@ pub mod changelog;
 pub mod files;
 pub mod git;
 pub mod mcp;
+pub mod preview;
 pub mod scaffold;
 pub mod session;
 pub mod settings;

@@ -41,6 +41,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   assistantShortcuts: [],
   assistantDefaultProvider: "claude-code",
   assistantDefaultModel: {},
+  previewDefaultWidth: 1024,
+  previewDefaultHeight: 768,
+  previewAutoStart: false,
+  previewCustomDevCommand: null,
   triviaEnabled: true,
   onboardingCompleted: false,
 };

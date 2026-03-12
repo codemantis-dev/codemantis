@@ -2,6 +2,7 @@ mod changelog;
 mod claude;
 mod commands;
 mod errors;
+mod preview;
 mod storage;
 mod terminal;
 mod utils;
@@ -35,6 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new(database))
         .manage(terminal::pty_manager::TerminalPool::new())
+        .manage(preview::PreviewState::new())
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -105,6 +107,14 @@ pub fn run() {
             commands::scaffold::list_templates,
             commands::scaffold::scaffold_from_template,
             commands::scaffold::scaffold_from_cli,
+            commands::preview::open_preview_window,
+            commands::preview::close_preview_window,
+            commands::preview::navigate_preview,
+            commands::preview::refresh_preview,
+            commands::preview::focus_preview_window,
+            commands::preview::start_dev_server,
+            commands::preview::stop_dev_server,
+            commands::preview::get_dev_server_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

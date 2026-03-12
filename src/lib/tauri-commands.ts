@@ -439,6 +439,59 @@ export function listenScaffoldProgress(
   );
 }
 
+// --- Preview ---
+
+export async function openPreviewWindow(
+  url: string,
+  projectName: string,
+  width?: number,
+  height?: number,
+): Promise<void> {
+  return invoke("open_preview_window", { url, projectName, width, height });
+}
+
+export async function closePreviewWindow(): Promise<void> {
+  return invoke("close_preview_window");
+}
+
+export async function navigatePreview(url: string): Promise<void> {
+  return invoke("navigate_preview", { url });
+}
+
+export async function refreshPreview(): Promise<void> {
+  return invoke("refresh_preview");
+}
+
+export async function focusPreviewWindow(): Promise<boolean> {
+  return invoke<boolean>("focus_preview_window");
+}
+
+export interface DevServerInfo {
+  terminal_id: string;
+  synthetic_session_id: string;
+  port: number | null;
+  url: string | null;
+  status: string;
+}
+
+export async function startDevServer(
+  projectPath: string,
+  devCommand: string | null,
+  devPort: number | null,
+): Promise<string> {
+  return invoke<string>("start_dev_server", { projectPath, devCommand, devPort });
+}
+
+export async function stopDevServer(projectPath: string): Promise<void> {
+  return invoke("stop_dev_server", { projectPath });
+}
+
+export async function getDevServerStatus(
+  projectPath: string,
+): Promise<DevServerInfo | null> {
+  return invoke<DevServerInfo | null>("get_dev_server_status", { projectPath });
+}
+
 // --- Event Listeners ---
 
 export function listenChatEvents(

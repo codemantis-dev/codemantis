@@ -59,6 +59,12 @@ export interface AppSettings {
   assistantDefaultProvider: AIProvider;
   assistantDefaultModel: Record<string, string>;
 
+  // Preview
+  previewDefaultWidth: number;
+  previewDefaultHeight: number;
+  previewAutoStart: boolean;
+  previewCustomDevCommand: string | null;
+
   // Trivia
   triviaEnabled: boolean;
 
