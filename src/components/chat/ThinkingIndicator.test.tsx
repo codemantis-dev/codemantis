@@ -83,6 +83,7 @@ describe("ThinkingIndicator", () => {
       label: "Reading file...",
       toolName: "Read",
       toolElapsed: 0,
+      filePath: null,
     });
     render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
     expect(screen.getByText("Reading file...")).toBeInTheDocument();
@@ -109,6 +110,7 @@ describe("ThinkingIndicator", () => {
       label: "Running command...",
       toolName: "Bash",
       toolElapsed: 45.2,
+      filePath: null,
     });
     render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
     expect(screen.getByText(/Running command.*\(45s\)/)).toBeInTheDocument();

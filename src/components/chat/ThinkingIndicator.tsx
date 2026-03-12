@@ -53,7 +53,7 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
     return () => clearTimeout(timer);
   }, []);
 
-  const activityInfo: SessionActivityInfo = activity ?? { label: "Thinking...", toolName: null, toolElapsed: 0 };
+  const activityInfo: SessionActivityInfo = activity ?? { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null };
   const displayLabel = isCompacting ? "Compacting context..." : activityInfo.label;
 
   // Show tool elapsed if available and > 5s

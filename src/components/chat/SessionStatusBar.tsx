@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { SessionActivityInfo } from "../../stores/sessionStore";
 
 function formatElapsedCompact(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -22,6 +23,20 @@ function formatCostCompact(usd: number): string {
   if (usd < 0.001) return "";
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(3)}`;
+}
+
+/** Compose a compact activity string for the status bar.
+ *  e.g., "Editing settings.ts", "Reading App.tsx", "Running command..." */
+function formatActivityDetail(activity: SessionActivityInfo | undefined): string | null {
+  if (!activity?.toolName) return null;
+  if (activity.filePath) {
+    const fileName = activity.filePath.split("/").pop() ?? activity.filePath;
+    // "Reading file..." → "Reading", "Editing code..." → "Editing"
+    const verb = activity.label.split(/\s/)[0];
+    return `${verb} ${fileName}`;
+  }
+  // No file path — use full label (e.g., "Running command...", "Searching the web...")
+  return activity.label;
 }
 
 interface SessionStatusBarProps {
@@ -62,30 +77,21 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     return () => clearInterval(timer);
   }, [busySince]);
 
-  // Determine status — show current tool in status bar (not the activity label, which is in ThinkingIndicator)
+  // Determine status
   let statusLabel: string;
   let statusColor: string;
-  let toolDetail: string | null = null;
   if (isCompacting) {
     statusLabel = "Compacting";
     statusColor = "text-yellow-400";
   } else if (isBusy) {
     statusLabel = "Busy";
     statusColor = "text-green-400";
-    // Show current tool name for specificity (ThinkingIndicator already shows the activity label)
-    if (activity?.toolName) {
-      const tn = activity.toolName;
-      if (tn.startsWith("mcp__")) {
-        const parts = tn.split("__");
-        toolDetail = parts.slice(2).join("_") || parts[1] || "mcp";
-      } else {
-        toolDetail = tn;
-      }
-    }
   } else {
     statusLabel = "Idle";
     statusColor = "text-text-ghost";
   }
+
+  const activityDetail = isBusy ? formatActivityDetail(activity) : null;
 
   const totalTokens = stats
     ? stats.totalInputTokens + stats.totalOutputTokens
@@ -102,30 +108,29 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
       className="flex items-center gap-3 px-4 py-1 border-t border-border text-label select-none shrink-0"
       style={{ background: "var(--bg-primary)" }}
     >
-      {/* Left section: fixed width to prevent layout shifts */}
-      <div className="flex items-center gap-1.5 w-[200px] shrink-0">
+      {/* Left section: status + elapsed + activity detail */}
+      <div className="flex items-center gap-1.5 min-w-0">
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
           isBusy ? "bg-green-400 animate-pulse" : isCompacting ? "bg-yellow-400 animate-pulse" : "bg-text-ghost"
         }`} />
         <span className={`${statusColor} font-medium shrink-0`}>{statusLabel}</span>
-        {toolDetail && (
-          <span className="text-text-ghost truncate">{toolDetail}</span>
-        )}
         {isBusy && elapsed > 0 && (
           <span className="text-text-ghost font-mono shrink-0">
             {formatElapsedCompact(elapsed)}
           </span>
         )}
+        {activityDetail && (
+          <span className="text-text-ghost truncate">{activityDetail}</span>
+        )}
       </div>
 
-      {/* Mode badge */}
+      <div className="flex-1" />
+
+      {/* Right section: mode + model + turns + RL + tokens + cost + ctx */}
       {modeLabel && (
         <span className="text-yellow-400 font-medium shrink-0">{modeLabel}</span>
       )}
 
-      <div className="flex-1" />
-
-      {/* Model name */}
       {modelLabel && (
         <span className="text-text-ghost shrink-0">{modelLabel}</span>
       )}

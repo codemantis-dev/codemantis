@@ -103,7 +103,7 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
 
     case "text_delta": {
       store.touchLastEvent(sessionId);
-      store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0 });
+      store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0, filePath: null });
       const streaming = store.sessionStreaming.get(sessionId);
       if (!streaming?.isStreaming) {
         const msgId = nextMessageId();
@@ -351,7 +351,7 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       store.touchLastEvent(sessionId);
       store.setSessionCompacting(sessionId, event.is_compacting);
       if (event.is_compacting) {
-        store.setSessionActivity(sessionId, { label: "Compacting context...", toolName: null, toolElapsed: 0 });
+        store.setSessionActivity(sessionId, { label: "Compacting context...", toolName: null, toolElapsed: 0, filePath: null });
         showToast("Compacting context — this may take a moment...", "info", 5000);
       }
       break;
@@ -408,10 +408,12 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
 
       // Update activity label to reflect what tool is running
+      const filePath = (event.tool_input?.file_path as string) ?? null;
       sessionStore.setSessionActivity(sessionId, {
         label: toolActivityLabel(event.tool_name),
         toolName: event.tool_name,
         toolElapsed: 0,
+        filePath,
       });
 
       // Check main session store first, then assistant store for the streaming messageId
@@ -437,17 +439,19 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
     case "tool_progress": {
       useSessionStore.getState().touchLastEvent(sessionId);
       // Update activity with elapsed time — this is the heartbeat signal
+      const currentActivity = sessionStore.sessionActivity.get(sessionId);
       sessionStore.setSessionActivity(sessionId, {
         label: toolActivityLabel(event.tool_name),
         toolName: event.tool_name,
         toolElapsed: event.elapsed_seconds,
+        filePath: currentActivity?.filePath ?? null,
       });
       break;
     }
 
     case "tool_result": {
       // Tool finished — revert activity to "Thinking..." for next tool or text
-      sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0 });
+      sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
       activityStore.updateEntryStatus(
         sessionId,
         event.tool_use_id,

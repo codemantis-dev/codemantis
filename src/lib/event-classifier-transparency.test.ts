@@ -67,6 +67,7 @@ describe("Transparency: Activity Labels", () => {
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
     expect(activity?.label).toBe("Reading file...");
     expect(activity?.toolName).toBe("Read");
+    expect(activity?.filePath).toBe("/tmp/test.ts");
   });
 
   it("tool_use_start sets contextual activity label for Edit tool", () => {
@@ -79,6 +80,7 @@ describe("Transparency: Activity Labels", () => {
     });
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
     expect(activity?.label).toBe("Editing code...");
+    expect(activity?.filePath).toBe("/tmp/test.ts");
   });
 
   it("tool_use_start sets contextual activity label for Bash tool", () => {
@@ -91,6 +93,7 @@ describe("Transparency: Activity Labels", () => {
     });
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
     expect(activity?.label).toBe("Running command...");
+    expect(activity?.filePath).toBeNull();
   });
 
   it("tool_use_start sets contextual activity label for Agent tool", () => {
@@ -103,6 +106,7 @@ describe("Transparency: Activity Labels", () => {
     });
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
     expect(activity?.label).toBe("Running sub-agent...");
+    expect(activity?.filePath).toBeNull();
   });
 
   it("tool_use_start sets contextual activity label for Grep tool", () => {
@@ -115,6 +119,7 @@ describe("Transparency: Activity Labels", () => {
     });
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
     expect(activity?.label).toBe("Searching code...");
+    expect(activity?.filePath).toBeNull();
   });
 
   it("tool_result resets activity back to 'Thinking...'", () => {
@@ -124,9 +129,10 @@ describe("Transparency: Activity Labels", () => {
       session_id: SESSION_ID,
       tool_use_id: "tool-6",
       tool_name: "Read",
-      tool_input: {},
+      tool_input: { file_path: "/tmp/foo.ts" },
     });
     expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)?.label).toBe("Reading file...");
+    expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)?.filePath).toBe("/tmp/foo.ts");
 
     // Then complete the tool
     handleActivityEvent(SESSION_ID, {
@@ -137,6 +143,7 @@ describe("Transparency: Activity Labels", () => {
       is_error: false,
     });
     expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)?.label).toBe("Thinking...");
+    expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)?.filePath).toBeNull();
   });
 });
 
@@ -346,7 +353,7 @@ describe("Transparency: Busy State Tracking", () => {
     const store = useSessionStore.getState();
     // First set busy with activity
     store.setSessionBusy(SESSION_ID, true);
-    store.setSessionActivity(SESSION_ID, { label: "Editing code...", toolName: "Edit", toolElapsed: 0 });
+    store.setSessionActivity(SESSION_ID, { label: "Editing code...", toolName: "Edit", toolElapsed: 0, filePath: null });
     expect(useSessionStore.getState().busySince.get(SESSION_ID)).toBeGreaterThan(0);
     expect(useSessionStore.getState().sessionActivity.get(SESSION_ID)?.label).toBe("Editing code...");
 

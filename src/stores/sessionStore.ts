@@ -19,12 +19,14 @@ export interface SessionActivityInfo {
   label: string;        // e.g., "Reading files...", "Editing code..."
   toolName: string | null;
   toolElapsed: number;  // seconds
+  filePath: string | null;  // file_path from tool_input (for file-based tools)
 }
 
 const DEFAULT_ACTIVITY: SessionActivityInfo = {
   label: "Thinking...",
   toolName: null,
   toolElapsed: 0,
+  filePath: null,
 };
 
 interface SessionState {
