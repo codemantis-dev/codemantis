@@ -12,6 +12,7 @@ import ModeSelector from "./ModeSelector";
 import type { Attachment } from "../../types/attachment";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
+import { inputDrafts } from "../../lib/input-drafts";
 import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
 
@@ -71,6 +72,7 @@ export default function InputArea() {
   const [commandQuery, setCommandQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const paletteRef = useRef<CommandPaletteHandle>(null);
+  const prevSessionRef = useRef<string | null>(null);
   const { executeCommand } = useCommandExecution();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
@@ -81,6 +83,27 @@ export default function InputArea() {
     ? sessionStreaming.get(activeSessionId)
     : undefined;
   const isStreaming = streaming?.isStreaming ?? false;
+
+  // Save/restore input drafts per session
+  useEffect(() => {
+    if (prevSessionRef.current) {
+      const currentInput = textareaRef.current?.value ?? "";
+      if (currentInput) {
+        inputDrafts.set(prevSessionRef.current, currentInput);
+      } else {
+        inputDrafts.delete(prevSessionRef.current);
+      }
+    }
+    const restored = activeSessionId ? inputDrafts.get(activeSessionId) ?? "" : "";
+    setInput(restored);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+    setShowCommandPalette(false);
+    setCommandQuery("");
+    setDragOver(false);
+    prevSessionRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const draftInput = useUiStore((s) => s.draftInput);
   const setDraftInput = useUiStore((s) => s.setDraftInput);
@@ -135,6 +158,7 @@ export default function InputArea() {
     }
 
     setInput("");
+    if (activeSessionId) inputDrafts.delete(activeSessionId);
     clearAttachments(activeSessionId!);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";

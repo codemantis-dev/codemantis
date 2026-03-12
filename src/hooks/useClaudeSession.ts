@@ -24,6 +24,7 @@ import {
   stopStaleDetection,
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
+import { inputDrafts } from "../lib/input-drafts";
 
 const MAX_SESSIONS = 10;
 
@@ -148,6 +149,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     activityStore.getState().clearEntries(sessionId);
     useAttachmentStore.getState().clearSession(sessionId);
     changelogStore.getState().clearSession(sessionId);
+    inputDrafts.delete(sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store refs (sessionStore, activityStore, terminalStore, changelogStore) are stable Zustand singletons
   }, []);
 

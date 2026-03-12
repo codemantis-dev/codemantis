@@ -165,6 +165,9 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     }
 
     store.removeAssistant(projectPath, sessionId);
+    // Clean up assistant input draft
+    const { assistantInputDrafts } = await import("../lib/input-drafts");
+    assistantInputDrafts.delete(sessionId);
   }, []);
 
   const closeAllAssistants = useCallback(async (projectPath: string) => {

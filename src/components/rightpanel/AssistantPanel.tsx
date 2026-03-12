@@ -25,6 +25,8 @@ import AssistantMessageMenu from "./AssistantMessageMenu";
 import MessageBubble from "../chat/MessageBubble";
 import type { AssistantShortcut } from "../../types/settings";
 
+import { assistantInputDrafts } from "../../lib/input-drafts";
+
 export default function AssistantPanel() {
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
@@ -38,6 +40,7 @@ export default function AssistantPanel() {
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [commandIndex, setCommandIndex] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const prevAssistantRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const providerMenuRef = useRef<HTMLDivElement>(null);
@@ -84,6 +87,31 @@ export default function AssistantPanel() {
 
   const currentAttachments = activeAssistantId ? allAttachments.get(activeAssistantId) ?? [] : [];
   const showThinking = busy && !streaming?.isStreaming;
+
+  // Save/restore input drafts per assistant tab
+  useEffect(() => {
+    if (prevAssistantRef.current) {
+      const currentInput = textareaRef.current?.value ?? "";
+      if (currentInput) {
+        assistantInputDrafts.set(prevAssistantRef.current, currentInput);
+      } else {
+        assistantInputDrafts.delete(prevAssistantRef.current);
+      }
+    }
+    const restored = activeAssistantId ? assistantInputDrafts.get(activeAssistantId) ?? "" : "";
+    setInput(restored);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+    setShowProviderMenu(false);
+    setExpandedProvider(null);
+    setShowCommandPalette(false);
+    setCommandQuery("");
+    setCommandIndex(0);
+    setDragOver(false);
+    setContextMenu(null);
+    prevAssistantRef.current = activeAssistantId;
+  }, [activeAssistantId]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -172,6 +200,7 @@ export default function AssistantPanel() {
     sendMessage(activeAssistantId, trimmed, hasAttachments ? currentAttachments : undefined);
     clearAssistantAttachments(activeAssistantId);
     setInput("");
+    assistantInputDrafts.delete(activeAssistantId);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
