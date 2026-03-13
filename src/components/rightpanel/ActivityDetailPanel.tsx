@@ -220,7 +220,7 @@ export default function ActivityDetailPanel() {
       </div>
 
       {/* Body (scrollable) */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 select-text">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-3 select-text">
         {/* Input section */}
         {inputEntries.length > 0 && (
           <section>
@@ -229,10 +229,10 @@ export default function ActivityDetailPanel() {
             </h3>
             <div className="rounded-lg border border-border-light overflow-hidden" style={{ background: "var(--bg-primary)" }}>
               {inputEntries.map(([key, value]) => (
-                <div key={key} className="flex gap-2 px-3 py-1.5 border-b border-border-light last:border-b-0">
+                <div key={key} className="flex gap-2 px-3 py-1.5 border-b border-border-light last:border-b-0 min-w-0">
                   <span className="text-label text-text-ghost shrink-0 w-20 font-mono">{key}</span>
                   <span
-                    className={`text-label text-text-secondary break-all ${
+                    className={`text-label text-text-secondary break-all min-w-0 ${
                       key === "command" || key === "pattern" || key === "regex" ? "font-mono" : ""
                     }`}
                   >

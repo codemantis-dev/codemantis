@@ -4,51 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CodeMantis</title>
-    <style>
-      #boot-error {
-        display: none;
-        position: fixed;
-        top: 60px;
-        left: 20px;
-        right: 20px;
-        padding: 16px;
-        background: #1a0000;
-        border: 1px solid #f87171;
-        border-radius: 8px;
-        color: #fca5a5;
-        font-family: monospace;
-        font-size: 12px;
-        white-space: pre-wrap;
-        z-index: 99999;
-        max-height: 80vh;
-        overflow: auto;
-      }
-    </style>
-    <script>
-      // Catch ALL errors before React loads
-      window.__bootErrors = [];
-      window.onerror = function(msg, src, line, col, err) {
-        window.__bootErrors.push(msg + ' at ' + src + ':' + line + ':' + col);
-        var el = document.getElementById('boot-error');
-        if (el) {
-          el.style.display = 'block';
-          el.textContent = 'JS Error:\n' + window.__bootErrors.join('\n\n');
-        }
-        return false;
-      };
-      window.onunhandledrejection = function(e) {
-        var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unknown promise rejection';
-        window.__bootErrors.push('Promise: ' + msg);
-        var el = document.getElementById('boot-error');
-        if (el) {
-          el.style.display = 'block';
-          el.textContent = 'JS Error:\n' + window.__bootErrors.join('\n\n');
-        }
-      };
-    </script>
   </head>
   <body>
-    <div id="boot-error"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

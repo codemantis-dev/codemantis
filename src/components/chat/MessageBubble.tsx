@@ -1,4 +1,5 @@
-import { RotateCcw } from "lucide-react";
+import { useState, useCallback } from "react";
+import { RotateCcw, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
@@ -41,20 +42,36 @@ export default function MessageBubble({
   const timeStr = formatMessageTime(message.timestamp);
   const durationMs = message.turnStats?.durationMs;
 
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [message.content]);
+
   if (isUser) {
     return (
-      <div className="flex justify-end mb-4">
+      <div className="group/msg flex justify-end mb-4">
         <div className="flex flex-col items-end gap-0.5">
-          <div
-            className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
-            style={{
-              background: "var(--accent-dim)",
-              border: "1px solid rgba(124,58,237,0.2)",
-            }}
-          >
-            <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden">
-              {message.content}
-            </p>
+          <div className="relative">
+            <div
+              className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
+              style={{
+                background: "var(--accent-dim)",
+                border: "1px solid rgba(124,58,237,0.2)",
+              }}
+            >
+              <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden">
+                {message.content}
+              </p>
+            </div>
+            <button
+              onClick={handleCopy}
+              className="absolute -left-7 top-1/2 -translate-y-1/2 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1 rounded-md hover:bg-bg-elevated text-text-ghost hover:text-text-secondary"
+              title="Copy message"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
           </div>
           <span className="text-[10px] text-text-ghost px-1">{timeStr}</span>
         </div>
