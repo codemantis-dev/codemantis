@@ -139,7 +139,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
 
       {/* Right section: mode + model + turns + RL + tokens + cost + ctx */}
       {modeLabel && (
-        <span className="text-yellow-400 font-medium shrink-0">{modeLabel}</span>
+        <span className="text-yellow font-medium shrink-0">{modeLabel}</span>
       )}
 
       {modelLabel && (

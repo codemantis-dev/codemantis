@@ -189,7 +189,7 @@ export default function AppShell() {
 
         {/* Right Panel */}
         <div
-          className="shrink-0 border-l border-border overflow-hidden"
+          className="shrink-0 border-l border-border overflow-hidden pb-3"
           style={{ width: rightPanelWidth }}
         >
           <RightPanel />

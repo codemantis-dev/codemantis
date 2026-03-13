@@ -219,7 +219,7 @@ async fn handle_tool_approval(
 
     // Mode-control tools: auto-approve and update session mode
     if tool_name == "ExitPlanMode" || tool_name == "EnterPlanMode" {
-        info!("[DIAG-A1] {} received at approval server! forge_session_id_hint={:?}, cli_session_id={:?}",
+        warn!("[DIAG-A1] {} received at approval server! forge_session_id_hint={:?}, cli_session_id={:?}",
             tool_name, input.forge_session_id, input.session_id);
         let new_mode = if tool_name == "EnterPlanMode" {
             SessionMode::Plan
@@ -249,7 +249,7 @@ async fn handle_tool_approval(
         )
         .await;
 
-        info!("[DIAG-A2] {} session resolution result: {:?}", tool_name, forge_session_id);
+        warn!("[DIAG-A2] {} session resolution result: {:?}", tool_name, forge_session_id);
 
         if let Some(ref sid) = forge_session_id {
             if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
@@ -267,7 +267,7 @@ async fn handle_tool_approval(
                     "mode": new_mode
                 }),
             );
-            info!("[DIAG-A3] session-mode-changed emit result: {:?}", emit_result);
+            warn!("[DIAG-A3] session-mode-changed emit result: {:?}", emit_result);
         } else {
             warn!(
                 "[approval-server] {} approved but session not found — mode not updated",
@@ -323,8 +323,8 @@ async fn handle_tool_approval(
                 }
                 SessionMode::Plan => {
                     if !PLAN_MODE_ALLOWED_TOOLS.contains(&tool_name) {
-                        info!(
-                            "[approval-server] Denying tool {} in plan mode (session: {})",
+                        warn!(
+                            "[DIAG-A4] Denying tool {} in plan mode (session: {})",
                             tool_name, forge_session_id
                         );
                         return (
