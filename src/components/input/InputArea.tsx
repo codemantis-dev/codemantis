@@ -482,7 +482,8 @@ export default function InputArea() {
               {isBusy ? (
                 <button
                   onClick={handleStop}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all bg-red text-white hover:brightness-110"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all text-red hover:brightness-90"
+                  style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)" }}
                 >
                   <Square size={12} />
                   <span>Stop</span>
