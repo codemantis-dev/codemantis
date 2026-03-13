@@ -61,10 +61,12 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     });
 
     // Listen for output
+    let cancelled = false;
     let unlistenFn: (() => void) | null = null;
     listenTerminalOutput(terminalId, (data) => {
       terminal.write(data);
     }).then((unlisten) => {
+      if (cancelled) { unlisten(); return; }
       unlistenFn = unlisten;
     });
 
@@ -95,6 +97,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     observer.observe(containerRef.current);
 
     return () => {
+      cancelled = true;
       observer.disconnect();
       clearTimeout(resizeTimeout);
       if (unlistenFn) unlistenFn();

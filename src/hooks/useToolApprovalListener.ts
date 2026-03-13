@@ -64,14 +64,15 @@ function parseAskUserQuestion(
  */
 export function useToolApprovalListener(): void {
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
-
     let unlistenModeChange: (() => void) | null = null;
 
     listenSessionModeChanged(({ sessionId, mode }) => {
       console.log("[session-mode-changed]", sessionId, mode);
       useSessionStore.getState().setSessionMode(sessionId, mode as SessionMode);
     }).then((fn) => {
+      if (cancelled) { fn(); return; }
       unlistenModeChange = fn;
     });
 
@@ -114,10 +115,12 @@ export function useToolApprovalListener(): void {
         uiStore.setShowApprovalModal(true);
       }
     }).then((fn) => {
+      if (cancelled) { fn(); return; }
       unlisten = fn;
     });
 
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
       if (unlistenModeChange) unlistenModeChange();
     };
