@@ -23,6 +23,9 @@ export interface TurnStats {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  durationApiMs?: number | null;
+  numTurns?: number | null;
+  stopReason?: string | null;
 }
 
 export interface Message {

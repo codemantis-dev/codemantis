@@ -187,6 +187,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       if (streaming?.isStreaming) {
         store.finalizeStreaming(sessionId);
       }
+      // Use dynamic context_window from modelUsage if available
+      const contextMax = event.context_window ?? 200000;
+
       if (event.usage) {
         const totalInput =
           (event.usage.input_tokens ?? 0) +
@@ -203,7 +206,13 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
           const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
           const apiCalls = Math.max(toolCalls, 1);
           const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
-          store.updateContext(sessionId, estimatedContext, 200000);
+          store.updateContext(sessionId, estimatedContext, contextMax);
+        } else {
+          // Update max from modelUsage even when incremental updates handled context.used
+          const currentCtx = store.sessionContext.get(sessionId);
+          if (currentCtx && contextMax !== currentCtx.max) {
+            store.updateContext(sessionId, currentCtx.used, contextMax);
+          }
         }
       }
       // Reset tool call counter for next turn
@@ -218,6 +227,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         outputTokens: event.usage?.output_tokens ?? 0,
         cacheCreationTokens: event.usage?.cache_creation_input_tokens ?? 0,
         cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
+        durationApiMs: event.duration_api_ms,
+        numTurns: event.num_turns,
+        stopReason: event.stop_reason,
       };
 
       // Attach turn stats to the completed assistant message
@@ -400,19 +412,31 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
 
     case "rate_limit_warning": {
       store.touchLastEvent(sessionId);
-      store.setRateLimitUtilization(sessionId, event.utilization);
-      const pct = Math.round(event.utilization * 100);
-      if (event.utilization >= 0.9) {
+      const utilization = event.utilization || 0;
+      store.setRateLimitUtilization(sessionId, utilization);
+
+      // The CLI filters to "allowed_warning" status before sending, so always show.
+      // Build a descriptive message from available fields.
+      if (utilization >= 0.9) {
+        const pct = Math.round(utilization * 100);
         showToast(`Rate limit ${pct}% utilized — requests may be throttled soon`, "error", 10000);
-      } else if (event.utilization >= 0.7) {
+      } else if (utilization >= 0.7) {
+        const pct = Math.round(utilization * 100);
         showToast(`Rate limit ${pct}% utilized`, "info", 6000);
+      } else {
+        // utilization is 0 (CLI doesn't send it) — show status-based warning
+        const typeInfo = event.rate_limit_type ? ` (${event.rate_limit_type})` : "";
+        const overageInfo = event.overage_status && event.overage_status !== "allowed"
+          ? ` — overage ${event.overage_status}`
+          : "";
+        showToast(`Rate limit warning${typeInfo}${overageInfo}`, "info", 8000);
       }
       break;
     }
 
     case "usage_update": {
       store.touchLastEvent(sessionId);
-      // Per-API-call usage from assistant events — accumulate incrementally
+      // Per-API-call usage from message_delta events — accumulate incrementally
       store.accumulateUsage(
         sessionId,
         event.usage.input_tokens ?? 0,
@@ -428,7 +452,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         (event.usage.cache_read_input_tokens ?? 0) +
         (event.usage.output_tokens ?? 0);
       if (callContext > 0) {
-        store.updateContext(sessionId, callContext, 200000);
+        // Use current max (may have been updated by a previous turn_complete with modelUsage)
+        const currentMax = store.sessionContext.get(sessionId)?.max ?? 200000;
+        store.updateContext(sessionId, callContext, currentMax);
         checkContextThresholds(sessionId);
       }
       break;

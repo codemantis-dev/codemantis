@@ -114,14 +114,8 @@ pub async fn route_events(
             }
 
             RawStreamEvent::Assistant { message, .. } => {
-                // Emit per-API-call usage (fires after each tool round-trip)
-                if let Some(usage) = &message.usage {
-                    let fe = FrontendEvent::UsageUpdate {
-                        session_id: session_id.clone(),
-                        usage: usage.clone(),
-                    };
-                    let _ = app_handle.emit(&chat_event, &fe);
-                }
+                // Note: message.usage contains preliminary token counts (often 1 or 19).
+                // The authoritative per-API-call usage comes from MessageDelta events.
 
                 if let Some(content_blocks) = &message.content {
                     for block in content_blocks {
@@ -253,6 +247,10 @@ pub async fn route_events(
                 is_error,
                 result,
                 session_id: cli_sid,
+                num_turns,
+                duration_api_ms,
+                stop_reason,
+                model_usage,
                 ..
             } => {
                 // Emit CLI session_id if not yet emitted (fallback from Result event)
@@ -278,11 +276,31 @@ pub async fn route_events(
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
                 } else {
+                    // Extract contextWindow and maxOutputTokens from modelUsage
+                    let (context_window, max_output_tokens) = model_usage
+                        .as_ref()
+                        .and_then(|mu| mu.as_object())
+                        .and_then(|obj| {
+                            // modelUsage is keyed by model name — take the first entry
+                            obj.values().next().and_then(|v| v.as_object())
+                        })
+                        .map(|entry| {
+                            let cw = entry.get("contextWindow").and_then(|v| v.as_u64());
+                            let mot = entry.get("maxOutputTokens").and_then(|v| v.as_u64());
+                            (cw, mot)
+                        })
+                        .unwrap_or((None, None));
+
                     let fe = FrontendEvent::TurnComplete {
                         session_id: session_id.clone(),
                         duration_ms,
                         usage,
                         cost_usd,
+                        duration_api_ms,
+                        num_turns,
+                        stop_reason,
+                        context_window,
+                        max_output_tokens,
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
                 }
@@ -363,11 +381,17 @@ pub async fn route_events(
             RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
                 if let Some(info) = rate_limit_info {
                     let utilization = info.utilization.unwrap_or(0.0);
+                    // Emit when status is "allowed_warning" OR utilization is high.
+                    // The real CLI typically sends status but not utilization, so
+                    // the status-based path is the primary trigger.
                     if utilization > 0.7 || info.status.as_deref() == Some("allowed_warning") {
                         let fe = FrontendEvent::RateLimitWarning {
                             session_id: session_id.clone(),
                             utilization,
                             resets_at: info.resets_at,
+                            rate_limit_type: info.rate_limit_type,
+                            overage_status: info.overage_status,
+                            is_using_overage: info.is_using_overage,
                         };
                         let _ = app_handle.emit(&chat_event, &fe);
                     }
@@ -438,8 +462,18 @@ pub async fn route_events(
                 );
             }
 
+            RawStreamEvent::MessageDelta { usage, .. } => {
+                // Authoritative per-API-call usage (final token counts)
+                if let Some(usage) = usage {
+                    let fe = FrontendEvent::UsageUpdate {
+                        session_id: session_id.clone(),
+                        usage: usage.clone(),
+                    };
+                    let _ = app_handle.emit(&chat_event, &fe);
+                }
+            }
+
             RawStreamEvent::MessageStart { .. }
-            | RawStreamEvent::MessageDelta { .. }
             | RawStreamEvent::MessageStop { .. } => {}
 
             RawStreamEvent::User { message, .. } => {

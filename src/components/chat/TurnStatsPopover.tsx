@@ -65,6 +65,14 @@ export default function TurnStatsPopover({ stats }: TurnStatsPopoverProps) {
             {stats.durationMs != null && (
               <Row label="Duration" value={formatDuration(stats.durationMs)} />
             )}
+            {stats.durationApiMs != null && stats.durationApiMs > 0 && (
+              <Row label="API time" value={formatDuration(stats.durationApiMs)} />
+            )}
+
+            {/* API calls */}
+            {stats.numTurns != null && stats.numTurns > 0 && (
+              <Row label="API calls" value={`${stats.numTurns}`} />
+            )}
 
             {/* Cost */}
             {stats.costUsd != null && stats.costUsd > 0 && (

@@ -60,11 +60,16 @@ pub enum RawStreamEvent {
         cost_usd: Option<f64>,
         is_error: Option<bool>,
         usage: Option<UsageInfo>,
+        num_turns: Option<u32>,
+        duration_api_ms: Option<u64>,
+        stop_reason: Option<String>,
+        #[serde(rename = "modelUsage")]
+        model_usage: Option<serde_json::Value>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
 
-    // Anthropic API message-level events (no-op for us)
+    // Anthropic API message-level events
     #[serde(rename = "message_start")]
     MessageStart {
         #[serde(flatten)]
@@ -73,6 +78,8 @@ pub enum RawStreamEvent {
 
     #[serde(rename = "message_delta")]
     MessageDelta {
+        delta: Option<serde_json::Value>,
+        usage: Option<UsageInfo>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
@@ -183,6 +190,14 @@ pub struct UsageInfo {
     pub output_tokens: Option<u64>,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
+    pub service_tier: Option<String>,
+    pub server_tool_use: Option<ServerToolUse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerToolUse {
+    pub web_search_requests: Option<u32>,
+    pub web_fetch_requests: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +206,14 @@ pub struct RateLimitInfo {
     #[serde(rename = "resetsAt")]
     pub resets_at: Option<f64>,
     pub utilization: Option<f64>,
+    #[serde(rename = "rateLimitType")]
+    pub rate_limit_type: Option<String>,
+    #[serde(rename = "overageStatus")]
+    pub overage_status: Option<String>,
+    #[serde(rename = "overageDisabledReason")]
+    pub overage_disabled_reason: Option<String>,
+    #[serde(rename = "isUsingOverage")]
+    pub is_using_overage: Option<bool>,
 }
 
 // --- Outgoing events to the frontend ---
@@ -240,6 +263,11 @@ pub enum FrontendEvent {
         duration_ms: Option<u64>,
         usage: Option<UsageInfo>,
         cost_usd: Option<f64>,
+        duration_api_ms: Option<u64>,
+        num_turns: Option<u32>,
+        stop_reason: Option<String>,
+        context_window: Option<u64>,
+        max_output_tokens: Option<u64>,
     },
 
     #[serde(rename = "cli_session_id")]
@@ -288,9 +316,12 @@ pub enum FrontendEvent {
         session_id: String,
         utilization: f64,
         resets_at: Option<f64>,
+        rate_limit_type: Option<String>,
+        overage_status: Option<String>,
+        is_using_overage: Option<bool>,
     },
 
-    /// Per-API-call usage emitted from `assistant` events (fires after each tool round-trip).
+    /// Per-API-call usage emitted from `message_delta` events (authoritative final token counts).
     #[serde(rename = "usage_update")]
     UsageUpdate {
         session_id: String,

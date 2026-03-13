@@ -61,6 +61,11 @@ export interface TurnCompleteEvent {
   duration_ms: number | null;
   usage: UsageInfo | null;
   cost_usd: number | null;
+  duration_api_ms?: number | null;
+  num_turns?: number | null;
+  stop_reason?: string | null;
+  context_window?: number | null;
+  max_output_tokens?: number | null;
 }
 
 export interface ProcessErrorEvent {
@@ -88,6 +93,8 @@ export interface UsageInfo {
   output_tokens: number | null;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
+  service_tier?: string | null;
+  server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } | null;
 }
 
 export interface CompactingStatusEvent {
@@ -116,9 +123,12 @@ export interface RateLimitWarningEvent {
   session_id: string;
   utilization: number;
   resets_at: number | null;
+  rate_limit_type?: string | null;
+  overage_status?: string | null;
+  is_using_overage?: boolean | null;
 }
 
-/** Per-API-call usage emitted from assistant events (fires after each tool round-trip). */
+/** Per-API-call usage emitted from message_delta events (authoritative final token counts). */
 export interface UsageUpdateEvent {
   type: "usage_update";
   session_id: string;

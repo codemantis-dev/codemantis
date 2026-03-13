@@ -368,8 +368,15 @@ mod tests {
                 output_tokens: Some(800),
                 cache_creation_input_tokens: None,
                 cache_read_input_tokens: None,
+                service_tier: None,
+                server_tool_use: None,
             }),
             cost_usd: Some(0.003),
+            duration_api_ms: None,
+            num_turns: None,
+            stop_reason: None,
+            context_window: None,
+            max_output_tokens: None,
         };
         let json = serde_json::to_string(&fe).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
