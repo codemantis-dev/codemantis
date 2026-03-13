@@ -1,42 +1,16 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { BarChart3 } from "lucide-react";
 import type { TurnStats } from "../../types/session";
+import { formatTokens, formatCost, formatDuration } from "../../lib/format-utils";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 interface TurnStatsPopoverProps {
   stats: TurnStats;
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return `${n}`;
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.001) return "<$0.001";
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(3)}`;
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
 export default function TurnStatsPopover({ stats }: TurnStatsPopoverProps) {
   const [open, setOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  const popoverRef = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   const totalTokens = stats.inputTokens + stats.outputTokens + stats.cacheCreationTokens + stats.cacheReadTokens;
 
@@ -63,10 +37,10 @@ export default function TurnStatsPopover({ stats }: TurnStatsPopoverProps) {
           <div className="space-y-1.5">
             {/* Duration */}
             {stats.durationMs != null && (
-              <Row label="Duration" value={formatDuration(stats.durationMs)} />
+              <Row label="Duration" value={formatDuration(stats.durationMs, "short")} />
             )}
             {stats.durationApiMs != null && stats.durationApiMs > 0 && (
-              <Row label="API time" value={formatDuration(stats.durationApiMs)} />
+              <Row label="API time" value={formatDuration(stats.durationApiMs, "short")} />
             )}
 
             {/* API calls */}

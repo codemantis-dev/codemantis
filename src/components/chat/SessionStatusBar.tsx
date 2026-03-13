@@ -1,29 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SessionActivityInfo } from "../../stores/sessionStore";
-
-function formatElapsedCompact(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMin = minutes % 60;
-  return `${hours}:${remainingMin.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function formatTokensCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return `${n}`;
-}
-
-function formatCostCompact(usd: number): string {
-  if (usd < 0.001) return "";
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(3)}`;
-}
+import { formatTokens, formatCost, formatDuration, formatModelName } from "../../lib/format-utils";
 
 /** Compose a compact activity string for the status bar.
  *  e.g., "Editing settings.ts", "Reading App.tsx", "Running command..." */
@@ -50,17 +28,6 @@ function formatActivityDetail(
 
 interface SessionStatusBarProps {
   sessionId: string;
-}
-
-function formatModelName(model: string | null | undefined): string | null {
-  if (!model) return null;
-  // "claude-opus-4-6-..." → "Opus 4.6", "claude-sonnet-4-..." → "Sonnet 4"
-  const stripped = model.replace(/^claude-/, "");
-  const parts = stripped.split("-");
-  const name = parts[0];
-  const version = parts.slice(1).filter((p) => /^\d/.test(p)).join(".");
-  const capitalized = name.charAt(0).toUpperCase() + name.slice(1);
-  return version ? `${capitalized} ${version}` : capitalized;
 }
 
 export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
@@ -107,7 +74,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const totalTokens = stats
     ? stats.totalInputTokens + stats.totalOutputTokens
     : 0;
-  const costStr = stats ? formatCostCompact(stats.totalCostUsd) : "";
+  const costStr = stats ? formatCost(stats.totalCostUsd, "compact") : "";
   const ctxPct = ctx && ctx.max > 0 ? Math.round((ctx.used / ctx.max) * 100) : 0;
   const ctxColor = ctxPct >= 90 ? "text-red" : ctxPct >= 70 ? "text-yellow" : "text-text-ghost";
   const modelLabel = formatModelName(session?.model);
@@ -127,7 +94,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
         <span className={`${statusColor} font-medium shrink-0`}>{statusLabel}</span>
         {isBusy && elapsed > 0 && (
           <span className="text-text-ghost font-mono shrink-0">
-            {formatElapsedCompact(elapsed)}
+            {formatDuration(elapsed, "elapsed")}
           </span>
         )}
         {activityDetail && (
@@ -163,7 +130,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
       {/* Session tokens */}
       {totalTokens > 0 && (
         <span className="text-text-ghost shrink-0">
-          {formatTokensCompact(totalTokens)} tokens
+          {formatTokens(totalTokens)} tokens
         </span>
       )}
 

@@ -591,6 +591,140 @@ mod tests {
     }
 
     // ──────────────────────────────────────────────────────────
+    // PROTOCOL CONFORMANCE — Phase 1-4 new event fields
+    // ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_message_delta_with_usage() {
+        let json = r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":7,"output_tokens":34,"cache_creation_input_tokens":7195,"cache_read_input_tokens":40037}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::MessageDelta { usage, delta, .. } => {
+                let u = usage.unwrap();
+                assert_eq!(u.output_tokens, Some(34));
+                assert_eq!(u.input_tokens, Some(7));
+                assert_eq!(u.cache_creation_input_tokens, Some(7195));
+                assert_eq!(u.cache_read_input_tokens, Some(40037));
+                let d = delta.unwrap();
+                assert_eq!(d["stop_reason"], "end_turn");
+            }
+            other => panic!("Expected MessageDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_message_delta_without_usage() {
+        let json = r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::MessageDelta { usage, .. } => {
+                assert!(usage.is_none());
+            }
+            other => panic!("Expected MessageDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_result_with_model_usage_and_num_turns() {
+        let json = r#"{"type":"result","subtype":"success","duration_ms":5000,"duration_api_ms":3200,"num_turns":3,"stop_reason":"end_turn","cost_usd":0.0685,"usage":{"input_tokens":100,"output_tokens":143},"modelUsage":{"claude-opus-4-6":{"contextWindow":200000,"maxOutputTokens":32000,"costUSD":0.0685,"inputTokens":7,"outputTokens":143,"cacheReadInputTokens":40037,"cacheCreationInputTokens":7195}}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Result {
+                num_turns,
+                duration_api_ms,
+                stop_reason,
+                model_usage,
+                ..
+            } => {
+                assert_eq!(num_turns, Some(3));
+                assert_eq!(duration_api_ms, Some(3200));
+                assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+                let mu = model_usage.unwrap();
+                let opus = mu.get("claude-opus-4-6").unwrap();
+                assert_eq!(opus["contextWindow"], 200000);
+                assert_eq!(opus["maxOutputTokens"], 32000);
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_rate_limit_info_camel_case_fields() {
+        let json = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1741800000,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":false}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
+                let info = rate_limit_info.unwrap();
+                assert_eq!(info.status.as_deref(), Some("allowed_warning"));
+                assert_eq!(info.resets_at, Some(1741800000.0));
+                assert_eq!(info.rate_limit_type.as_deref(), Some("five_hour"));
+                assert_eq!(info.overage_status.as_deref(), Some("rejected"));
+                assert_eq!(info.overage_disabled_reason.as_deref(), Some("out_of_credits"));
+                assert_eq!(info.is_using_overage, Some(false));
+                assert!(info.utilization.is_none());
+            }
+            other => panic!("Expected RateLimitEvent, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_usage_info_with_service_tier_and_server_tool_use() {
+        let json = r#"{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"service_tier":"standard","server_tool_use":{"web_search_requests":2,"web_fetch_requests":1}}"#;
+        let usage: UsageInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.service_tier.as_deref(), Some("standard"));
+        let stu = usage.server_tool_use.unwrap();
+        assert_eq!(stu.web_search_requests, Some(2));
+        assert_eq!(stu.web_fetch_requests, Some(1));
+    }
+
+    #[test]
+    fn frontend_turn_complete_with_enriched_fields_serializes() {
+        let fe = FrontendEvent::TurnComplete {
+            session_id: "s1".into(),
+            duration_ms: Some(5000),
+            usage: Some(UsageInfo {
+                input_tokens: Some(100),
+                output_tokens: Some(143),
+                cache_creation_input_tokens: Some(7195),
+                cache_read_input_tokens: Some(40037),
+                service_tier: Some("standard".into()),
+                server_tool_use: None,
+            }),
+            cost_usd: Some(0.0685),
+            duration_api_ms: Some(3200),
+            num_turns: Some(3),
+            stop_reason: Some("end_turn".into()),
+            context_window: Some(200000),
+            max_output_tokens: Some(32000),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["duration_api_ms"], 3200);
+        assert_eq!(parsed["num_turns"], 3);
+        assert_eq!(parsed["stop_reason"], "end_turn");
+        assert_eq!(parsed["context_window"], 200000);
+        assert_eq!(parsed["max_output_tokens"], 32000);
+        assert_eq!(parsed["usage"]["service_tier"], "standard");
+    }
+
+    #[test]
+    fn frontend_rate_limit_warning_with_enriched_fields_serializes() {
+        let fe = FrontendEvent::RateLimitWarning {
+            session_id: "s1".into(),
+            utilization: 0.0,
+            resets_at: Some(1741800000.0),
+            rate_limit_type: Some("five_hour".into()),
+            overage_status: Some("rejected".into()),
+            is_using_overage: Some(false),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["rate_limit_type"], "five_hour");
+        assert_eq!(parsed["overage_status"], "rejected");
+        assert_eq!(parsed["is_using_overage"], false);
+    }
+
+    // ──────────────────────────────────────────────────────────
     // FILE TREE — scan directories, filter ignored, depth limit
     // ──────────────────────────────────────────────────────────
 

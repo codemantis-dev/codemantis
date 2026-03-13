@@ -4,28 +4,11 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SessionActivityInfo } from "../../stores/sessionStore";
 import type { SubAgentInfo } from "../../types/activity";
+import { formatDuration, formatSecondsElapsed } from "../../lib/format-utils";
 import TriviaCard from "./TriviaCard";
 
 const TRIVIA_DELAY_MS = 3000;
 const COLLAPSE_THRESHOLD = 3;
-
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMin = minutes % 60;
-  return `${hours}h ${remainingMin.toString().padStart(2, "0")}m`;
-}
-
-function formatAgentElapsed(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}m ${s.toString().padStart(2, "0")}s`;
-}
 
 interface ThinkingIndicatorProps {
   sessionId: string;
@@ -52,7 +35,7 @@ function SubAgentRow({ agent }: { agent: SubAgentInfo }) {
       )}
       {agent.elapsed > 0 && (
         <span className="text-[10px] text-text-ghost font-mono shrink-0 ml-auto">
-          {formatAgentElapsed(agent.elapsed)}
+          {formatSecondsElapsed(agent.elapsed)}
         </span>
       )}
     </div>
@@ -173,7 +156,7 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
         {/* Elapsed timer */}
         {elapsed > 0 && (
           <span className="text-label text-text-ghost font-mono ml-1">
-            {formatElapsed(elapsed)}
+            {formatDuration(elapsed, "human")}
           </span>
         )}
       </div>

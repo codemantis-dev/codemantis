@@ -129,25 +129,25 @@ export default function AssistantPanel() {
   // Close provider menu on click outside
   useEffect(() => {
     if (!showProviderMenu) return;
-    const handler = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (providerMenuRef.current && !providerMenuRef.current.contains(e.target as Node)) {
         setShowProviderMenu(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showProviderMenu]);
 
   // Close command palette on click outside
   useEffect(() => {
     if (!showCommandPalette) return;
-    const handler = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (commandPaletteRef.current && !commandPaletteRef.current.contains(e.target as Node)) {
         setShowCommandPalette(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showCommandPalette]);
 
   const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {

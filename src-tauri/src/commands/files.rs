@@ -106,14 +106,26 @@ fn scan_directory(dir: &Path, depth: usize) -> Result<Vec<FileNode>, std::io::Er
 pub fn write_file_content(file_path: String, content: String) -> Result<(), String> {
     let path = Path::new(&file_path);
 
-    if !path.exists() {
-        // Ensure parent directory exists for new files
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
+    // Reject paths with null bytes or obvious traversal attempts
+    if file_path.contains('\0') {
+        return Err("Invalid file path".to_string());
     }
 
-    fs::write(path, content).map_err(|e| e.to_string())
+    // Resolve to absolute path and verify no symlink escape
+    let resolved = if path.exists() {
+        path.canonicalize().map_err(|e| format!("Cannot resolve path: {}", e))?
+    } else {
+        // For new files, canonicalize the parent and append the filename
+        let parent = path.parent().ok_or("Invalid file path: no parent directory")?;
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let canonical_parent = parent.canonicalize().map_err(|e| format!("Cannot resolve parent: {}", e))?;
+        let file_name = path.file_name().ok_or("Invalid file path: no filename")?;
+        canonical_parent.join(file_name)
+    };
+
+    fs::write(&resolved, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

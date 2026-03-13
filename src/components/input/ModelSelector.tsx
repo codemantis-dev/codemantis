@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { setSessionModel } from "../../lib/tauri-commands";
+import { formatModelName } from "../../lib/format-utils";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import type { CliModelInfo } from "../../types/claude-events";
 
 const FALLBACK_MODELS: CliModelInfo[] = [
@@ -11,21 +13,6 @@ const FALLBACK_MODELS: CliModelInfo[] = [
   { value: "sonnet[1m]", displayName: "Sonnet (1M)", description: "Extended context" },
   { value: "haiku", displayName: "Haiku", description: "Fastest" },
 ];
-
-function formatModelName(model: string | null | undefined): string {
-  if (!model) return "Model";
-  const m = model.toLowerCase();
-  const families = ["opus", "sonnet", "haiku"];
-  for (const family of families) {
-    const idx = m.indexOf(family);
-    if (idx === -1) continue;
-    const after = m.slice(idx + family.length).replace(/^-/, "");
-    const versionPart = after.replace(/-?\d{8,}.*$/, "").replace(/-/g, ".");
-    const name = family.charAt(0).toUpperCase() + family.slice(1);
-    return versionPart ? `${name} ${versionPart}` : name;
-  }
-  return model;
-}
 
 export default function ModelSelector() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -40,20 +27,9 @@ export default function ModelSelector() {
       : FALLBACK_MODELS;
 
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const currentModelName = formatModelName(session?.model);
+  const currentModelName = formatModelName(session?.model) ?? "Model";
 
   const handleSelect = (model: CliModelInfo) => {
     if (!activeSessionId) return;

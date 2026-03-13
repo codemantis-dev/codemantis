@@ -19,19 +19,37 @@ pub fn run() {
         env_logger::Env::default().default_filter_or("warn")
     ).init();
 
-    let db_path = dirs::data_dir()
-        .map(|d| d.join("dev.codemantis.app").join("codemantis.db"))
-        .expect("Failed to determine data directory");
+    let db_path = match dirs::data_dir() {
+        Some(d) => d.join("dev.codemantis.app").join("codemantis.db"),
+        None => {
+            eprintln!("FATAL: Cannot determine data directory. Ensure your home directory exists.");
+            std::process::exit(1);
+        }
+    };
 
     // Ensure parent directory exists
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).expect("Failed to create data directory");
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("FATAL: Cannot create data directory {:?}: {}", parent, e);
+            std::process::exit(1);
+        }
     }
 
-    let database = Database::new(
-        db_path.to_str().expect("Invalid database path"),
-    )
-    .expect("Failed to initialize database");
+    let db_str = match db_path.to_str() {
+        Some(s) => s,
+        None => {
+            eprintln!("FATAL: Database path contains invalid characters: {:?}", db_path);
+            std::process::exit(1);
+        }
+    };
+
+    let database = match Database::new(db_str) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("FATAL: Cannot initialize database at {:?}: {}", db_path, e);
+            std::process::exit(1);
+        }
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

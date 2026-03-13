@@ -395,7 +395,10 @@ pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Failed to bind approval server");
-    let port = listener.local_addr().unwrap().port();
+    let port = listener
+        .local_addr()
+        .expect("Failed to get approval server listener address")
+        .port();
 
     info!("[approval-server] Listening on 127.0.0.1:{}", port);
 

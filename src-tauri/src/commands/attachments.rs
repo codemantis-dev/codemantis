@@ -47,7 +47,16 @@ pub fn save_clipboard_image(
 
     fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
 
-    let file_path = attachments_dir.join(&filename);
+    // Validate filename to prevent path traversal
+    let safe_name = Path::new(&filename)
+        .file_name()
+        .ok_or_else(|| "Invalid filename".to_string())?;
+    let name_str = safe_name.to_str().ok_or_else(|| "Non-UTF8 filename".to_string())?;
+    if name_str.contains("..") || name_str.contains('/') || name_str.contains('\\') || name_str.contains('\0') {
+        return Err("Filename contains invalid characters".to_string());
+    }
+
+    let file_path = attachments_dir.join(safe_name);
     fs::write(&file_path, &image_data).map_err(|e| e.to_string())?;
 
     // Ensure .codemantis is in .gitignore
@@ -301,6 +310,34 @@ mod tests {
 
         let result = save_clipboard_image(project_path, data, "over.png".into());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_clipboard_image_prevents_path_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_path = tmp.path().to_str().unwrap().to_string();
+        let data = vec![1, 2, 3];
+
+        // Path::file_name() strips directory components, so "../escape.png" → "escape.png"
+        // This is safe: the file is written inside attachments_dir regardless
+        let result = save_clipboard_image(project_path.clone(), data.clone(), "../escape.png".into());
+        assert!(result.is_ok(), "Traversal path safely reduced to basename");
+        let info = result.unwrap();
+        assert!(info.file_path.contains("attachments"), "File must be in attachments dir");
+        assert!(info.file_path.ends_with("escape.png"));
+        // Verify it did NOT escape
+        let att_dir = tmp.path().join(".codemantis").join("attachments");
+        assert!(att_dir.join("escape.png").exists(), "File in correct location");
+        assert!(!tmp.path().join("escape.png").exists(), "File did NOT escape");
+
+        // Pure ".." has no file_name() component — returns error
+        let result2 = save_clipboard_image(project_path.clone(), data.clone(), "..".into());
+        assert!(result2.is_err(), "Pure '..' should be rejected (no filename)");
+
+        // "sub/dir/file.png" → file_name is "file.png" which is safe
+        let result3 = save_clipboard_image(project_path.clone(), data.clone(), "sub/dir/file.png".into());
+        assert!(result3.is_ok(), "Directory paths are safely reduced to basename");
+        assert!(result3.unwrap().file_path.ends_with("file.png"));
     }
 
     #[test]

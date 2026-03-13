@@ -1,21 +1,10 @@
 import type { SessionStats } from "../../types/session";
+import { formatTokens, formatCost } from "../../lib/format-utils";
 
 interface ContextMeterProps {
   used: number;
   max: number;
   stats?: SessionStats;
-}
-
-function formatCost(usd: number): string {
-  if (usd === 0) return "$0";
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return `${n}`;
 }
 
 export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
@@ -40,11 +29,11 @@ export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
           <span className="text-label text-text-dim">
             {stats.turnCount} turn{stats.turnCount !== 1 ? "s" : ""}
             {" / "}
-            {formatTokenCount(totalTokens)} tok
+            {formatTokens(totalTokens)} tok
           </span>
           {hasCost && (
             <span className="text-label text-text-dim font-mono">
-              {formatCost(stats.totalCostUsd)}
+              {formatCost(stats.totalCostUsd, "explicit")}
             </span>
           )}
         </div>

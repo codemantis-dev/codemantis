@@ -459,6 +459,132 @@ describe("Transparency: Sub-Agent Tool Attribution", () => {
   });
 });
 
+describe("Transparency: Dynamic Context Window from modelUsage", () => {
+  beforeEach(resetStores);
+
+  it("turn_complete with context_window updates max from modelUsage", () => {
+    // No usage_update → fallback path sets context
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 3000,
+      usage: { input_tokens: 8000, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      cost_usd: 0.02,
+      context_window: 128000,  // Different model (e.g., Sonnet)
+      max_output_tokens: 16000,
+    });
+    const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    expect(ctx?.max).toBe(128000);
+    // used = (totalInput+totalOutput) / apiCalls — exact value depends on
+    // module-level turnToolCallCount which can't be reset between tests,
+    // so just verify it's a positive number derived from the 10000 total.
+    expect(ctx?.used).toBeGreaterThan(0);
+    expect(ctx?.used).toBeLessThanOrEqual(10000);
+  });
+
+  it("turn_complete context_window updates max even when incremental updates handled used", () => {
+    // Simulate usage_update during turn
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    });
+    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.max).toBe(200000);
+
+    // turn_complete with real context_window from modelUsage
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 2000,
+      usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      cost_usd: 0.01,
+      context_window: 128000,
+    });
+    const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    // max should be updated to 128000, used should stay at 5500 (from usage_update)
+    expect(ctx?.max).toBe(128000);
+    expect(ctx?.used).toBe(5500);
+  });
+
+  it("usage_update preserves current max from previous turn_complete", () => {
+    // First turn sets max to 128000
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 1000,
+      usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      cost_usd: 0.001,
+      context_window: 128000,
+    });
+
+    // Reset apiCallCount for next turn
+    // Next turn: usage_update should use the 128000 max
+    handleChatEvent(SESSION_ID, {
+      type: "usage_update",
+      session_id: SESSION_ID,
+      usage: { input_tokens: 3000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    });
+    const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    expect(ctx?.max).toBe(128000);
+    expect(ctx?.used).toBe(3200);
+  });
+
+  it("turn_complete without context_window defaults to 200000", () => {
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 1000,
+      usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      cost_usd: 0.001,
+      // No context_window field
+    });
+    const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
+    expect(ctx?.max).toBe(200000);
+  });
+});
+
+describe("Transparency: Rate Limit Warning with status-only (no utilization)", () => {
+  beforeEach(resetStores);
+
+  it("rate_limit_warning with zero utilization still stores value", () => {
+    handleChatEvent(SESSION_ID, {
+      type: "rate_limit_warning",
+      session_id: SESSION_ID,
+      utilization: 0,
+      resets_at: 1741800000,
+      rate_limit_type: "five_hour",
+      overage_status: "rejected",
+      is_using_overage: false,
+    });
+    // utilization 0 should be stored (not treated as missing)
+    expect(useSessionStore.getState().rateLimitUtilization.get(SESSION_ID)).toBe(0);
+  });
+});
+
+describe("Transparency: TurnStats enrichment", () => {
+  beforeEach(resetStores);
+
+  it("turn_complete with enriched fields populates TurnStats", () => {
+    // Start streaming so there's a message to attach stats to
+    handleChatEvent(SESSION_ID, { type: "text_delta", session_id: SESSION_ID, text: "Done" });
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 5000,
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      cost_usd: 0.01,
+      duration_api_ms: 3200,
+      num_turns: 3,
+      stop_reason: "end_turn",
+    });
+    const msgs = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+    const assistantMsg = msgs.find((m) => m.role === "assistant");
+    expect(assistantMsg?.turnStats?.durationApiMs).toBe(3200);
+    expect(assistantMsg?.turnStats?.numTurns).toBe(3);
+    expect(assistantMsg?.turnStats?.stopReason).toBe("end_turn");
+  });
+});
+
 describe("Transparency: Busy State Tracking", () => {
   beforeEach(resetStores);
 

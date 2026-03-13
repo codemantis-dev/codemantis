@@ -23,7 +23,7 @@ vi.mock("./usePreviewWindow", () => ({
 }));
 
 // Mock tauri-commands
-const mockSetSessionMode = vi.fn(() => Promise.resolve());
+const mockSetSessionMode = vi.fn((_sessionId: string, _mode: string) => Promise.resolve());
 vi.mock("../lib/tauri-commands", () => ({
   closeSession: vi.fn(() => Promise.resolve()),
   setSessionMode: mockSetSessionMode,

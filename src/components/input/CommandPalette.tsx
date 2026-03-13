@@ -127,13 +127,13 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
 
     // Close on click outside
     useEffect(() => {
-      const handler = (e: MouseEvent) => {
+      const handleClickOutside = (e: MouseEvent) => {
         if (listRef.current && !listRef.current.contains(e.target as Node)) {
           onClose();
         }
       };
-      document.addEventListener("mousedown", handler);
-      return () => document.removeEventListener("mousedown", handler);
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [onClose]);
 
     if (loading) {

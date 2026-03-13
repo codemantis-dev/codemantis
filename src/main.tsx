@@ -7,10 +7,16 @@ import "./index.css";
 window.addEventListener("error", (e) => {
   const root = document.getElementById("root");
   if (root && !root.hasChildNodes()) {
-    root.innerHTML = `<div style="color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;">
-      <h2 style="color:#e4e4e7;margin-bottom:12px;">CodeMantis failed to start</h2>
-      ${e.message}\n${e.filename}:${e.lineno}
-    </div>`;
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = "color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;";
+    const heading = document.createElement("h2");
+    heading.style.cssText = "color:#e4e4e7;margin-bottom:12px;";
+    heading.textContent = "CodeMantis failed to start";
+    const details = document.createElement("pre");
+    details.textContent = `${e.message}\n${e.filename}:${e.lineno}`;
+    wrapper.appendChild(heading);
+    wrapper.appendChild(details);
+    root.appendChild(wrapper);
   }
 });
 
@@ -27,9 +33,15 @@ try {
 } catch (e) {
   const root = document.getElementById("root");
   if (root) {
-    root.innerHTML = `<div style="color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;">
-      <h2 style="color:#e4e4e7;margin-bottom:12px;">CodeMantis failed to start</h2>
-      ${e}
-    </div>`;
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = "color:#f87171;padding:40px;font-family:monospace;white-space:pre-wrap;";
+    const heading = document.createElement("h2");
+    heading.style.cssText = "color:#e4e4e7;margin-bottom:12px;";
+    heading.textContent = "CodeMantis failed to start";
+    const details = document.createElement("pre");
+    details.textContent = String(e);
+    wrapper.appendChild(heading);
+    wrapper.appendChild(details);
+    root.appendChild(wrapper);
   }
 }

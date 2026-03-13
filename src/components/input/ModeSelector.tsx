@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { Shield, ShieldCheck, Map } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { setSessionMode as setSessionModeCmd } from "../../lib/tauri-commands";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import type { SessionMode } from "../../types/session";
 
 const MODES: { id: SessionMode; label: string; description: string; icon: typeof Shield }[] = [
@@ -35,18 +36,7 @@ export default function ModeSelector() {
     : "normal";
 
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   const current = MODES.find((m) => m.id === mode) ?? MODES[0];
   const Icon = current.icon;

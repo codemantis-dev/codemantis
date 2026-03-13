@@ -506,15 +506,13 @@ pub async fn route_events(
 
             RawStreamEvent::ControlResponse { response, .. } => {
                 if let Some(resp_val) = response {
-                    // The CLI nests the actual response: { response: { subtype, request_id, ... } }
-                    let inner_resp = resp_val
-                        .get("response")
-                        .unwrap_or(&resp_val);
-                    let subtype = inner_resp.get("subtype").and_then(|v| v.as_str());
-                    let req_id = inner_resp
-                        .get("request_id")
-                        .or_else(|| resp_val.get("request_id"))
-                        .and_then(|v| v.as_str());
+                    // resp_val is the top-level response object:
+                    //   { "subtype": "success", "request_id": "req_abc", "response": { ... } }
+                    // or for error:
+                    //   { "subtype": "error", "request_id": "req_abc", "error": "Already initialized" }
+                    // subtype and request_id are always at the top level.
+                    let subtype = resp_val.get("subtype").and_then(|v| v.as_str());
+                    let req_id = resp_val.get("request_id").and_then(|v| v.as_str());
 
                     if let Some(request_id) = req_id {
                         if let Some(state) = app_handle.try_state::<AppState>() {
@@ -524,14 +522,10 @@ pub async fn route_events(
                             };
 
                             let is_success = subtype == Some("success");
-                            let error_msg = inner_resp
+                            let error_msg = resp_val
                                 .get("error")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
-                            let inner = inner_resp
-                                .get("response")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
 
                             match kind {
                                 Some((_, ControlRequestKind::Interrupt)) => {
@@ -568,18 +562,30 @@ pub async fn route_events(
                                     }
                                 }
                                 Some((_, ControlRequestKind::Initialize)) => {
-                                    let fe = FrontendEvent::CapabilitiesDiscovered {
-                                        session_id: session_id.clone(),
-                                        models: inner.get("models").cloned().unwrap_or_default(),
-                                        commands: inner.get("commands").cloned().unwrap_or_default(),
-                                        agents: inner.get("agents").cloned().unwrap_or_default(),
-                                        account: inner.get("account").cloned().unwrap_or_default(),
-                                        output_styles: inner
-                                            .get("available_output_styles")
+                                    if is_success {
+                                        // Capabilities data is in resp_val.response (the nested payload)
+                                        let caps = resp_val
+                                            .get("response")
                                             .cloned()
-                                            .unwrap_or_default(),
-                                    };
-                                    let _ = app_handle.emit(&chat_event, &fe);
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let fe = FrontendEvent::CapabilitiesDiscovered {
+                                            session_id: session_id.clone(),
+                                            models: caps.get("models").cloned().unwrap_or_default(),
+                                            commands: caps.get("commands").cloned().unwrap_or_default(),
+                                            agents: caps.get("agents").cloned().unwrap_or_default(),
+                                            account: caps.get("account").cloned().unwrap_or_default(),
+                                            output_styles: caps
+                                                .get("available_output_styles")
+                                                .cloned()
+                                                .unwrap_or_default(),
+                                        };
+                                        let _ = app_handle.emit(&chat_event, &fe);
+                                    } else {
+                                        warn!(
+                                            "[message_router] initialize failed: {:?}",
+                                            error_msg
+                                        );
+                                    }
                                 }
                                 None => {
                                     warn!(

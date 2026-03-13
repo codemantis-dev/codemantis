@@ -2,6 +2,7 @@ import { Plus, X } from "lucide-react";
 import type { AssistantInstance, TokenUsage } from "../../stores/assistantStore";
 import type { AIProvider } from "../../types/assistant-provider";
 import { calculateCost } from "../../types/assistant-provider";
+import { formatCost } from "../../lib/format-utils";
 import { useSettingsStore } from "../../stores/settingsStore";
 import StatusDot from "../shared/StatusDot";
 
@@ -33,12 +34,10 @@ export default function AssistantTabs({
 }: AssistantTabsProps) {
   const modelPricing = useSettingsStore((s) => s.settings.modelPricing);
 
-  const formatCost = (usage: TokenUsage | undefined, model: string | null): string => {
+  const getAssistantCost = (usage: TokenUsage | undefined, model: string | null): string => {
     if (!usage || !model) return "";
     const cost = calculateCost(model, usage.inputTokens, usage.outputTokens, modelPricing);
-    if (cost === 0) return "";
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    return `$${cost.toFixed(2)}`;
+    return formatCost(cost, "explicit").replace("$0", "");
   };
 
   return (
@@ -46,7 +45,7 @@ export default function AssistantTabs({
       {assistants.map((asst) => {
         const isBusy = busyMap.get(asst.id) ?? false;
         const badge = PROVIDER_BADGES[asst.provider];
-        const costStr = formatCost(costMap.get(asst.id), asst.model);
+        const costStr = getAssistantCost(costMap.get(asst.id), asst.model);
         return (
           <button
             key={asst.id}

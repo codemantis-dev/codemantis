@@ -3,6 +3,7 @@ import { RotateCcw, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
+import { formatDuration } from "../../lib/format-utils";
 import ActivityChip from "./ActivityChip";
 import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
@@ -11,14 +12,6 @@ import TurnStatsPopover from "./TurnStatsPopover";
 function formatMessageTime(timestamp: string): string {
   const date = new Date(timestamp);
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDurationShort(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  const min = Math.floor(ms / 60000);
-  const sec = Math.round((ms % 60000) / 1000);
-  return `${min}m ${sec}s`;
 }
 
 interface MessageBubbleProps {
@@ -111,7 +104,7 @@ export default function MessageBubble({
             <span className="text-[10px] text-text-ghost">
               {timeStr}
               {durationMs != null && durationMs > 0 && (
-                <> · took {formatDurationShort(durationMs)}</>
+                <> · took {formatDuration(durationMs, "medium")}</>
               )}
             </span>
           </div>
