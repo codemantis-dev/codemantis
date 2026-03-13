@@ -50,16 +50,6 @@ export default function ChatPanel() {
     }
   }, []);
 
-  const handleContentResize = useCallback(() => {
-    if (isAtBottomRef.current && scrollRef.current) {
-      requestAnimationFrame(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-      });
-    }
-  }, []);
-
   // Force-scroll to bottom when the user sends a new message (even if scrolled up)
   useEffect(() => {
     const prevCount = prevMessageCountRef.current;
@@ -98,48 +88,54 @@ export default function ChatPanel() {
 
   return (
     <div className="relative h-full flex flex-col">
-      <div
-        ref={scrollRef}
-        onScroll={checkAtBottom}
-        className="flex-1 overflow-y-auto px-6 py-4"
-      >
-        <div className="max-w-[720px] mx-auto">
-          {messages.length === 0 && !streaming.isStreaming && (
-            <div className="text-center py-16">
-              <p className="text-text-dim text-ui">
-                Send a message to start the conversation
-              </p>
-            </div>
-          )}
+      <div className="relative flex-1 overflow-hidden">
+        <div
+          ref={scrollRef}
+          onScroll={checkAtBottom}
+          className="h-full overflow-y-auto px-6 py-4"
+        >
+          <div className="max-w-[720px] mx-auto">
+            {messages.length === 0 && !streaming.isStreaming && (
+              <div className="text-center py-16">
+                <p className="text-text-dim text-ui">
+                  Send a message to start the conversation
+                </p>
+              </div>
+            )}
 
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              streamingContent={
-                message.isStreaming ? streaming.streamingContent : undefined
-              }
-              onRestart={message.restartable ? handleRestart : undefined}
-            />
-          ))}
-
-          {/* Working indicator — show when busy but no text is streaming yet */}
-          {isBusy && !streaming.isStreaming && activeSessionId && (
-            <ThinkingIndicator sessionId={activeSessionId} onContentResize={handleContentResize} />
-          )}
+            {messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                streamingContent={
+                  message.isStreaming ? streaming.streamingContent : undefined
+                }
+                onRestart={message.restartable ? handleRestart : undefined}
+              />
+            ))}
+          </div>
         </div>
+
+        {/* Scroll to bottom button */}
+        {showScrollButton && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-text-secondary text-ui shadow-lg hover:brightness-95 transition-colors z-10"
+            style={{ background: "var(--bg-primary)" }}
+          >
+            <ArrowDown size={13} />
+            <span>New messages</span>
+          </button>
+        )}
       </div>
 
-      {/* Scroll to bottom button */}
-      {showScrollButton && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border text-text-secondary text-ui shadow-lg hover:brightness-95 transition-colors z-10"
-          style={{ background: "var(--bg-primary)" }}
-        >
-          <ArrowDown size={13} />
-          <span>New messages</span>
-        </button>
+      {/* ThinkingIndicator — pinned outside scroll area for guaranteed visibility */}
+      {isBusy && !streaming.isStreaming && activeSessionId && (
+        <div className="shrink-0 px-6 pt-3 pb-2 border-t border-border" style={{ background: "var(--bg-primary)" }}>
+          <div className="max-w-[720px] mx-auto">
+            <ThinkingIndicator sessionId={activeSessionId} />
+          </div>
+        </div>
       )}
 
       {/* Session status bar — always visible at bottom */}

@@ -44,6 +44,9 @@ function toolActivityLabel(toolName: string): string {
 
 let messageCounter = 0;
 
+// Cache file content before Write/Edit tools run, keyed by tool_use_id
+const preEditContentCache = new Map<string, string>();
+
 // Track tool calls per turn for context window estimation (fallback only).
 // When usage_update events are available (modern CLI), context is updated
 // in real-time per API call. This counter is only used as a fallback for
@@ -458,6 +461,12 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
         const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
         sessionStore.setSessionMode(sessionId, newMode);
+        // Also update Rust backend so approval server stays in sync
+        // (use syncSessionMode — NOT setSessionMode — to avoid sending a
+        // control request back to the CLI, which already initiated this change)
+        import("./tauri-commands").then(({ syncSessionMode }) => {
+          syncSessionMode(sessionId, newMode).catch(console.error);
+        });
       }
 
       // Check main session store first, then assistant store for the streaming messageId
@@ -477,6 +486,16 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         sessionId,
       };
       activityStore.addEntry(sessionId, entry);
+
+      // Cache file content before Write/Edit runs (for diff view)
+      if ((event.tool_name === "Write" || event.tool_name === "Edit") && event.tool_input?.file_path) {
+        const editFilePath = event.tool_input.file_path as string;
+        import("./tauri-commands").then(({ readFileContent }) => {
+          readFileContent(editFilePath)
+            .then((content) => preEditContentCache.set(event.tool_use_id, content))
+            .catch(() => preEditContentCache.set(event.tool_use_id, "")); // new file
+        });
+      }
       break;
     }
 
@@ -515,7 +534,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
       // Auto-open file when Write or Edit tool completes successfully
       // Only auto-switch tab for the active session's project
-      if (!event.is_error) {
+      if (!event.is_error && useSettingsStore.getState().settings.autoOpenFiles) {
         const isActiveSession = sessionId === sessionStore.activeSessionId;
         const isMainSession = sessionStore.sessions.has(sessionId);
         const session = sessionStore.sessions.get(sessionId);
@@ -529,9 +548,11 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
             const fileName = filePath.split("/").pop() ?? filePath;
             const language = getLanguageFromPath(filePath);
             const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+            const cachedOldContent = preEditContentCache.get(event.tool_use_id);
             // Read the file content asynchronously for auto-open
             import("./tauri-commands").then(({ readFileContent }) => {
               readFileContent(filePath).then((content) => {
+                const hasDiffData = cachedOldContent !== undefined;
                 useFileViewerStore.getState().openFile(projectPath, {
                   filePath,
                   fileName,
@@ -539,7 +560,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
                   extension,
                   fileSize: new Blob([content]).size,
                   content,
-                  isDiff: false,
+                  isDiff: hasDiffData,
+                  oldContent: hasDiffData ? cachedOldContent : undefined,
+                  newContent: hasDiffData ? content : undefined,
                 });
                 if (isMainSession && isActiveSession) {
                   useUiStore.getState().setRightTab("files");
@@ -551,6 +574,8 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
           }
         }
       }
+      // Cleanup pre-edit cache for this tool call
+      preEditContentCache.delete(event.tool_use_id);
       break;
     }
   }

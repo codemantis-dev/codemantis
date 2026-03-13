@@ -1,11 +1,11 @@
 use crate::claude::event_types::ControlRequestPayload;
 use crate::claude::process::ClaudeProcess;
-use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionStatus};
+use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionMode, SessionStatus};
 use crate::errors::AppError;
 use crate::storage::database::PersistedSession;
 use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
-use log::info;
+use log::{info, warn};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -212,10 +212,63 @@ pub async fn send_message(
 pub async fn set_session_mode(
     state: State<'_, AppState>,
     session_id: String,
-    mode: crate::claude::session::SessionMode,
+    mode: SessionMode,
 ) -> Result<(), String> {
     info!(
         "[set_session_mode] session_id={}, mode={:?}",
+        session_id, mode
+    );
+
+    // Update backend state (approval server enforcement)
+    {
+        let mut modes = state.session_modes.lock().await;
+        modes.insert(session_id.clone(), mode.clone());
+    }
+
+    // Map CodeMantis mode to CLI permission_mode string
+    let cli_mode = match &mode {
+        SessionMode::Normal => "default",
+        SessionMode::AutoAccept => "acceptEdits",
+        SessionMode::Plan => "plan",
+    };
+
+    // Best-effort: send control request to CLI to sync permission mode
+    let processes = state.processes.lock().await;
+    if let Some(process) = processes.get(&session_id) {
+        if process.is_running() {
+            match process.send_control_request(ControlRequestPayload::SetPermissionMode {
+                mode: cli_mode.to_string(),
+            }) {
+                Ok(request_id) => {
+                    let mut pending = state.pending_control_requests.lock().await;
+                    pending.insert(
+                        request_id,
+                        (session_id.clone(), ControlRequestKind::SetPermissionMode(cli_mode.to_string())),
+                    );
+                    info!("[set_session_mode] Sent set_permission_mode={} to CLI", cli_mode);
+                }
+                Err(e) => {
+                    warn!("[set_session_mode] Failed to send set_permission_mode to CLI: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Updates only the backend session mode (approval server) without sending
+/// a control request to the CLI. Used when the frontend detects a CLI-initiated
+/// mode change (ExitPlanMode/EnterPlanMode) — the CLI already changed, so we
+/// only need to sync the backend.
+#[tauri::command]
+pub async fn sync_session_mode(
+    state: State<'_, AppState>,
+    session_id: String,
+    mode: SessionMode,
+) -> Result<(), String> {
+    info!(
+        "[sync_session_mode] session_id={}, mode={:?}",
         session_id, mode
     );
     let mut modes = state.session_modes.lock().await;

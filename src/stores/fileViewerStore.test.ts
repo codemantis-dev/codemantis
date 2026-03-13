@@ -133,6 +133,56 @@ describe("fileViewerStore (per-project multi-tab)", () => {
     expect(state.projectDirtyFiles.get(PROJECT)!.size).toBe(0);
   });
 
+  it("toggleFileDiff switches from diff to normal view", () => {
+    useFileViewerStore.getState().openFile(PROJECT, {
+      filePath: "/src/lib.ts",
+      fileName: "lib.ts",
+      language: "typescript",
+      extension: "ts",
+      fileSize: 24,
+      content: null,
+      isDiff: true,
+      oldContent: "const a = 1;",
+      newContent: "const a = 2;",
+    });
+
+    // Toggle: diff → normal
+    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/lib.ts");
+    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    expect(tab.isDiff).toBe(false);
+    expect(tab.content).toBe("const a = 2;"); // newContent becomes content
+    // Old/new content preserved for toggling back
+    expect(tab.oldContent).toBe("const a = 1;");
+    expect(tab.newContent).toBe("const a = 2;");
+  });
+
+  it("toggleFileDiff switches from normal back to diff view", () => {
+    useFileViewerStore.getState().openFile(PROJECT, {
+      filePath: "/src/lib.ts",
+      fileName: "lib.ts",
+      language: "typescript",
+      extension: "ts",
+      fileSize: 24,
+      content: "const a = 2;",
+      isDiff: false,
+      oldContent: "const a = 1;",
+      newContent: "const a = 2;",
+    });
+
+    // Toggle: normal → diff (has oldContent + newContent)
+    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/lib.ts");
+    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    expect(tab.isDiff).toBe(true);
+  });
+
+  it("toggleFileDiff does nothing for files without diff data", () => {
+    useFileViewerStore.getState().openFile(PROJECT, makeTab("/src/plain.ts", "content"));
+
+    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/plain.ts");
+    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    expect(tab.isDiff).toBe(false); // unchanged
+  });
+
   it("supports diff mode", () => {
     useFileViewerStore.getState().openFile(PROJECT, {
       filePath: "/src/lib.ts",

@@ -23,6 +23,7 @@ interface FileViewerState {
   setActiveFile: (projectPath: string, filePath: string) => void;
   setEditedContent: (projectPath: string, filePath: string, content: string) => void;
   markSaved: (projectPath: string, filePath: string) => void;
+  toggleFileDiff: (projectPath: string, filePath: string) => void;
   closeAllFiles: (projectPath: string) => void;
   clearProject: (projectPath: string) => void;
 }
@@ -201,6 +202,24 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       const projectEditedContents = new Map(state.projectEditedContents);
       projectEditedContents.set(projectPath, editedContents);
       return { projectDirtyFiles, projectOpenFiles, projectEditedContents };
+    }),
+
+  toggleFileDiff: (projectPath, filePath) =>
+    set((state) => {
+      const openFiles = (state.projectOpenFiles.get(projectPath) ?? []).map((f) => {
+        if (f.filePath !== filePath) return f;
+        if (f.isDiff) {
+          // Diff → Normal: show the new content as regular view
+          return { ...f, isDiff: false, content: f.newContent ?? f.content };
+        } else if (f.oldContent !== undefined && f.newContent !== undefined) {
+          // Normal → Diff: switch back to diff view
+          return { ...f, isDiff: true };
+        }
+        return f;
+      });
+      const projectOpenFiles = new Map(state.projectOpenFiles);
+      projectOpenFiles.set(projectPath, openFiles);
+      return { projectOpenFiles };
     }),
 
   closeAllFiles: (projectPath) =>

@@ -53,6 +53,8 @@ export default function SettingsModal() {
   const [assistantDefaultProvider, setAssistantDefaultProvider] = useState<AIProvider>(settings.assistantDefaultProvider);
   const [assistantDefaultModel, setAssistantDefaultModel] = useState<Record<string, string>>(settings.assistantDefaultModel);
   const [triviaEnabled, setTriviaEnabled] = useState(settings.triviaEnabled);
+  const [autoOpenFiles, setAutoOpenFiles] = useState(settings.autoOpenFiles);
+  const [showWelcomeScreen, setShowWelcomeScreen] = useState(!settings.onboardingCompleted);
   const [testingKey, setTestingKey] = useState<string | false>(false);
   const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
 
@@ -74,6 +76,8 @@ export default function SettingsModal() {
       setAssistantDefaultProvider(settings.assistantDefaultProvider);
       setAssistantDefaultModel({ ...settings.assistantDefaultModel });
       setTriviaEnabled(settings.triviaEnabled);
+      setAutoOpenFiles(settings.autoOpenFiles);
+      setShowWelcomeScreen(!settings.onboardingCompleted);
       setTestingKey(false);
       setTestResults({});
     }
@@ -97,6 +101,8 @@ export default function SettingsModal() {
       assistantDefaultProvider,
       assistantDefaultModel,
       triviaEnabled,
+      autoOpenFiles,
+      onboardingCompleted: !showWelcomeScreen,
     });
     setShowModal(false);
   };
@@ -219,10 +225,14 @@ export default function SettingsModal() {
                 fontSize={fontSize}
                 sendShortcut={sendShortcut}
                 triviaEnabled={triviaEnabled}
+                autoOpenFiles={autoOpenFiles}
+                showWelcomeScreen={showWelcomeScreen}
                 onThemeChange={handleThemeChange}
                 onFontSizeChange={setFontSize}
                 onSendShortcutChange={setSendShortcut}
                 onTriviaEnabledChange={setTriviaEnabled}
+                onAutoOpenFilesChange={setAutoOpenFiles}
+                onShowWelcomeScreenChange={setShowWelcomeScreen}
               />
             )}
 
@@ -307,11 +317,11 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 function GeneralTab({
-  theme, fontSize, sendShortcut, triviaEnabled,
-  onThemeChange, onFontSizeChange, onSendShortcutChange, onTriviaEnabledChange,
+  theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, showWelcomeScreen,
+  onThemeChange, onFontSizeChange, onSendShortcutChange, onTriviaEnabledChange, onAutoOpenFilesChange, onShowWelcomeScreenChange,
 }: {
-  theme: ThemeId; fontSize: number; sendShortcut: string; triviaEnabled: boolean;
-  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void; onTriviaEnabledChange: (v: boolean) => void;
+  theme: ThemeId; fontSize: number; sendShortcut: string; triviaEnabled: boolean; autoOpenFiles: boolean; showWelcomeScreen: boolean;
+  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void; onTriviaEnabledChange: (v: boolean) => void; onAutoOpenFilesChange: (v: boolean) => void; onShowWelcomeScreenChange: (v: boolean) => void;
 }) {
   return (
     <div>
@@ -380,6 +390,44 @@ function GeneralTab({
             <div
               className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
                 triviaEnabled ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <label className="text-ui text-text-secondary">Auto-open edited files</label>
+            <p className="text-label text-text-ghost">Open files in the viewer when Claude edits them</p>
+          </div>
+          <button
+            onClick={() => onAutoOpenFilesChange(!autoOpenFiles)}
+            className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+              autoOpenFiles ? "bg-accent" : "bg-bg-elevated border border-border"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
+                autoOpenFiles ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <label className="text-ui text-text-secondary">Show welcome screen on launch</label>
+            <p className="text-label text-text-ghost">Display the getting-started screen when the app opens</p>
+          </div>
+          <button
+            onClick={() => onShowWelcomeScreenChange(!showWelcomeScreen)}
+            className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+              showWelcomeScreen ? "bg-accent" : "bg-bg-elevated border border-border"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
+                showWelcomeScreen ? "translate-x-5" : "translate-x-0.5"
               }`}
             />
           </button>

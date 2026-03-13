@@ -203,6 +203,28 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().getApprovalQueueSize()).toBe(2);
   });
 
+  it("addAlwaysAllowedTool makes tool always-allowed for that session", () => {
+    useActivityStore.getState().addAlwaysAllowedTool("s1", "Bash");
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Bash")).toBe(true);
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Write")).toBe(false);
+  });
+
+  it("alwaysAllowedTools are isolated per session", () => {
+    useActivityStore.getState().addAlwaysAllowedTool("s1", "Bash");
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Bash")).toBe(true);
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s2", "Bash")).toBe(false);
+  });
+
+  it("different sessions can have different always-allowed tools", () => {
+    useActivityStore.getState().addAlwaysAllowedTool("s1", "Bash");
+    useActivityStore.getState().addAlwaysAllowedTool("s2", "Write");
+
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Bash")).toBe(true);
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Write")).toBe(false);
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s2", "Write")).toBe(true);
+    expect(useActivityStore.getState().isToolAlwaysAllowed("s2", "Bash")).toBe(false);
+  });
+
   it("clearAllEntries resets everything", () => {
     useActivityStore.getState().addEntry("s1", {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,

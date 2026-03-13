@@ -33,7 +33,7 @@ export interface PendingQuestion {
 interface ActivityState {
   sessionEntries: Map<string, ActivityEntry[]>;
   sessionQuestions: Map<string, PendingQuestion | null>;
-  alwaysAllowedTools: Map<string, Set<string>>; // projectPath → Set of tool names
+  alwaysAllowedTools: Map<string, Set<string>>; // sessionId → Set of tool names
 
   // Queue-based approval system
   approvalQueue: PendingApproval[];
@@ -62,8 +62,8 @@ interface ActivityState {
     sessionId: string,
     question: PendingQuestion | null
   ) => void;
-  addAlwaysAllowedTool: (projectPath: string, toolName: string) => void;
-  isToolAlwaysAllowed: (projectPath: string, toolName: string) => boolean;
+  addAlwaysAllowedTool: (sessionId: string, toolName: string) => void;
+  isToolAlwaysAllowed: (sessionId: string, toolName: string) => boolean;
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
   getActiveEntries: (sessionId: string) => ActivityEntry[];
   clearEntries: (sessionId: string) => void;
@@ -162,17 +162,17 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       return { sessionQuestions };
     }),
 
-  addAlwaysAllowedTool: (projectPath, toolName) =>
+  addAlwaysAllowedTool: (sessionId, toolName) =>
     set((state) => {
       const updated = new Map(state.alwaysAllowedTools);
-      const tools = new Set(updated.get(projectPath) ?? []);
+      const tools = new Set(updated.get(sessionId) ?? []);
       tools.add(toolName);
-      updated.set(projectPath, tools);
+      updated.set(sessionId, tools);
       return { alwaysAllowedTools: updated };
     }),
 
-  isToolAlwaysAllowed: (projectPath, toolName) => {
-    const tools = get().alwaysAllowedTools.get(projectPath);
+  isToolAlwaysAllowed: (sessionId, toolName) => {
+    const tools = get().alwaysAllowedTools.get(sessionId);
     return tools?.has(toolName) ?? false;
   },
 

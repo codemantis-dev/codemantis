@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   handleChatEvent,
   handleActivityEvent,
@@ -7,6 +7,12 @@ import {
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
+
+// Mock tauri-commands so dynamic imports inside event-classifier resolve
+vi.mock("./tauri-commands", () => ({
+  readFileContent: vi.fn(() => Promise.resolve("")),
+  syncSessionMode: vi.fn(() => Promise.resolve()),
+}));
 
 const SESSION_ID = "s1";
 
@@ -27,6 +33,7 @@ function resetStores(): void {
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
     sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+    sessionModes: new Map([[SESSION_ID, "normal"]]),
     tabOrder: [SESSION_ID],
   });
 
@@ -346,6 +353,48 @@ describe("event-classifier", () => {
       const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
       expect(entry.status).toBe("error");
       expect(entry.isError).toBe(true);
+    });
+
+    it("ExitPlanMode sets session mode to normal", async () => {
+      // Start in plan mode
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-exit",
+        tool_name: "ExitPlanMode",
+        tool_input: {},
+      });
+
+      expect(useSessionStore.getState().sessionModes.get(SESSION_ID)).toBe("normal");
+
+      // Verify syncSessionMode was called via dynamic import
+      const { syncSessionMode } = await import("./tauri-commands");
+      await vi.waitFor(() => {
+        expect(syncSessionMode).toHaveBeenCalledWith(SESSION_ID, "normal");
+      });
+    });
+
+    it("EnterPlanMode sets session mode to plan", async () => {
+      expect(useSessionStore.getState().sessionModes.get(SESSION_ID)).toBe("normal");
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-enter",
+        tool_name: "EnterPlanMode",
+        tool_input: {},
+      });
+
+      expect(useSessionStore.getState().sessionModes.get(SESSION_ID)).toBe("plan");
+
+      const { syncSessionMode } = await import("./tauri-commands");
+      await vi.waitFor(() => {
+        expect(syncSessionMode).toHaveBeenCalledWith(SESSION_ID, "plan");
+      });
     });
   });
 

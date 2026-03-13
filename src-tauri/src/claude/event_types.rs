@@ -334,6 +334,8 @@ pub enum ControlRequestPayload {
     SetModel { model: String },
     #[serde(rename = "initialize")]
     Initialize,
+    #[serde(rename = "set_permission_mode")]
+    SetPermissionMode { mode: String },
 }
 
 #[derive(Debug, Serialize)]

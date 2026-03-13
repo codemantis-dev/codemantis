@@ -68,6 +68,9 @@ export interface AppSettings {
   // Trivia
   triviaEnabled: boolean;
 
+  // File viewer
+  autoOpenFiles: boolean;
+
   // Onboarding
   onboardingCompleted: boolean;
 }

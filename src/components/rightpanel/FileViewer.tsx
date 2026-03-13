@@ -1,6 +1,6 @@
 import { useCallback, useState, useMemo, useEffect } from "react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
-import { X, FileText, WrapText, Columns2, Save } from "lucide-react";
+import { X, FileText, WrapText, Columns2, Save, ArrowLeftRight } from "lucide-react";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -46,6 +46,7 @@ export default function FileViewer() {
   const storeSetActiveFile = useFileViewerStore((s) => s.setActiveFile);
   const storeSetEditedContent = useFileViewerStore((s) => s.setEditedContent);
   const storeMarkSaved = useFileViewerStore((s) => s.markSaved);
+  const storeToggleDiff = useFileViewerStore((s) => s.toggleFileDiff);
   const themeId = useSettingsStore((s) => s.settings.theme);
   const [wordWrap, setWordWrap] = useState(true);
   const [sideBySide, setSideBySide] = useState(false);
@@ -56,6 +57,9 @@ export default function FileViewer() {
   const setActiveFile = useCallback((filePath: string) => storeSetActiveFile(pp, filePath), [pp, storeSetActiveFile]);
   const setEditedContent = useCallback((filePath: string, content: string) => storeSetEditedContent(pp, filePath, content), [pp, storeSetEditedContent]);
   const markSaved = useCallback((filePath: string) => storeMarkSaved(pp, filePath), [pp, storeMarkSaved]);
+  const toggleDiff = useCallback(() => {
+    if (activeFilePath) storeToggleDiff(pp, activeFilePath);
+  }, [pp, activeFilePath, storeToggleDiff]);
 
   const activeTab = useMemo(
     () => openFiles.find((f) => f.filePath === activeFilePath) ?? null,
@@ -238,6 +242,17 @@ export default function FileViewer() {
                 className="p-1 rounded text-accent hover:bg-accent/10 transition-colors"
               >
                 <Save size={13} />
+              </button>
+            )}
+            {(activeTab.oldContent !== undefined && activeTab.newContent !== undefined) && (
+              <button
+                onClick={toggleDiff}
+                title={activeTab.isDiff ? "Normal view" : "Diff view"}
+                className={`p-1 rounded transition-colors ${
+                  activeTab.isDiff ? "text-accent bg-accent/10" : "text-text-faint hover:text-text-secondary"
+                }`}
+              >
+                <ArrowLeftRight size={13} />
               </button>
             )}
             <button

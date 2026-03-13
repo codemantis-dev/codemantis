@@ -22,6 +22,7 @@ pub enum ControlRequestKind {
     Interrupt,
     SetModel(String),
     Initialize,
+    SetPermissionMode(String),
 }
 
 #[derive(Debug, Clone, Serialize)]

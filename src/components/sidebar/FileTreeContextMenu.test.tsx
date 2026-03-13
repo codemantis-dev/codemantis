@@ -97,6 +97,8 @@ describe("FileTreeContextMenu", () => {
       expect(screen.getByText("Copy Contents")).toBeInTheDocument();
       expect(screen.getByText("Copy Path")).toBeInTheDocument();
       expect(screen.getByText("Copy Relative Path")).toBeInTheDocument();
+      expect(screen.getByText("Expand All Folders")).toBeInTheDocument();
+      expect(screen.getByText("Collapse All Folders")).toBeInTheDocument();
     });
 
     it("calls onStartRename and onClose when Rename clicked", () => {
@@ -189,6 +191,8 @@ describe("FileTreeContextMenu", () => {
       expect(screen.getByText("Reveal in Finder")).toBeInTheDocument();
       expect(screen.getByText("Copy Path")).toBeInTheDocument();
       expect(screen.getByText("Copy Relative Path")).toBeInTheDocument();
+      expect(screen.getByText("Expand All Folders")).toBeInTheDocument();
+      expect(screen.getByText("Collapse All Folders")).toBeInTheDocument();
     });
 
     it("does NOT show file-only items for folders", () => {

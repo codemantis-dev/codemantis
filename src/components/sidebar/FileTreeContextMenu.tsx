@@ -108,7 +108,7 @@ export default function FileTreeContextMenu({
   }, [onClose]);
 
   const menuWidth = 220;
-  const menuHeight = node ? (node.is_dir ? 270 : 380) : 160;
+  const menuHeight = node ? (node.is_dir ? 350 : 460) : 160;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -296,6 +296,9 @@ export default function FileTreeContextMenu({
         <MenuItem icon={FolderOpen} label="Reveal in Finder" onClick={handleReveal} />
         <MenuItem icon={ClipboardCopy} label="Copy Path" onClick={handleCopyPath} />
         <MenuItem icon={ClipboardCopy} label="Copy Relative Path" onClick={handleCopyRelativePath} />
+        <Separator />
+        <MenuItem icon={ChevronsUpDown} label="Expand All Folders" onClick={() => { onExpandAll(); onClose(); }} />
+        <MenuItem icon={ChevronsDownUp} label="Collapse All Folders" onClick={() => { onCollapseAll(); onClose(); }} />
       </div>
     );
   }
@@ -346,6 +349,9 @@ export default function FileTreeContextMenu({
       <MenuItem icon={Copy} label="Copy Contents" onClick={handleCopyContent} />
       <MenuItem icon={ClipboardCopy} label="Copy Path" onClick={handleCopyPath} />
       <MenuItem icon={ClipboardCopy} label="Copy Relative Path" onClick={handleCopyRelativePath} />
+      <Separator />
+      <MenuItem icon={ChevronsUpDown} label="Expand All Folders" onClick={() => { onExpandAll(); onClose(); }} />
+      <MenuItem icon={ChevronsDownUp} label="Collapse All Folders" onClick={() => { onCollapseAll(); onClose(); }} />
     </div>
   );
 }

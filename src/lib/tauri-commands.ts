@@ -67,6 +67,13 @@ export async function setSessionMode(
   return invoke("set_session_mode", { sessionId, mode });
 }
 
+export async function syncSessionMode(
+  sessionId: string,
+  mode: string
+): Promise<void> {
+  return invoke("sync_session_mode", { sessionId, mode });
+}
+
 export async function resolveToolApproval(
   requestId: string,
   approved: boolean,

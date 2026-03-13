@@ -206,14 +206,14 @@ export default function ToolApproval() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => {
-                if (projectPath) {
-                  useActivityStore.getState().addAlwaysAllowedTool(projectPath, currentApproval.toolName);
+                if (sessionId) {
+                  useActivityStore.getState().addAlwaysAllowedTool(sessionId, currentApproval.toolName);
                 }
                 handleResponse(true);
               }}
               className="text-label text-text-faint hover:text-text-dim transition-colors"
             >
-              Always allow {currentApproval.toolName} in this project
+              Always allow {currentApproval.toolName} in this session
             </button>
             <div className="flex gap-2">
               {queueSize > 1 && (

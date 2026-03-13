@@ -1,6 +1,6 @@
 use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
-use crate::claude::session::{AppState, ControlRequestKind};
-use log::{debug, warn};
+use crate::claude::session::{AppState, ControlRequestKind, SessionMode};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -80,6 +80,34 @@ pub async fn route_events(
                                 cli_session_id: sid.clone(),
                             };
                             let _ = app_handle.emit(&chat_event, &fe);
+                        }
+                    }
+
+                    // Sync permission_mode from CLI init event to backend
+                    if let Some(cli_perm_mode) = extra.get("permission_mode").and_then(|v| v.as_str()) {
+                        let new_mode = match cli_perm_mode {
+                            "plan" => SessionMode::Plan,
+                            "acceptEdits" => SessionMode::AutoAccept,
+                            _ => SessionMode::Normal,
+                        };
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            let mut modes = state.session_modes.lock().await;
+                            let current = modes.get(&session_id);
+                            if current != Some(&new_mode) {
+                                info!(
+                                    "[message_router] System init: syncing permission_mode '{}' → {:?} for session {}",
+                                    cli_perm_mode, new_mode, session_id
+                                );
+                                modes.insert(session_id.clone(), new_mode.clone());
+                                drop(modes);
+                                let _ = app_handle.emit(
+                                    "session-mode-changed",
+                                    serde_json::json!({
+                                        "sessionId": session_id,
+                                        "mode": new_mode
+                                    }),
+                                );
+                            }
                         }
                     }
             }
@@ -416,6 +444,16 @@ pub async fn route_events(
                                         error: error_msg,
                                     };
                                     let _ = app_handle.emit(&chat_event, &fe);
+                                }
+                                Some((_, ControlRequestKind::SetPermissionMode(mode))) => {
+                                    if is_success {
+                                        info!("[message_router] set_permission_mode '{}' succeeded", mode);
+                                    } else {
+                                        warn!(
+                                            "[message_router] set_permission_mode '{}' failed: {:?}",
+                                            mode, error_msg
+                                        );
+                                    }
                                 }
                                 Some((_, ControlRequestKind::Initialize)) => {
                                     let fe = FrontendEvent::CapabilitiesDiscovered {

@@ -57,6 +57,10 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub trivia_enabled: bool,
 
+    // --- File viewer ---
+    #[serde(default)]
+    pub auto_open_files: bool,
+
     // --- Onboarding ---
     #[serde(default)]
     pub onboarding_completed: bool,
@@ -164,6 +168,7 @@ impl Default for AppSettings {
             preview_auto_start: false,
             preview_custom_dev_command: None,
             trivia_enabled: true,
+            auto_open_files: false,
             onboarding_completed: false,
         }
     }

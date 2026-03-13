@@ -20,10 +20,9 @@ function formatElapsed(ms: number): string {
 
 interface ThinkingIndicatorProps {
   sessionId: string;
-  onContentResize?: () => void;
 }
 
-export default function ThinkingIndicator({ sessionId, onContentResize }: ThinkingIndicatorProps) {
+export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps) {
   const triviaEnabled = useSettingsStore((s) => s.settings.triviaEnabled);
   const activity = useSessionStore((s) => s.sessionActivity.get(sessionId));
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
@@ -52,10 +51,9 @@ export default function ThinkingIndicator({ sessionId, onContentResize }: Thinki
     setShowTrivia(false);
     const timer = setTimeout(() => {
       setShowTrivia(true);
-      if (triviaEnabled) onContentResize?.();
     }, TRIVIA_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [triviaEnabled, onContentResize]);
+  }, [triviaEnabled]);
 
   const activityInfo: SessionActivityInfo = activity ?? { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null };
   const displayLabel = isCompacting ? "Compacting context..." : activityInfo.label;
@@ -66,7 +64,7 @@ export default function ThinkingIndicator({ sessionId, onContentResize }: Thinki
     : "";
 
   return (
-    <div className="flex flex-col items-start mb-4 gap-3">
+    <div className="flex flex-col items-start gap-3">
       <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl rounded-bl-md"
         style={{ background: "var(--bg-elevated)" }}
       >

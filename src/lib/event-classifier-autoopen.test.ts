@@ -4,6 +4,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useFileViewerStore } from "../stores/fileViewerStore";
 import { useUiStore } from "../stores/uiStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 const SESSION_ID = "s1";
 const PROJECT_PATH = "/tmp";
@@ -60,6 +61,11 @@ function resetStores(): void {
     showApprovalModal: false,
     showSettingsModal: false,
     showProjectPicker: false,
+  });
+
+  // Enable auto-open for most tests (default is false)
+  useSettingsStore.setState({
+    settings: { ...useSettingsStore.getState().settings, autoOpenFiles: true },
   });
 }
 
@@ -220,6 +226,36 @@ describe("event-classifier: auto-open on Write/Edit", () => {
 
     const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
     expect(entry.status).toBe("done");
+  });
+
+  it("does NOT auto-open when autoOpenFiles setting is OFF", async () => {
+    // Disable the setting
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, autoOpenFiles: false },
+    });
+
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "t-off",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/off.tsx" },
+    });
+
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "t-off",
+      content: "File written successfully",
+      is_error: false,
+    });
+
+    await vi.dynamicImportSettled();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // File viewer should NOT have been opened
+    const openFiles = useFileViewerStore.getState().projectOpenFiles.get(PROJECT_PATH) ?? [];
+    expect(openFiles).toHaveLength(0);
   });
 
   it("multiple tool_use_start creates distinct entries", () => {
