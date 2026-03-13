@@ -491,6 +491,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
       // Defense-in-depth: sync session mode when CLI calls mode-control tools
       if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
+        console.warn("[DIAG-C2] Mode control tool in stream:", event.tool_name, sessionId);
         const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
         sessionStore.setSessionMode(sessionId, newMode);
         // Also update Rust backend so approval server stays in sync

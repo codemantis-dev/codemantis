@@ -84,6 +84,8 @@ pub async fn route_events(
                     }
 
                     // Sync permission_mode from CLI init event to backend
+                    info!("[DIAG-B2] System init extra keys: {:?}",
+                        extra.as_object().map(|o| o.keys().collect::<Vec<_>>()));
                     if let Some(cli_perm_mode) = extra.get("permission_mode").and_then(|v| v.as_str()) {
                         let new_mode = match cli_perm_mode {
                             "plan" => SessionMode::Plan,
@@ -134,6 +136,7 @@ pub async fn route_events(
                                 let _ = app_handle.emit(&chat_event, &fe);
                             }
                             ContentBlock::ToolUse { id, name, input } => {
+                                info!("[DIAG-B1] ToolUse content block: name={}, id={}", name, id);
                                 if emitted_tool_ids.insert(id.clone()) {
                                     let fe = FrontendEvent::ToolUseStart {
                                         session_id: session_id.clone(),

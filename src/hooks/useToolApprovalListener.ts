@@ -69,6 +69,7 @@ export function useToolApprovalListener(): void {
     let unlistenModeChange: (() => void) | null = null;
 
     listenSessionModeChanged(({ sessionId, mode }) => {
+      console.warn("[DIAG-C1] session-mode-changed received:", sessionId, mode);
       console.log("[session-mode-changed]", sessionId, mode);
       useSessionStore.getState().setSessionMode(sessionId, mode as SessionMode);
     }).then((fn) => {

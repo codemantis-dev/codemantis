@@ -52,10 +52,10 @@ export default function MessageBubble({
   if (isUser) {
     return (
       <div className="group/msg flex justify-end mb-4">
-        <div className="flex flex-col items-end gap-0.5">
+        <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
           <div className="relative">
             <div
-              className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
+              className="px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
               style={{
                 background: "var(--accent-dim)",
                 border: "1px solid rgba(124,58,237,0.2)",

@@ -219,6 +219,8 @@ async fn handle_tool_approval(
 
     // Mode-control tools: auto-approve and update session mode
     if tool_name == "ExitPlanMode" || tool_name == "EnterPlanMode" {
+        info!("[DIAG-A1] {} received at approval server! forge_session_id_hint={:?}, cli_session_id={:?}",
+            tool_name, input.forge_session_id, input.session_id);
         let new_mode = if tool_name == "EnterPlanMode" {
             SessionMode::Plan
         } else {
@@ -247,6 +249,8 @@ async fn handle_tool_approval(
         )
         .await;
 
+        info!("[DIAG-A2] {} session resolution result: {:?}", tool_name, forge_session_id);
+
         if let Some(ref sid) = forge_session_id {
             if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
                 let mut modes = app_state.session_modes.lock().await;
@@ -256,13 +260,14 @@ async fn handle_tool_approval(
                 );
                 modes.insert(sid.clone(), new_mode.clone());
             }
-            let _ = app_handle.emit(
+            let emit_result = app_handle.emit(
                 "session-mode-changed",
                 serde_json::json!({
                     "sessionId": sid,
                     "mode": new_mode
                 }),
             );
+            info!("[DIAG-A3] session-mode-changed emit result: {:?}", emit_result);
         } else {
             warn!(
                 "[approval-server] {} approved but session not found — mode not updated",

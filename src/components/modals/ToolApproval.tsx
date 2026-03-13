@@ -211,9 +211,9 @@ export default function ToolApproval() {
                 }
                 handleResponse(true);
               }}
-              className="text-label text-text-faint hover:text-text-dim transition-colors"
+              className="text-label text-text-faint hover:text-text-dim transition-colors text-left min-w-0 break-words"
             >
-              Always allow {currentApproval.toolName} in this session
+              Always allow <span className="break-all">{currentApproval.toolName}</span> in this session
             </button>
             <div className="flex gap-2">
               {queueSize > 1 && (

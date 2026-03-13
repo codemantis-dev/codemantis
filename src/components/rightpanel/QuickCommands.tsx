@@ -17,12 +17,12 @@ export default function QuickCommands({ terminalId }: QuickCommandsProps) {
   };
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 border-t border-border-light shrink-0">
+    <div className="flex flex-wrap gap-1 px-2 py-2 border-t shrink-0" style={{ borderColor: "var(--border-light)" }}>
       {quickCommands.map((cmd, i) => (
         <button
           key={i}
           onClick={() => handleClick(cmd.command)}
-          className="px-2 py-0.5 rounded text-label text-text-dim hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+          className="px-2 py-0.5 rounded-full text-label text-text-dim hover:text-text-primary bg-bg-elevated hover:bg-accent/10 border border-border-light hover:border-accent/30 transition-colors"
           title={cmd.command}
         >
           {cmd.label}
