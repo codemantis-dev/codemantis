@@ -4,6 +4,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
 import { usePreviewWindow } from "./usePreviewWindow";
+import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
 const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
@@ -25,6 +26,7 @@ export function useKeyboardShortcuts(): void {
           const idx = MODE_CYCLE.indexOf(current);
           const next = MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];
           store.setSessionMode(activeId, next);
+          setSessionModeCmd(activeId, next).catch(console.error);
         }
         return;
       }

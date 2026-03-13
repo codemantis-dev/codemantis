@@ -418,6 +418,47 @@ describe("Transparency: Real-time Context Updates", () => {
   });
 });
 
+describe("Transparency: Sub-Agent Tool Attribution", () => {
+  beforeEach(resetStores);
+
+  it("tool calls without active sub-agents have no attribution", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "read-solo",
+      tool_name: "Read",
+      tool_input: { file_path: "/tmp/solo.ts" },
+    });
+
+    const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+    const readEntry = entries.find((e) => e.toolUseId === "read-solo");
+    expect(readEntry?.parentAgentToolUseId).toBeUndefined();
+    expect(readEntry?.parentAgentDescription).toBeUndefined();
+  });
+
+  it("agent completion without tool calls does not set agentFinalToolCount", () => {
+    // Start and immediately complete agent (no child tool calls)
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-empty",
+      tool_name: "Agent",
+      tool_input: { description: "Quick check", subagent_type: "general-purpose" },
+    });
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-empty",
+      content: "done",
+      is_error: false,
+    });
+
+    const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+    const agentEntry = entries.find((e) => e.toolUseId === "agent-empty");
+    expect(agentEntry?.agentFinalToolCount).toBeUndefined();
+  });
+});
+
 describe("Transparency: Busy State Tracking", () => {
   beforeEach(resetStores);
 

@@ -64,6 +64,7 @@ interface ActivityState {
   ) => void;
   addAlwaysAllowedTool: (sessionId: string, toolName: string) => void;
   isToolAlwaysAllowed: (sessionId: string, toolName: string) => boolean;
+  updateEntryExtra: (sessionId: string, toolUseId: string, extra: Partial<ActivityEntry>) => void;
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
   getActiveEntries: (sessionId: string) => ActivityEntry[];
   clearEntries: (sessionId: string) => void;
@@ -169,6 +170,16 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       tools.add(toolName);
       updated.set(sessionId, tools);
       return { alwaysAllowedTools: updated };
+    }),
+
+  updateEntryExtra: (sessionId, toolUseId, extra) =>
+    set((state) => {
+      const sessionEntries = new Map(state.sessionEntries);
+      const entries = (sessionEntries.get(sessionId) ?? []).map((e) =>
+        e.toolUseId === toolUseId ? { ...e, ...extra } : e
+      );
+      sessionEntries.set(sessionId, entries);
+      return { sessionEntries };
     }),
 
   isToolAlwaysAllowed: (sessionId, toolName) => {

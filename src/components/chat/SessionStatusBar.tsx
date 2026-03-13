@@ -92,7 +92,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   let statusColor: string;
   if (isCompacting) {
     statusLabel = "Compacting";
-    statusColor = "text-yellow-400";
+    statusColor = "text-yellow";
   } else if (isBusy) {
     statusLabel = "Busy";
     statusColor = "text-green-400";
@@ -109,7 +109,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     : 0;
   const costStr = stats ? formatCostCompact(stats.totalCostUsd) : "";
   const ctxPct = ctx && ctx.max > 0 ? Math.round((ctx.used / ctx.max) * 100) : 0;
-  const ctxColor = ctxPct >= 90 ? "text-red" : ctxPct >= 70 ? "text-yellow-400" : "text-text-ghost";
+  const ctxColor = ctxPct >= 90 ? "text-red" : ctxPct >= 70 ? "text-yellow" : "text-text-ghost";
   const modelLabel = formatModelName(session?.model);
   const turnCount = stats?.turnCount ?? 0;
   const modeLabel = mode === "plan" ? "Plan" : mode === "auto-accept" ? "Auto" : null;
@@ -122,7 +122,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
       {/* Left section: status + elapsed + activity detail */}
       <div className="flex items-center gap-1.5 min-w-0">
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-          isBusy ? "bg-green-400 animate-pulse" : isCompacting ? "bg-yellow-400 animate-pulse" : "bg-text-ghost"
+          isBusy ? "bg-green-400 animate-pulse" : isCompacting ? "bg-yellow animate-pulse" : "bg-text-ghost"
         }`} />
         <span className={`${statusColor} font-medium shrink-0`}>{statusLabel}</span>
         {isBusy && elapsed > 0 && (
@@ -155,7 +155,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
 
       {/* Rate limit utilization */}
       {rateLimitUtil != null && rateLimitUtil > 0.5 && (
-        <span className={`shrink-0 ${rateLimitUtil >= 0.8 ? "text-yellow-400" : "text-text-ghost"}`}>
+        <span className={`shrink-0 ${rateLimitUtil >= 0.8 ? "text-yellow" : "text-text-ghost"}`}>
           RL {Math.round(rateLimitUtil * 100)}%
         </span>
       )}

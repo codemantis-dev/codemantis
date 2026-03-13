@@ -51,9 +51,9 @@ export default function MessageBubble({
 
   if (isUser) {
     return (
-      <div className="group/msg flex justify-end mb-4">
-        <div className="flex flex-col items-end gap-0.5 max-w-[85%]">
-          <div className="relative">
+      <div className="group/msg flex justify-end mb-4 min-w-0">
+        <div className="flex flex-col items-end gap-0.5 max-w-[85%] min-w-0">
+          <div className="relative min-w-0 max-w-full">
             <div
               className="px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
               style={{
@@ -61,7 +61,7 @@ export default function MessageBubble({
                 border: "1px solid rgba(124,58,237,0.2)",
               }}
             >
-              <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden">
+              <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden [overflow-wrap:anywhere]">
                 {message.content}
               </p>
             </div>

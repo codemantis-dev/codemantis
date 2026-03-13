@@ -19,18 +19,6 @@ const AUTO_APPROVED_TOOLS: &[&str] = &[
     "TodoRead",
 ];
 
-/// Tools that are allowed in plan mode (read-only / informational only).
-const PLAN_MODE_ALLOWED_TOOLS: &[&str] = &[
-    "Read",
-    "Glob",
-    "Grep",
-    "AskUserQuestion",
-    "ListDirectory",
-    "LS",
-    "TodoRead",
-    "WebSearch",
-    "WebFetch",
-];
 
 /// JSON payload received from the PreToolUse hook (via the CLI).
 #[derive(Debug, Clone, Deserialize)]
@@ -219,8 +207,6 @@ async fn handle_tool_approval(
 
     // Mode-control tools: auto-approve and update session mode
     if tool_name == "ExitPlanMode" || tool_name == "EnterPlanMode" {
-        warn!("[DIAG-A1] {} received at approval server! forge_session_id_hint={:?}, cli_session_id={:?}",
-            tool_name, input.forge_session_id, input.session_id);
         let new_mode = if tool_name == "EnterPlanMode" {
             SessionMode::Plan
         } else {
@@ -249,8 +235,6 @@ async fn handle_tool_approval(
         )
         .await;
 
-        warn!("[DIAG-A2] {} session resolution result: {:?}", tool_name, forge_session_id);
-
         if let Some(ref sid) = forge_session_id {
             if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
                 let mut modes = app_state.session_modes.lock().await;
@@ -260,14 +244,13 @@ async fn handle_tool_approval(
                 );
                 modes.insert(sid.clone(), new_mode.clone());
             }
-            let emit_result = app_handle.emit(
+            let _ = app_handle.emit(
                 "session-mode-changed",
                 serde_json::json!({
                     "sessionId": sid,
                     "mode": new_mode
                 }),
             );
-            warn!("[DIAG-A3] session-mode-changed emit result: {:?}", emit_result);
         } else {
             warn!(
                 "[approval-server] {} approved but session not found — mode not updated",
@@ -322,18 +305,9 @@ async fn handle_tool_approval(
                     return (StatusCode::OK, Json(HookResponse::allow()));
                 }
                 SessionMode::Plan => {
-                    if !PLAN_MODE_ALLOWED_TOOLS.contains(&tool_name) {
-                        warn!(
-                            "[DIAG-A4] Denying tool {} in plan mode (session: {})",
-                            tool_name, forge_session_id
-                        );
-                        return (
-                            StatusCode::OK,
-                            Json(HookResponse::deny(Some(
-                                "Plan mode: only read-only tools are allowed. Switch to Normal mode to make changes.".to_string(),
-                            ))),
-                        );
-                    }
+                    // The CLI itself enforces plan mode restrictions
+                    // (permissionMode="plan"). No additional tool blocking here —
+                    // fall through to normal approval flow.
                 }
                 SessionMode::Normal => {
                     // Fall through to normal approval flow

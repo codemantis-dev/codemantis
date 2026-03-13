@@ -322,7 +322,7 @@ describe("TitleBar", () => {
 
     render(<TitleBar onCloseProject={onCloseProject} />);
     const btn = screen.getByTitle(/Run Application/);
-    expect(btn.className).toContain("text-yellow-400");
+    expect(btn.className).toContain("text-yellow");
   });
 
   it("Globe button has red class when server has error", () => {

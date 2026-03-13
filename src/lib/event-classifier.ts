@@ -75,6 +75,8 @@ const preEditContentCache = new Map<string, string>();
 // in real-time per API call. This counter is only used as a fallback for
 // older CLI versions that don't emit usage_update events.
 const turnToolCallCount = new Map<string, number>();
+/** Tool IDs for mode-control tools (ExitPlanMode/EnterPlanMode) — skipped in activity feed */
+const modeControlToolIds = new Set<string>();
 
 function nextMessageId(): string {
   return `msg-${++messageCounter}`;
@@ -489,17 +491,15 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
         filePath,
       });
 
-      // Defense-in-depth: sync session mode when CLI calls mode-control tools
+      // Mode-control tools: sync session mode and skip activity feed
       if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
-        console.warn("[DIAG-C2] Mode control tool in stream:", event.tool_name, sessionId);
+        modeControlToolIds.add(event.tool_use_id);
         const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
         sessionStore.setSessionMode(sessionId, newMode);
-        // Also update Rust backend so approval server stays in sync
-        // (use syncSessionMode — NOT setSessionMode — to avoid sending a
-        // control request back to the CLI, which already initiated this change)
         import("./tauri-commands").then(({ syncSessionMode }) => {
           syncSessionMode(sessionId, newMode).catch(console.error);
         });
+        return; // Don't add to activity feed — mode badge already reflects the change
       }
 
       // Check main session store first, then assistant store for the streaming messageId
@@ -556,10 +556,22 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
     }
 
     case "tool_result": {
+      // Mode-control tools were not added to the activity feed — skip their results
+      if (modeControlToolIds.has(event.tool_use_id)) {
+        modeControlToolIds.delete(event.tool_use_id);
+        return;
+      }
+
       // Check if a sub-agent just completed
       const completingAgents = sessionStore.activeSubAgents.get(sessionId);
-      const wasAgent = completingAgents?.some((a) => a.toolUseId === event.tool_use_id);
-      if (wasAgent) {
+      const completingAgent = completingAgents?.find((a) => a.toolUseId === event.tool_use_id);
+      if (completingAgent) {
+        // Capture final tool count on the Agent's activity entry before removing it
+        if (completingAgent.toolCount != null && completingAgent.toolCount > 0) {
+          activityStore.updateEntryExtra(sessionId, event.tool_use_id, {
+            agentFinalToolCount: completingAgent.toolCount,
+          });
+        }
         sessionStore.completeSubAgent(sessionId, event.tool_use_id);
       }
 

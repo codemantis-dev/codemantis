@@ -170,7 +170,7 @@ export default function ScaffoldProgress({
       {isFinished && hasWarnings && (
         <div className="w-full max-w-xs mb-4 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
           <div className="flex items-center gap-1.5 mb-1">
-            <AlertTriangle size={12} className="text-yellow-400" />
+            <AlertTriangle size={12} className="text-yellow" />
             <span className="text-yellow-200/80 text-label font-medium">
               {warnings.length} warning{warnings.length > 1 ? "s" : ""}
             </span>

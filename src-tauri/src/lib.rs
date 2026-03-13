@@ -15,7 +15,9 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn")
+    ).init();
 
     let db_path = dirs::data_dir()
         .map(|d| d.join("dev.codemantis.app").join("codemantis.db"))

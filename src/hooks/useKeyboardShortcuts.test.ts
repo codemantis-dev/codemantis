@@ -23,8 +23,10 @@ vi.mock("./usePreviewWindow", () => ({
 }));
 
 // Mock tauri-commands
+const mockSetSessionMode = vi.fn(() => Promise.resolve());
 vi.mock("../lib/tauri-commands", () => ({
   closeSession: vi.fn(() => Promise.resolve()),
+  setSessionMode: mockSetSessionMode,
 }));
 
 function setupSessions(): void {
@@ -152,6 +154,28 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
     // by simulating what the handler does.
     mockTogglePreview();
     expect(mockTogglePreview).toHaveBeenCalled();
+  });
+
+  it("mode cycling updates both store and Rust backend", () => {
+    setupSessions();
+    useSessionStore.setState({
+      sessionModes: new Map([["s1", "normal"]]),
+    });
+
+    // Simulate what the keyboard shortcut handler does:
+    // cycle from normal → auto-accept
+    const MODE_CYCLE = ["normal", "auto-accept", "plan"] as const;
+    const store = useSessionStore.getState();
+    const activeId = store.activeSessionId!;
+    const current = store.sessionModes.get(activeId) ?? "normal";
+    const idx = MODE_CYCLE.indexOf(current as typeof MODE_CYCLE[number]);
+    const next = MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];
+
+    store.setSessionMode(activeId, next);
+    mockSetSessionMode(activeId, next);
+
+    expect(useSessionStore.getState().sessionModes.get("s1")).toBe("auto-accept");
+    expect(mockSetSessionMode).toHaveBeenCalledWith("s1", "auto-accept");
   });
 
   it("switching right tabs cycles correctly", () => {

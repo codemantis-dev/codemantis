@@ -14,6 +14,9 @@ export interface ActivityEntry {
   approvalStatus?: ApprovalDecision;
   approvalTimestamp?: string;
   sessionId?: string;
+  parentAgentToolUseId?: string;
+  parentAgentDescription?: string;
+  agentFinalToolCount?: number;
 }
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";

@@ -83,10 +83,10 @@ pub async fn route_events(
                         }
                     }
 
-                    // Sync permission_mode from CLI init event to backend
-                    warn!("[DIAG-B2] System init extra keys: {:?}",
-                        extra.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-                    if let Some(cli_perm_mode) = extra.get("permission_mode").and_then(|v| v.as_str()) {
+                    // Sync permissionMode from CLI init event to backend.
+                    // The CLI is the source of truth — when it exits plan mode
+                    // and starts implementing, the UI badge must update.
+                    if let Some(cli_perm_mode) = extra.get("permissionMode").and_then(|v| v.as_str()) {
                         let new_mode = match cli_perm_mode {
                             "plan" => SessionMode::Plan,
                             "acceptEdits" => SessionMode::AutoAccept,
@@ -94,10 +94,9 @@ pub async fn route_events(
                         };
                         if let Some(state) = app_handle.try_state::<AppState>() {
                             let mut modes = state.session_modes.lock().await;
-                            let current = modes.get(&session_id);
-                            if current != Some(&new_mode) {
+                            if modes.get(&session_id) != Some(&new_mode) {
                                 info!(
-                                    "[message_router] System init: syncing permission_mode '{}' → {:?} for session {}",
+                                    "[message_router] System init: syncing permissionMode '{}' → {:?} for session {}",
                                     cli_perm_mode, new_mode, session_id
                                 );
                                 modes.insert(session_id.clone(), new_mode.clone());
@@ -136,7 +135,6 @@ pub async fn route_events(
                                 let _ = app_handle.emit(&chat_event, &fe);
                             }
                             ContentBlock::ToolUse { id, name, input } => {
-                                warn!("[DIAG-B1] ToolUse content block: name={}, id={}", name, id);
                                 if emitted_tool_ids.insert(id.clone()) {
                                     let fe = FrontendEvent::ToolUseStart {
                                         session_id: session_id.clone(),
@@ -331,18 +329,34 @@ pub async fn route_events(
                 tool_use_id,
                 tool_name,
                 elapsed_time_seconds,
-                ..
+                ref extra,
             } => {
-                if let (Some(id), Some(name), Some(elapsed)) =
-                    (tool_use_id, tool_name, elapsed_time_seconds)
+                if let (Some(ref id), Some(ref name), Some(elapsed)) =
+                    (&tool_use_id, &tool_name, elapsed_time_seconds)
                 {
                     let fe = FrontendEvent::ToolProgress {
                         session_id: session_id.clone(),
-                        tool_use_id: id,
-                        tool_name: name,
+                        tool_use_id: id.clone(),
+                        tool_name: name.clone(),
                         elapsed_seconds: elapsed,
                     };
                     let _ = app_handle.emit(&activity_event, &fe);
+
+                    // Extract tool_count/token_count from extra for Agent tools
+                    if name == "Agent" {
+                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        if tool_count.is_some() || token_count.is_some() {
+                            let fe = FrontendEvent::SubAgentProgress {
+                                session_id: session_id.clone(),
+                                tool_use_id: id.clone(),
+                                tool_count,
+                                token_count,
+                                current_activity: None,
+                            };
+                            let _ = app_handle.emit(&activity_event, &fe);
+                        }
+                    }
                 }
             }
 
@@ -368,6 +382,12 @@ pub async fn route_events(
             } if matches!(subtype.as_deref(), Some("task_started") | Some("task_progress") | Some("task_complete")) => {
                 let sub = subtype.as_deref().unwrap_or("");
                 let tool_use_id = extra.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                debug!(
+                    "[message_router] {}: tool_use_id={}, extra_keys={:?}",
+                    sub,
+                    tool_use_id,
+                    extra.as_object().map(|o| o.keys().collect::<Vec<_>>())
+                );
 
                 match sub {
                     "task_started" => {

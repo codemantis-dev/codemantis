@@ -396,6 +396,85 @@ describe("event-classifier", () => {
         expect(syncSessionMode).toHaveBeenCalledWith(SESSION_ID, "plan");
       });
     });
+
+    it("ExitPlanMode does not add an activity entry", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-exit-2",
+        tool_name: "ExitPlanMode",
+        tool_input: {},
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+      expect(entries.find((e) => e.toolName === "ExitPlanMode")).toBeUndefined();
+    });
+
+    it("EnterPlanMode does not add an activity entry", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-enter-2",
+        tool_name: "EnterPlanMode",
+        tool_input: {},
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+      expect(entries.find((e) => e.toolName === "EnterPlanMode")).toBeUndefined();
+    });
+
+    it("ExitPlanMode tool_result is silently skipped", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      // Send tool_use_start (registers the ID for skipping)
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-exit-3",
+        tool_name: "ExitPlanMode",
+        tool_input: {},
+      });
+
+      // Send tool_result — should not create an error entry
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "t-exit-3",
+        content: "Exit plan mode?",
+        is_error: true,
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+      expect(entries).toHaveLength(0);
+    });
+
+    it("non-mode-control tool_result with is_error still shows as error", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "t-bash",
+        tool_name: "Bash",
+        tool_input: {},
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "t-bash",
+        content: "command not found",
+        is_error: true,
+      });
+
+      const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
+      expect(entry.status).toBe("error");
+      expect(entry.isError).toBe(true);
+    });
   });
 
 });

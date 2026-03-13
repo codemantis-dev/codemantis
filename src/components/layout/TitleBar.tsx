@@ -68,7 +68,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
     previewStatus === "running"
       ? "text-green-400 animate-pulse"
       : previewStatus === "starting" || previewStatus === "scanning"
-        ? "text-yellow-400"
+        ? "text-yellow"
         : previewStatus === "error"
           ? "text-red-400"
           : "text-text-ghost hover:text-text-secondary";

@@ -189,6 +189,20 @@ export default function ActivityFeed() {
                     {entry.approvalStatus.toUpperCase()}
                   </span>
                 )}
+                {entry.parentAgentDescription && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 max-w-[120px] truncate"
+                    style={{ background: "rgba(74,222,128,0.12)", color: "rgb(74,222,128)" }}
+                    title={entry.parentAgentDescription}
+                  >
+                    {entry.parentAgentDescription}
+                  </span>
+                )}
+                {entry.toolName === "Agent" && entry.agentFinalToolCount != null && entry.agentFinalToolCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                    {entry.agentFinalToolCount} tool uses
+                  </span>
+                )}
                 {showLabels && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
                     {entry.computedLabel}

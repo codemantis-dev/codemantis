@@ -95,6 +95,7 @@ interface SessionState {
   addSubAgent: (sessionId: string, agent: SubAgentInfo) => void;
   updateSubAgent: (sessionId: string, toolUseId: string, update: Partial<SubAgentInfo>) => void;
   completeSubAgent: (sessionId: string, toolUseId: string) => void;
+  incrementSubAgentToolCount: (sessionId: string, toolUseId: string) => void;
 
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
@@ -613,6 +614,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } else {
         activeSubAgents.set(sessionId, updated);
       }
+      return { activeSubAgents };
+    }),
+
+  incrementSubAgentToolCount: (sessionId, toolUseId) =>
+    set((state) => {
+      const activeSubAgents = new Map(state.activeSubAgents);
+      const agents = activeSubAgents.get(sessionId);
+      if (!agents) return {};
+      const updated = agents.map((a) =>
+        a.toolUseId === toolUseId ? { ...a, toolCount: (a.toolCount ?? 0) + 1 } : a,
+      );
+      activeSubAgents.set(sessionId, updated);
       return { activeSubAgents };
     }),
 

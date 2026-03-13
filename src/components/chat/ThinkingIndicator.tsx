@@ -42,12 +42,12 @@ function SubAgentRow({ agent }: { agent: SubAgentInfo }) {
           {typeLabel}
         </span>
       )}
-      {agent.toolCount != null && (
-        <span className="text-[10px] text-text-ghost shrink-0">{agent.toolCount} tools</span>
+      {agent.toolCount != null && agent.toolCount > 0 && (
+        <span className="text-[10px] text-text-ghost shrink-0">· {agent.toolCount} tool uses</span>
       )}
-      {agent.tokenCount != null && (
+      {agent.tokenCount != null && agent.tokenCount > 0 && (
         <span className="text-[10px] text-text-ghost shrink-0">
-          {agent.tokenCount >= 1000 ? `${(agent.tokenCount / 1000).toFixed(1)}K` : agent.tokenCount} tokens
+          · {agent.tokenCount >= 1000 ? `${(agent.tokenCount / 1000).toFixed(1)}K` : agent.tokenCount} tokens
         </span>
       )}
       {agent.elapsed > 0 && (

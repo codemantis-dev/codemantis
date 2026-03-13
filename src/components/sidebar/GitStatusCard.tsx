@@ -29,14 +29,14 @@ export default function GitStatusCard({ gitStatus }: Props) {
     <div className="px-3 py-2 space-y-1">
       {/* Row 1: Branch + uncommitted changes */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0" title="Branch">
           <GitBranch size={13} style={{ color: "var(--accent)" }} className="shrink-0" />
           <span className="text-label font-medium truncate text-text-primary">
             {gitStatus.branch ?? "detached"}
           </span>
         </div>
         {gitStatus.uncommitted_changes > 0 && (
-          <div className="flex items-center gap-1 shrink-0 text-yellow-400">
+          <div className="flex items-center gap-1 shrink-0 text-yellow" title="Uncommitted changes">
             <FileEdit size={12} />
             <span className="text-label">{gitStatus.uncommitted_changes}</span>
           </div>
@@ -45,11 +45,11 @@ export default function GitStatusCard({ gitStatus }: Props) {
 
       {/* Row 2: Last commit + last push */}
       <div className="flex items-center justify-between gap-2 text-text-faint">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title="Last commit">
           <Clock size={11} className="shrink-0" />
           <span className="text-label">{relativeTime(gitStatus.last_commit_time)}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title="Last push">
           <Upload size={11} className="shrink-0" />
           <span className="text-label">{relativeTime(gitStatus.last_push_time)}</span>
         </div>

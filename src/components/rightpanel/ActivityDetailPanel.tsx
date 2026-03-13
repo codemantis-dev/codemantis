@@ -219,6 +219,19 @@ export default function ActivityDetailPanel() {
         </span>
       </div>
 
+      {/* Sub-agent attribution */}
+      {entry.parentAgentDescription && (
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border-light shrink-0">
+          <span className="text-label text-text-ghost">Sub-agent:</span>
+          <span
+            className="text-label font-medium truncate"
+            style={{ color: "rgb(74,222,128)" }}
+          >
+            {entry.parentAgentDescription}
+          </span>
+        </div>
+      )}
+
       {/* Body (scrollable) */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-3 select-text">
         {/* Input section */}

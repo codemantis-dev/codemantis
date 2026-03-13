@@ -20,6 +20,7 @@ function resetStore(): void {
     sessionMessages: new Map(),
     sessionStreaming: new Map(),
     sessionContext: new Map(),
+    activeSubAgents: new Map(),
     tabOrder: [],
   });
 }
@@ -262,6 +263,72 @@ describe("sessionStore", () => {
     useSessionStore.getState().setSessionCapabilities("s2", caps2);
     expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models[0].value).toBe("sonnet");
     expect(useSessionStore.getState().sessionCapabilities.get("s2")?.models[0].value).toBe("opus");
+  });
+
+  describe("incrementSubAgentToolCount", () => {
+    it("increments toolCount on matching agent", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().addSubAgent("s1", {
+        toolUseId: "agent-1",
+        description: "Search codebase",
+        subagentType: "Explore",
+        isBackground: false,
+        startedAt: "2026-01-01T00:00:00Z",
+        elapsed: 0,
+        status: "running",
+      });
+
+      useSessionStore.getState().incrementSubAgentToolCount("s1", "agent-1");
+      const agents = useSessionStore.getState().activeSubAgents.get("s1") ?? [];
+      expect(agents[0].toolCount).toBe(1);
+
+      useSessionStore.getState().incrementSubAgentToolCount("s1", "agent-1");
+      const agents2 = useSessionStore.getState().activeSubAgents.get("s1") ?? [];
+      expect(agents2[0].toolCount).toBe(2);
+    });
+
+    it("initializes toolCount from undefined to 1", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().addSubAgent("s1", {
+        toolUseId: "agent-1",
+        description: "Test",
+        subagentType: "general-purpose",
+        isBackground: false,
+        startedAt: "2026-01-01T00:00:00Z",
+        elapsed: 0,
+        status: "running",
+      });
+
+      // toolCount starts undefined
+      expect(useSessionStore.getState().activeSubAgents.get("s1")?.[0].toolCount).toBeUndefined();
+
+      useSessionStore.getState().incrementSubAgentToolCount("s1", "agent-1");
+      expect(useSessionStore.getState().activeSubAgents.get("s1")?.[0].toolCount).toBe(1);
+    });
+
+    it("does not affect other agents in same session", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().addSubAgent("s1", {
+        toolUseId: "agent-1", description: "First", subagentType: "general-purpose",
+        isBackground: false, startedAt: "2026-01-01T00:00:00Z", elapsed: 0, status: "running",
+      });
+      useSessionStore.getState().addSubAgent("s1", {
+        toolUseId: "agent-2", description: "Second", subagentType: "general-purpose",
+        isBackground: false, startedAt: "2026-01-01T00:00:01Z", elapsed: 0, status: "running",
+      });
+
+      useSessionStore.getState().incrementSubAgentToolCount("s1", "agent-1");
+      const agents = useSessionStore.getState().activeSubAgents.get("s1") ?? [];
+      expect(agents[0].toolCount).toBe(1);
+      expect(agents[1].toolCount).toBeUndefined();
+    });
+
+    it("no-ops when session has no agents", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      // Should not throw
+      useSessionStore.getState().incrementSubAgentToolCount("s1", "nonexistent");
+      expect(useSessionStore.getState().activeSubAgents.get("s1")).toBeUndefined();
+    });
   });
 
   it("multi-session isolation", () => {

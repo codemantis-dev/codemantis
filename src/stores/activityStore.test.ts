@@ -225,6 +225,56 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().isToolAlwaysAllowed("s2", "Bash")).toBe(false);
   });
 
+  describe("updateEntryExtra", () => {
+    it("merges extra fields into matching entry", () => {
+      useActivityStore.getState().addEntry("s1", {
+        id: "a1", toolUseId: "t1", toolName: "Agent", toolInput: {}, status: "running", timestamp: "", messageId: "m1", isError: false,
+      });
+
+      useActivityStore.getState().updateEntryExtra("s1", "t1", {
+        agentFinalToolCount: 15,
+      });
+
+      const entry = useActivityStore.getState().getActiveEntries("s1")[0];
+      expect(entry.agentFinalToolCount).toBe(15);
+      // Other fields unchanged
+      expect(entry.toolName).toBe("Agent");
+      expect(entry.status).toBe("running");
+    });
+
+    it("does not affect non-matching entries", () => {
+      useActivityStore.getState().addEntry("s1", {
+        id: "a1", toolUseId: "t1", toolName: "Agent", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
+      });
+      useActivityStore.getState().addEntry("s1", {
+        id: "a2", toolUseId: "t2", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
+      });
+
+      useActivityStore.getState().updateEntryExtra("s1", "t1", {
+        agentFinalToolCount: 7,
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries("s1");
+      expect(entries[0].agentFinalToolCount).toBe(7);
+      expect(entries[1].agentFinalToolCount).toBeUndefined();
+    });
+
+    it("can set parentAgentDescription and parentAgentToolUseId", () => {
+      useActivityStore.getState().addEntry("s1", {
+        id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "running", timestamp: "", messageId: "m1", isError: false,
+      });
+
+      useActivityStore.getState().updateEntryExtra("s1", "t1", {
+        parentAgentToolUseId: "agent-1",
+        parentAgentDescription: "Explore codebase",
+      });
+
+      const entry = useActivityStore.getState().getActiveEntries("s1")[0];
+      expect(entry.parentAgentToolUseId).toBe("agent-1");
+      expect(entry.parentAgentDescription).toBe("Explore codebase");
+    });
+  });
+
   it("clearAllEntries resets everything", () => {
     useActivityStore.getState().addEntry("s1", {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
