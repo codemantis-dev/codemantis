@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionStatus, ThinkingEffort } from "../types/session";
 import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
+import type { SubAgentInfo } from "../types/activity";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -48,6 +49,7 @@ interface SessionState {
   busySince: Map<string, number>;       // timestamp when busy started
   rateLimitUtilization: Map<string, number>;  // 0-1
   sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
+  activeSubAgents: Map<string, SubAgentInfo[]>;  // sessionId → running sub-agents
   tabOrder: string[];
 
   // Project grouping
@@ -90,6 +92,9 @@ interface SessionState {
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
   accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number) => void;
+  addSubAgent: (sessionId: string, agent: SubAgentInfo) => void;
+  updateSubAgent: (sessionId: string, toolUseId: string, update: Partial<SubAgentInfo>) => void;
+  completeSubAgent: (sessionId: string, toolUseId: string) => void;
 
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
@@ -135,6 +140,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   busySince: new Map(),
   rateLimitUtilization: new Map(),
   sessionCapabilities: new Map(),
+  activeSubAgents: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -206,6 +212,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionBusy.delete(sessionId);
       const sessionEffort = new Map(state.sessionEffort);
       sessionEffort.delete(sessionId);
+      const activeSubAgents = new Map(state.activeSubAgents);
+      activeSubAgents.delete(sessionId);
       const tabOrder = state.tabOrder.filter((id) => id !== sessionId);
 
       // Update project grouping
@@ -251,6 +259,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionModes,
         sessionBusy,
         sessionEffort,
+        activeSubAgents,
         tabOrder,
         activeSessionId,
         activeProjectPath,
@@ -449,17 +458,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const busySince = new Map(state.busySince);
       const sessionActivity = new Map(state.sessionActivity);
       const lastEventTimestamp = new Map(state.lastEventTimestamp);
+      const activeSubAgents = new Map(state.activeSubAgents);
       if (busy) {
         busySince.set(sessionId, Date.now());
         sessionActivity.set(sessionId, { ...DEFAULT_ACTIVITY });
-        // Reset stale detection clock so idle time before sending
-        // a message doesn't count toward the 120s threshold
         lastEventTimestamp.set(sessionId, Date.now());
       } else {
         busySince.delete(sessionId);
         sessionActivity.delete(sessionId);
+        activeSubAgents.delete(sessionId);
       }
-      return { sessionBusy, busySince, sessionActivity, lastEventTimestamp };
+      return { sessionBusy, busySince, sessionActivity, lastEventTimestamp, activeSubAgents };
     }),
 
   setSessionEffort: (sessionId, effort) =>
@@ -507,7 +516,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       rateLimitUtilization.delete(sessionId);
       const sessionCapabilities = new Map(state.sessionCapabilities);
       sessionCapabilities.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities };
+      const activeSubAgents = new Map(state.activeSubAgents);
+      activeSubAgents.delete(sessionId);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -569,6 +580,40 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionCapabilities = new Map(state.sessionCapabilities);
       sessionCapabilities.set(sessionId, caps);
       return { sessionCapabilities };
+    }),
+
+  addSubAgent: (sessionId, agent) =>
+    set((state) => {
+      const activeSubAgents = new Map(state.activeSubAgents);
+      const agents = [...(activeSubAgents.get(sessionId) ?? []), agent];
+      activeSubAgents.set(sessionId, agents);
+      return { activeSubAgents };
+    }),
+
+  updateSubAgent: (sessionId, toolUseId, update) =>
+    set((state) => {
+      const activeSubAgents = new Map(state.activeSubAgents);
+      const agents = activeSubAgents.get(sessionId);
+      if (!agents) return {};
+      const updated = agents.map((a) =>
+        a.toolUseId === toolUseId ? { ...a, ...update } : a,
+      );
+      activeSubAgents.set(sessionId, updated);
+      return { activeSubAgents };
+    }),
+
+  completeSubAgent: (sessionId, toolUseId) =>
+    set((state) => {
+      const activeSubAgents = new Map(state.activeSubAgents);
+      const agents = activeSubAgents.get(sessionId);
+      if (!agents) return {};
+      const updated = agents.filter((a) => a.toolUseId !== toolUseId);
+      if (updated.length === 0) {
+        activeSubAgents.delete(sessionId);
+      } else {
+        activeSubAgents.set(sessionId, updated);
+      }
+      return { activeSubAgents };
     }),
 
   accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead) =>

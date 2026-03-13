@@ -39,6 +39,15 @@ function getToolDisplayName(toolName: string): string {
 }
 
 function formatToolInput(toolName: string, input: Record<string, unknown>): string {
+  // Agent tool: show [type] description instead of raw JSON
+  if (toolName === "Agent") {
+    const desc = input.description as string | undefined;
+    const type = input.subagent_type as string | undefined;
+    const bg = input.run_in_background as boolean | undefined;
+    const typeTag = type && type !== "general-purpose" ? `[${type}] ` : "";
+    const bgTag = bg ? " (background)" : "";
+    return desc ? `${typeTag}${desc}${bgTag}` : "Running sub-agent...";
+  }
   if (input.file_path) return String(input.file_path);
   if (input.pattern) return String(input.pattern);
   if (input.command) return String(input.command);

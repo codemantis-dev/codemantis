@@ -27,15 +27,24 @@ function formatCostCompact(usd: number): string {
 
 /** Compose a compact activity string for the status bar.
  *  e.g., "Editing settings.ts", "Reading App.tsx", "Running command..." */
-function formatActivityDetail(activity: SessionActivityInfo | undefined): string | null {
+function formatActivityDetail(
+  activity: SessionActivityInfo | undefined,
+  subAgentCount: number,
+): string | null {
   if (!activity?.toolName) return null;
+
+  // Agent-aware: show agent count or description
+  if (activity.toolName === "Agent") {
+    if (subAgentCount > 1) return `${subAgentCount} agents`;
+    // Single agent: use the label which already has "Agent: description"
+    return activity.label;
+  }
+
   if (activity.filePath) {
     const fileName = activity.filePath.split("/").pop() ?? activity.filePath;
-    // "Reading file..." → "Reading", "Editing code..." → "Editing"
     const verb = activity.label.split(/\s/)[0];
     return `${verb} ${fileName}`;
   }
-  // No file path — use full label (e.g., "Running command...", "Searching the web...")
   return activity.label;
 }
 
@@ -62,6 +71,7 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const stats = useSessionStore((s) => s.sessionStats.get(sessionId));
   const ctx = useSessionStore((s) => s.sessionContext.get(sessionId));
   const rateLimitUtil = useSessionStore((s) => s.rateLimitUtilization.get(sessionId));
+  const subAgents = useSessionStore((s) => s.activeSubAgents.get(sessionId));
   const session = useSessionStore((s) => s.sessions.get(sessionId));
   const mode = useSessionStore((s) => s.sessionModes.get(sessionId));
 
@@ -91,7 +101,8 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     statusColor = "text-text-ghost";
   }
 
-  const activityDetail = isBusy ? formatActivityDetail(activity) : null;
+  const subAgentCount = subAgents?.filter((a) => a.status === "running").length ?? 0;
+  const activityDetail = isBusy ? formatActivityDetail(activity, subAgentCount) : null;
 
   const totalTokens = stats
     ? stats.totalInputTokens + stats.totalOutputTokens

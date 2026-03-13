@@ -102,11 +102,20 @@ describe("Transparency: Activity Labels", () => {
       session_id: SESSION_ID,
       tool_use_id: "tool-4",
       tool_name: "Agent",
-      tool_input: {},
+      tool_input: { description: "Security audit scan", subagent_type: "Explore" },
     });
     const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
-    expect(activity?.label).toBe("Running sub-agent...");
+    expect(activity?.label).toBe("Agent: [Explore] Security audit scan");
     expect(activity?.filePath).toBeNull();
+
+    // Clean up: complete the agent so it doesn't affect later tests
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "tool-4",
+      content: "done",
+      is_error: false,
+    });
   });
 
   it("tool_use_start sets contextual activity label for Grep tool", () => {

@@ -1,5 +1,6 @@
 import type { FrontendEvent } from "../types/claude-events";
 import type { ActivityEntry } from "../types/activity";
+import { extractSubAgentInfo } from "../types/activity";
 import type { SessionMode } from "../types/session";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
@@ -22,7 +23,7 @@ function toolActivityLabel(toolName: string): string {
     case "Write": return "Writing file...";
     case "Edit": return "Editing code...";
     case "Bash": return "Running command...";
-    case "Agent": return "Running sub-agent...";
+    case "Agent": return "Running sub-agent..."; // default; overridden dynamically
     case "NotebookEdit": return "Editing notebook...";
     case "ListDirectory": case "LS": return "Listing files...";
     case "WebSearch": return "Searching the web...";
@@ -40,6 +41,28 @@ function toolActivityLabel(toolName: string): string {
       }
       return `Running ${toolName}...`;
   }
+}
+
+/** Build a contextual label based on active sub-agents for a session. */
+function subAgentActivityLabel(sessionId: string): string {
+  const agents = useSessionStore.getState().activeSubAgents.get(sessionId);
+  if (!agents || agents.length === 0) return "Thinking...";
+  if (agents.length === 1) {
+    const a = agents[0];
+    const typeTag = a.subagentType !== "general-purpose" ? `[${a.subagentType}] ` : "";
+    return `Agent: ${typeTag}${a.description}`;
+  }
+  // Group by type for a compact summary
+  const types = new Map<string, number>();
+  for (const a of agents) {
+    types.set(a.subagentType, (types.get(a.subagentType) ?? 0) + 1);
+  }
+  if (types.size === 1) {
+    const [type, count] = [...types.entries()][0];
+    const label = type !== "general-purpose" ? type : "sub-agent";
+    return `Running ${count} ${label} agents...`;
+  }
+  return `Running ${agents.length} sub-agents...`;
 }
 
 let messageCounter = 0;
@@ -448,10 +471,19 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       // Track tool calls per turn for context estimation
       turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
 
+      // Track sub-agents when Agent tool starts
+      if (event.tool_name === "Agent") {
+        const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
+        sessionStore.addSubAgent(sessionId, agentInfo);
+      }
+
       // Update activity label to reflect what tool is running
       const filePath = (event.tool_input?.file_path as string) ?? null;
+      const label = event.tool_name === "Agent"
+        ? subAgentActivityLabel(sessionId)
+        : toolActivityLabel(event.tool_name);
       sessionStore.setSessionActivity(sessionId, {
-        label: toolActivityLabel(event.tool_name),
+        label,
         toolName: event.tool_name,
         toolElapsed: 0,
         filePath,
@@ -501,10 +533,20 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
     case "tool_progress": {
       useSessionStore.getState().touchLastEvent(sessionId);
-      // Update activity with elapsed time — this is the heartbeat signal
       const currentActivity = sessionStore.sessionActivity.get(sessionId);
+
+      // Update sub-agent elapsed time
+      if (event.tool_name === "Agent") {
+        sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+          elapsed: event.elapsed_seconds,
+        });
+      }
+
+      const label = event.tool_name === "Agent"
+        ? subAgentActivityLabel(sessionId)
+        : toolActivityLabel(event.tool_name);
       sessionStore.setSessionActivity(sessionId, {
-        label: toolActivityLabel(event.tool_name),
+        label,
         toolName: event.tool_name,
         toolElapsed: event.elapsed_seconds,
         filePath: currentActivity?.filePath ?? null,
@@ -513,8 +555,25 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
     }
 
     case "tool_result": {
-      // Tool finished — revert activity to "Thinking..." for next tool or text
-      sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
+      // Check if a sub-agent just completed
+      const completingAgents = sessionStore.activeSubAgents.get(sessionId);
+      const wasAgent = completingAgents?.some((a) => a.toolUseId === event.tool_use_id);
+      if (wasAgent) {
+        sessionStore.completeSubAgent(sessionId, event.tool_use_id);
+      }
+
+      // If other agents are still running, keep the agent label
+      const remainingAgents = sessionStore.activeSubAgents.get(sessionId);
+      if (remainingAgents && remainingAgents.length > 0) {
+        sessionStore.setSessionActivity(sessionId, {
+          label: subAgentActivityLabel(sessionId),
+          toolName: "Agent",
+          toolElapsed: 0,
+          filePath: null,
+        });
+      } else {
+        sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
+      }
       activityStore.updateEntryStatus(
         sessionId,
         event.tool_use_id,
@@ -576,6 +635,55 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       }
       // Cleanup pre-edit cache for this tool call
       preEditContentCache.delete(event.tool_use_id);
+      break;
+    }
+
+    case "subagent_started": {
+      // Phase 2: CLI emitted task_started — update agent info if not already tracked
+      const existing = sessionStore.activeSubAgents.get(sessionId);
+      const alreadyTracked = existing?.some((a) => a.toolUseId === event.tool_use_id);
+      if (!alreadyTracked) {
+        sessionStore.addSubAgent(sessionId, {
+          toolUseId: event.tool_use_id,
+          description: event.description,
+          subagentType: event.subagent_type,
+          isBackground: false,
+          startedAt: now,
+          elapsed: 0,
+          status: "running",
+        });
+      }
+      sessionStore.setSessionActivity(sessionId, {
+        label: subAgentActivityLabel(sessionId),
+        toolName: "Agent",
+        toolElapsed: 0,
+        filePath: null,
+      });
+      break;
+    }
+
+    case "subagent_progress": {
+      sessionStore.touchLastEvent(sessionId);
+      sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+        toolCount: event.tool_count ?? undefined,
+        tokenCount: event.token_count ?? undefined,
+        currentActivity: event.current_activity ?? undefined,
+      });
+      sessionStore.setSessionActivity(sessionId, {
+        label: subAgentActivityLabel(sessionId),
+        toolName: "Agent",
+        toolElapsed: 0,
+        filePath: null,
+      });
+      break;
+    }
+
+    case "subagent_complete": {
+      sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+        status: "done",
+        toolCount: event.tool_count ?? undefined,
+        tokenCount: event.token_count ?? undefined,
+      });
       break;
     }
   }

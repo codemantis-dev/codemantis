@@ -15,7 +15,10 @@ export type FrontendEvent =
   | UsageUpdateEvent
   | InterruptResultEvent
   | ModelChangedEvent
-  | CapabilitiesDiscoveredEvent;
+  | CapabilitiesDiscoveredEvent
+  | SubAgentStartedEvent
+  | SubAgentProgressEvent
+  | SubAgentCompleteEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -174,6 +177,31 @@ export interface CliAccountInfo {
   email: string;
   organization: string;
   subscriptionType: string;
+}
+
+export interface SubAgentStartedEvent {
+  type: "subagent_started";
+  session_id: string;
+  tool_use_id: string;
+  description: string;
+  subagent_type: string;
+}
+
+export interface SubAgentProgressEvent {
+  type: "subagent_progress";
+  session_id: string;
+  tool_use_id: string;
+  tool_count: number | null;
+  token_count: number | null;
+  current_activity: string | null;
+}
+
+export interface SubAgentCompleteEvent {
+  type: "subagent_complete";
+  session_id: string;
+  tool_use_id: string;
+  tool_count: number | null;
+  token_count: number | null;
 }
 
 /** Emitted globally by the approval HTTP server (not per-session). */

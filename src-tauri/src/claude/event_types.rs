@@ -321,6 +321,31 @@ pub enum FrontendEvent {
         account: serde_json::Value,
         output_styles: serde_json::Value,
     },
+
+    #[serde(rename = "subagent_started")]
+    SubAgentStarted {
+        session_id: String,
+        tool_use_id: String,
+        description: String,
+        subagent_type: String,
+    },
+
+    #[serde(rename = "subagent_progress")]
+    SubAgentProgress {
+        session_id: String,
+        tool_use_id: String,
+        tool_count: Option<u32>,
+        token_count: Option<u32>,
+        current_activity: Option<String>,
+    },
+
+    #[serde(rename = "subagent_complete")]
+    SubAgentComplete {
+        session_id: String,
+        tool_use_id: String,
+        tool_count: Option<u32>,
+        token_count: Option<u32>,
+    },
 }
 
 // --- Stdin messages to CLI ---

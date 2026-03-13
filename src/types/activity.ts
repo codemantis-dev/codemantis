@@ -20,6 +20,36 @@ export type ActivityStatus = "pending" | "running" | "done" | "error";
 
 export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "mcp" | "other";
 
+export interface SubAgentInfo {
+  toolUseId: string;
+  description: string;
+  subagentType: string;
+  isBackground: boolean;
+  startedAt: string;
+  elapsed: number;
+  status: ActivityStatus;
+  // Phase 2: live progress from system task events
+  toolCount?: number;
+  tokenCount?: number;
+  currentActivity?: string;
+}
+
+export function extractSubAgentInfo(
+  toolUseId: string,
+  toolInput: Record<string, unknown>,
+  timestamp: string,
+): SubAgentInfo {
+  return {
+    toolUseId,
+    description: (toolInput.description as string) ?? "Sub-agent",
+    subagentType: (toolInput.subagent_type as string) ?? "general-purpose",
+    isBackground: (toolInput.run_in_background as boolean) ?? false,
+    startedAt: timestamp,
+    elapsed: 0,
+    status: "running",
+  };
+}
+
 export function getActivityType(toolName: string): ActivityType {
   const readTools = ["Read", "Glob", "Grep"];
   const writeTools = ["Write", "NotebookEdit"];

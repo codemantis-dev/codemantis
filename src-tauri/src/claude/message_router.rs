@@ -357,8 +357,63 @@ pub async fn route_events(
                 }
             }
 
-            // Unhandled System subtypes (task_started, hook_*, etc.)
-            RawStreamEvent::System { .. } => {}
+            // Sub-agent task lifecycle events
+            RawStreamEvent::System {
+                subtype,
+                ref extra,
+                ..
+            } if matches!(subtype.as_deref(), Some("task_started") | Some("task_progress") | Some("task_complete")) => {
+                let sub = subtype.as_deref().unwrap_or("");
+                let tool_use_id = extra.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                match sub {
+                    "task_started" => {
+                        let description = extra.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let subagent_type = extra.get("subagent_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let fe = FrontendEvent::SubAgentStarted {
+                            session_id: session_id.clone(),
+                            tool_use_id,
+                            description,
+                            subagent_type,
+                        };
+                        let _ = app_handle.emit(&activity_event, &fe);
+                    }
+                    "task_progress" => {
+                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let current_activity = extra.get("current_activity").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let fe = FrontendEvent::SubAgentProgress {
+                            session_id: session_id.clone(),
+                            tool_use_id,
+                            tool_count,
+                            token_count,
+                            current_activity,
+                        };
+                        let _ = app_handle.emit(&activity_event, &fe);
+                    }
+                    "task_complete" => {
+                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let fe = FrontendEvent::SubAgentComplete {
+                            session_id: session_id.clone(),
+                            tool_use_id,
+                            tool_count,
+                            token_count,
+                        };
+                        let _ = app_handle.emit(&activity_event, &fe);
+                    }
+                    _ => {}
+                }
+            }
+
+            // Unhandled System subtypes — log for discovery
+            RawStreamEvent::System { subtype, ref extra, .. } => {
+                info!(
+                    "[message_router] Unhandled system event: subtype={:?}, keys={:?}",
+                    subtype,
+                    extra.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
+                );
+            }
 
             RawStreamEvent::MessageStart { .. }
             | RawStreamEvent::MessageDelta { .. }
