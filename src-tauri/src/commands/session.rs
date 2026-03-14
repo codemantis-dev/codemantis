@@ -36,12 +36,26 @@ pub async fn create_session(
         binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
     };
 
-    let session_name = name.unwrap_or_else(|| {
-        std::path::Path::new(&project_path)
+    let session_name = if let Some(n) = name {
+        n
+    } else {
+        let base = std::path::Path::new(&project_path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "New Session".to_string())
-    });
+            .unwrap_or_else(|| "New Session".to_string());
+        // Count existing sessions for this project to auto-number
+        let sessions = state.sessions.lock().await;
+        let existing_count = sessions
+            .values()
+            .filter(|s| s.project_path == project_path)
+            .count();
+        drop(sessions);
+        if existing_count == 0 {
+            base
+        } else {
+            format!("{} {}", base, existing_count + 1)
+        }
+    };
 
     let icon_index = state.database.get_next_icon_index().unwrap_or(0);
 
