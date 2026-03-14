@@ -26,7 +26,7 @@
       "id": "vite-react-shadcn",
       "name": "React + Vite + shadcn/ui",
       "description": "Minimal React starter with Vite, TypeScript, Tailwind, and shadcn/ui component library.",
-      "long_description": "Uses the official Vite scaffolding plus shadcn/ui initialization. Always up to date because it's generated from the latest CLI versions. Closest to what Lovable.dev outputs. Includes the cn() utility for class merging.",
+      "long_description": "Uses the official shadcn CLI to scaffold a complete Vite + React + Tailwind + shadcn/ui project. Always up to date because it's generated from the latest CLI version. Closest to what Lovable.dev outputs. Includes the cn() utility for class merging.",
       "category": "frontend",
       "tags": ["react", "vite", "typescript", "tailwind", "shadcn/ui", "radix"],
       "repo_url": "",
@@ -39,8 +39,7 @@
       "verified": true,
       "last_verified": "2026-03-10",
       "scaffold_type": "cli",
-      "cli_command": "pnpm create vite {{PROJECT_NAME}} --template react-ts",
-      "post_commands": ["pnpm dlx shadcn@latest init --defaults"]
+      "cli_command": "pnpm dlx shadcn@latest init --template vite --base radix --preset nova --name {{PROJECT_NAME}}"
     },
     {
       "id": "nextjs-boilerplate",

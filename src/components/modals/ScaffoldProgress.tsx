@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, Loader2, AlertTriangle } from "lucide-react";
+import { Check, X, Loader2, AlertTriangle, Copy } from "lucide-react";
 import { listenScaffoldProgress } from "../../lib/tauri-commands";
 import type {
   TemplateEntry,
@@ -100,6 +100,10 @@ export default function ScaffoldProgress({
   const isFinished = complete || resultPath !== null;
   const hasWarnings = warnings.length > 0;
 
+  function copyToClipboard(text: string): void {
+    navigator.clipboard.writeText(text);
+  }
+
   return (
     <div className="flex flex-col items-center px-4">
       <h3 className="text-text-primary text-base font-medium mb-1">
@@ -144,7 +148,7 @@ export default function ScaffoldProgress({
                     {label}
                   </span>
                   {state?.error && (
-                    <p className="text-label text-red/80 mt-0.5 break-words line-clamp-2">
+                    <p className="text-label text-red/80 mt-0.5 break-words select-text">
                       {state.error}
                     </p>
                   )}
@@ -152,13 +156,22 @@ export default function ScaffoldProgress({
               </div>
               {/* Collapsible command output for error steps */}
               {state?.output && state?.status === "error" && (
-                <details className="ml-7 mt-1">
+                <details className="ml-7 mt-1" open>
                   <summary className="text-label text-text-ghost cursor-pointer hover:text-text-dim select-none">
                     Show output
                   </summary>
-                  <pre className="text-[11px] text-text-dim mt-1 whitespace-pre-wrap bg-bg-subtle rounded p-2 max-h-32 overflow-y-auto font-mono">
-                    {state.output}
-                  </pre>
+                  <div className="relative mt-1">
+                    <pre className="text-[11px] text-text-dim whitespace-pre-wrap select-text bg-bg-subtle rounded p-2 pr-8 max-h-40 overflow-y-auto font-mono">
+                      {state.output}
+                    </pre>
+                    <button
+                      onClick={() => copyToClipboard(state.output ?? "")}
+                      className="absolute top-1.5 right-1.5 p-1 rounded hover:bg-bg-elevated text-text-ghost hover:text-text-dim transition-colors"
+                      title="Copy output"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  </div>
                 </details>
               )}
             </div>
@@ -168,16 +181,16 @@ export default function ScaffoldProgress({
 
       {/* Warnings summary */}
       {isFinished && hasWarnings && (
-        <div className="w-full max-w-xs mb-4 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-          <div className="flex items-center gap-1.5 mb-1">
-            <AlertTriangle size={12} className="text-yellow" />
-            <span className="text-yellow-200/80 text-label font-medium">
+        <div className="w-full max-w-xs mb-4 rounded-lg bg-bg-subtle border border-border overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+            <AlertTriangle size={13} className="text-accent shrink-0" />
+            <span className="text-text-secondary text-ui font-medium">
               {warnings.length} warning{warnings.length > 1 ? "s" : ""}
             </span>
           </div>
-          <ul className="text-yellow-200/60 text-label space-y-0.5">
+          <ul className="px-3 py-2 space-y-1">
             {warnings.map((w, i) => (
-              <li key={i} className="break-words">{w}</li>
+              <li key={i} className="text-text-dim text-label break-words select-text">{w}</li>
             ))}
           </ul>
         </div>
@@ -185,7 +198,7 @@ export default function ScaffoldProgress({
 
       {/* Top-level error */}
       {scaffoldError && !stepStates.size && (
-        <p className="text-label text-red mb-4 text-center max-w-sm">{scaffoldError}</p>
+        <p className="text-label text-red mb-4 text-center max-w-sm select-text">{scaffoldError}</p>
       )}
 
       {/* Actions */}
