@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   Paperclip,
   MessageSquare,
@@ -24,6 +24,7 @@ import { useAssistantStore } from "../../stores/assistantStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileViewer } from "../../hooks/useFileViewer";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import {
   getFileInfo,
   readFileContent,
@@ -31,6 +32,7 @@ import {
   duplicateFile,
 } from "../../lib/tauri-commands";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { showToast } from "../../stores/toastStore";
 
 interface FileTreeContextMenuProps {
   x: number;
@@ -88,26 +90,9 @@ export default function FileTreeContextMenu({
   onExpandAll,
   onCollapseAll,
 }: FileTreeContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useClickOutside<HTMLDivElement>(true, onClose, { closeOnEscape: true });
   const { openFile } = useFileViewer();
   const [assistantExpanded, setAssistantExpanded] = useState(false);
-
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
 
   const menuWidth = 220;
   const menuHeight = node ? (node.is_dir ? 420 : 540) : 160;
@@ -167,6 +152,7 @@ export default function FileTreeContextMenu({
       onRefresh();
     } catch (e) {
       console.error("Failed to duplicate:", e);
+      showToast("Failed to duplicate file", "error");
     }
     onClose();
   }
@@ -197,6 +183,7 @@ export default function FileTreeContextMenu({
       onRefresh();
     } catch (e) {
       console.error("Failed to delete:", e);
+      showToast("Failed to delete item", "error");
     }
     onClose();
   }
@@ -207,6 +194,7 @@ export default function FileTreeContextMenu({
       await revealItemInDir(node.path);
     } catch (e) {
       console.error("Failed to reveal:", e);
+      showToast("Failed to reveal in Finder", "error");
     }
     onClose();
   }
@@ -218,6 +206,7 @@ export default function FileTreeContextMenu({
       await navigator.clipboard.writeText(content);
     } catch (e) {
       console.error("Failed to copy file content:", e);
+      showToast("Failed to copy file content", "error");
     }
     onClose();
   }

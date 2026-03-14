@@ -120,7 +120,10 @@ pub async fn create_session(
     let _ = state.database.update_session_status(&session_id, "connected");
 
     let sessions = state.sessions.lock().await;
-    Ok(sessions.get(&session_id).cloned().unwrap())
+    sessions
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "Session not found after connection".to_string())
 }
 
 /// Pauses the session's CLI process without closing the session.

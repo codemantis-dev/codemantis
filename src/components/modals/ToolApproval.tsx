@@ -6,6 +6,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 import ToolBadge from "../shared/ToolBadge";
 
 export default function ToolApproval() {
@@ -80,6 +81,7 @@ export default function ToolApproval() {
         console.error("[approval-response] Failed:", e, {
           requestId,
         });
+        showToast("Failed to send tool approval response", "error");
       }
 
       useActivityStore.getState().dequeueApproval(toolUseId);
@@ -109,6 +111,7 @@ export default function ToolApproval() {
         console.error("[approval-response] Failed in approve-all:", e, {
           requestId,
         });
+        showToast("Failed to approve tool", "error");
       }
 
       useActivityStore.getState().dequeueApproval(toolUseId);

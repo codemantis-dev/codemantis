@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
 import { Copy, ArrowUpRight, Bookmark } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 interface AssistantMessageMenuProps {
   x: number;
@@ -17,24 +17,7 @@ export default function AssistantMessageMenu({
   onClose,
   onAddShortcut,
 }: AssistantMessageMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  const menuRef = useClickOutside<HTMLDivElement>(true, onClose, { closeOnEscape: true });
 
   // Clamp position to prevent viewport overflow
   const menuWidth = 180;

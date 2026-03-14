@@ -7,6 +7,7 @@ import {
   sendTerminalInput as sendInputCmd,
   resizeTerminal as resizeTerminalCmd,
 } from "../lib/tauri-commands";
+import { showToast } from "../stores/toastStore";
 
 const MAX_TERMINALS = 6;
 
@@ -52,6 +53,7 @@ export function useTerminal(): UseTerminalReturn {
       return info.id;
     } catch (e) {
       console.error("Failed to create terminal:", e);
+      showToast("Failed to create terminal", "error");
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store and sessionStore are stable Zustand store references
@@ -62,6 +64,7 @@ export function useTerminal(): UseTerminalReturn {
       await closeTerminalCmd(terminalId);
     } catch (e) {
       console.error("Failed to close terminal:", e);
+      showToast("Failed to close terminal", "error");
     }
     store.getState().removeTerminal(sessionId, terminalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store is a stable Zustand store reference

@@ -5,6 +5,7 @@ import { useChangelogStore } from "../../stores/changelogStore";
 import type { ChangelogEntry } from "../../types/changelog";
 import { deleteChangelogEntry } from "../../lib/tauri-commands";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
+import { showToast } from "../../stores/toastStore";
 
 function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId: string }) {
   const removeEntry = useChangelogStore((s) => s.removeEntry);
@@ -21,13 +22,14 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
       removeEntry(sessionId, entry.id);
     } catch (e) {
       console.error("Failed to delete changelog entry:", e);
+      showToast("Failed to delete changelog entry", "error");
     }
   };
 
   // Parse technical_details bullets (split on "• " or newline-delimited)
   const detailBullets = entry.technical_details
     ? entry.technical_details
-        .split(/(?:^|\n)\s*[•\-]\s*/)
+        .split(/(?:^|\n)\s*[•-]\s*/)
         .map((s) => s.trim())
         .filter(Boolean)
     : [];

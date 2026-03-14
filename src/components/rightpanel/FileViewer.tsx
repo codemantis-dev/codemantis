@@ -6,6 +6,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getMonacoTheme } from "../../lib/editor-themes";
 import { writeFileContent } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 
 // Stable empty defaults to avoid re-render loops from zustand selectors
 const EMPTY_TABS: import("../../stores/fileViewerStore").FileViewerTab[] = [];
@@ -78,6 +79,7 @@ export default function FileViewer() {
       markSaved(activeFilePath);
     } catch (err) {
       console.error("Failed to save file:", err);
+      showToast("Failed to save file", "error");
     } finally {
       setSaving(false);
     }

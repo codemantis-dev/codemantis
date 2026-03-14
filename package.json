@@ -31,7 +31,8 @@
   },
   "pnpm": {
     "overrides": {
-      "dompurify": ">=3.3.2"
+      "dompurify": ">=3.3.2",
+      "undici": ">=7.24.0"
     }
   },
   "devDependencies": {

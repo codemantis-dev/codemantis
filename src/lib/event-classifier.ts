@@ -1,7 +1,17 @@
-import type { FrontendEvent } from "../types/claude-events";
+import type {
+  FrontendEvent,
+  TextDeltaEvent,
+  TextCompleteEvent,
+  TurnCompleteEvent,
+  ProcessErrorEvent,
+  ProcessExitedEvent,
+  UsageUpdateEvent,
+  ToolUseStartEvent,
+  ToolResultEvent,
+} from "../types/claude-events";
 import type { ActivityEntry } from "../types/activity";
 import { extractSubAgentInfo } from "../types/activity";
-import type { SessionMode } from "../types/session";
+import type { SessionMode, TurnStats } from "../types/session";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
@@ -11,6 +21,10 @@ import { useChangelogStore } from "../stores/changelogStore";
 import { useAssistantStore } from "../stores/assistantStore";
 import { showToast } from "../stores/toastStore";
 import { getContextWindowForModel } from "./model-context";
+
+// Store state types (derived from Zustand store getState())
+type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
+type ActivityStoreState = ReturnType<typeof useActivityStore.getState>;
 
 // Tools that indicate actual changes were made (not just reads)
 const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
@@ -131,6 +145,469 @@ function bufferStreamingText(sessionId: string, text: string): void {
   }
 }
 
+// ── Extracted chat event handlers ──
+
+function handleTextDelta(sessionId: string, event: TextDeltaEvent, store: SessionStoreState, now: string): void {
+  store.touchLastEvent(sessionId);
+  store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0, filePath: null });
+  const streaming = store.sessionStreaming.get(sessionId);
+  if (!streaming?.isStreaming) {
+    const msgId = nextMessageId();
+    store.addMessage(sessionId, {
+      id: msgId,
+      role: "assistant",
+      content: "",
+      timestamp: now,
+      activityIds: [],
+      isStreaming: true,
+    });
+    store.startStreaming(sessionId, msgId);
+  }
+  bufferStreamingText(sessionId, event.text);
+}
+
+function handleTextComplete(sessionId: string, event: TextCompleteEvent, store: SessionStoreState, now: string): void {
+  // Flush any buffered text before finalizing
+  const pendingFrame = pendingFrames.get(sessionId);
+  if (pendingFrame) cancelAnimationFrame(pendingFrame);
+  flushStreamingBuffer(sessionId);
+
+  const streaming = store.sessionStreaming.get(sessionId);
+  if (!streaming?.isStreaming) {
+    const msgId = nextMessageId();
+    store.addMessage(sessionId, {
+      id: msgId,
+      role: "assistant",
+      content: event.full_text,
+      timestamp: now,
+      activityIds: [],
+      isStreaming: false,
+    });
+  } else {
+    store.finalizeStreaming(sessionId, event.full_text);
+  }
+}
+
+function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: SessionStoreState): void {
+  store.setSessionBusy(sessionId, false);
+  // Flush any buffered text
+  const turnFrame = pendingFrames.get(sessionId);
+  if (turnFrame) cancelAnimationFrame(turnFrame);
+  flushStreamingBuffer(sessionId);
+
+  const streaming = store.sessionStreaming.get(sessionId);
+  const completedMessageId = streaming?.currentMessageId ?? null;
+  if (streaming?.isStreaming) {
+    store.finalizeStreaming(sessionId);
+  }
+  // Use dynamic context_window from modelUsage if available, then model lookup, then current stored max
+  const storedCtx = store.sessionContext.get(sessionId);
+  const contextMax = event.context_window
+    ?? storedCtx?.max
+    ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
+
+  if (event.usage) {
+    const totalInput =
+      (event.usage.input_tokens ?? 0) +
+      (event.usage.cache_creation_input_tokens ?? 0) +
+      (event.usage.cache_read_input_tokens ?? 0);
+    const totalOutput = event.usage.output_tokens ?? 0;
+
+    // Only use aggregate estimation as fallback when no per-call
+    // usage_update events arrived (backward compat with older CLI).
+    // When usage_updates are available, context is already up-to-date.
+    const stats = store.sessionStats.get(sessionId);
+    const hadIncrementalUpdates = stats && stats.apiCallCount > 0;
+    if (!hadIncrementalUpdates) {
+      const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
+      const apiCalls = Math.max(toolCalls, 1);
+      const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
+      store.updateContext(sessionId, estimatedContext, contextMax);
+    } else {
+      // Update max from modelUsage even when incremental updates handled context.used
+      const currentCtx = store.sessionContext.get(sessionId);
+      if (currentCtx && contextMax !== currentCtx.max) {
+        store.updateContext(sessionId, currentCtx.used, contextMax);
+      }
+    }
+  }
+  // Reset tool call counter for next turn
+  turnToolCallCount.delete(sessionId);
+
+  // Finalize session stats: add cost + turn count, and if no incremental
+  // usage_update events were received (older CLI), add aggregate tokens.
+  const turnStats: TurnStats = {
+    durationMs: event.duration_ms,
+    costUsd: event.cost_usd,
+    inputTokens: event.usage?.input_tokens ?? 0,
+    outputTokens: event.usage?.output_tokens ?? 0,
+    cacheCreationTokens: event.usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
+    durationApiMs: event.duration_api_ms,
+    numTurns: event.num_turns,
+    stopReason: event.stop_reason,
+  };
+
+  // Attach turn stats to the completed assistant message
+  const targetMsgId = completedMessageId ?? (() => {
+    const msgs = store.sessionMessages.get(sessionId) ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") return msgs[i].id;
+    }
+    return null;
+  })();
+
+  // setTurnStats handles both message attachment AND stats accumulation
+  // (with double-count protection for usage_update events)
+  store.setTurnStats(sessionId, targetMsgId ?? "", turnStats);
+
+  // Context meter toast notifications
+  checkContextThresholds(sessionId);
+
+  // Trigger changelog generation if enabled
+  maybeGenerateChangelog(sessionId);
+}
+
+function handleProcessError(sessionId: string, event: ProcessErrorEvent, store: SessionStoreState, now: string): void {
+  store.setSessionBusy(sessionId, false);
+  const streaming = store.sessionStreaming.get(sessionId);
+  if (streaming?.isStreaming) {
+    store.finalizeStreaming(sessionId);
+  }
+  const errorMsgId = nextMessageId();
+  store.addMessage(sessionId, {
+    id: errorMsgId,
+    role: "assistant",
+    content: `**Error:** ${event.error}`,
+    timestamp: now,
+    activityIds: [],
+    isStreaming: false,
+  });
+}
+
+function handleProcessExited(sessionId: string, event: ProcessExitedEvent, store: SessionStoreState, now: string): void {
+  // Safety net: if turn_complete already cleared busy/streaming, this is a no-op.
+  // Only act if the session is still stuck (e.g., process crashed before emitting result).
+  const wasBusy = store.sessionBusy.get(sessionId) ?? false;
+  const wasStreaming = store.sessionStreaming.get(sessionId)?.isStreaming ?? false;
+
+  if (wasBusy || wasStreaming) {
+    console.warn("[process_exited] Session still busy/streaming — recovering:", sessionId);
+    store.setSessionBusy(sessionId, false);
+    if (wasStreaming) {
+      store.finalizeStreaming(sessionId);
+    }
+  }
+  store.updateSessionStatus(sessionId, "idle");
+
+  // Auth failure heuristic: quick exit + auth keywords in stderr
+  const AUTH_KEYWORDS = [
+    "auth", "login", "token", "expired", "unauthorized",
+    "401", "403", "credential", "sign in", "not logged in",
+    "authentication", "unauthenticated",
+  ];
+  const stderrLower = (event.stderr_tail ?? "").toLowerCase();
+  const isAuthFailure =
+    event.elapsed_ms < 5000 &&
+    event.exit_code !== 0 &&
+    AUTH_KEYWORDS.some((kw) => stderrLower.includes(kw));
+
+  // Rate limit detection
+  const RATE_LIMIT_KEYWORDS = ["rate limit", "429", "too many requests", "rate_limit"];
+  const isRateLimit =
+    event.exit_code !== 0 &&
+    RATE_LIMIT_KEYWORDS.some((kw) => stderrLower.includes(kw));
+
+  if (isAuthFailure) {
+    store.addMessage(sessionId, {
+      id: nextMessageId(),
+      role: "assistant",
+      content:
+        "**Authentication failed.** Your Claude session may have expired.\n\n" +
+        "To fix this, open a terminal and run:\n\n```\nclaude login\n```\n\n" +
+        "Then start a new session in CodeMantis.",
+      timestamp: now,
+      activityIds: [],
+      isStreaming: false,
+      restartable: true,
+    });
+    showToast("Authentication failed — run 'claude login' in a terminal", "error", 12000);
+  } else if (isRateLimit) {
+    // Auto-retry with exponential backoff
+    const retryState = store.sessionRetry.get(sessionId);
+    const attempt = (retryState?.retryAttempt ?? 0) + 1;
+    const delays = [30, 60, 120];
+    const delaySec = delays[Math.min(attempt - 1, delays.length - 1)];
+
+    store.addMessage(sessionId, {
+      id: nextMessageId(),
+      role: "assistant",
+      content:
+        `**Rate limited.** Retrying in ${delaySec}s (attempt ${attempt}/3)...\n\n` +
+        `The API returned a rate limit error. Auto-retrying with exponential backoff.`,
+      timestamp: now,
+      activityIds: [],
+      isStreaming: false,
+      restartable: attempt >= 3,
+    });
+    showToast(`Rate limited — retrying in ${delaySec}s`, "info", delaySec * 1000);
+
+    if (attempt <= 3) {
+      const retryAt = Date.now() + delaySec * 1000;
+      const timerId = setTimeout(() => {
+        // Re-send the last user message
+        const messages = store.sessionMessages.get(sessionId) ?? [];
+        let lastUserPrompt = "";
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "user") {
+            lastUserPrompt = messages[i].content;
+            break;
+          }
+        }
+        store.clearRetry(sessionId);
+        if (lastUserPrompt) {
+          import("./tauri-commands").then(({ sendMessage }) => {
+            store.setSessionBusy(sessionId, true);
+            sendMessage(sessionId, lastUserPrompt).catch((e: unknown) => {
+              console.error("Rate limit retry failed:", e);
+              store.setSessionBusy(sessionId, false);
+            });
+          });
+        }
+      }, delaySec * 1000);
+
+      store.setRetryState(sessionId, {
+        isRetrying: true,
+        retryAttempt: attempt,
+        retryAt,
+        retryTimerId: timerId,
+      });
+    }
+  } else if (event.exit_code !== 0) {
+    const stderrInfo = event.stderr_tail
+      ? `\n\n**stderr:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
+      : "";
+    store.addMessage(sessionId, {
+      id: nextMessageId(),
+      role: "assistant",
+      content:
+        `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
+        `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
+      timestamp: now,
+      activityIds: [],
+      isStreaming: false,
+      restartable: true,
+    });
+  }
+  // Clean exit (code 0): no message needed
+}
+
+function handleUsageUpdate(sessionId: string, event: UsageUpdateEvent, store: SessionStoreState): void {
+  store.touchLastEvent(sessionId);
+  // Per-API-call usage from message_delta events — accumulate incrementally
+  store.accumulateUsage(
+    sessionId,
+    event.usage.input_tokens ?? 0,
+    event.usage.output_tokens ?? 0,
+    event.usage.cache_creation_input_tokens ?? 0,
+    event.usage.cache_read_input_tokens ?? 0,
+  );
+  // Real-time context update: each usage_update represents a single API
+  // call, so the total tokens IS the context window size at that point.
+  const callContext =
+    (event.usage.input_tokens ?? 0) +
+    (event.usage.cache_creation_input_tokens ?? 0) +
+    (event.usage.cache_read_input_tokens ?? 0) +
+    (event.usage.output_tokens ?? 0);
+  if (callContext > 0) {
+    // Use current max (may have been updated by session_init, model_changed, or turn_complete)
+    const currentMax = store.sessionContext.get(sessionId)?.max
+      ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
+    store.updateContext(sessionId, callContext, currentMax);
+    checkContextThresholds(sessionId);
+  }
+}
+
+// ── Extracted activity event handlers ──
+
+function handleToolUseStart(
+  sessionId: string,
+  event: ToolUseStartEvent,
+  activityStore: ActivityStoreState,
+  sessionStore: SessionStoreState,
+  now: string,
+): void {
+  useSessionStore.getState().touchLastEvent(sessionId);
+  // Track tool calls per turn for context estimation
+  turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
+
+  // Track sub-agents when Agent tool starts
+  if (event.tool_name === "Agent") {
+    const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
+    sessionStore.addSubAgent(sessionId, agentInfo);
+  }
+
+  // Update activity label to reflect what tool is running
+  const filePath = (event.tool_input?.file_path as string) ?? null;
+  const label = event.tool_name === "Agent"
+    ? subAgentActivityLabel(sessionId)
+    : toolActivityLabel(event.tool_name);
+  sessionStore.setSessionActivity(sessionId, {
+    label,
+    toolName: event.tool_name,
+    toolElapsed: 0,
+    filePath,
+  });
+
+  // Mode-control tools: sync session mode and skip activity feed
+  if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
+    modeControlToolIds.add(event.tool_use_id);
+    const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
+    sessionStore.setSessionMode(sessionId, newMode);
+    import("./tauri-commands").then(({ syncSessionMode }) => {
+      syncSessionMode(sessionId, newMode).catch(console.error);
+    });
+    return; // Don't add to activity feed — mode badge already reflects the change
+  }
+
+  // Check main session store first, then assistant store for the streaming messageId
+  let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;
+  if (!currentMessageId) {
+    currentMessageId = useAssistantStore.getState().streaming.get(sessionId)?.currentMessageId;
+  }
+  const entry: ActivityEntry = {
+    id: `activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    toolUseId: event.tool_use_id,
+    toolName: event.tool_name,
+    toolInput: event.tool_input,
+    status: "running",
+    timestamp: now,
+    messageId: currentMessageId ?? "",
+    isError: false,
+    sessionId,
+  };
+  activityStore.addEntry(sessionId, entry);
+
+  // Cache file content before Write/Edit runs (for diff view)
+  if ((event.tool_name === "Write" || event.tool_name === "Edit") && event.tool_input?.file_path) {
+    const editFilePath = event.tool_input.file_path as string;
+    import("./tauri-commands").then(({ readFileContent }) => {
+      readFileContent(editFilePath)
+        .then((content) => preEditContentCache.set(event.tool_use_id, content))
+        .catch(() => preEditContentCache.set(event.tool_use_id, "")); // new file
+    });
+  }
+}
+
+function handleToolResult(
+  sessionId: string,
+  event: ToolResultEvent,
+  activityStore: ActivityStoreState,
+  sessionStore: SessionStoreState,
+): void {
+  // Mode-control tools were not added to the activity feed — skip their results
+  if (modeControlToolIds.has(event.tool_use_id)) {
+    modeControlToolIds.delete(event.tool_use_id);
+    return;
+  }
+
+  // Check if a sub-agent just completed
+  const completingAgents = sessionStore.activeSubAgents.get(sessionId);
+  const completingAgent = completingAgents?.find((a) => a.toolUseId === event.tool_use_id);
+  if (completingAgent) {
+    // Parse <usage> tags from agent result for reliable token/tool counts
+    const agentUsage = parseAgentUsage(event.content);
+    const toolCount = completingAgent.toolCount ?? agentUsage?.toolUses;
+    const tokenCount = completingAgent.tokenCount ?? agentUsage?.totalTokens;
+    const durationMs = agentUsage?.durationMs;
+
+    const extra: Partial<ActivityEntry> = {};
+    if (toolCount != null && toolCount > 0) extra.agentFinalToolCount = toolCount;
+    if (tokenCount != null && tokenCount > 0) extra.agentFinalTokenCount = tokenCount;
+    if (durationMs != null && durationMs > 0) extra.agentFinalDurationMs = durationMs;
+    if (Object.keys(extra).length > 0) {
+      activityStore.updateEntryExtra(sessionId, event.tool_use_id, extra);
+    }
+    sessionStore.completeSubAgent(sessionId, event.tool_use_id);
+  }
+
+  // If other agents are still running, keep the agent label
+  const remainingAgents = sessionStore.activeSubAgents.get(sessionId);
+  if (remainingAgents && remainingAgents.length > 0) {
+    sessionStore.setSessionActivity(sessionId, {
+      label: subAgentActivityLabel(sessionId),
+      toolName: "Agent",
+      toolElapsed: 0,
+      filePath: null,
+    });
+  } else {
+    sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
+  }
+  activityStore.updateEntryStatus(
+    sessionId,
+    event.tool_use_id,
+    event.is_error ? "error" : "done",
+    event.content ?? undefined,
+    event.is_error
+  );
+
+  // Refresh file tree after mutating tools complete
+  if (!event.is_error) {
+    const allEntries = activityStore.getActiveEntries(sessionId);
+    const toolEntry = allEntries.find((e) => e.toolUseId === event.tool_use_id);
+    if (toolEntry && MUTATING_TOOLS.has(toolEntry.toolName)) {
+      useUiStore.getState().triggerFileTreeRefresh();
+    }
+  }
+
+  // Auto-open file when Write or Edit tool completes successfully
+  // Only auto-switch tab for the active session's project
+  if (!event.is_error && useSettingsStore.getState().settings.autoOpenFiles) {
+    const isActiveSession = sessionId === sessionStore.activeSessionId;
+    const isMainSession = sessionStore.sessions.has(sessionId);
+    const session = sessionStore.sessions.get(sessionId);
+    const projectPath = session?.project_path;
+    const entries = activityStore.getActiveEntries(sessionId);
+    const entry = entries.find((e) => e.toolUseId === event.tool_use_id);
+    if (entry && projectPath) {
+      const toolName = entry.toolName;
+      const filePath = entry.toolInput.file_path as string | undefined;
+      if (filePath && (toolName === "Write" || toolName === "Edit")) {
+        const fileName = filePath.split("/").pop() ?? filePath;
+        const language = getLanguageFromPath(filePath);
+        const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+        const cachedOldContent = preEditContentCache.get(event.tool_use_id);
+        // Read the file content asynchronously for auto-open
+        import("./tauri-commands").then(({ readFileContent }) => {
+          readFileContent(filePath).then((content) => {
+            const hasDiffData = cachedOldContent !== undefined;
+            useFileViewerStore.getState().openFile(projectPath, {
+              filePath,
+              fileName,
+              language,
+              extension,
+              fileSize: new Blob([content]).size,
+              content,
+              isDiff: hasDiffData,
+              oldContent: hasDiffData ? cachedOldContent : undefined,
+              newContent: hasDiffData ? content : undefined,
+            });
+            if (isMainSession && isActiveSession) {
+              useUiStore.getState().setRightTab("files");
+            }
+          }).catch(() => {
+            // File may not exist yet or be unreadable — ignore
+          });
+        });
+      }
+    }
+  }
+  // Cleanup pre-edit cache for this tool call
+  preEditContentCache.delete(event.tool_use_id);
+}
+
+// ── Main event handlers ──
+
 export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
   console.log("[chat-event]", sessionId, event.type, event);
   const store = useSessionStore.getState();
@@ -158,265 +635,25 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       store.setCliSessionId(sessionId, event.cli_session_id);
       break;
 
-    case "text_delta": {
-      store.touchLastEvent(sessionId);
-      store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0, filePath: null });
-      const streaming = store.sessionStreaming.get(sessionId);
-      if (!streaming?.isStreaming) {
-        const msgId = nextMessageId();
-        store.addMessage(sessionId, {
-          id: msgId,
-          role: "assistant",
-          content: "",
-          timestamp: now,
-          activityIds: [],
-          isStreaming: true,
-        });
-        store.startStreaming(sessionId, msgId);
-      }
-      bufferStreamingText(sessionId, event.text);
+    case "text_delta":
+      handleTextDelta(sessionId, event, store, now);
       break;
-    }
 
-    case "text_complete": {
-      // Flush any buffered text before finalizing
-      const pendingFrame = pendingFrames.get(sessionId);
-      if (pendingFrame) cancelAnimationFrame(pendingFrame);
-      flushStreamingBuffer(sessionId);
-
-      const streaming = store.sessionStreaming.get(sessionId);
-      if (!streaming?.isStreaming) {
-        const msgId = nextMessageId();
-        store.addMessage(sessionId, {
-          id: msgId,
-          role: "assistant",
-          content: event.full_text,
-          timestamp: now,
-          activityIds: [],
-          isStreaming: false,
-        });
-      } else {
-        store.finalizeStreaming(sessionId, event.full_text);
-      }
+    case "text_complete":
+      handleTextComplete(sessionId, event, store, now);
       break;
-    }
 
-    case "turn_complete": {
-      store.setSessionBusy(sessionId, false);
-      // Flush any buffered text
-      const turnFrame = pendingFrames.get(sessionId);
-      if (turnFrame) cancelAnimationFrame(turnFrame);
-      flushStreamingBuffer(sessionId);
-
-      const streaming = store.sessionStreaming.get(sessionId);
-      const completedMessageId = streaming?.currentMessageId ?? null;
-      if (streaming?.isStreaming) {
-        store.finalizeStreaming(sessionId);
-      }
-      // Use dynamic context_window from modelUsage if available, then model lookup, then current stored max
-      const storedCtx = store.sessionContext.get(sessionId);
-      const contextMax = event.context_window
-        ?? storedCtx?.max
-        ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
-
-      if (event.usage) {
-        const totalInput =
-          (event.usage.input_tokens ?? 0) +
-          (event.usage.cache_creation_input_tokens ?? 0) +
-          (event.usage.cache_read_input_tokens ?? 0);
-        const totalOutput = event.usage.output_tokens ?? 0;
-
-        // Only use aggregate estimation as fallback when no per-call
-        // usage_update events arrived (backward compat with older CLI).
-        // When usage_updates are available, context is already up-to-date.
-        const stats = store.sessionStats.get(sessionId);
-        const hadIncrementalUpdates = stats && stats.apiCallCount > 0;
-        if (!hadIncrementalUpdates) {
-          const toolCalls = turnToolCallCount.get(sessionId) ?? 0;
-          const apiCalls = Math.max(toolCalls, 1);
-          const estimatedContext = Math.round((totalInput + totalOutput) / apiCalls);
-          store.updateContext(sessionId, estimatedContext, contextMax);
-        } else {
-          // Update max from modelUsage even when incremental updates handled context.used
-          const currentCtx = store.sessionContext.get(sessionId);
-          if (currentCtx && contextMax !== currentCtx.max) {
-            store.updateContext(sessionId, currentCtx.used, contextMax);
-          }
-        }
-      }
-      // Reset tool call counter for next turn
-      turnToolCallCount.delete(sessionId);
-
-      // Finalize session stats: add cost + turn count, and if no incremental
-      // usage_update events were received (older CLI), add aggregate tokens.
-      const turnStats: import("../types/session").TurnStats = {
-        durationMs: event.duration_ms,
-        costUsd: event.cost_usd,
-        inputTokens: event.usage?.input_tokens ?? 0,
-        outputTokens: event.usage?.output_tokens ?? 0,
-        cacheCreationTokens: event.usage?.cache_creation_input_tokens ?? 0,
-        cacheReadTokens: event.usage?.cache_read_input_tokens ?? 0,
-        durationApiMs: event.duration_api_ms,
-        numTurns: event.num_turns,
-        stopReason: event.stop_reason,
-      };
-
-      // Attach turn stats to the completed assistant message
-      const targetMsgId = completedMessageId ?? (() => {
-        const msgs = store.sessionMessages.get(sessionId) ?? [];
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i].role === "assistant") return msgs[i].id;
-        }
-        return null;
-      })();
-
-      // setTurnStats handles both message attachment AND stats accumulation
-      // (with double-count protection for usage_update events)
-      store.setTurnStats(sessionId, targetMsgId ?? "", turnStats);
-
-      // Context meter toast notifications
-      checkContextThresholds(sessionId);
-
-      // Trigger changelog generation if enabled
-      maybeGenerateChangelog(sessionId);
+    case "turn_complete":
+      handleTurnComplete(sessionId, event, store);
       break;
-    }
 
-    case "process_error": {
-      store.setSessionBusy(sessionId, false);
-      const streaming = store.sessionStreaming.get(sessionId);
-      if (streaming?.isStreaming) {
-        store.finalizeStreaming(sessionId);
-      }
-      const errorMsgId = nextMessageId();
-      store.addMessage(sessionId, {
-        id: errorMsgId,
-        role: "assistant",
-        content: `**Error:** ${event.error}`,
-        timestamp: now,
-        activityIds: [],
-        isStreaming: false,
-      });
+    case "process_error":
+      handleProcessError(sessionId, event, store, now);
       break;
-    }
 
-    case "process_exited": {
-      // Safety net: if turn_complete already cleared busy/streaming, this is a no-op.
-      // Only act if the session is still stuck (e.g., process crashed before emitting result).
-      const wasBusy = store.sessionBusy.get(sessionId) ?? false;
-      const wasStreaming = store.sessionStreaming.get(sessionId)?.isStreaming ?? false;
-
-      if (wasBusy || wasStreaming) {
-        console.warn("[process_exited] Session still busy/streaming — recovering:", sessionId);
-        store.setSessionBusy(sessionId, false);
-        if (wasStreaming) {
-          store.finalizeStreaming(sessionId);
-        }
-      }
-      store.updateSessionStatus(sessionId, "idle");
-
-      // Auth failure heuristic: quick exit + auth keywords in stderr
-      const AUTH_KEYWORDS = [
-        "auth", "login", "token", "expired", "unauthorized",
-        "401", "403", "credential", "sign in", "not logged in",
-        "authentication", "unauthenticated",
-      ];
-      const stderrLower = (event.stderr_tail ?? "").toLowerCase();
-      const isAuthFailure =
-        event.elapsed_ms < 5000 &&
-        event.exit_code !== 0 &&
-        AUTH_KEYWORDS.some((kw) => stderrLower.includes(kw));
-
-      // Rate limit detection
-      const RATE_LIMIT_KEYWORDS = ["rate limit", "429", "too many requests", "rate_limit"];
-      const isRateLimit =
-        event.exit_code !== 0 &&
-        RATE_LIMIT_KEYWORDS.some((kw) => stderrLower.includes(kw));
-
-      if (isAuthFailure) {
-        store.addMessage(sessionId, {
-          id: nextMessageId(),
-          role: "assistant",
-          content:
-            "**Authentication failed.** Your Claude session may have expired.\n\n" +
-            "To fix this, open a terminal and run:\n\n```\nclaude login\n```\n\n" +
-            "Then start a new session in CodeMantis.",
-          timestamp: now,
-          activityIds: [],
-          isStreaming: false,
-          restartable: true,
-        });
-        showToast("Authentication failed — run 'claude login' in a terminal", "error", 12000);
-      } else if (isRateLimit) {
-        // Auto-retry with exponential backoff
-        const retryState = store.sessionRetry.get(sessionId);
-        const attempt = (retryState?.retryAttempt ?? 0) + 1;
-        const delays = [30, 60, 120];
-        const delaySec = delays[Math.min(attempt - 1, delays.length - 1)];
-
-        store.addMessage(sessionId, {
-          id: nextMessageId(),
-          role: "assistant",
-          content:
-            `**Rate limited.** Retrying in ${delaySec}s (attempt ${attempt}/3)...\n\n` +
-            `The API returned a rate limit error. Auto-retrying with exponential backoff.`,
-          timestamp: now,
-          activityIds: [],
-          isStreaming: false,
-          restartable: attempt >= 3,
-        });
-        showToast(`Rate limited — retrying in ${delaySec}s`, "info", delaySec * 1000);
-
-        if (attempt <= 3) {
-          const retryAt = Date.now() + delaySec * 1000;
-          const timerId = setTimeout(() => {
-            // Re-send the last user message
-            const messages = store.sessionMessages.get(sessionId) ?? [];
-            let lastUserPrompt = "";
-            for (let i = messages.length - 1; i >= 0; i--) {
-              if (messages[i].role === "user") {
-                lastUserPrompt = messages[i].content;
-                break;
-              }
-            }
-            store.clearRetry(sessionId);
-            if (lastUserPrompt) {
-              import("./tauri-commands").then(({ sendMessage }) => {
-                store.setSessionBusy(sessionId, true);
-                sendMessage(sessionId, lastUserPrompt).catch((e: unknown) => {
-                  console.error("Rate limit retry failed:", e);
-                  store.setSessionBusy(sessionId, false);
-                });
-              });
-            }
-          }, delaySec * 1000);
-
-          store.setRetryState(sessionId, {
-            isRetrying: true,
-            retryAttempt: attempt,
-            retryAt,
-            retryTimerId: timerId,
-          });
-        }
-      } else if (event.exit_code !== 0) {
-        const stderrInfo = event.stderr_tail
-          ? `\n\n**stderr:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
-          : "";
-        store.addMessage(sessionId, {
-          id: nextMessageId(),
-          role: "assistant",
-          content:
-            `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
-            `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
-          timestamp: now,
-          activityIds: [],
-          isStreaming: false,
-          restartable: true,
-        });
-      }
-      // Clean exit (code 0): no message needed
+    case "process_exited":
+      handleProcessExited(sessionId, event, store, now);
       break;
-    }
 
     case "compacting_status": {
       store.touchLastEvent(sessionId);
@@ -463,32 +700,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
     }
 
-    case "usage_update": {
-      store.touchLastEvent(sessionId);
-      // Per-API-call usage from message_delta events — accumulate incrementally
-      store.accumulateUsage(
-        sessionId,
-        event.usage.input_tokens ?? 0,
-        event.usage.output_tokens ?? 0,
-        event.usage.cache_creation_input_tokens ?? 0,
-        event.usage.cache_read_input_tokens ?? 0,
-      );
-      // Real-time context update: each usage_update represents a single API
-      // call, so the total tokens IS the context window size at that point.
-      const callContext =
-        (event.usage.input_tokens ?? 0) +
-        (event.usage.cache_creation_input_tokens ?? 0) +
-        (event.usage.cache_read_input_tokens ?? 0) +
-        (event.usage.output_tokens ?? 0);
-      if (callContext > 0) {
-        // Use current max (may have been updated by session_init, model_changed, or turn_complete)
-        const currentMax = store.sessionContext.get(sessionId)?.max
-          ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
-        store.updateContext(sessionId, callContext, currentMax);
-        checkContextThresholds(sessionId);
-      }
+    case "usage_update":
+      handleUsageUpdate(sessionId, event, store);
       break;
-    }
 
     case "interrupt_result": {
       if (event.success) {
@@ -529,69 +743,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
   const now = new Date().toISOString();
 
   switch (event.type) {
-    case "tool_use_start": {
-      useSessionStore.getState().touchLastEvent(sessionId);
-      // Track tool calls per turn for context estimation
-      turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
-
-      // Track sub-agents when Agent tool starts
-      if (event.tool_name === "Agent") {
-        const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
-        sessionStore.addSubAgent(sessionId, agentInfo);
-      }
-
-      // Update activity label to reflect what tool is running
-      const filePath = (event.tool_input?.file_path as string) ?? null;
-      const label = event.tool_name === "Agent"
-        ? subAgentActivityLabel(sessionId)
-        : toolActivityLabel(event.tool_name);
-      sessionStore.setSessionActivity(sessionId, {
-        label,
-        toolName: event.tool_name,
-        toolElapsed: 0,
-        filePath,
-      });
-
-      // Mode-control tools: sync session mode and skip activity feed
-      if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
-        modeControlToolIds.add(event.tool_use_id);
-        const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
-        sessionStore.setSessionMode(sessionId, newMode);
-        import("./tauri-commands").then(({ syncSessionMode }) => {
-          syncSessionMode(sessionId, newMode).catch(console.error);
-        });
-        return; // Don't add to activity feed — mode badge already reflects the change
-      }
-
-      // Check main session store first, then assistant store for the streaming messageId
-      let currentMessageId = sessionStore.sessionStreaming.get(sessionId)?.currentMessageId;
-      if (!currentMessageId) {
-        currentMessageId = useAssistantStore.getState().streaming.get(sessionId)?.currentMessageId;
-      }
-      const entry: ActivityEntry = {
-        id: `activity-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        toolUseId: event.tool_use_id,
-        toolName: event.tool_name,
-        toolInput: event.tool_input,
-        status: "running",
-        timestamp: now,
-        messageId: currentMessageId ?? "",
-        isError: false,
-        sessionId,
-      };
-      activityStore.addEntry(sessionId, entry);
-
-      // Cache file content before Write/Edit runs (for diff view)
-      if ((event.tool_name === "Write" || event.tool_name === "Edit") && event.tool_input?.file_path) {
-        const editFilePath = event.tool_input.file_path as string;
-        import("./tauri-commands").then(({ readFileContent }) => {
-          readFileContent(editFilePath)
-            .then((content) => preEditContentCache.set(event.tool_use_id, content))
-            .catch(() => preEditContentCache.set(event.tool_use_id, "")); // new file
-        });
-      }
+    case "tool_use_start":
+      handleToolUseStart(sessionId, event, activityStore, sessionStore, now);
       break;
-    }
 
     case "tool_progress": {
       useSessionStore.getState().touchLastEvent(sessionId);
@@ -616,108 +770,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       break;
     }
 
-    case "tool_result": {
-      // Mode-control tools were not added to the activity feed — skip their results
-      if (modeControlToolIds.has(event.tool_use_id)) {
-        modeControlToolIds.delete(event.tool_use_id);
-        return;
-      }
-
-      // Check if a sub-agent just completed
-      const completingAgents = sessionStore.activeSubAgents.get(sessionId);
-      const completingAgent = completingAgents?.find((a) => a.toolUseId === event.tool_use_id);
-      if (completingAgent) {
-        // Parse <usage> tags from agent result for reliable token/tool counts
-        const agentUsage = parseAgentUsage(event.content);
-        const toolCount = completingAgent.toolCount ?? agentUsage?.toolUses;
-        const tokenCount = completingAgent.tokenCount ?? agentUsage?.totalTokens;
-        const durationMs = agentUsage?.durationMs;
-
-        const extra: Partial<import("../types/activity").ActivityEntry> = {};
-        if (toolCount != null && toolCount > 0) extra.agentFinalToolCount = toolCount;
-        if (tokenCount != null && tokenCount > 0) extra.agentFinalTokenCount = tokenCount;
-        if (durationMs != null && durationMs > 0) extra.agentFinalDurationMs = durationMs;
-        if (Object.keys(extra).length > 0) {
-          activityStore.updateEntryExtra(sessionId, event.tool_use_id, extra);
-        }
-        sessionStore.completeSubAgent(sessionId, event.tool_use_id);
-      }
-
-      // If other agents are still running, keep the agent label
-      const remainingAgents = sessionStore.activeSubAgents.get(sessionId);
-      if (remainingAgents && remainingAgents.length > 0) {
-        sessionStore.setSessionActivity(sessionId, {
-          label: subAgentActivityLabel(sessionId),
-          toolName: "Agent",
-          toolElapsed: 0,
-          filePath: null,
-        });
-      } else {
-        sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
-      }
-      activityStore.updateEntryStatus(
-        sessionId,
-        event.tool_use_id,
-        event.is_error ? "error" : "done",
-        event.content ?? undefined,
-        event.is_error
-      );
-
-      // Refresh file tree after mutating tools complete
-      if (!event.is_error) {
-        const allEntries = activityStore.getActiveEntries(sessionId);
-        const toolEntry = allEntries.find((e) => e.toolUseId === event.tool_use_id);
-        if (toolEntry && MUTATING_TOOLS.has(toolEntry.toolName)) {
-          useUiStore.getState().triggerFileTreeRefresh();
-        }
-      }
-
-      // Auto-open file when Write or Edit tool completes successfully
-      // Only auto-switch tab for the active session's project
-      if (!event.is_error && useSettingsStore.getState().settings.autoOpenFiles) {
-        const isActiveSession = sessionId === sessionStore.activeSessionId;
-        const isMainSession = sessionStore.sessions.has(sessionId);
-        const session = sessionStore.sessions.get(sessionId);
-        const projectPath = session?.project_path;
-        const entries = activityStore.getActiveEntries(sessionId);
-        const entry = entries.find((e) => e.toolUseId === event.tool_use_id);
-        if (entry && projectPath) {
-          const toolName = entry.toolName;
-          const filePath = entry.toolInput.file_path as string | undefined;
-          if (filePath && (toolName === "Write" || toolName === "Edit")) {
-            const fileName = filePath.split("/").pop() ?? filePath;
-            const language = getLanguageFromPath(filePath);
-            const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
-            const cachedOldContent = preEditContentCache.get(event.tool_use_id);
-            // Read the file content asynchronously for auto-open
-            import("./tauri-commands").then(({ readFileContent }) => {
-              readFileContent(filePath).then((content) => {
-                const hasDiffData = cachedOldContent !== undefined;
-                useFileViewerStore.getState().openFile(projectPath, {
-                  filePath,
-                  fileName,
-                  language,
-                  extension,
-                  fileSize: new Blob([content]).size,
-                  content,
-                  isDiff: hasDiffData,
-                  oldContent: hasDiffData ? cachedOldContent : undefined,
-                  newContent: hasDiffData ? content : undefined,
-                });
-                if (isMainSession && isActiveSession) {
-                  useUiStore.getState().setRightTab("files");
-                }
-              }).catch(() => {
-                // File may not exist yet or be unreadable — ignore
-              });
-            });
-          }
-        }
-      }
-      // Cleanup pre-edit cache for this tool call
-      preEditContentCache.delete(event.tool_use_id);
+    case "tool_result":
+      handleToolResult(sessionId, event, activityStore, sessionStore);
       break;
-    }
 
     case "subagent_started": {
       // Phase 2: CLI emitted task_started — add or enrich existing agent info

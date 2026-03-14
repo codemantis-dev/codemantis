@@ -78,7 +78,7 @@ fi
 /// Passed via --settings to the CLI so it only affects CodeMantis's process,
 /// not other Claude Code instances in the same project.
 fn build_hook_settings_json(hook_script_path: &str) -> String {
-    let hook_command = format!("bash {}", hook_script_path);
+    let hook_command = format!("bash \"{}\"", hook_script_path);
     let settings = serde_json::json!({
         "hooks": {
             "PreToolUse": [

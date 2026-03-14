@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { AppSettings, ThemeId } from "../types/settings";
 import { THEMES, DEFAULT_CHANGELOG_PROMPT, getDefaultModelPricing } from "../types/settings";
 import { getSettings, updateSettings as updateSettingsCmd } from "../lib/tauri-commands";
+import { showToast } from "./toastStore";
 
 function normalizeTheme(theme: string): ThemeId {
   if (THEMES.some((t) => t.id === theme)) return theme as ThemeId;
@@ -77,6 +78,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await updateSettingsCmd(merged);
     } catch (e) {
       console.error("Failed to save settings:", e);
+      showToast("Failed to save settings", "error");
     }
   },
 }));

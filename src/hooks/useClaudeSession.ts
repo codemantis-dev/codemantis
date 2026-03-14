@@ -118,6 +118,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       await sendMessageCmd(sessionId, prompt);
     } catch (e) {
       console.error("Failed to send message:", e);
+      showToast("Failed to send message", "error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
@@ -149,6 +150,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       await closeSessionCmd(sessionId);
     } catch (e) {
       console.error("Failed to close session:", e);
+      showToast("Failed to close session", "error");
     }
 
     sessionStore.getState().removeSession(sessionId);
@@ -201,6 +203,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       await renameSessionCmd(sessionId, name);
     } catch (e) {
       console.error("Failed to rename session:", e);
+      showToast("Failed to rename session", "error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);

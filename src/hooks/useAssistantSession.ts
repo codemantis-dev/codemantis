@@ -18,6 +18,7 @@ import {
 import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
 import { fileToBase64 } from "../lib/file-utils";
+import { showToast } from "../stores/toastStore";
 
 // Module-level listener map for assistant sessions
 const assistantListeners = new Map<string, UnlistenFn[]>();
@@ -125,12 +126,14 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       // Send via CLI
       sendMessageCmd(sessionId, finalPrompt).catch((e) => {
         console.error("Failed to send assistant message:", e);
+        showToast("Failed to send assistant message", "error");
         store.setBusy(sessionId, false);
       });
     } else {
       // Send via API (pass attachments for multimodal)
       sendApiMessage(sessionId, instance.provider as APIProvider, instance.model, attachments).catch((e) => {
         console.error("Failed to send API assistant message:", e);
+        showToast("Failed to send message to API", "error");
         store.setBusy(sessionId, false);
         store.addMessage(sessionId, {
           id: `asst-err-${Date.now()}`,
@@ -161,6 +164,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
         await closeSessionCmd(sessionId);
       } catch (e) {
         console.error("Failed to close assistant session:", e);
+        showToast("Failed to close assistant session", "error");
       }
     }
 

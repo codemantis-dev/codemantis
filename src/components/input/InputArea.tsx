@@ -11,6 +11,7 @@ import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
 import ModelSelector from "./ModelSelector";
 import type { Attachment } from "../../types/attachment";
+import { showToast } from "../../stores/toastStore";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
@@ -265,6 +266,7 @@ export default function InputArea() {
             });
           } catch (err) {
             console.error("Failed to save clipboard image:", err);
+            showToast("Failed to save clipboard image", "error");
           }
           return; // Only handle one image
         }
@@ -327,6 +329,7 @@ export default function InputArea() {
           }
         } catch (err) {
           console.error("Failed to process dropped file:", err);
+          showToast("Failed to process dropped file", "error");
         }
       }
     },
@@ -367,10 +370,12 @@ export default function InputArea() {
           });
         } catch (err) {
           console.error("Failed to get file info:", err);
+          showToast("Failed to attach file", "error");
         }
       }
     } catch (err) {
       console.error("File dialog error:", err);
+      showToast("Failed to open file dialog", "error");
     }
   }, [session, activeSessionId, addAttachment]);
 

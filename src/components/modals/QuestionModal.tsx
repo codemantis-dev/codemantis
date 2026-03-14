@@ -4,6 +4,7 @@ import { MessageCircleQuestion, Check, X } from "lucide-react";
 import { useActivityStore, type QuestionItem } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 
 function TextQuestion({
   question,
@@ -283,6 +284,7 @@ export default function QuestionModal() {
           await resolveToolApproval(pendingQuestion.requestId, false, formatted);
         } catch (e) {
           console.error("Failed to send answer:", e);
+          showToast("Failed to send answer", "error");
         }
         useActivityStore.getState().setPendingQuestion(questionSessionId, null);
         setShowModal(false);
@@ -302,6 +304,7 @@ export default function QuestionModal() {
           await resolveToolApproval(pendingQuestion.requestId, false, formatted);
         } catch (e) {
           console.error("Failed to send answers:", e);
+          showToast("Failed to send answers", "error");
         }
         useActivityStore.getState().setPendingQuestion(questionSessionId, null);
         setShowModal(false);

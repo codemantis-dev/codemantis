@@ -7,7 +7,8 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useAssistantSession } from "../../hooks/useAssistantSession";
-import { AI_PROVIDERS, AI_MODELS } from "../../types/assistant-provider";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { AI_MODELS } from "../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../types/assistant-provider";
 import type { SlashCommand } from "../../types/slash-commands";
 import {
@@ -22,7 +23,9 @@ import {
 import AssistantTabs from "./AssistantTabs";
 import AssistantAttachmentBar from "./AssistantAttachmentBar";
 import AssistantMessageMenu from "./AssistantMessageMenu";
-import MessageBubble from "../chat/MessageBubble";
+import AssistantProviderMenu from "./AssistantProviderMenu";
+import AssistantCommandPalette from "./AssistantCommandPalette";
+import AssistantChatMessages from "./AssistantChatMessages";
 import type { AssistantShortcut } from "../../types/settings";
 
 import { assistantInputDrafts } from "../../lib/input-drafts";
@@ -43,8 +46,6 @@ export default function AssistantPanel() {
   const prevAssistantRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const providerMenuRef = useRef<HTMLDivElement>(null);
-  const commandPaletteRef = useRef<HTMLDivElement>(null);
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
 
@@ -88,6 +89,14 @@ export default function AssistantPanel() {
   const currentAttachments = activeAssistantId ? allAttachments.get(activeAssistantId) ?? [] : [];
   const showThinking = busy && !streaming?.isStreaming;
 
+  // Close provider menu on click outside
+  const closeProviderMenu = useCallback(() => setShowProviderMenu(false), []);
+  const providerMenuRef = useClickOutside<HTMLDivElement>(showProviderMenu, closeProviderMenu);
+
+  // Close command palette on click outside
+  const closeCommandPalette = useCallback(() => setShowCommandPalette(false), []);
+  const commandPaletteRef = useClickOutside<HTMLDivElement>(showCommandPalette, closeCommandPalette);
+
   // Save/restore input drafts per assistant tab
   useEffect(() => {
     if (prevAssistantRef.current) {
@@ -125,30 +134,6 @@ export default function AssistantPanel() {
       .then(setCommands)
       .catch((e) => console.error("[assistant] Failed to discover commands:", e));
   }, [activeProjectPath]);
-
-  // Close provider menu on click outside
-  useEffect(() => {
-    if (!showProviderMenu) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (providerMenuRef.current && !providerMenuRef.current.contains(e.target as Node)) {
-        setShowProviderMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showProviderMenu]);
-
-  // Close command palette on click outside
-  useEffect(() => {
-    if (!showCommandPalette) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (commandPaletteRef.current && !commandPaletteRef.current.contains(e.target as Node)) {
-        setShowCommandPalette(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showCommandPalette]);
 
   const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {
     if (!activeProjectPath || creating) return;
@@ -583,6 +568,16 @@ export default function AssistantPanel() {
     }
   }, [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]);
 
+  const handleCommandSelect = useCallback((cmd: SlashCommand) => {
+    setShowCommandPalette(false);
+    setInput("");
+    handleSlashCommand("/" + cmd.name);
+  }, [handleSlashCommand]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, text: string) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, text });
+  }, []);
+
   // No project open
   if (!activeProjectPath) {
     return (
@@ -602,52 +597,14 @@ export default function AssistantPanel() {
         <p className="text-text-faint text-ui text-center">
           Ask questions about your project, get help with code, or chat with AI.
         </p>
-        <div className="flex flex-col gap-1.5 w-full max-w-[240px]">
-          {AI_PROVIDERS.map((p) => {
-            const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-            const isApi = p.id !== "claude-code";
-            const models = isApi ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
-            const isExpanded = expandedProvider === p.id;
-            return (
-              <div key={p.id}>
-                <button
-                  onClick={() => {
-                    if (!hasKey || creating) return;
-                    if (isApi && models.length > 0) {
-                      setExpandedProvider(isExpanded ? null : p.id);
-                    } else {
-                      handleCreate(p.id);
-                    }
-                  }}
-                  disabled={creating || !hasKey}
-                  className="w-full px-3 py-2 rounded-lg text-ui text-left transition-colors border border-border-light hover:border-accent/30 hover:bg-accent/5 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between"
-                  title={!hasKey ? `Set API key in Settings > AI Providers` : `New ${p.label} assistant`}
-                >
-                  <span className="text-text-primary">{p.label}</span>
-                  {!hasKey ? (
-                    <span className="text-[10px] text-text-ghost">No API key</span>
-                  ) : isApi && models.length > 0 ? (
-                    <span className="text-[10px] text-text-ghost">{isExpanded ? "▴" : "▾"}</span>
-                  ) : null}
-                </button>
-                {isExpanded && models.length > 0 && (
-                  <div className="ml-3 mt-1 space-y-0.5">
-                    {models.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => handleCreate(p.id, m.id)}
-                        disabled={creating}
-                        className="w-full px-3 py-1.5 rounded-md text-label text-left text-text-secondary hover:bg-accent/5 hover:text-text-primary transition-colors disabled:opacity-40"
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <AssistantProviderMenu
+          variant="empty"
+          apiKeys={apiKeys}
+          expandedProvider={expandedProvider}
+          creating={creating}
+          onExpandProvider={setExpandedProvider}
+          onCreate={handleCreate}
+        />
       </div>
     );
   }
@@ -669,55 +626,15 @@ export default function AssistantPanel() {
 
       {/* Provider selection popover */}
       {showProviderMenu && (
-        <div
-          ref={providerMenuRef}
-          className="absolute top-8 right-1 z-20 rounded-lg border shadow-lg py-1 min-w-[180px]"
-          style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
-        >
-          {AI_PROVIDERS.map((p) => {
-            const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-            const isApi = p.id !== "claude-code";
-            const models = isApi ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
-            const isExpanded = expandedProvider === p.id;
-            return (
-              <div key={p.id}>
-                <button
-                  onClick={() => {
-                    if (!hasKey || creating) return;
-                    if (isApi && models.length > 0) {
-                      setExpandedProvider(isExpanded ? null : p.id);
-                    } else {
-                      handleCreate(p.id);
-                    }
-                  }}
-                  disabled={creating || !hasKey}
-                  className="w-full text-left px-3 py-1.5 text-ui hover:bg-bg-subtle transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between"
-                >
-                  <span className="text-text-primary">{p.label}</span>
-                  {!hasKey ? (
-                    <span className="text-[9px] text-text-ghost">No key</span>
-                  ) : isApi && models.length > 0 ? (
-                    <span className="text-[9px] text-text-ghost">{isExpanded ? "▴" : "▾"}</span>
-                  ) : null}
-                </button>
-                {isExpanded && models.length > 0 && (
-                  <div className="border-t border-border-light" style={{ background: "var(--bg-elevated)" }}>
-                    {models.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => handleCreate(p.id, m.id)}
-                        disabled={creating}
-                        className="w-full text-left pl-6 pr-3 py-1.5 text-label hover:bg-bg-subtle transition-colors disabled:opacity-40"
-                      >
-                        <span className="text-text-secondary">{m.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <AssistantProviderMenu
+          variant="popover"
+          menuRef={providerMenuRef}
+          apiKeys={apiKeys}
+          expandedProvider={expandedProvider}
+          creating={creating}
+          onExpandProvider={setExpandedProvider}
+          onCreate={handleCreate}
+        />
       )}
 
       {/* Capability indicator for API providers */}
@@ -729,65 +646,15 @@ export default function AssistantPanel() {
       )}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-3 pb-8 space-y-1">
-        {messages.length === 0 && !streaming?.isStreaming ? (
-          <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-4">
-            <p className="text-text-faint text-ui">
-              {isClaudeCode
-                ? "Send a message or use / commands to get started."
-                : "Send a message to get started."}
-            </p>
-          </div>
-        ) : (
-          <>
-            {messages.map((msg) => {
-              const isCurrentlyStreaming =
-                msg.isStreaming &&
-                streaming?.currentMessageId === msg.id;
-              const bubble = (
-                <MessageBubble
-                  message={msg}
-                  sessionId={activeAssistantId ?? undefined}
-                  streamingContent={
-                    isCurrentlyStreaming
-                      ? streaming?.streamingContent
-                      : undefined
-                  }
-                />
-              );
-              if (msg.role === "user") {
-                return (
-                  <div
-                    key={msg.id}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ x: e.clientX, y: e.clientY, text: msg.content });
-                    }}
-                  >
-                    {bubble}
-                  </div>
-                );
-              }
-              return <div key={msg.id}>{bubble}</div>;
-            })}
-          </>
-        )}
-        {showThinking && (
-          <div className="mb-4 flex items-center gap-1.5 px-1">
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-2 h-2 rounded-full bg-accent/60 animate-pulse"
-                  style={{ animationDelay: `${i * 200}ms` }}
-                />
-              ))}
-            </div>
-            <span className="text-label text-text-faint">Thinking...</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      <AssistantChatMessages
+        messages={messages}
+        streaming={streaming}
+        showThinking={showThinking}
+        activeAssistantId={activeAssistantId}
+        isClaudeCode={isClaudeCode}
+        onContextMenu={handleContextMenu}
+        messagesEndRef={messagesEndRef}
+      />
 
       {/* Input area */}
       <div
@@ -799,31 +666,13 @@ export default function AssistantPanel() {
       >
         {/* Slash command palette — positioned in outer container for z-index layering */}
         {showCommandPalette && isClaudeCode && filteredCommands.length > 0 && (
-          <div
-            ref={commandPaletteRef}
-            className="absolute bottom-full left-2 right-2 mb-1 rounded-lg border border-border shadow-xl overflow-hidden z-30"
-            style={{ background: "var(--bg-elevated)", maxHeight: 240 }}
-          >
-            <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
-              {filteredCommands.map((cmd, i) => (
-                <button
-                  key={`${cmd.category}-${cmd.name}`}
-                  className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
-                    i === commandIndex ? "bg-bg-subtle" : "hover:bg-bg-subtle/50"
-                  }`}
-                  onClick={() => {
-                    setShowCommandPalette(false);
-                    setInput("");
-                    handleSlashCommand("/" + cmd.name);
-                  }}
-                  onMouseEnter={() => setCommandIndex(i)}
-                >
-                  <span className="font-mono text-label text-accent shrink-0">/{cmd.name}</span>
-                  <span className="text-label text-text-dim truncate flex-1">{cmd.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <AssistantCommandPalette
+            commands={filteredCommands}
+            commandIndex={commandIndex}
+            onSelect={handleCommandSelect}
+            onHover={setCommandIndex}
+            commandPaletteRef={commandPaletteRef}
+          />
         )}
         {shortcuts.length > 0 && !showCommandPalette && (
           <div className="flex flex-wrap gap-1 px-2 pt-1.5">
