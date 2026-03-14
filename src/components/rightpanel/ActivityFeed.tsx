@@ -203,6 +203,13 @@ export default function ActivityFeed() {
                     {entry.agentFinalToolCount} tool uses
                   </span>
                 )}
+                {entry.toolName === "Agent" && entry.agentFinalTokenCount != null && entry.agentFinalTokenCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                    {entry.agentFinalTokenCount >= 1000
+                      ? `${(entry.agentFinalTokenCount / 1000).toFixed(1)}K`
+                      : entry.agentFinalTokenCount} tokens
+                  </span>
+                )}
                 {showLabels && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
                     {entry.computedLabel}

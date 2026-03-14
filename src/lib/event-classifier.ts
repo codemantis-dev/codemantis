@@ -66,6 +66,26 @@ function subAgentActivityLabel(sessionId: string): string {
   return `Running ${agents.length} sub-agents...`;
 }
 
+/** Parse <usage> tags from Agent tool_result content to extract token/tool counts. */
+function parseAgentUsage(content: string | null | undefined): {
+  totalTokens?: number;
+  toolUses?: number;
+  durationMs?: number;
+} | null {
+  if (!content) return null;
+  const match = content.match(/<usage>([\s\S]*?)<\/usage>/);
+  if (!match) return null;
+  const block = match[1];
+  const totalTokens = block.match(/total_tokens:\s*(\d+)/)?.[1];
+  const toolUses = block.match(/tool_uses:\s*(\d+)/)?.[1];
+  const durationMs = block.match(/duration_ms:\s*(\d+)/)?.[1];
+  return {
+    totalTokens: totalTokens ? parseInt(totalTokens, 10) : undefined,
+    toolUses: toolUses ? parseInt(toolUses, 10) : undefined,
+    durationMs: durationMs ? parseInt(durationMs, 10) : undefined,
+  };
+}
+
 let messageCounter = 0;
 
 // Cache file content before Write/Edit tools run, keyed by tool_use_id
@@ -607,11 +627,18 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       const completingAgents = sessionStore.activeSubAgents.get(sessionId);
       const completingAgent = completingAgents?.find((a) => a.toolUseId === event.tool_use_id);
       if (completingAgent) {
-        // Capture final tool count on the Agent's activity entry before removing it
-        if (completingAgent.toolCount != null && completingAgent.toolCount > 0) {
-          activityStore.updateEntryExtra(sessionId, event.tool_use_id, {
-            agentFinalToolCount: completingAgent.toolCount,
-          });
+        // Parse <usage> tags from agent result for reliable token/tool counts
+        const agentUsage = parseAgentUsage(event.content);
+        const toolCount = completingAgent.toolCount ?? agentUsage?.toolUses;
+        const tokenCount = completingAgent.tokenCount ?? agentUsage?.totalTokens;
+        const durationMs = agentUsage?.durationMs;
+
+        const extra: Partial<import("../types/activity").ActivityEntry> = {};
+        if (toolCount != null && toolCount > 0) extra.agentFinalToolCount = toolCount;
+        if (tokenCount != null && tokenCount > 0) extra.agentFinalTokenCount = tokenCount;
+        if (durationMs != null && durationMs > 0) extra.agentFinalDurationMs = durationMs;
+        if (Object.keys(extra).length > 0) {
+          activityStore.updateEntryExtra(sessionId, event.tool_use_id, extra);
         }
         sessionStore.completeSubAgent(sessionId, event.tool_use_id);
       }
@@ -693,9 +720,9 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
     }
 
     case "subagent_started": {
-      // Phase 2: CLI emitted task_started — update agent info if not already tracked
+      // Phase 2: CLI emitted task_started — add or enrich existing agent info
       const existing = sessionStore.activeSubAgents.get(sessionId);
-      const alreadyTracked = existing?.some((a) => a.toolUseId === event.tool_use_id);
+      const alreadyTracked = existing?.find((a) => a.toolUseId === event.tool_use_id);
       if (!alreadyTracked) {
         sessionStore.addSubAgent(sessionId, {
           toolUseId: event.tool_use_id,
@@ -705,6 +732,12 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
           startedAt: now,
           elapsed: 0,
           status: "running",
+        });
+      } else if (alreadyTracked.description === "Sub-agent" && event.description) {
+        // Phase 1 had incomplete input — enrich with Phase 2 data
+        sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+          description: event.description,
+          subagentType: event.subagent_type,
         });
       }
       sessionStore.setSessionActivity(sessionId, {

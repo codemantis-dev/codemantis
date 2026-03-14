@@ -17,6 +17,8 @@ export interface ActivityEntry {
   parentAgentToolUseId?: string;
   parentAgentDescription?: string;
   agentFinalToolCount?: number;
+  agentFinalTokenCount?: number;
+  agentFinalDurationMs?: number;
 }
 
 export type ActivityStatus = "pending" | "running" | "done" | "error";

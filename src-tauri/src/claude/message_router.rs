@@ -129,7 +129,11 @@ pub async fn route_events(
                                 let _ = app_handle.emit(&chat_event, &fe);
                             }
                             ContentBlock::ToolUse { id, name, input } => {
-                                if emitted_tool_ids.insert(id.clone()) {
+                                // Skip if this tool is still being streamed via
+                                // ContentBlockStart/Delta/Stop — its input may be
+                                // incomplete. ContentBlockStop will emit with full input.
+                                let is_pending = pending_tools.values().any(|p| p.id == *id);
+                                if !is_pending && emitted_tool_ids.insert(id.clone()) {
                                     let fe = FrontendEvent::ToolUseStart {
                                         session_id: session_id.clone(),
                                         tool_use_id: id.clone(),
