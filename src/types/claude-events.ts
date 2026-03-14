@@ -64,6 +64,7 @@ export interface TurnCompleteEvent {
   duration_api_ms?: number | null;
   num_turns?: number | null;
   stop_reason?: string | null;
+  model_name?: string | null;
   context_window?: number | null;
   max_output_tokens?: number | null;
 }

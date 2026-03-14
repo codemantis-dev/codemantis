@@ -9,8 +9,10 @@ interface ContextMeterProps {
 
 export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
   const percentage = max > 0 ? Math.min((used / max) * 100, 100) : 0;
-  const displayUsed = used >= 1000 ? `${Math.round(used / 1000)}K` : `${used}`;
-  const displayMax = max >= 1000 ? `${Math.round(max / 1000)}K` : `${max}`;
+  const displayUsed = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1)}M`
+    : used >= 1000 ? `${Math.round(used / 1000)}K` : `${used}`;
+  const displayMax = max >= 1_000_000 ? `${(max / 1_000_000).toFixed(0)}M`
+    : max >= 1000 ? `${Math.round(max / 1000)}K` : `${max}`;
 
   let barColor = "bg-accent";
   if (percentage > 90) barColor = "bg-red";

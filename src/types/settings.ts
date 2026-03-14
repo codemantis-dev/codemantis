@@ -71,6 +71,9 @@ export interface AppSettings {
   // File viewer
   autoOpenFiles: boolean;
 
+  // Context window
+  defaultContextWindow: number;
+
   // Onboarding
   onboardingCompleted: boolean;
 }

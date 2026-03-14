@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   previewAutoStart: false,
   previewCustomDevCommand: null,
   triviaEnabled: true,
+  defaultContextWindow: 200000,
   autoOpenFiles: false,
   onboardingCompleted: false,
 };

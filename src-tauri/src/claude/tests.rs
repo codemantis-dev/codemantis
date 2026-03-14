@@ -375,6 +375,7 @@ mod tests {
             duration_api_ms: None,
             num_turns: None,
             stop_reason: None,
+            model_name: None,
             context_window: None,
             max_output_tokens: None,
         };
@@ -694,6 +695,7 @@ mod tests {
             duration_api_ms: Some(3200),
             num_turns: Some(3),
             stop_reason: Some("end_turn".into()),
+            model_name: Some("claude-opus-4-6".into()),
             context_window: Some(200000),
             max_output_tokens: Some(32000),
         };
@@ -702,6 +704,7 @@ mod tests {
         assert_eq!(parsed["duration_api_ms"], 3200);
         assert_eq!(parsed["num_turns"], 3);
         assert_eq!(parsed["stop_reason"], "end_turn");
+        assert_eq!(parsed["model_name"], "claude-opus-4-6");
         assert_eq!(parsed["context_window"], 200000);
         assert_eq!(parsed["max_output_tokens"], 32000);
         assert_eq!(parsed["usage"]["service_tier"], "standard");

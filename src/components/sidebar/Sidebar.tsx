@@ -7,6 +7,7 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import FileTree from "./FileTree";
 import GitStatusCard from "./GitStatusCard";
 import ContextMeter from "../shared/ContextMeter";
+import { getContextWindowForModel } from "../../lib/model-context";
 
 export default function Sidebar() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -15,9 +16,10 @@ export default function Sidebar() {
   const sessionStats = useSessionStore((s) => s.sessionStats);
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const defaultMax = getContextWindowForModel(session?.model);
   const context = activeSessionId
-    ? sessionContext.get(activeSessionId) ?? { used: 0, max: 200000 }
-    : { used: 0, max: 200000 };
+    ? sessionContext.get(activeSessionId) ?? { used: 0, max: defaultMax }
+    : { used: 0, max: defaultMax };
   const stats = activeSessionId
     ? sessionStats.get(activeSessionId) ?? undefined
     : undefined;

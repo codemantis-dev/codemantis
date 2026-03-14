@@ -276,20 +276,25 @@ pub async fn route_events(
                     };
                     let _ = app_handle.emit(&chat_event, &fe);
                 } else {
-                    // Extract contextWindow and maxOutputTokens from modelUsage
-                    let (context_window, max_output_tokens) = model_usage
+                    // Extract model name, contextWindow, and maxOutputTokens from modelUsage
+                    let (model_name, context_window, max_output_tokens) = model_usage
                         .as_ref()
                         .and_then(|mu| mu.as_object())
                         .and_then(|obj| {
                             // modelUsage is keyed by model name — take the first entry
-                            obj.values().next().and_then(|v| v.as_object())
+                            obj.iter().next().map(|(key, val)| (key.clone(), val.as_object()))
                         })
-                        .map(|entry| {
-                            let cw = entry.get("contextWindow").and_then(|v| v.as_u64());
-                            let mot = entry.get("maxOutputTokens").and_then(|v| v.as_u64());
-                            (cw, mot)
+                        .map(|(name, entry_opt)| {
+                            let (cw, mot) = entry_opt
+                                .map(|entry| {
+                                    let cw = entry.get("contextWindow").and_then(|v| v.as_u64());
+                                    let mot = entry.get("maxOutputTokens").and_then(|v| v.as_u64());
+                                    (cw, mot)
+                                })
+                                .unwrap_or((None, None));
+                            (Some(name), cw, mot)
                         })
-                        .unwrap_or((None, None));
+                        .unwrap_or((None, None, None));
 
                     let fe = FrontendEvent::TurnComplete {
                         session_id: session_id.clone(),
@@ -299,6 +304,7 @@ pub async fn route_events(
                         duration_api_ms,
                         num_turns,
                         stop_reason,
+                        model_name,
                         context_window,
                         max_output_tokens,
                     };

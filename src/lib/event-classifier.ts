@@ -10,6 +10,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useChangelogStore } from "../stores/changelogStore";
 import { useAssistantStore } from "../stores/assistantStore";
 import { showToast } from "../stores/toastStore";
+import { getContextWindowForModel } from "./model-context";
 
 // Tools that indicate actual changes were made (not just reads)
 const MUTATING_TOOLS = new Set(["Write", "Edit", "Bash", "NotebookEdit"]);
@@ -119,6 +120,11 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
     case "session_init":
       if (event.model) {
         store.updateModel(sessionId, event.model);
+        // Set context max based on model name immediately (before first turn_complete)
+        const settingsDefault = useSettingsStore.getState().settings.defaultContextWindow;
+        const modelMax = getContextWindowForModel(event.model, settingsDefault);
+        const currentCtx = store.sessionContext.get(sessionId);
+        store.updateContext(sessionId, currentCtx?.used ?? 0, modelMax);
       }
       if (event.thinking_effort) {
         const effort = event.thinking_effort.toLowerCase();
@@ -187,8 +193,11 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       if (streaming?.isStreaming) {
         store.finalizeStreaming(sessionId);
       }
-      // Use dynamic context_window from modelUsage if available
-      const contextMax = event.context_window ?? 200000;
+      // Use dynamic context_window from modelUsage if available, then model lookup, then current stored max
+      const storedCtx = store.sessionContext.get(sessionId);
+      const contextMax = event.context_window
+        ?? storedCtx?.max
+        ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
 
       if (event.usage) {
         const totalInput =
@@ -452,8 +461,9 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         (event.usage.cache_read_input_tokens ?? 0) +
         (event.usage.output_tokens ?? 0);
       if (callContext > 0) {
-        // Use current max (may have been updated by a previous turn_complete with modelUsage)
-        const currentMax = store.sessionContext.get(sessionId)?.max ?? 200000;
+        // Use current max (may have been updated by session_init, model_changed, or turn_complete)
+        const currentMax = store.sessionContext.get(sessionId)?.max
+          ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
         store.updateContext(sessionId, callContext, currentMax);
         checkContextThresholds(sessionId);
       }
@@ -473,6 +483,11 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
     case "model_changed": {
       if (event.success) {
         store.updateModel(sessionId, event.model);
+        // Update context max for the new model
+        const settingsDefaultForModel = useSettingsStore.getState().settings.defaultContextWindow;
+        const newModelMax = getContextWindowForModel(event.model, settingsDefaultForModel);
+        const currentCtxForModel = store.sessionContext.get(sessionId);
+        store.updateContext(sessionId, currentCtxForModel?.used ?? 0, newModelMax);
         showToast(`Switched to ${event.model}`, "info", 3000);
       } else {
         showToast(`Model switch failed: ${event.error ?? "unknown error"}`, "error");

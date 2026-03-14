@@ -57,6 +57,10 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub trivia_enabled: bool,
 
+    // --- Context window ---
+    #[serde(default = "default_context_window")]
+    pub default_context_window: u64,
+
     // --- File viewer ---
     #[serde(default)]
     pub auto_open_files: bool,
@@ -105,6 +109,9 @@ fn default_changelog_model() -> String {
 }
 fn default_assistant_provider() -> String {
     "claude-code".to_string()
+}
+fn default_context_window() -> u64 {
+    200_000
 }
 fn default_true() -> bool {
     true
@@ -167,6 +174,7 @@ impl Default for AppSettings {
             preview_default_height: default_preview_height(),
             preview_auto_start: false,
             preview_custom_dev_command: None,
+            default_context_window: default_context_window(),
             trivia_enabled: true,
             auto_open_files: false,
             onboarding_completed: false,

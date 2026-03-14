@@ -54,6 +54,7 @@ export default function SettingsModal() {
   const [assistantDefaultModel, setAssistantDefaultModel] = useState<Record<string, string>>(settings.assistantDefaultModel);
   const [triviaEnabled, setTriviaEnabled] = useState(settings.triviaEnabled);
   const [autoOpenFiles, setAutoOpenFiles] = useState(settings.autoOpenFiles);
+  const [defaultContextWindow, setDefaultContextWindow] = useState(settings.defaultContextWindow);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(!settings.onboardingCompleted);
   const [testingKey, setTestingKey] = useState<string | false>(false);
   const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
@@ -77,6 +78,7 @@ export default function SettingsModal() {
       setAssistantDefaultModel({ ...settings.assistantDefaultModel });
       setTriviaEnabled(settings.triviaEnabled);
       setAutoOpenFiles(settings.autoOpenFiles);
+      setDefaultContextWindow(settings.defaultContextWindow);
       setShowWelcomeScreen(!settings.onboardingCompleted);
       setTestingKey(false);
       setTestResults({});
@@ -102,6 +104,7 @@ export default function SettingsModal() {
       assistantDefaultModel,
       triviaEnabled,
       autoOpenFiles,
+      defaultContextWindow,
       onboardingCompleted: !showWelcomeScreen,
     });
     setShowModal(false);
@@ -226,12 +229,14 @@ export default function SettingsModal() {
                 sendShortcut={sendShortcut}
                 triviaEnabled={triviaEnabled}
                 autoOpenFiles={autoOpenFiles}
+                defaultContextWindow={defaultContextWindow}
                 showWelcomeScreen={showWelcomeScreen}
                 onThemeChange={handleThemeChange}
                 onFontSizeChange={setFontSize}
                 onSendShortcutChange={setSendShortcut}
                 onTriviaEnabledChange={setTriviaEnabled}
                 onAutoOpenFilesChange={setAutoOpenFiles}
+                onDefaultContextWindowChange={setDefaultContextWindow}
                 onShowWelcomeScreenChange={setShowWelcomeScreen}
               />
             )}
@@ -317,11 +322,11 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 function GeneralTab({
-  theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, showWelcomeScreen,
-  onThemeChange, onFontSizeChange, onSendShortcutChange, onTriviaEnabledChange, onAutoOpenFilesChange, onShowWelcomeScreenChange,
+  theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, defaultContextWindow, showWelcomeScreen,
+  onThemeChange, onFontSizeChange, onSendShortcutChange, onTriviaEnabledChange, onAutoOpenFilesChange, onDefaultContextWindowChange, onShowWelcomeScreenChange,
 }: {
-  theme: ThemeId; fontSize: number; sendShortcut: string; triviaEnabled: boolean; autoOpenFiles: boolean; showWelcomeScreen: boolean;
-  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void; onTriviaEnabledChange: (v: boolean) => void; onAutoOpenFilesChange: (v: boolean) => void; onShowWelcomeScreenChange: (v: boolean) => void;
+  theme: ThemeId; fontSize: number; sendShortcut: string; triviaEnabled: boolean; autoOpenFiles: boolean; defaultContextWindow: number; showWelcomeScreen: boolean;
+  onThemeChange: (t: ThemeId) => void; onFontSizeChange: (n: number) => void; onSendShortcutChange: (s: string) => void; onTriviaEnabledChange: (v: boolean) => void; onAutoOpenFilesChange: (v: boolean) => void; onDefaultContextWindowChange: (n: number) => void; onShowWelcomeScreenChange: (v: boolean) => void;
 }) {
   return (
     <div>
@@ -412,6 +417,33 @@ function GeneralTab({
               }`}
             />
           </button>
+        </div>
+
+        <div className="py-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-ui text-text-secondary">Default context window</label>
+              <p className="text-label text-text-ghost">Fallback context size when CLI doesn't report it</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {[
+                { label: "200K", value: 200_000 },
+                { label: "1M", value: 1_000_000 },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => onDefaultContextWindowChange(opt.value)}
+                  className={`px-2.5 py-1 rounded text-label transition-colors ${
+                    defaultContextWindow === opt.value
+                      ? "bg-accent text-white"
+                      : "bg-bg-elevated text-text-secondary hover:text-text-primary border border-border"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center justify-between py-2">

@@ -266,6 +266,8 @@ pub enum FrontendEvent {
         duration_api_ms: Option<u64>,
         num_turns: Option<u32>,
         stop_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model_name: Option<String>,
         context_window: Option<u64>,
         max_output_tokens: Option<u64>,
     },
