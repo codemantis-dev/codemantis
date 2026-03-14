@@ -14,6 +14,7 @@ import {
   Files,
   ChevronRight,
   ChevronDown,
+  Type,
 } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import type { Attachment } from "../../types/attachment";
@@ -21,14 +22,13 @@ import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
+import { useUiStore } from "../../stores/uiStore";
 import { useFileViewer } from "../../hooks/useFileViewer";
 import {
   getFileInfo,
   readFileContent,
   deleteFile,
   duplicateFile,
-  createFile,
-  createDirectory,
 } from "../../lib/tauri-commands";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
@@ -40,6 +40,7 @@ interface FileTreeContextMenuProps {
   onClose: () => void;
   onRefresh: () => void;
   onStartRename: (path: string) => void;
+  onStartNewItem: (parentPath: string, type: "file" | "folder") => void;
   onExpandAll: () => void;
   onCollapseAll: () => void;
 }
@@ -83,6 +84,7 @@ export default function FileTreeContextMenu({
   onClose,
   onRefresh,
   onStartRename,
+  onStartNewItem,
   onExpandAll,
   onCollapseAll,
 }: FileTreeContextMenuProps) {
@@ -108,7 +110,7 @@ export default function FileTreeContextMenu({
   }, [onClose]);
 
   const menuWidth = 220;
-  const menuHeight = node ? (node.is_dir ? 350 : 460) : 160;
+  const menuHeight = node ? (node.is_dir ? 420 : 540) : 160;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -235,31 +237,32 @@ export default function FileTreeContextMenu({
     onClose();
   }
 
-  async function handleNewFile(parentPath: string) {
-    const name = window.prompt("File name:");
-    if (!name?.trim()) return;
-    const filePath = `${parentPath}/${name.trim()}`;
-    try {
-      await createFile(filePath);
-      onRefresh();
-      // Auto-open the new file
-      setTimeout(() => openFile(filePath), 200);
-    } catch (e) {
-      console.error("Failed to create file:", e);
-    }
+  function getRelativePath(): string {
+    if (!node) return "";
+    return node.path.startsWith(projectPath + "/")
+      ? node.path.slice(projectPath.length + 1)
+      : node.path;
+  }
+
+  function handleInsertRelativePathToChat() {
+    if (!node) return;
+    useUiStore.getState().setPendingInputInsert(getRelativePath());
     onClose();
   }
 
-  async function handleNewFolder(parentPath: string) {
-    const name = window.prompt("Folder name:");
-    if (!name?.trim()) return;
-    const dirPath = `${parentPath}/${name.trim()}`;
-    try {
-      await createDirectory(dirPath);
-      onRefresh();
-    } catch (e) {
-      console.error("Failed to create folder:", e);
-    }
+  function handleInsertAbsolutePathToChat() {
+    if (!node) return;
+    useUiStore.getState().setPendingInputInsert(node.path);
+    onClose();
+  }
+
+  function handleNewFile(parentPath: string) {
+    onStartNewItem(parentPath, "file");
+    onClose();
+  }
+
+  function handleNewFolder(parentPath: string) {
+    onStartNewItem(parentPath, "folder");
     onClose();
   }
 
@@ -290,6 +293,10 @@ export default function FileTreeContextMenu({
       >
         <MenuItem icon={FilePlus} label="New File" onClick={() => handleNewFile(node.path)} />
         <MenuItem icon={FolderPlus} label="New Folder" onClick={() => handleNewFolder(node.path)} />
+        <Separator />
+        <MenuItem icon={Type} label="Add Relative Path to Chat" onClick={handleInsertRelativePathToChat} />
+        <MenuItem icon={Type} label="Add Absolute Path to Chat" onClick={handleInsertAbsolutePathToChat} />
+        <Separator />
         <MenuItem icon={Pencil} label="Rename" onClick={handleRename} />
         <MenuItem icon={Trash2} label="Delete" onClick={handleDelete} danger />
         <Separator />
@@ -339,6 +346,9 @@ export default function FileTreeContextMenu({
           )}
         </div>
       )}
+      <Separator />
+      <MenuItem icon={Type} label="Add Relative Path to Chat" onClick={handleInsertRelativePathToChat} />
+      <MenuItem icon={Type} label="Add Absolute Path to Chat" onClick={handleInsertAbsolutePathToChat} />
       <Separator />
       <MenuItem icon={FolderOpen} label="Open" onClick={handleOpen} />
       <MenuItem icon={Files} label="Duplicate" onClick={handleDuplicate} />

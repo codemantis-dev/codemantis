@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-03-11",
+  "updated_at": "2026-03-14",
   "templates": [
     {
       "id": "vite-react-boilerplate",
@@ -39,7 +39,7 @@
       "verified": true,
       "last_verified": "2026-03-10",
       "scaffold_type": "cli",
-      "cli_command": "pnpm dlx shadcn@latest init --template vite --base radix --preset nova --name {{PROJECT_NAME}}"
+      "cli_command": "pnpm dlx shadcn@latest init --template vite --base radix --preset nova --no-monorepo --name {{PROJECT_NAME}}"
     },
     {
       "id": "nextjs-boilerplate",
@@ -84,22 +84,23 @@
     {
       "id": "next-forge",
       "name": "next-forge (Monorepo)",
-      "description": "Production-grade Next.js monorepo with Turborepo, Prisma, Clerk, and Stripe.",
-      "long_description": "Monorepo architecture using Turborepo. Separates apps, packages, and API. Production-ready with Radix UI, Prisma ORM, Clerk auth, Stripe payments, Sentry monitoring, Vitest, Playwright. Good for larger projects that need multi-app structure.",
+      "description": "Production-grade Next.js monorepo with Turborepo, Prisma, Biome, and Stripe.",
+      "long_description": "Official next-forge CLI scaffold. Monorepo architecture using Turborepo with separate apps (web, API, docs, email, storybook, studio). Production-ready with Prisma ORM, Clerk auth, Stripe payments, Sentry monitoring, Mintlify docs. Uses Biome for linting.",
       "category": "full-stack",
-      "tags": ["next.js", "turborepo", "typescript", "prisma", "clerk", "stripe", "radix", "monorepo"],
-      "repo_url": "https://github.com/vercel/next-forge",
-      "branch": "main",
+      "tags": ["next.js", "turborepo", "typescript", "prisma", "clerk", "stripe", "biome", "monorepo"],
+      "repo_url": "",
+      "branch": "",
       "stars": 5000,
       "license": "MIT",
       "install_command": "pnpm install",
       "dev_command": "pnpm dev",
       "dev_port": 3000,
-      "post_clone_cleanup": [".git", "LICENSE"],
       "icon": "folder-tree",
       "verified": true,
-      "last_verified": "2026-03-10",
-      "scaffold_type": "git-clone"
+      "last_verified": "2026-03-14",
+      "scaffold_type": "cli",
+      "cli_command": "npx next-forge@latest init --name {{PROJECT_NAME}} --package-manager pnpm --disable-git",
+      "prerequisites": "Requires Mintlify CLI and Stripe CLI for full functionality"
     },
     {
       "id": "fastapi-fullstack",
@@ -158,7 +159,7 @@
       "verified": true,
       "last_verified": "2026-03-10",
       "scaffold_type": "cli",
-      "cli_command": "pnpm create astro@latest {{PROJECT_NAME}} -- --template minimal --typescript strict --no-git"
+      "cli_command": "pnpm create astro@latest {{PROJECT_NAME}} -- --template minimal --typescript strict --no-git --install --skip-houston"
     },
     {
       "id": "expo-starter",
@@ -189,15 +190,15 @@
       "branch": "main",
       "stars": 438,
       "license": "MIT",
-      "install_command": "yarn install",
+      "install_command": "corepack enable && yarn install",
       "dev_command": "yarn dev",
       "dev_port": 3000,
       "post_clone_cleanup": [".git", "LICENSE", "netlify.toml"],
       "icon": "globe",
       "verified": true,
-      "last_verified": "2026-03-11",
+      "last_verified": "2026-03-14",
       "scaffold_type": "git-clone",
-      "prerequisites": "Requires Yarn (install: npm install -g yarn)"
+      "prerequisites": "Requires Node.js with Corepack (ships with Node 16+)"
     },
     {
       "id": "fumadocs",
@@ -214,29 +215,9 @@
       "dev_port": 3000,
       "icon": "book-open",
       "verified": true,
-      "last_verified": "2026-03-11",
+      "last_verified": "2026-03-14",
       "scaffold_type": "cli",
-      "cli_command": "pnpm create fumadocs-app {{PROJECT_NAME}} --template +next+fuma-docs-mdx --pm pnpm --no-git"
-    },
-    {
-      "id": "nextra",
-      "name": "Nextra (Docs + Blog)",
-      "description": "Powerful Next.js site framework for docs and blogs — by Shu Ding (Vercel/Next.js core team).",
-      "long_description": "13.6K stars, created by a Next.js core maintainer. Dedicated docs and blog themes. File-based routing for content — just write MDX. Built-in search (flexsearch), syntax highlighting (Shiki), i18n support. Used by SWR, Turbo, and many Vercel ecosystem projects.",
-      "category": "static",
-      "tags": ["next.js", "mdx", "nextra", "typescript", "docs", "blog"],
-      "repo_url": "https://github.com/shuding/nextra-docs-template",
-      "branch": "main",
-      "stars": 13600,
-      "license": "MIT",
-      "install_command": "pnpm install",
-      "dev_command": "pnpm dev",
-      "dev_port": 3000,
-      "post_clone_cleanup": [".git", "LICENSE"],
-      "icon": "file-text",
-      "verified": true,
-      "last_verified": "2026-03-11",
-      "scaffold_type": "git-clone"
+      "cli_command": "CI=true pnpm create fumadocs-app {{PROJECT_NAME}} --template +next+fuma-docs-mdx --pm pnpm --no-git --src --linter biome --search orama --og-image next-og --install"
     }
   ]
 }

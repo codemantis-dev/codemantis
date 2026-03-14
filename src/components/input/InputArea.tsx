@@ -110,6 +110,29 @@ export default function InputArea() {
     }
   }, [draftInput, setDraftInput]);
 
+  // Consume pendingInputInsert — append path text to current input
+  const pendingInputInsert = useUiStore((s) => s.pendingInputInsert);
+  const setPendingInputInsert = useUiStore((s) => s.setPendingInputInsert);
+
+  useEffect(() => {
+    if (pendingInputInsert !== null) {
+      setInput((prev) => {
+        const separator = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
+        return prev + separator + pendingInputInsert;
+      });
+      setPendingInputInsert(null);
+      setTimeout(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.style.height = "auto";
+          const maxHeight = 8 * 24;
+          el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
+          el.focus();
+        }
+      }, 0);
+    }
+  }, [pendingInputInsert, setPendingInputInsert]);
+
   // Global Escape key to interrupt generation
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {

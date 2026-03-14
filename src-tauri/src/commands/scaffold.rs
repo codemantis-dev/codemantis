@@ -165,6 +165,7 @@ async fn run_command(
         Command::new(cmd)
             .args(args)
             .current_dir(cwd)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output(),
@@ -206,6 +207,7 @@ async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<C
             .arg(flag)
             .arg(command_str)
             .current_dir(cwd)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output(),

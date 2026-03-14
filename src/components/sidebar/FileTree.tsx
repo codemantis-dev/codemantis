@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import { useFileViewer } from "../../hooks/useFileViewer";
-import { renameFile } from "../../lib/tauri-commands";
+import { renameFile, createFile, createDirectory } from "../../lib/tauri-commands";
 import FileTreeContextMenu from "./FileTreeContextMenu";
 
 interface FileTreeProps {
@@ -25,6 +25,11 @@ const extensionColors: Record<string, string> = {
   py: "#3572A5",
 };
 
+export interface NewItemState {
+  parentPath: string;
+  type: "file" | "folder";
+}
+
 interface FileTreeNodeProps {
   node: FileNode;
   depth: number;
@@ -34,6 +39,8 @@ interface FileTreeNodeProps {
   onRefresh: () => void;
   onContextMenu: (x: number, y: number, node: FileNode) => void;
   expandOverride: boolean | null; // null = use local state, true = expand all, false = collapse all
+  newItemState: NewItemState | null;
+  onNewItemDone: () => void;
 }
 
 function InlineRenameInput({
@@ -47,6 +54,7 @@ function InlineRenameInput({
 }) {
   const [value, setValue] = useState(node.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
 
   useEffect(() => {
     if (inputRef.current) {
@@ -62,6 +70,8 @@ function InlineRenameInput({
   }, [node]);
 
   async function commit() {
+    if (committedRef.current) return;
+    committedRef.current = true;
     const trimmed = value.trim();
     if (!trimmed || trimmed === node.name) {
       onDone();
@@ -99,6 +109,90 @@ function InlineRenameInput({
   );
 }
 
+function InlineNewItemInput({
+  parentPath,
+  type,
+  depth,
+  onRefresh,
+  onDone,
+}: {
+  parentPath: string;
+  type: "file" | "folder";
+  depth: number;
+  onRefresh: () => void;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
+  const { openFile } = useFileViewer();
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, []);
+
+  async function commit() {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    const trimmed = value.trim();
+    if (!trimmed) {
+      onDone();
+      return;
+    }
+    const fullPath = `${parentPath}/${trimmed}`;
+    try {
+      if (type === "file") {
+        await createFile(fullPath);
+        onRefresh();
+        setTimeout(() => openFile(fullPath), 200);
+      } else {
+        await createDirectory(fullPath);
+        onRefresh();
+      }
+    } catch (e) {
+      console.error(`Failed to create ${type}:`, e);
+    }
+    onDone();
+  }
+
+  return (
+    <div
+      className="flex items-center gap-1 w-full px-2 py-0.5"
+      style={{ paddingLeft: type === "folder" ? `${depth * 12 + 8}px` : `${depth * 12 + 20}px` }}
+    >
+      {type === "folder" ? (
+        <>
+          <ChevronRight size={12} className="text-text-faint shrink-0" />
+          <Folder size={14} className="shrink-0" style={{ color: "var(--text-dim)" }} />
+        </>
+      ) : (
+        <File size={14} className="shrink-0" style={{ color: "var(--text-faint)" }} />
+      )}
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onDone();
+          }
+        }}
+        onBlur={commit}
+        placeholder={type === "file" ? "filename" : "folder name"}
+        className="text-ui bg-bg-elevated border border-accent/40 rounded px-1 py-0 outline-none text-text-primary min-w-0 w-full"
+        style={{ fontSize: "inherit", lineHeight: "inherit" }}
+      />
+    </div>
+  );
+}
+
 function FileTreeNode({
   node,
   depth = 0,
@@ -108,6 +202,8 @@ function FileTreeNode({
   onRefresh,
   onContextMenu,
   expandOverride,
+  newItemState,
+  onNewItemDone,
 }: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(depth < 1);
   const { openFile } = useFileViewer();
@@ -118,6 +214,13 @@ function FileTreeNode({
       setExpanded(expandOverride);
     }
   }, [expandOverride]);
+
+  // Auto-expand folder when creating a new item inside it
+  useEffect(() => {
+    if (newItemState && newItemState.parentPath === node.path) {
+      setExpanded(true);
+    }
+  }, [newItemState, node.path]);
 
   const isSpecial = node.name === "CLAUDE.md" || node.name === ".claude";
   const iconColor = node.extension
@@ -177,8 +280,19 @@ function FileTreeNode({
                 onRefresh={onRefresh}
                 onContextMenu={onContextMenu}
                 expandOverride={expandOverride}
+                newItemState={newItemState}
+                onNewItemDone={onNewItemDone}
               />
             ))}
+            {newItemState && newItemState.parentPath === node.path && (
+              <InlineNewItemInput
+                parentPath={node.path}
+                type={newItemState.type}
+                depth={depth + 1}
+                onRefresh={onRefresh}
+                onDone={onNewItemDone}
+              />
+            )}
           </div>
         )}
       </div>
@@ -221,17 +335,24 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
     node: FileNode | null;
   } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [newItemState, setNewItemState] = useState<NewItemState | null>(null);
   // null = no override (use local state), true/false = expand/collapse all
   const [expandOverride, setExpandOverride] = useState<boolean | null>(null);
 
   function handleContextMenu(x: number, y: number, node: FileNode) {
+    setNewItemState(null); // Cancel any in-progress new item
     setContextMenu({ x, y, node });
   }
 
   function handleEmptyContextMenu(e: React.MouseEvent) {
     e.preventDefault();
+    setNewItemState(null);
     setContextMenu({ x: e.clientX, y: e.clientY, node: null });
   }
+
+  const handleStartNewItem = useCallback((parentPath: string, type: "file" | "folder") => {
+    setNewItemState({ parentPath, type });
+  }, []);
 
   const handleExpandAll = useCallback(() => {
     setExpandOverride(true);
@@ -245,7 +366,7 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
   }, []);
 
   return (
-    <div className="py-1" onContextMenu={handleEmptyContextMenu}>
+    <div className="py-1 min-h-full" onContextMenu={handleEmptyContextMenu}>
       {nodes.map((node) => (
         <FileTreeNode
           key={node.path}
@@ -257,8 +378,19 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
           onRefresh={onRefresh}
           onContextMenu={handleContextMenu}
           expandOverride={expandOverride}
+          newItemState={newItemState}
+          onNewItemDone={() => setNewItemState(null)}
         />
       ))}
+      {newItemState && newItemState.parentPath === projectPath && (
+        <InlineNewItemInput
+          parentPath={projectPath}
+          type={newItemState.type}
+          depth={0}
+          onRefresh={onRefresh}
+          onDone={() => setNewItemState(null)}
+        />
+      )}
       {contextMenu && (
         <FileTreeContextMenu
           x={contextMenu.x}
@@ -268,6 +400,7 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
           onClose={() => setContextMenu(null)}
           onRefresh={onRefresh}
           onStartRename={setEditingPath}
+          onStartNewItem={handleStartNewItem}
           onExpandAll={handleExpandAll}
           onCollapseAll={handleCollapseAll}
         />

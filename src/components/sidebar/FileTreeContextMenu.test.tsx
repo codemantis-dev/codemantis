@@ -58,6 +58,7 @@ const defaultProps = {
   onClose: vi.fn(),
   onRefresh: vi.fn(),
   onStartRename: vi.fn(),
+  onStartNewItem: vi.fn(),
   onExpandAll: vi.fn(),
   onCollapseAll: vi.fn(),
 };

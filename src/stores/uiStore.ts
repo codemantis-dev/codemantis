@@ -24,6 +24,7 @@ interface UiState {
   draftInput: string | null;
   selectedActivityEntry: ActivityEntry | null;
   fileTreeRefreshTrigger: number;
+  pendingInputInsert: string | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -45,6 +46,7 @@ interface UiState {
   setShowClaudeHistory: (show: boolean) => void;
   setDraftInput: (text: string | null) => void;
   triggerFileTreeRefresh: () => void;
+  setPendingInputInsert: (text: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -67,6 +69,7 @@ export const useUiStore = create<UiState>((set) => ({
   draftInput: null,
   selectedActivityEntry: null,
   fileTreeRefreshTrigger: 0,
+  pendingInputInsert: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -90,4 +93,5 @@ export const useUiStore = create<UiState>((set) => ({
   setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
   setDraftInput: (text) => set({ draftInput: text }),
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
+  setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
 }));
