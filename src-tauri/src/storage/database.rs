@@ -18,6 +18,8 @@ pub struct ChangelogEntryRow {
     pub category: String,
     pub files_changed: String, // JSON array string
     pub turn_index: i32,
+    pub technical_details: String,
+    pub tools_summary: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,6 +33,8 @@ pub struct ProjectChangelogEntryRow {
     pub category: String,
     pub files_changed: String, // JSON array string
     pub turn_index: i32,
+    pub technical_details: String,
+    pub tools_summary: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +92,10 @@ impl Database {
         // Run migrations (safe to re-run — ignores "duplicate column" errors)
         for sql in migrations::MIGRATE_SESSION_HISTORY {
             let _ = conn.execute_batch(sql); // ignore if column already exists
+        }
+
+        for sql in migrations::MIGRATE_CHANGELOG_DETAIL {
+            let _ = conn.execute_batch(sql);
         }
 
         for sql in migrations::MIGRATE_API_LOGS {
@@ -242,13 +250,15 @@ impl Database {
         category: &str,
         files_changed: &str,
         turn_index: i32,
+        technical_details: &str,
+        tools_summary: &str,
     ) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
         conn.execute(
-            "INSERT INTO changelog_entries (id, session_id, timestamp, headline, description, category, files_changed, turn_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            rusqlite::params![id, session_id, timestamp, headline, description, category, files_changed, turn_index],
+            "INSERT INTO changelog_entries (id, session_id, timestamp, headline, description, category, files_changed, turn_index, technical_details, tools_summary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![id, session_id, timestamp, headline, description, category, files_changed, turn_index, technical_details, tools_summary],
         )
         .map_err(|e| AppError::DatabaseError(format!("Insert changelog entry failed: {}", e)))?;
         Ok(())
@@ -259,7 +269,7 @@ impl Database {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
         let mut stmt = conn
-            .prepare("SELECT id, session_id, timestamp, headline, description, category, files_changed, turn_index FROM changelog_entries WHERE session_id = ?1 ORDER BY timestamp DESC")
+            .prepare("SELECT id, session_id, timestamp, headline, description, category, files_changed, turn_index, technical_details, tools_summary FROM changelog_entries WHERE session_id = ?1 ORDER BY timestamp DESC")
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
         let rows = stmt
@@ -273,6 +283,8 @@ impl Database {
                     category: row.get(5)?,
                     files_changed: row.get(6)?,
                     turn_index: row.get(7)?,
+                    technical_details: row.get::<_, String>(8).unwrap_or_default(),
+                    tools_summary: row.get::<_, String>(9).unwrap_or_default(),
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -304,7 +316,7 @@ impl Database {
         })?;
         let mut stmt = conn
             .prepare(
-                "SELECT ce.id, ce.session_id, s.name, ce.timestamp, ce.headline, ce.description, ce.category, ce.files_changed, ce.turn_index \
+                "SELECT ce.id, ce.session_id, s.name, ce.timestamp, ce.headline, ce.description, ce.category, ce.files_changed, ce.turn_index, ce.technical_details, ce.tools_summary \
                  FROM changelog_entries ce \
                  JOIN sessions s ON ce.session_id = s.id \
                  WHERE s.project_path = ?1 \
@@ -324,6 +336,8 @@ impl Database {
                     category: row.get(6)?,
                     files_changed: row.get(7)?,
                     turn_index: row.get(8)?,
+                    technical_details: row.get::<_, String>(9).unwrap_or_default(),
+                    tools_summary: row.get::<_, String>(10).unwrap_or_default(),
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -597,9 +611,9 @@ mod tests {
         // One session in a different project
         db.insert_session("s3", "Other", "/other", "connected", "2026-01-03T00:00:00Z", None, 2).unwrap();
 
-        db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "First", "desc1", "feature", "[]", 0).unwrap();
-        db.insert_changelog_entry("e2", "s2", "2026-01-02T01:00:00Z", "Second", "desc2", "bugfix", "[]", 0).unwrap();
-        db.insert_changelog_entry("e3", "s3", "2026-01-03T01:00:00Z", "Other project", "desc3", "docs", "[]", 0).unwrap();
+        db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "First", "desc1", "feature", "[]", 0, "", "").unwrap();
+        db.insert_changelog_entry("e2", "s2", "2026-01-02T01:00:00Z", "Second", "desc2", "bugfix", "[]", 0, "", "").unwrap();
+        db.insert_changelog_entry("e3", "s3", "2026-01-03T01:00:00Z", "Other project", "desc3", "docs", "[]", 0, "", "").unwrap();
 
         let entries = db.list_changelog_entries_by_project("/project").unwrap();
         assert_eq!(entries.len(), 2);

@@ -9,6 +9,8 @@ export interface ChangelogEntry {
   category: ChangelogCategory;
   files_changed: string[];
   turn_index: number;
+  technical_details: string;
+  tools_summary: string;
 }
 
 export interface ProjectChangelogEntry extends ChangelogEntry {

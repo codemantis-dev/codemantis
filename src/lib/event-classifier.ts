@@ -869,7 +869,7 @@ function maybeGenerateChangelog(sessionId: string): void {
   let userPrompt = "";
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "user") {
-      userPrompt = messages[i].content.slice(0, 200);
+      userPrompt = messages[i].content.slice(0, 500);
       break;
     }
   }
@@ -878,18 +878,35 @@ function maybeGenerateChangelog(sessionId: string): void {
   let assistantSummary = "";
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "assistant" && messages[i].content.length > 50) {
-      assistantSummary = messages[i].content.slice(0, 300);
+      assistantSummary = messages[i].content.slice(0, 800);
       break;
     }
   }
   if (!assistantSummary) return;
 
-  // Collect tool operations as "ToolName: file_path" strings
+  // Collect detailed tool operations with context about what was done
   const toolsUsed = activityEntries
     .filter((e) => MUTATING_TOOLS.has(e.toolName))
     .map((e) => {
-      const filePath = (e.toolInput?.file_path as string) ?? (e.toolInput?.command as string) ?? "";
-      return `${e.toolName}: ${filePath}`.slice(0, 100);
+      const filePath = (e.toolInput?.file_path as string) ?? "";
+      const command = (e.toolInput?.command as string) ?? "";
+      const oldStr = (e.toolInput?.old_string as string) ?? "";
+      const newStr = (e.toolInput?.new_string as string) ?? "";
+      const content = (e.toolInput?.content as string) ?? "";
+
+      let detail = `${e.toolName}:`;
+      if (e.toolName === "Edit" && filePath) {
+        const preview = oldStr ? ` replaced "${oldStr.slice(0, 60)}" → "${newStr.slice(0, 60)}"` : "";
+        detail = `Edit: ${filePath}${preview}`;
+      } else if (e.toolName === "Write" && filePath) {
+        const lines = content ? ` (${content.split("\n").length} lines)` : "";
+        detail = `Write: ${filePath}${lines}`;
+      } else if (e.toolName === "Bash" && command) {
+        detail = `Bash: ${command.slice(0, 120)}`;
+      } else if (filePath) {
+        detail = `${e.toolName}: ${filePath}`;
+      }
+      return detail.slice(0, 200);
     });
 
   // Get current session mode (normal, auto-accept, plan)

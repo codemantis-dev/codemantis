@@ -46,6 +46,11 @@ pub const MIGRATE_SESSION_HISTORY: &[&str] = &[
     "ALTER TABLE sessions ADD COLUMN closed_at TEXT",
 ];
 
+pub const MIGRATE_CHANGELOG_DETAIL: &[&str] = &[
+    "ALTER TABLE changelog_entries ADD COLUMN technical_details TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE changelog_entries ADD COLUMN tools_summary TEXT NOT NULL DEFAULT ''",
+];
+
 pub const MIGRATE_API_LOGS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS api_logs (
         id TEXT PRIMARY KEY,

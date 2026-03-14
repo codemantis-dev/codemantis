@@ -1,4 +1,5 @@
-import { Sparkles, Loader2, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import type { ChangelogEntry } from "../../types/changelog";
@@ -10,6 +11,9 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
   const config = CATEGORY_CONFIG[entry.category] ?? CATEGORY_CONFIG.feature;
   const Icon = config.icon;
   const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const [expanded, setExpanded] = useState(false);
+
+  const hasDetails = !!(entry.technical_details || entry.tools_summary);
 
   const handleDelete = async () => {
     try {
@@ -19,6 +23,14 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
       console.error("Failed to delete changelog entry:", e);
     }
   };
+
+  // Parse technical_details bullets (split on "• " or newline-delimited)
+  const detailBullets = entry.technical_details
+    ? entry.technical_details
+        .split(/(?:^|\n)\s*[•\-]\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
 
   return (
     <div className="px-3 py-2.5 border-b border-border-light group">
@@ -53,6 +65,36 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
           <p className="text-label text-text-dim leading-snug">
             {entry.description}
           </p>
+
+          {/* Tools summary badge */}
+          {entry.tools_summary && (
+            <p className="text-[10px] text-text-ghost mt-1 italic">
+              {entry.tools_summary}
+            </p>
+          )}
+
+          {/* Expandable technical details */}
+          {hasDetails && detailBullets.length > 0 && (
+            <div className="mt-1.5">
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-1 text-[10px] text-text-ghost hover:text-text-dim transition-colors"
+              >
+                {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                <span>{expanded ? "Hide" : "Show"} details ({detailBullets.length})</span>
+              </button>
+              {expanded && (
+                <ul className="mt-1 ml-1 space-y-0.5">
+                  {detailBullets.map((bullet, i) => (
+                    <li key={i} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
+                      <span className="text-text-ghost mt-px shrink-0">&#x2022;</span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Files changed */}
           {(entry.files_changed?.length ?? 0) > 0 && (

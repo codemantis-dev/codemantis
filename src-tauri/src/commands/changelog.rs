@@ -30,6 +30,8 @@ pub struct ChangelogEntry {
     pub category: String,
     pub files_changed: Vec<String>,
     pub turn_index: i32,
+    pub technical_details: String,
+    pub tools_summary: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +46,8 @@ pub struct ProjectChangelogEntry {
     pub category: String,
     pub files_changed: Vec<String>,
     pub turn_index: i32,
+    pub technical_details: String,
+    pub tools_summary: String,
 }
 
 #[tauri::command]
@@ -150,6 +154,8 @@ pub async fn generate_changelog_entry(
             &response.category,
             &files_json,
             turn_index,
+            &response.technical_details,
+            &response.tools_summary,
         )
         .map_err(|e| e.to_string())?;
     }
@@ -163,6 +169,8 @@ pub async fn generate_changelog_entry(
         category: response.category,
         files_changed,
         turn_index,
+        technical_details: response.technical_details,
+        tools_summary: response.tools_summary,
     })
 }
 
@@ -188,6 +196,8 @@ pub async fn get_changelog_entries(
                 category: row.category,
                 files_changed,
                 turn_index: row.turn_index,
+                technical_details: row.technical_details,
+                tools_summary: row.tools_summary,
             }
         })
         .collect();
@@ -229,6 +239,8 @@ pub async fn get_project_changelog_entries(
                 category: row.category,
                 files_changed,
                 turn_index: row.turn_index,
+                technical_details: row.technical_details,
+                tools_summary: row.tools_summary,
             }
         })
         .collect();

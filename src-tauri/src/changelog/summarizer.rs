@@ -13,28 +13,41 @@ pub struct SummarizeResponse {
     pub headline: String,
     pub description: String,
     pub category: String,
+    pub technical_details: String,
+    pub tools_summary: String,
     pub input_tokens: u32,
     pub output_tokens: u32,
 }
 
-const DEFAULT_SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+const DEFAULT_SYSTEM_PROMPT: &str = r#"Summarize this coding session turn as a detailed changelog entry. Return JSON only, no markdown.
 
-JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test|plan"}
+JSON format:
+{
+  "headline": "max 80 chars — concise summary of what was accomplished",
+  "description": "2-4 sentences explaining what was done and why, with enough context that someone reading the changelog later can understand the change without looking at the code",
+  "category": "feature|bugfix|refactor|docs|config|test|plan",
+  "technical_details": "Bullet-point list (each starting with '• ') of specific technical changes made: files created/modified, functions added/changed, key implementation decisions. 3-8 bullets.",
+  "tools_summary": "Brief count of operations, e.g. '3 files edited, 1 file created, 2 bash commands'"
+}
 
-Use category "plan" when the session is in plan mode (architecture planning, implementation design, no actual code changes being committed)."#;
+Guidelines:
+- Use category "plan" when the session is in plan mode (architecture planning, implementation design, no actual code changes being committed)
+- For description: explain the WHY and WHAT, not just tool operations. What problem was solved? What capability was added?
+- For technical_details: be specific about file names, function names, component names. Each bullet should convey one discrete change.
+- For tools_summary: summarize the scope of work (how many files touched, how many operations)"#;
 
 fn build_prompt(request: &SummarizeRequest) -> String {
-    let tools_str = request.tools_used.join(", ");
+    let tools_str = request.tools_used.join("\n");
     let mode_hint = if request.session_mode == "plan" {
         "\nSession mode: PLAN MODE (this is a planning/architecture session, use category \"plan\")"
     } else {
         ""
     };
     format!(
-        "User request: {}\nActions taken: {}\nResult summary: {}{}",
-        &request.user_prompt[..request.user_prompt.len().min(200)],
-        &tools_str[..tools_str.len().min(300)],
-        &request.assistant_summary[..request.assistant_summary.len().min(300)],
+        "User request: {}\n\nTool operations performed:\n{}\n\nAssistant summary: {}{}",
+        &request.user_prompt[..request.user_prompt.len().min(500)],
+        &tools_str[..tools_str.len().min(2000)],
+        &request.assistant_summary[..request.assistant_summary.len().min(800)],
         mode_hint
     )
 }
@@ -67,7 +80,7 @@ pub async fn summarize_turn(
 
 pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<bool, String> {
     let client = reqwest::Client::new();
-    let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\"}";
+    let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\",\"technical_details\":\"\",\"tools_summary\":\"\"}";
 
     let result = match provider {
         "gemini" => call_gemini(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
@@ -106,7 +119,7 @@ async fn call_gemini(
         }],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 256,
+            "maxOutputTokens": 512,
             "responseMimeType": "application/json"
         }
     });
@@ -154,7 +167,7 @@ async fn call_openai(
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 256,
+        "max_tokens": 512,
         "response_format": {"type": "json_object"}
     });
 
@@ -197,7 +210,7 @@ async fn call_anthropic(
 ) -> Result<(String, u32, u32), String> {
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 256,
+        "max_tokens": 512,
         "system": system_prompt,
         "messages": [
             {"role": "user", "content": prompt}
@@ -243,6 +256,10 @@ struct RawSummarizeResponse {
     headline: String,
     description: String,
     category: String,
+    #[serde(default)]
+    technical_details: String,
+    #[serde(default)]
+    tools_summary: String,
 }
 
 fn parse_response(text: &str) -> Result<SummarizeResponse, String> {
@@ -280,6 +297,8 @@ fn validate_response(raw: RawSummarizeResponse) -> SummarizeResponse {
         headline,
         description: raw.description,
         category,
+        technical_details: raw.technical_details,
+        tools_summary: raw.tools_summary,
         input_tokens: 0,
         output_tokens: 0,
     }
