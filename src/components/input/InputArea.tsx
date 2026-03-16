@@ -449,7 +449,9 @@ export default function InputArea() {
             onPaste={handlePaste}
             placeholder={
               session
-                ? "Ask Claude anything... (\u2318+Enter to send)"
+                ? isBusy
+                  ? "Ask Claude anything... even while Claude is busy! (\u2318+Enter to send)"
+                  : "Ask Claude anything... (\u2318+Enter to send)"
                 : "Open a project to start..."
             }
             disabled={!session}
