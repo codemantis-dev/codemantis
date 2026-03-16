@@ -157,7 +157,7 @@ function KeyValueRow({
       )}
       <div className="space-y-1.5">
         {pairs.map((pair, i) => (
-          <div key={i} className="flex items-center gap-1.5">
+          <div key={`env-${i}-${pair.key}`} className="flex items-center gap-1.5">
             <input
               type="text"
               value={pair.key}

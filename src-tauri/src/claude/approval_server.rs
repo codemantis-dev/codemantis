@@ -387,28 +387,28 @@ async fn handle_tool_approval(
 
 /// Start the approval HTTP server on a random available port.
 /// Returns the port number.
-pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> u16 {
+pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> Result<u16, String> {
     let app = Router::new()
         .route("/tool-approval", post(handle_tool_approval))
         .with_state(approval_state);
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .expect("Failed to bind approval server");
+        .map_err(|e| format!("Failed to bind approval server: {}", e))?;
     let port = listener
         .local_addr()
-        .expect("Failed to get approval server listener address")
+        .map_err(|e| format!("Failed to get approval server address: {}", e))?
         .port();
 
     info!("[approval-server] Listening on 127.0.0.1:{}", port);
 
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("Approval server failed");
+        if let Err(e) = axum::serve(listener, app).await {
+            error!("[approval-server] Server failed: {}", e);
+        }
     });
 
-    port
+    Ok(port)
 }
 
 #[cfg(test)]

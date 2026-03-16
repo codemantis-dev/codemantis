@@ -1,5 +1,5 @@
 import type { QuickCommand } from "../../../types/settings";
-import { SectionTitle } from "./shared";
+import { SectionTitle } from "./SettingsShared";
 
 export default function QuickCommandsTab({
   commands, onChange,
@@ -20,7 +20,7 @@ export default function QuickCommandsTab({
       </p>
       <div className="space-y-2">
         {commands.map((cmd, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={`cmd-${cmd.label || i}`} className="flex items-center gap-2">
             <input
               type="text"
               value={cmd.label}

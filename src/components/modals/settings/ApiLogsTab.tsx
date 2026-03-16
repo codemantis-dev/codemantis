@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { BarChart3 } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
-import { SectionTitle } from "./shared";
+import { SectionTitle } from "./SettingsShared";
 
 export default function ApiLogsTab() {
   const [logs, setLogs] = useState<ApiLogEntry[]>([]);

@@ -1,6 +1,7 @@
 use crate::changelog::summarizer::{self, SummarizeRequest};
 use crate::claude::session::AppState;
 use crate::commands::settings;
+use log::error;
 use serde::Serialize;
 use tauri::State;
 
@@ -117,7 +118,7 @@ pub async fn generate_changelog_entry(
         };
         let log_id = uuid::Uuid::new_v4().to_string();
         let db = &state.database;
-        let _ = db.insert_api_log(
+        if let Err(e) = db.insert_api_log(
             &log_id,
             &timestamp,
             provider,
@@ -128,7 +129,9 @@ pub async fn generate_changelog_entry(
             cost,
             success,
             error_msg.as_deref(),
-        );
+        ) {
+            error!("Failed to insert API log entry: {}", e);
+        }
     }
 
     let response = response?;

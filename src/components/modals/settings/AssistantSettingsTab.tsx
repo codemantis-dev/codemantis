@@ -2,7 +2,7 @@ import type { AssistantShortcut } from "../../../types/settings";
 import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../../types/assistant-provider";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import { SectionTitle, FieldRow } from "./shared";
+import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function AssistantSettingsTab({
   defaultProvider, defaultModel, shortcuts,

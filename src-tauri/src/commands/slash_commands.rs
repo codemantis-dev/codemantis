@@ -335,12 +335,27 @@ pub async fn discover_commands(project_path: String) -> Result<Vec<SlashCommand>
 
 #[tauri::command]
 pub async fn expand_skill(
-    _project_path: String,
+    project_path: String,
     source_path: String,
     arguments: String,
     cli_session_id: String,
 ) -> Result<ExpandedSkill, String> {
-    let content = tokio::fs::read_to_string(&source_path)
+    // Resolve symlinks and verify path is within allowed directories
+    let canonical = tokio::fs::canonicalize(&source_path)
+        .await
+        .map_err(|e| format!("Failed to resolve skill path: {}", e))?;
+    let home = dirs::home_dir().unwrap_or_default();
+    let home_claude = home.join(".claude");
+    let project_dir = tokio::fs::canonicalize(&project_path).await.unwrap_or_else(|_| PathBuf::from(&project_path));
+    let project_claude = project_dir.join(".claude");
+    if !canonical.starts_with(&home_claude) && !canonical.starts_with(&project_claude) {
+        return Err(format!(
+            "Skill file path '{}' is outside allowed directories",
+            canonical.to_string_lossy()
+        ));
+    }
+
+    let content = tokio::fs::read_to_string(&canonical)
         .await
         .map_err(|e| format!("Failed to read skill file: {}", e))?;
 
@@ -364,6 +379,10 @@ pub async fn expand_skill(
     let args_parts: Vec<&str> = arguments.split_whitespace().collect();
     let mut prompt = body.to_string();
 
+    // Expand !`command` patterns BEFORE argument substitution so user args
+    // can never inject into shell commands (prevents command injection)
+    prompt = expand_shell_commands(&prompt).await;
+
     // $ARGUMENTS or ${ARGUMENTS}
     prompt = prompt.replace("$ARGUMENTS", &arguments);
     prompt = prompt.replace("${ARGUMENTS}", &arguments);
@@ -379,14 +398,11 @@ pub async fn expand_skill(
     prompt = prompt.replace("${CLAUDE_SESSION_ID}", &cli_session_id);
 
     // ${CLAUDE_SKILL_DIR}
-    let skill_dir = Path::new(&source_path)
+    let skill_dir = canonical
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
     prompt = prompt.replace("${CLAUDE_SKILL_DIR}", &skill_dir);
-
-    // Expand !`command` patterns
-    prompt = expand_shell_commands(&prompt).await;
 
     Ok(ExpandedSkill {
         prompt,

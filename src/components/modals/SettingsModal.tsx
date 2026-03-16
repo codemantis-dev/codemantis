@@ -7,8 +7,8 @@ import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, Model
 import { AI_MODELS, getDefaultModelPricing } from "../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../types/assistant-provider";
 import { testChangelogApiKey } from "../../lib/tauri-commands";
-import type { SettingsTab } from "./settings/shared";
-import { NAV_ITEMS } from "./settings/shared";
+import type { SettingsTab } from "./settings/SettingsShared";
+import { NAV_ITEMS } from "./settings/SettingsShared";
 import GeneralTab from "./settings/GeneralTab";
 import TerminalTab from "./settings/TerminalTab";
 import QuickCommandsTab from "./settings/QuickCommandsTab";

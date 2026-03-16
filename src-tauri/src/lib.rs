@@ -9,7 +9,7 @@ mod utils;
 
 use claude::approval_server::start_approval_server;
 use claude::session::AppState;
-use log::info;
+use log::{error, info};
 use storage::Database;
 use tauri::Manager;
 
@@ -64,12 +64,16 @@ pub fn run() {
                 // Give the approval server access to the app handle
                 state.approval_state.set_app_handle(handle.clone()).await;
                 // Start the HTTP approval server
-                let port = start_approval_server(state.approval_state.clone()).await;
-                {
-                    let mut port_lock = state.approval_server_port.lock().await;
-                    *port_lock = Some(port);
+                match start_approval_server(state.approval_state.clone()).await {
+                    Ok(port) => {
+                        let mut port_lock = state.approval_server_port.lock().await;
+                        *port_lock = Some(port);
+                        info!("[setup] Approval server started on port {}", port);
+                    }
+                    Err(e) => {
+                        error!("[setup] Failed to start approval server: {}", e);
+                    }
                 }
-                info!("[setup] Approval server started on port {}", port);
             });
             Ok(())
         })

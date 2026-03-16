@@ -1,6 +1,6 @@
 import type { ThemeId } from "../../../types/settings";
 import { THEMES } from "../../../types/settings";
-import { SectionTitle, FieldRow } from "./shared";
+import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function GeneralTab({
   theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, defaultContextWindow, showWelcomeScreen,

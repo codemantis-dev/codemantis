@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, Plus, MessageSquare, Info } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useShallow } from "zustand/react/shallow";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -49,45 +50,47 @@ export default function AssistantPanel() {
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
 
-  const projectAssistants = useAssistantStore((s) => s.projectAssistants);
-  const activeAssistantIdMap = useAssistantStore((s) => s.activeAssistantId);
-  const allMessages = useAssistantStore((s) => s.messages);
-  const allStreaming = useAssistantStore((s) => s.streaming);
-  const allBusy = useAssistantStore((s) => s.busy);
-  const allCost = useAssistantStore((s) => s.sessionCost);
-  const setActiveAssistant = useAssistantStore((s) => s.setActiveAssistant);
-  const allAttachments = useAssistantStore((s) => s.attachments);
-  const addAssistantAttachment = useAssistantStore((s) => s.addAssistantAttachment);
-  const removeAssistantAttachment = useAssistantStore((s) => s.removeAssistantAttachment);
-  const clearAssistantAttachments = useAssistantStore((s) => s.clearAssistantAttachments);
+  const {
+    projectAssistants, activeAssistantId: activeAssistantIdMap, messages: allMessages,
+    streaming: allStreaming, busy: allBusy, sessionCost: allCost,
+    setActiveAssistant, attachments: allAttachments, addAssistantAttachment,
+    removeAssistantAttachment, clearAssistantAttachments
+  } = useAssistantStore(useShallow((s) => ({
+    projectAssistants: s.projectAssistants,
+    activeAssistantId: s.activeAssistantId,
+    messages: s.messages,
+    streaming: s.streaming,
+    busy: s.busy,
+    sessionCost: s.sessionCost,
+    setActiveAssistant: s.setActiveAssistant,
+    attachments: s.attachments,
+    addAssistantAttachment: s.addAssistantAttachment,
+    removeAssistantAttachment: s.removeAssistantAttachment,
+    clearAssistantAttachments: s.clearAssistantAttachments,
+  })));
 
-  const shortcuts = useSettingsStore((s) => s.settings.assistantShortcuts);
-  const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
-  const defaultModels = useSettingsStore((s) => s.settings.assistantDefaultModel);
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const { shortcuts, apiKeys, defaultModels, updateSettings } = useSettingsStore(useShallow((s) => ({
+    shortcuts: s.settings.assistantShortcuts,
+    apiKeys: s.settings.apiKeys,
+    defaultModels: s.settings.assistantDefaultModel,
+    updateSettings: s.updateSettings,
+  })));
 
   const { createAssistant, sendMessage, closeAssistant } = useAssistantSession();
 
-  const assistants = activeProjectPath
-    ? projectAssistants.get(activeProjectPath) ?? []
-    : [];
-  const activeAssistantId = activeProjectPath
-    ? activeAssistantIdMap.get(activeProjectPath) ?? null
-    : null;
-
-  const messages = activeAssistantId ? allMessages.get(activeAssistantId) ?? [] : [];
-  const streaming = activeAssistantId ? allStreaming.get(activeAssistantId) : undefined;
-  const busy = activeAssistantId ? allBusy.get(activeAssistantId) ?? false : false;
-
-  // Find current assistant instance for provider-specific behavior
-  const activeInstance = activeAssistantId
-    ? assistants.find((a) => a.id === activeAssistantId)
-    : undefined;
-  const isClaudeCode = activeInstance?.provider === "claude-code";
-  const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
-
-  const currentAttachments = activeAssistantId ? allAttachments.get(activeAssistantId) ?? [] : [];
-  const showThinking = busy && !streaming?.isStreaming;
+  const { assistants, activeAssistantId, messages, streaming, busy, activeInstance, isClaudeCode, isApiProvider, currentAttachments, showThinking } = useMemo(() => {
+    const assistants = activeProjectPath ? projectAssistants.get(activeProjectPath) ?? [] : [];
+    const activeAssistantId = activeProjectPath ? activeAssistantIdMap.get(activeProjectPath) ?? null : null;
+    const messages = activeAssistantId ? allMessages.get(activeAssistantId) ?? [] : [];
+    const streaming = activeAssistantId ? allStreaming.get(activeAssistantId) : undefined;
+    const busy = activeAssistantId ? allBusy.get(activeAssistantId) ?? false : false;
+    const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
+    const isClaudeCode = activeInstance?.provider === "claude-code";
+    const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
+    const currentAttachments = activeAssistantId ? allAttachments.get(activeAssistantId) ?? [] : [];
+    const showThinking = busy && !streaming?.isStreaming;
+    return { assistants, activeAssistantId, messages, streaming, busy, activeInstance, isClaudeCode, isApiProvider, currentAttachments, showThinking };
+  }, [activeProjectPath, projectAssistants, activeAssistantIdMap, allMessages, allStreaming, allBusy, allAttachments]);
 
   // Close provider menu on click outside
   const closeProviderMenu = useCallback(() => setShowProviderMenu(false), []);
@@ -641,7 +644,7 @@ export default function AssistantPanel() {
       {isApiProvider && messages.length === 0 && !streaming?.isStreaming && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-text-ghost border-b border-border-light" style={{ background: "var(--bg-secondary)" }}>
           <Info size={10} />
-          <span>Chat only — no file access or tool use. Uses your {activeInstance.provider} API key.</span>
+          <span>Chat only — no file access or tool use. Uses your {activeInstance!.provider} API key.</span>
         </div>
       )}
 

@@ -3,7 +3,7 @@ import type { ChangelogProvider } from "../../../types/settings";
 import { DEFAULT_CHANGELOG_PROMPT } from "../../../types/settings";
 import { AI_MODELS } from "../../../types/assistant-provider";
 import type { APIProvider } from "../../../types/assistant-provider";
-import { SectionTitle, FieldRow, CHANGELOG_PROVIDERS } from "./shared";
+import { SectionTitle, FieldRow, CHANGELOG_PROVIDERS } from "./SettingsShared";
 
 export default function ChangelogSettingsTab({
   enabled, provider, model, prompt,

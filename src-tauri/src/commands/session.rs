@@ -76,7 +76,7 @@ pub async fn create_session(
     }
 
     // Persist to SQLite
-    let _ = state.database.insert_session(
+    if let Err(e) = state.database.insert_session(
         &session_info.id,
         &session_info.name,
         &session_info.project_path,
@@ -84,7 +84,9 @@ pub async fn create_session(
         &session_info.created_at.to_rfc3339(),
         None,
         session_info.icon_index,
-    );
+    ) {
+        log::error!("Failed to persist session to database: {}", e);
+    }
 
     // Get approval server port
     let approval_port = {
@@ -117,7 +119,9 @@ pub async fn create_session(
             session.status = SessionStatus::Connected;
         }
     }
-    let _ = state.database.update_session_status(&session_id, "connected");
+    if let Err(e) = state.database.update_session_status(&session_id, "connected") {
+        log::error!("Failed to update session status in database: {}", e);
+    }
 
     let sessions = state.sessions.lock().await;
     sessions
@@ -355,12 +359,14 @@ pub async fn close_session(
 
     // Persist with CLI session ID, model, and closed_at timestamp
     let closed_at = Utc::now().to_rfc3339();
-    let _ = state.database.close_session_with_details(
+    if let Err(e) = state.database.close_session_with_details(
         &session_id,
         cli_sid.as_deref(),
         model.as_deref(),
         &closed_at,
-    );
+    ) {
+        log::error!("Failed to persist session close details to database: {}", e);
+    }
 
     // Clean up cli_session_ids entry
     {

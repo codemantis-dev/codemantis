@@ -2,6 +2,10 @@ use log::{debug, warn};
 use std::sync::LazyLock;
 use regex::Regex;
 
+static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r":(\d+)\s+\(LISTEN\)").unwrap()
+});
+
 static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         // Framework-specific patterns (most reliable)
@@ -70,8 +74,7 @@ pub fn scan_pid_ports(pid: u32) -> Vec<u16> {
     match output {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            let port_re = Regex::new(r":(\d+)\s+\(LISTEN\)").unwrap();
-            let mut ports: Vec<u16> = port_re
+            let mut ports: Vec<u16> = LSOF_PORT_RE
                 .captures_iter(&stdout)
                 .filter_map(|caps| caps.get(1)?.as_str().parse().ok())
                 .filter(|&p| p >= 1024)

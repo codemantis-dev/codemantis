@@ -289,8 +289,8 @@ async fn stream_gemini(
     messages: &[ChatMessage],
 ) -> Result<(u32, u32), String> {
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
-        model, api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+        model
     );
 
     let contents: Vec<serde_json::Value> = messages
@@ -311,6 +311,7 @@ async fn stream_gemini(
 
     let resp = client
         .post(&url)
+        .header("x-goog-api-key", api_key)
         .json(&body)
         .send()
         .await

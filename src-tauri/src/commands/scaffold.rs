@@ -263,18 +263,18 @@ fn validate_project_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Project name cannot be empty".to_string());
     }
-    if name.starts_with('.') || name.starts_with('-') {
-        return Err("Project name cannot start with '.' or '-'".to_string());
+    if name.len() > 255 {
+        return Err("Project name too long".to_string());
     }
-    if name.contains('/') || name.contains('\\') || name.contains('\0') {
-        return Err("Project name contains invalid characters".to_string());
+    if name.starts_with('.') || name.starts_with('-') {
+        return Err("Project name must start with an alphanumeric character".to_string());
     }
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
         return Err(
-            "Project name can only contain letters, numbers, hyphens, underscores, and dots"
+            "Project name must contain only alphanumeric characters, hyphens, underscores, and dots"
                 .to_string(),
         );
     }
@@ -1216,14 +1216,14 @@ mod tests {
     fn rejects_name_starting_with_dot() {
         let result = validate_project_name(".hidden");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("cannot start with"));
+        assert!(result.unwrap_err().contains("must start with"));
     }
 
     #[test]
     fn rejects_name_starting_with_dash() {
         let result = validate_project_name("-bad");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("cannot start with"));
+        assert!(result.unwrap_err().contains("must start with"));
     }
 
     #[test]

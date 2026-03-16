@@ -106,8 +106,8 @@ async fn call_gemini(
     prompt: &str,
 ) -> Result<(String, u32, u32), String> {
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model, api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
     );
 
     let body = serde_json::json!({
@@ -126,6 +126,7 @@ async fn call_gemini(
 
     let resp = client
         .post(&url)
+        .header("x-goog-api-key", api_key)
         .json(&body)
         .send()
         .await
@@ -147,8 +148,14 @@ async fn call_gemini(
         .map(|s| s.to_string())
         .ok_or_else(|| "No text in Gemini response".to_string())?;
 
-    let input_tokens = json["usageMetadata"]["promptTokenCount"].as_u64().unwrap_or(0) as u32;
-    let output_tokens = json["usageMetadata"]["candidatesTokenCount"].as_u64().unwrap_or(0) as u32;
+    let input_tokens = json["usageMetadata"]["promptTokenCount"].as_u64().unwrap_or_else(|| {
+        log::warn!("Gemini response missing promptTokenCount");
+        0
+    }) as u32;
+    let output_tokens = json["usageMetadata"]["candidatesTokenCount"].as_u64().unwrap_or_else(|| {
+        log::warn!("Gemini response missing candidatesTokenCount");
+        0
+    }) as u32;
 
     Ok((text, input_tokens, output_tokens))
 }
@@ -195,8 +202,14 @@ async fn call_openai(
         .map(|s| s.to_string())
         .ok_or_else(|| "No content in OpenAI response".to_string())?;
 
-    let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32;
-    let output_tokens = json["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32;
+    let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("OpenAI response missing prompt_tokens");
+        0
+    }) as u32;
+    let output_tokens = json["usage"]["completion_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("OpenAI response missing completion_tokens");
+        0
+    }) as u32;
 
     Ok((text, input_tokens, output_tokens))
 }
@@ -244,8 +257,14 @@ async fn call_anthropic(
         .map(|s| s.to_string())
         .ok_or_else(|| "No text in Anthropic response".to_string())?;
 
-    let input_tokens = json["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32;
-    let output_tokens = json["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32;
+    let input_tokens = json["usage"]["input_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("Anthropic response missing input_tokens");
+        0
+    }) as u32;
+    let output_tokens = json["usage"]["output_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("Anthropic response missing output_tokens");
+        0
+    }) as u32;
 
     Ok((text, input_tokens, output_tokens))
 }

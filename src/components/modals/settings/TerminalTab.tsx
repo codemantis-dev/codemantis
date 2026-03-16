@@ -1,4 +1,4 @@
-import { SectionTitle, FieldRow } from "./shared";
+import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function TerminalTab({
   shell, fontSize, onShellChange, onFontSizeChange,

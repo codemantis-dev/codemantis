@@ -1,5 +1,5 @@
 import { SHORTCUT_CATEGORIES } from "../../../data/shortcuts";
-import { SectionTitle } from "./shared";
+import { SectionTitle } from "./SettingsShared";
 
 export default function ShortcutsTab() {
   return (

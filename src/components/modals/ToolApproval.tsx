@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
@@ -145,9 +145,12 @@ export default function ToolApproval() {
     return () => window.removeEventListener("keydown", handler);
   }, [showModal, handleResponse, navigateQueue, handleApproveAll]);
 
-  if (!currentApproval) return null;
+  const inputStr = useMemo(
+    () => currentApproval ? JSON.stringify(currentApproval.toolInput, null, 2) : "",
+    [currentApproval]
+  );
 
-  const inputStr = JSON.stringify(currentApproval.toolInput, null, 2);
+  if (!currentApproval) return null;
 
   return (
     <Dialog.Root open={showModal} onOpenChange={setShowModal}>

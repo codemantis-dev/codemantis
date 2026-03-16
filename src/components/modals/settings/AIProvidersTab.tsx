@@ -1,7 +1,7 @@
 import type { ModelPricing } from "../../../types/settings";
 import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
 import type { APIProvider } from "../../../types/assistant-provider";
-import { SectionTitle } from "./shared";
+import { SectionTitle } from "./SettingsShared";
 
 export default function AIProvidersTab({
   apiKeys, modelPricing, testingKey, testResults,

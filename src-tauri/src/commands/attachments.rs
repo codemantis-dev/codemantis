@@ -1,3 +1,4 @@
+use log::warn;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -542,9 +543,13 @@ fn ensure_gitignore(project_path: &str) {
             // Append to existing .gitignore
             let separator = if content.ends_with('\n') { "" } else { "\n" };
             let new_content = format!("{}{}{}\n", content, separator, entry);
-            let _ = fs::write(&gitignore_path, new_content);
+            if let Err(e) = fs::write(&gitignore_path, new_content) {
+                warn!("Failed to update .gitignore: {}", e);
+            }
         }
     } else {
-        let _ = fs::write(&gitignore_path, format!("{}\n", entry));
+        if let Err(e) = fs::write(&gitignore_path, format!("{}\n", entry)) {
+            warn!("Failed to create .gitignore: {}", e);
+        }
     }
 }

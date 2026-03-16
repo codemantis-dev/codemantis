@@ -12,6 +12,55 @@ struct PendingToolBlock {
     input_json: String,
 }
 
+/// Helper: update the model stored in a session's SessionInfo.
+async fn update_session_model(app_handle: &AppHandle, session_id: &str, model: &str) {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.model = Some(model.to_string());
+        }
+    }
+}
+
+/// Helper: store the CLI-reported session_id in AppState.
+async fn store_cli_session_id(app_handle: &AppHandle, session_id: &str, cli_sid: &str) {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let mut cli_ids = state.cli_session_ids.lock().await;
+        cli_ids.insert(session_id.to_string(), cli_sid.to_string());
+    }
+}
+
+/// Helper: sync the CLI permission mode to AppState and emit if changed.
+async fn sync_session_mode(
+    app_handle: &AppHandle,
+    session_id: &str,
+    cli_perm_mode: &str,
+) {
+    let new_mode = match cli_perm_mode {
+        "plan" => SessionMode::Plan,
+        "acceptEdits" => SessionMode::AutoAccept,
+        _ => SessionMode::Normal,
+    };
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let mut modes = state.session_modes.lock().await;
+        if modes.get(session_id) != Some(&new_mode) {
+            info!(
+                "[message_router] System init: syncing permissionMode '{}' → {:?} for session {}",
+                cli_perm_mode, new_mode, session_id
+            );
+            modes.insert(session_id.to_string(), new_mode.clone());
+            drop(modes);
+            let _ = app_handle.emit(
+                "session-mode-changed",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "mode": new_mode
+                }),
+            );
+        }
+    }
+}
+
 pub async fn route_events(
     app_handle: AppHandle,
     session_id: String,
@@ -39,12 +88,7 @@ pub async fn route_events(
 
                     // Store model in SessionInfo so it's available at close time
                     if let Some(ref model_name) = model {
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let mut sessions = state.sessions.lock().await;
-                            if let Some(session) = sessions.get_mut(&session_id) {
-                                session.model = Some(model_name.clone());
-                            }
-                        }
+                        update_session_model(&app_handle, &session_id, model_name).await;
                     }
 
                     // Try to extract thinking effort from extra fields
@@ -70,11 +114,7 @@ pub async fn route_events(
                     if let Some(ref sid) = cli_sid {
                         if !cli_session_id_emitted {
                             cli_session_id_emitted = true;
-                            // Store in backend state so it's available even if frontend misses the event
-                            if let Some(state) = app_handle.try_state::<AppState>() {
-                                let mut cli_ids = state.cli_session_ids.lock().await;
-                                cli_ids.insert(session_id.clone(), sid.clone());
-                            }
+                            store_cli_session_id(&app_handle, &session_id, sid).await;
                             let fe = FrontendEvent::CliSessionId {
                                 session_id: session_id.clone(),
                                 cli_session_id: sid.clone(),
@@ -87,29 +127,7 @@ pub async fn route_events(
                     // The CLI is the source of truth — when it exits plan mode
                     // and starts implementing, the UI badge must update.
                     if let Some(cli_perm_mode) = extra.get("permissionMode").and_then(|v| v.as_str()) {
-                        let new_mode = match cli_perm_mode {
-                            "plan" => SessionMode::Plan,
-                            "acceptEdits" => SessionMode::AutoAccept,
-                            _ => SessionMode::Normal,
-                        };
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let mut modes = state.session_modes.lock().await;
-                            if modes.get(&session_id) != Some(&new_mode) {
-                                info!(
-                                    "[message_router] System init: syncing permissionMode '{}' → {:?} for session {}",
-                                    cli_perm_mode, new_mode, session_id
-                                );
-                                modes.insert(session_id.clone(), new_mode.clone());
-                                drop(modes);
-                                let _ = app_handle.emit(
-                                    "session-mode-changed",
-                                    serde_json::json!({
-                                        "sessionId": session_id,
-                                        "mode": new_mode
-                                    }),
-                                );
-                            }
-                        }
+                        sync_session_mode(&app_handle, &session_id, cli_perm_mode).await;
                     }
             }
 
@@ -271,10 +289,7 @@ pub async fn route_events(
                 if let Some(ref sid) = cli_sid {
                     if !cli_session_id_emitted {
                         cli_session_id_emitted = true;
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let mut cli_ids = state.cli_session_ids.lock().await;
-                            cli_ids.insert(session_id.clone(), sid.clone());
-                        }
+                        store_cli_session_id(&app_handle, &session_id, sid).await;
                         let fe = FrontendEvent::CliSessionId {
                             session_id: session_id.clone(),
                             cli_session_id: sid.clone(),
