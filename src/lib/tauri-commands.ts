@@ -550,3 +550,33 @@ export function listenSessionModeChanged(
     callback(e.payload)
   );
 }
+
+// --- Dev Server Detection ---
+
+export interface DevServerDetectedPayload {
+  terminalId: string;
+  sessionId: string;
+  port: number;
+  url: string;
+}
+
+export interface DevServerClosedPayload {
+  terminalId: string;
+  sessionId: string;
+}
+
+export function listenDevServerDetected(
+  callback: (event: DevServerDetectedPayload) => void
+): Promise<UnlistenFn> {
+  return listen<DevServerDetectedPayload>("dev-server-detected", (e) =>
+    callback(e.payload)
+  );
+}
+
+export function listenDevServerClosed(
+  callback: (event: DevServerClosedPayload) => void
+): Promise<UnlistenFn> {
+  return listen<DevServerClosedPayload>("dev-server-closed", (e) =>
+    callback(e.payload)
+  );
+}

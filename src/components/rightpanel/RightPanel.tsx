@@ -12,6 +12,7 @@ import QuickCommands from "./QuickCommands";
 import FileViewer from "./FileViewer";
 import ChangelogFeed from "./ChangelogFeed";
 import AssistantPanel from "./AssistantPanel";
+import DevServerBanner from "./DevServerBanner";
 
 export default function RightPanel() {
   const rightTab = useUiStore((s) => s.rightTab);
@@ -97,6 +98,8 @@ export default function RightPanel() {
             onCreate={handleCreateTerminal}
           />
         )}
+
+        {activeSessionId && <DevServerBanner currentSessionId={activeSessionId} />}
 
         <div className="flex-1 relative overflow-hidden">
           {terminals.length === 0 && (

@@ -7,3 +7,10 @@ export interface TerminalInstance {
   isRunning: boolean;
   kind?: "shell" | "cli-overlay";
 }
+
+export interface DevServerDetection {
+  terminalId: string;
+  sessionId: string;
+  port: number;
+  url: string;
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { useDevServerDetection } from "../../hooks/useDevServerDetection";
 import TitleBar from "./TitleBar";
 import SessionSubTabs from "./SessionSubTabs";
 import Sidebar from "../sidebar/Sidebar";
@@ -85,6 +86,7 @@ export default function AppShell() {
   const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
+  useDevServerDetection();
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
 
   // Reset project log / history view when switching projects

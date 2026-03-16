@@ -1,12 +1,30 @@
 use crate::errors::AppError;
+use crate::preview::port_detector::scan_for_dev_server_url;
 use log::{debug, error, info, warn};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use std::collections::HashMap;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevServerDetectedEvent {
+    terminal_id: String,
+    session_id: String,
+    port: u16,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevServerClosedEvent {
+    terminal_id: String,
+    session_id: String,
+}
 
 struct PtyProcess {
     session_id: String,
@@ -99,11 +117,14 @@ impl TerminalPool {
 
         // Spawn blocking read task
         let tid = terminal_id.clone();
+        let sid = session_id.to_string();
         let ah = app_handle.clone();
         tokio::task::spawn_blocking(move || {
             let mut reader = reader;
             let mut buf = [0u8; 4096];
             let event_name = format!("terminal-output-{}", tid);
+            let mut line_buffer = String::new();
+            let mut detected_ports: HashSet<u16> = HashSet::new();
 
             loop {
                 // Check if we should shutdown (non-blocking)
@@ -122,6 +143,29 @@ impl TerminalPool {
                         if let Err(e) = ah.emit(&event_name, &data) {
                             warn!("Failed to emit terminal output: {}", e);
                         }
+
+                        // Scan for dev server URLs in output
+                        line_buffer.push_str(&data);
+                        while let Some(newline_pos) = line_buffer.find('\n') {
+                            let line: String = line_buffer.drain(..=newline_pos).collect();
+                            if let Some((port, url)) = scan_for_dev_server_url(&line) {
+                                if detected_ports.insert(port) {
+                                    let event = DevServerDetectedEvent {
+                                        terminal_id: tid.clone(),
+                                        session_id: sid.clone(),
+                                        port,
+                                        url,
+                                    };
+                                    if let Err(e) = ah.emit("dev-server-detected", &event) {
+                                        warn!("Failed to emit dev-server-detected: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        // Keep partial line in buffer (cap at 4KB to prevent unbounded growth)
+                        if line_buffer.len() > 4096 {
+                            line_buffer.clear();
+                        }
                     }
                     Err(e) => {
                         if e.kind() != std::io::ErrorKind::Interrupted {
@@ -130,6 +174,15 @@ impl TerminalPool {
                         }
                     }
                 }
+            }
+
+            // Terminal closed — notify frontend to clean up
+            let event = DevServerClosedEvent {
+                terminal_id: tid.clone(),
+                session_id: sid,
+            };
+            if let Err(e) = ah.emit("dev-server-closed", &event) {
+                warn!("Failed to emit dev-server-closed: {}", e);
             }
         });
 
