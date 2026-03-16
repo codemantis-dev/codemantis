@@ -15,6 +15,8 @@ vi.mock("../../lib/tauri-commands", () => ({
   discoverCommands: vi.fn(() => Promise.resolve([])),
   readFileContent: vi.fn(() => Promise.resolve("")),
   getFileInfo: vi.fn(() => Promise.resolve(null)),
+  listenDevServerDetected: vi.fn(() => Promise.resolve(() => {})),
+  listenDevServerClosed: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 const SESSION = {

@@ -259,3 +259,79 @@ pub async fn test_changelog_api_key(
 ) -> Result<bool, String> {
     summarizer::test_api_key(&provider, &api_key, &model).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_model_for_provider ──
+
+    #[test]
+    fn valid_openai_model_accepted() {
+        let result = validate_model_for_provider("openai", "gpt-4.1");
+        assert_eq!(result, "gpt-4.1");
+    }
+
+    #[test]
+    fn invalid_openai_model_returns_fallback() {
+        let result = validate_model_for_provider("openai", "gpt-nonexistent");
+        // Should return the first valid model for openai
+        assert_eq!(result, "gpt-4.1");
+    }
+
+    #[test]
+    fn valid_gemini_model_accepted() {
+        let result = validate_model_for_provider("gemini", "gemini-2.5-flash");
+        assert_eq!(result, "gemini-2.5-flash");
+    }
+
+    #[test]
+    fn invalid_gemini_model_returns_fallback() {
+        let result = validate_model_for_provider("gemini", "gemini-nonexistent");
+        assert_eq!(result, "gemini-2.5-flash-lite");
+    }
+
+    #[test]
+    fn valid_anthropic_model_accepted() {
+        let result = validate_model_for_provider("anthropic", "claude-sonnet-4-6");
+        assert_eq!(result, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn invalid_anthropic_model_returns_fallback() {
+        let result = validate_model_for_provider("anthropic", "claude-nonexistent");
+        assert_eq!(result, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn empty_model_string_returns_fallback() {
+        let result = validate_model_for_provider("openai", "");
+        assert_eq!(result, "gpt-4.1");
+    }
+
+    #[test]
+    fn unknown_provider_returns_model_as_is() {
+        // Unknown provider has empty valid_models list, so first().unwrap_or(&model) returns model
+        let result = validate_model_for_provider("unknown-provider", "some-model");
+        assert_eq!(result, "some-model");
+    }
+
+    #[test]
+    fn openai_default_is_gpt_4_1() {
+        // The first model in the openai list is the default fallback
+        let result = validate_model_for_provider("openai", "invalid");
+        assert_eq!(result, "gpt-4.1");
+    }
+
+    #[test]
+    fn gemini_default_is_flash_lite() {
+        let result = validate_model_for_provider("gemini", "invalid");
+        assert_eq!(result, "gemini-2.5-flash-lite");
+    }
+
+    #[test]
+    fn anthropic_default_is_sonnet() {
+        let result = validate_model_for_provider("anthropic", "invalid");
+        assert_eq!(result, "claude-sonnet-4-6");
+    }
+}

@@ -481,3 +481,231 @@ async fn stream_anthropic(
 
     Ok((input_tokens, output_tokens))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── openai_content ──
+
+    #[test]
+    fn openai_content_text_returns_json_string() {
+        let content = ChatContent::Text("Hello world".to_string());
+        let result = openai_content(&content);
+        assert_eq!(result, json!("Hello world"));
+    }
+
+    #[test]
+    fn openai_content_empty_text_returns_empty_string() {
+        let content = ChatContent::Text("".to_string());
+        let result = openai_content(&content);
+        assert_eq!(result, json!(""));
+    }
+
+    #[test]
+    fn openai_content_parts_text_only() {
+        let content = ChatContent::Parts(vec![ContentPart::Text {
+            text: "Hello".to_string(),
+        }]);
+        let result = openai_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "Hello");
+    }
+
+    #[test]
+    fn openai_content_parts_image_only() {
+        let content = ChatContent::Parts(vec![ContentPart::Image {
+            mime_type: "image/png".to_string(),
+            data: "iVBOR".to_string(),
+        }]);
+        let result = openai_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "image_url");
+        let url = arr[0]["image_url"]["url"].as_str().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"));
+        assert!(url.contains("iVBOR"));
+    }
+
+    #[test]
+    fn openai_content_parts_mixed_text_and_image() {
+        let content = ChatContent::Parts(vec![
+            ContentPart::Text {
+                text: "Look at this".to_string(),
+            },
+            ContentPart::Image {
+                mime_type: "image/jpeg".to_string(),
+                data: "abc123".to_string(),
+            },
+        ]);
+        let result = openai_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "Look at this");
+        assert_eq!(arr[1]["type"], "image_url");
+    }
+
+    // ── gemini_parts ──
+
+    #[test]
+    fn gemini_parts_text_returns_text_part() {
+        let content = ChatContent::Text("Hello".to_string());
+        let result = gemini_parts(&content);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0]["text"], "Hello");
+    }
+
+    #[test]
+    fn gemini_parts_image_returns_inline_data() {
+        let content = ChatContent::Parts(vec![ContentPart::Image {
+            mime_type: "image/png".to_string(),
+            data: "base64data".to_string(),
+        }]);
+        let result = gemini_parts(&content);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0]["inlineData"]["mimeType"], "image/png");
+        assert_eq!(result[0]["inlineData"]["data"], "base64data");
+    }
+
+    #[test]
+    fn gemini_parts_mixed_text_and_image() {
+        let content = ChatContent::Parts(vec![
+            ContentPart::Text {
+                text: "Describe".to_string(),
+            },
+            ContentPart::Image {
+                mime_type: "image/webp".to_string(),
+                data: "webpdata".to_string(),
+            },
+        ]);
+        let result = gemini_parts(&content);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0]["text"], "Describe");
+        assert_eq!(result[1]["inlineData"]["mimeType"], "image/webp");
+    }
+
+    // ── anthropic_content ──
+
+    #[test]
+    fn anthropic_content_text_returns_json_string() {
+        let content = ChatContent::Text("Hello".to_string());
+        let result = anthropic_content(&content);
+        assert_eq!(result, json!("Hello"));
+    }
+
+    #[test]
+    fn anthropic_content_parts_text_only() {
+        let content = ChatContent::Parts(vec![ContentPart::Text {
+            text: "Hi".to_string(),
+        }]);
+        let result = anthropic_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "Hi");
+    }
+
+    #[test]
+    fn anthropic_content_parts_image_has_base64_source() {
+        let content = ChatContent::Parts(vec![ContentPart::Image {
+            mime_type: "image/png".to_string(),
+            data: "imgdata".to_string(),
+        }]);
+        let result = anthropic_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "image");
+        assert_eq!(arr[0]["source"]["type"], "base64");
+        assert_eq!(arr[0]["source"]["media_type"], "image/png");
+        assert_eq!(arr[0]["source"]["data"], "imgdata");
+    }
+
+    #[test]
+    fn anthropic_content_parts_mixed() {
+        let content = ChatContent::Parts(vec![
+            ContentPart::Text {
+                text: "Check this".to_string(),
+            },
+            ContentPart::Image {
+                mime_type: "image/gif".to_string(),
+                data: "gifdata".to_string(),
+            },
+        ]);
+        let result = anthropic_content(&content);
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[1]["type"], "image");
+    }
+
+    // ── ChatContent serde ──
+
+    #[test]
+    fn chat_content_text_deserializes_from_json_string() {
+        let json_str = r#""Hello world""#;
+        let content: ChatContent = serde_json::from_str(json_str).unwrap();
+        match content {
+            ChatContent::Text(s) => assert_eq!(s, "Hello world"),
+            _ => panic!("Expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn chat_content_parts_deserializes_from_json_array() {
+        let json_str = r#"[{"type":"text","text":"Hello"},{"type":"image","mime_type":"image/png","data":"abc"}]"#;
+        let content: ChatContent = serde_json::from_str(json_str).unwrap();
+        match content {
+            ChatContent::Parts(parts) => {
+                assert_eq!(parts.len(), 2);
+                match &parts[0] {
+                    ContentPart::Text { text } => assert_eq!(text, "Hello"),
+                    _ => panic!("Expected Text part"),
+                }
+                match &parts[1] {
+                    ContentPart::Image { mime_type, data } => {
+                        assert_eq!(mime_type, "image/png");
+                        assert_eq!(data, "abc");
+                    }
+                    _ => panic!("Expected Image part"),
+                }
+            }
+            _ => panic!("Expected Parts variant"),
+        }
+    }
+
+    #[test]
+    fn chat_content_text_round_trip() {
+        let original = ChatContent::Text("round trip".to_string());
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: ChatContent = serde_json::from_str(&serialized).unwrap();
+        match deserialized {
+            ChatContent::Text(s) => assert_eq!(s, "round trip"),
+            _ => panic!("Expected Text variant after round trip"),
+        }
+    }
+
+    #[test]
+    fn chat_content_parts_round_trip() {
+        let original = ChatContent::Parts(vec![
+            ContentPart::Text {
+                text: "hello".to_string(),
+            },
+            ContentPart::Image {
+                mime_type: "image/jpeg".to_string(),
+                data: "data123".to_string(),
+            },
+        ]);
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: ChatContent = serde_json::from_str(&serialized).unwrap();
+        match deserialized {
+            ChatContent::Parts(parts) => {
+                assert_eq!(parts.len(), 2);
+            }
+            _ => panic!("Expected Parts variant after round trip"),
+        }
+    }
+}

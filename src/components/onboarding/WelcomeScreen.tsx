@@ -41,7 +41,7 @@ function getPrerequisites(status: ClaudeStatus | null): Prerequisite[] {
     {
       label: "Authentication",
       description: status?.authenticated
-        ? "Logged in and ready"
+        ? "Logged in at Claude Code"
         : "Not authenticated",
       satisfied: status?.authenticated ?? false,
       helpCommand: "claude login",

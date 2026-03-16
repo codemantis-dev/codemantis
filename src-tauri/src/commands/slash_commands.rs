@@ -482,3 +482,269 @@ pub async fn run_oneshot_command(
         exit_code: output.status.code(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use tempfile::TempDir;
+
+    fn temp_dir() -> TempDir {
+        tempfile::tempdir().expect("Failed to create temp dir")
+    }
+
+    // ── parse_frontmatter ──
+
+    #[test]
+    fn parse_frontmatter_empty_string_returns_empty_map() {
+        let (map, body) = parse_frontmatter("");
+        assert!(map.is_empty());
+        assert_eq!(body, "");
+    }
+
+    #[test]
+    fn parse_frontmatter_no_frontmatter_returns_empty_map() {
+        let content = "Just some regular content\nwith multiple lines.";
+        let (map, body) = parse_frontmatter(content);
+        assert!(map.is_empty());
+        assert_eq!(body, content);
+    }
+
+    #[test]
+    fn parse_frontmatter_valid_extracts_key_value_pairs() {
+        let content = "---\nname: my-command\n---\nBody content here";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.get("name").unwrap(), "my-command");
+    }
+
+    #[test]
+    fn parse_frontmatter_description_field() {
+        let content = "---\ndescription: A helpful command\n---\nBody";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.get("description").unwrap(), "A helpful command");
+    }
+
+    #[test]
+    fn parse_frontmatter_ignores_content_after_closing() {
+        let content = "---\nname: test\n---\nThis is the body.\nIt has multiple lines.";
+        let (map, body) = parse_frontmatter(content);
+        assert_eq!(map.len(), 1);
+        assert!(body.starts_with("This is the body."));
+    }
+
+    #[test]
+    fn parse_frontmatter_body_preserved_after_frontmatter() {
+        let content = "---\nname: foo\n---\nLine 1\nLine 2\nLine 3";
+        let (_map, body) = parse_frontmatter(content);
+        assert!(body.contains("Line 1"));
+        assert!(body.contains("Line 2"));
+        assert!(body.contains("Line 3"));
+    }
+
+    #[test]
+    fn parse_frontmatter_multiple_key_value_pairs() {
+        let content = "---\nname: multi\ndescription: A multi-key command\nmodel: fast\nargument-hint: <file>\n---\nBody";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.len(), 4);
+        assert_eq!(map.get("name").unwrap(), "multi");
+        assert_eq!(map.get("description").unwrap(), "A multi-key command");
+        assert_eq!(map.get("model").unwrap(), "fast");
+        assert_eq!(map.get("argument-hint").unwrap(), "<file>");
+    }
+
+    #[test]
+    fn parse_frontmatter_strips_quotes_from_values() {
+        let content = "---\nname: \"quoted-name\"\ndescription: 'single-quoted'\n---\nBody";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.get("name").unwrap(), "quoted-name");
+        assert_eq!(map.get("description").unwrap(), "single-quoted");
+    }
+
+    #[test]
+    fn parse_frontmatter_keys_are_lowercased() {
+        let content = "---\nName: test\nDESCRIPTION: caps\n---\nBody";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.get("name").unwrap(), "test");
+        assert_eq!(map.get("description").unwrap(), "caps");
+    }
+
+    #[test]
+    fn parse_frontmatter_skips_comment_lines() {
+        let content = "---\nname: test\n# this is a comment\ndescription: desc\n---\nBody";
+        let (map, _body) = parse_frontmatter(content);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("name").unwrap(), "test");
+        assert_eq!(map.get("description").unwrap(), "desc");
+    }
+
+    #[test]
+    fn parse_frontmatter_unclosed_returns_original() {
+        let content = "---\nname: test\nNo closing delimiter";
+        let (map, body) = parse_frontmatter(content);
+        assert!(map.is_empty());
+        assert_eq!(body, content);
+    }
+
+    // ── builtin_commands ──
+
+    #[test]
+    fn builtin_commands_returns_non_empty() {
+        let cmds = builtin_commands();
+        assert!(!cmds.is_empty());
+    }
+
+    #[test]
+    fn builtin_commands_contains_clear() {
+        let cmds = builtin_commands();
+        assert!(cmds.iter().any(|c| c.name == "clear"));
+    }
+
+    #[test]
+    fn builtin_commands_contains_help() {
+        let cmds = builtin_commands();
+        assert!(cmds.iter().any(|c| c.name == "help"));
+    }
+
+    #[test]
+    fn builtin_commands_contains_exit() {
+        let cmds = builtin_commands();
+        assert!(cmds.iter().any(|c| c.name == "exit"));
+    }
+
+    #[test]
+    fn builtin_commands_all_have_builtin_category() {
+        let cmds = builtin_commands();
+        for cmd in &cmds {
+            assert_eq!(cmd.category, "built-in", "Command '{}' has wrong category", cmd.name);
+        }
+    }
+
+    #[test]
+    fn builtin_commands_rename_has_argument_hint() {
+        let cmds = builtin_commands();
+        let rename = cmds.iter().find(|c| c.name == "rename").unwrap();
+        assert!(rename.argument_hint.is_some());
+        assert_eq!(rename.argument_hint.as_deref().unwrap(), "new name");
+    }
+
+    // ── cli_only_commands ──
+
+    #[test]
+    fn cli_only_commands_returns_non_empty() {
+        let cmds = cli_only_commands();
+        assert!(!cmds.is_empty());
+    }
+
+    #[test]
+    fn cli_only_commands_contains_config() {
+        let cmds = cli_only_commands();
+        assert!(cmds.iter().any(|c| c.name == "config"));
+    }
+
+    #[test]
+    fn cli_only_commands_contains_model() {
+        let cmds = cli_only_commands();
+        assert!(cmds.iter().any(|c| c.name == "model"));
+    }
+
+    #[test]
+    fn cli_only_commands_all_have_cli_only_category() {
+        let cmds = cli_only_commands();
+        for cmd in &cmds {
+            assert_eq!(cmd.category, "cli-only", "Command '{}' has wrong category", cmd.name);
+        }
+    }
+
+    // ── expand_shell_commands (template expansion) ──
+
+    #[tokio::test]
+    async fn expand_shell_commands_no_markers_returns_unchanged() {
+        let input = "This has no shell commands at all.";
+        let result = expand_shell_commands(input).await;
+        assert_eq!(result, input);
+    }
+
+    #[tokio::test]
+    async fn expand_shell_commands_runs_echo() {
+        let input = "Hello !`echo world`!";
+        let result = expand_shell_commands(input).await;
+        assert_eq!(result, "Hello world!");
+    }
+
+    #[tokio::test]
+    async fn expand_shell_commands_unclosed_backtick_preserved() {
+        let input = "Start !`no closing backtick here";
+        let result = expand_shell_commands(input).await;
+        assert_eq!(result, "Start !`no closing backtick here");
+    }
+
+    // ── scan_command_dir ──
+
+    #[tokio::test]
+    async fn scan_command_dir_nonexistent_returns_empty() {
+        let dir = PathBuf::from("/nonexistent_dir_12345_test");
+        let mut seen = HashSet::new();
+        let result = scan_command_dir(&dir, &mut seen).await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_command_dir_with_md_files_returns_commands() {
+        let dir = temp_dir();
+        let cmd_file = dir.path().join("greet.md");
+        std::fs::write(&cmd_file, "---\ndescription: Greet user\n---\nHello $ARGUMENTS").unwrap();
+
+        let mut seen = HashSet::new();
+        let result = scan_command_dir(dir.path(), &mut seen).await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "greet");
+        assert_eq!(result[0].description, "Greet user");
+        assert_eq!(result[0].category, "skill");
+    }
+
+    #[tokio::test]
+    async fn scan_command_dir_skips_already_seen_names() {
+        let dir = temp_dir();
+        let cmd_file = dir.path().join("deploy.md");
+        std::fs::write(&cmd_file, "---\ndescription: Deploy\n---\nDeploy it").unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert("deploy".to_string());
+        let result = scan_command_dir(dir.path(), &mut seen).await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_command_dir_skips_non_md_files() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("readme.txt"), "Not a command").unwrap();
+        std::fs::write(dir.path().join("script.sh"), "#!/bin/bash").unwrap();
+
+        let mut seen = HashSet::new();
+        let result = scan_command_dir(dir.path(), &mut seen).await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_command_dir_skips_user_invocable_false() {
+        let dir = temp_dir();
+        let cmd_file = dir.path().join("hidden.md");
+        std::fs::write(&cmd_file, "---\nuser-invocable: false\n---\nHidden command").unwrap();
+
+        let mut seen = HashSet::new();
+        let result = scan_command_dir(dir.path(), &mut seen).await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_command_dir_uses_frontmatter_name_over_filename() {
+        let dir = temp_dir();
+        let cmd_file = dir.path().join("filename.md");
+        std::fs::write(&cmd_file, "---\nname: custom-name\ndescription: Custom\n---\nBody").unwrap();
+
+        let mut seen = HashSet::new();
+        let result = scan_command_dir(dir.path(), &mut seen).await;
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "custom-name");
+    }
+}

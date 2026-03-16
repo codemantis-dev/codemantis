@@ -10,8 +10,13 @@ vi.mock("./useTerminal", () => ({
   }),
 }));
 
+// Hoist mock variables so they're available when vi.mock factories run
+const { mockTogglePreview, mockSetSessionMode } = vi.hoisted(() => ({
+  mockTogglePreview: vi.fn(),
+  mockSetSessionMode: vi.fn((_sessionId: string, _mode: string) => Promise.resolve()),
+}));
+
 // Mock usePreviewWindow
-const mockTogglePreview = vi.fn();
 vi.mock("./usePreviewWindow", () => ({
   usePreviewWindow: () => ({
     openPreview: vi.fn(),
@@ -23,7 +28,6 @@ vi.mock("./usePreviewWindow", () => ({
 }));
 
 // Mock tauri-commands
-const mockSetSessionMode = vi.fn((_sessionId: string, _mode: string) => Promise.resolve());
 vi.mock("../lib/tauri-commands", () => ({
   closeSession: vi.fn(() => Promise.resolve()),
   setSessionMode: mockSetSessionMode,
