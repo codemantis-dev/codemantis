@@ -451,8 +451,22 @@ function handleToolUseStart(
 
   // Track sub-agents when Agent tool starts
   if (event.tool_name === "Agent") {
-    const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
-    sessionStore.addSubAgent(sessionId, agentInfo);
+    // Check if a placeholder already exists from agent_preparing
+    const existingAgents = sessionStore.activeSubAgents.get(sessionId);
+    const placeholder = existingAgents?.find((a) => a.toolUseId === event.tool_use_id);
+    if (placeholder) {
+      // Upgrade placeholder with real data from tool input
+      const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
+      sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+        description: agentInfo.description,
+        subagentType: agentInfo.subagentType,
+        isBackground: agentInfo.isBackground,
+        status: "running",
+      });
+    } else {
+      const agentInfo = extractSubAgentInfo(event.tool_use_id, event.tool_input, now);
+      sessionStore.addSubAgent(sessionId, agentInfo);
+    }
   }
 
   // Update activity label to reflect what tool is running
@@ -757,6 +771,30 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
   const now = new Date().toISOString();
 
   switch (event.type) {
+    case "agent_preparing": {
+      // Early visibility: create a placeholder sub-agent before tool input is fully streamed
+      const existingAgents = sessionStore.activeSubAgents.get(sessionId);
+      const alreadyExists = existingAgents?.find((a) => a.toolUseId === event.tool_use_id);
+      if (!alreadyExists) {
+        sessionStore.addSubAgent(sessionId, {
+          toolUseId: event.tool_use_id,
+          description: "Launching agent...",
+          subagentType: "general-purpose",
+          isBackground: false,
+          startedAt: now,
+          elapsed: 0,
+          status: "preparing",
+        });
+      }
+      sessionStore.setSessionActivity(sessionId, {
+        label: "Launching agent...",
+        toolName: "Agent",
+        toolElapsed: 0,
+        filePath: null,
+      });
+      break;
+    }
+
     case "tool_use_start":
       handleToolUseStart(sessionId, event, activityStore, sessionStore, now);
       break;
@@ -765,11 +803,25 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       useSessionStore.getState().touchLastEvent(sessionId);
       const currentActivity = sessionStore.sessionActivity.get(sessionId);
 
-      // Update sub-agent elapsed time
+      // Update sub-agent elapsed time (create placeholder if it doesn't exist yet)
       if (event.tool_name === "Agent") {
-        sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
-          elapsed: event.elapsed_seconds,
-        });
+        const agentList = sessionStore.activeSubAgents.get(sessionId);
+        const agentExists = agentList?.find((a) => a.toolUseId === event.tool_use_id);
+        if (agentExists) {
+          sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+            elapsed: event.elapsed_seconds,
+          });
+        } else {
+          sessionStore.addSubAgent(sessionId, {
+            toolUseId: event.tool_use_id,
+            description: "Agent running...",
+            subagentType: "general-purpose",
+            isBackground: false,
+            startedAt: now,
+            elapsed: event.elapsed_seconds,
+            status: "running",
+          });
+        }
       }
 
       const label = event.tool_name === "Agent"

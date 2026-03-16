@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SessionActivityInfo } from "../../stores/sessionStore";
 import { formatTokens, formatCost, formatDuration, formatModelName } from "../../lib/format-utils";
+import type { SubAgentInfo } from "../../types/activity";
 
 /** Compose a compact activity string for the status bar.
  *  e.g., "Editing settings.ts", "Reading App.tsx", "Running command..." */
@@ -68,8 +69,10 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     statusColor = "text-text-ghost";
   }
 
-  const subAgentCount = subAgents?.filter((a) => a.status === "running").length ?? 0;
+  const activeAgents = subAgents?.filter((a: SubAgentInfo) => a.status === "running" || a.status === "preparing") ?? [];
+  const subAgentCount = activeAgents.length;
   const activityDetail = isBusy ? formatActivityDetail(activity, subAgentCount) : null;
+  const agentTokens = activeAgents.reduce((sum: number, a: SubAgentInfo) => sum + (a.tokenCount ?? 0), 0);
 
   const totalTokens = stats
     ? stats.totalInputTokens + stats.totalOutputTokens
@@ -99,6 +102,11 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
         )}
         {activityDetail && (
           <span className="text-text-ghost truncate">{activityDetail}</span>
+        )}
+        {isBusy && subAgentCount > 0 && agentTokens > 0 && (
+          <span className="text-text-ghost shrink-0">
+            ({formatTokens(agentTokens)} agent tokens)
+          </span>
         )}
       </div>
 

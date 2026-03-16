@@ -355,6 +355,12 @@ pub enum FrontendEvent {
         output_styles: serde_json::Value,
     },
 
+    #[serde(rename = "agent_preparing")]
+    AgentPreparing {
+        session_id: String,
+        tool_use_id: String,
+    },
+
     #[serde(rename = "subagent_started")]
     SubAgentStarted {
         session_id: String,

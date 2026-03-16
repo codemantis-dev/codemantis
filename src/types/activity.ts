@@ -21,7 +21,7 @@ export interface ActivityEntry {
   agentFinalDurationMs?: number;
 }
 
-export type ActivityStatus = "pending" | "running" | "done" | "error";
+export type ActivityStatus = "pending" | "preparing" | "running" | "done" | "error";
 
 export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "mcp" | "other";
 

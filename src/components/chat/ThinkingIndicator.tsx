@@ -16,10 +16,13 @@ interface ThinkingIndicatorProps {
 
 function SubAgentRow({ agent }: { agent: SubAgentInfo }) {
   const typeLabel = agent.subagentType !== "general-purpose" ? agent.subagentType : null;
+  const isPreparing = agent.status === "preparing";
   return (
     <div className="flex items-center gap-2 py-0.5">
-      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
-      <span className="text-label text-text-secondary truncate">{agent.description}</span>
+      <span className={`w-1.5 h-1.5 rounded-full animate-pulse shrink-0 ${
+        isPreparing ? "bg-yellow" : "bg-green-400"
+      }`} />
+      <span className={`text-label text-text-secondary truncate ${isPreparing ? "italic" : ""}`}>{agent.description}</span>
       {typeLabel && (
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
           {typeLabel}
@@ -55,6 +58,7 @@ function SubAgentPanel({ agents }: { agents: SubAgentInfo[] }) {
 
   // Check if any agent has live progress data
   const hasActivity = agents.some((a) => a.currentActivity);
+  const totalTokens = agents.reduce((sum, a) => sum + (a.tokenCount ?? 0), 0);
 
   return (
     <div
@@ -72,6 +76,11 @@ function SubAgentPanel({ agents }: { agents: SubAgentInfo[] }) {
             ? `1 sub-agent running`
             : `${agents.length} sub-agents running`}
         </span>
+        {totalTokens > 0 && (
+          <span className="text-[10px] text-text-ghost ml-auto">
+            {totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}K` : totalTokens} tokens
+          </span>
+        )}
       </button>
 
       {/* Expanded detail rows */}
@@ -135,7 +144,7 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
     ? ` (${Math.round(activityInfo.toolElapsed)}s)`
     : "";
 
-  const runningAgents = subAgents.filter((a) => a.status === "running");
+  const runningAgents = subAgents.filter((a) => a.status === "running" || a.status === "preparing");
 
   return (
     <div className="flex flex-col items-start gap-3">

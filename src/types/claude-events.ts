@@ -16,6 +16,7 @@ export type FrontendEvent =
   | InterruptResultEvent
   | ModelChangedEvent
   | CapabilitiesDiscoveredEvent
+  | AgentPreparingEvent
   | SubAgentStartedEvent
   | SubAgentProgressEvent
   | SubAgentCompleteEvent;
@@ -188,6 +189,12 @@ export interface CliAccountInfo {
   email: string;
   organization: string;
   subscriptionType: string;
+}
+
+export interface AgentPreparingEvent {
+  type: "agent_preparing";
+  session_id: string;
+  tool_use_id: string;
 }
 
 export interface SubAgentStartedEvent {

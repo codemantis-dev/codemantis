@@ -3,6 +3,7 @@ import {
   handleChatEvent,
   handleActivityEvent,
 } from "./event-classifier";
+import type { FrontendEvent } from "../types/claude-events";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 
@@ -31,6 +32,7 @@ function resetStores(): void {
     sessionCompacting: new Map(),
     busySince: new Map([[SESSION_ID, Date.now()]]),
     rateLimitUtilization: new Map(),
+    activeSubAgents: new Map(),
     tabOrder: [SESSION_ID],
   });
 
@@ -582,6 +584,116 @@ describe("Transparency: TurnStats enrichment", () => {
     expect(assistantMsg?.turnStats?.durationApiMs).toBe(3200);
     expect(assistantMsg?.turnStats?.numTurns).toBe(3);
     expect(assistantMsg?.turnStats?.stopReason).toBe("end_turn");
+  });
+});
+
+describe("Transparency: Early Agent Visibility", () => {
+  beforeEach(resetStores);
+
+  it("agent_preparing creates a placeholder sub-agent with 'preparing' status", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "agent_preparing",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-early-1",
+    } as FrontendEvent);
+    const agents = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agents).toHaveLength(1);
+    expect(agents![0].toolUseId).toBe("agent-early-1");
+    expect(agents![0].status).toBe("preparing");
+    expect(agents![0].description).toBe("Launching agent...");
+    const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
+    expect(activity?.label).toBe("Launching agent...");
+  });
+
+  it("tool_use_start upgrades a preparing placeholder to running with real data", () => {
+    // First: agent_preparing creates placeholder
+    handleActivityEvent(SESSION_ID, {
+      type: "agent_preparing",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-upgrade-1",
+    } as FrontendEvent);
+    let agents = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agents![0].status).toBe("preparing");
+    expect(agents![0].description).toBe("Launching agent...");
+
+    // Then: tool_use_start with full input upgrades it
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-upgrade-1",
+      tool_name: "Agent",
+      tool_input: { description: "Explore codebase", subagent_type: "Explore" },
+    });
+    agents = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agents).toHaveLength(1); // no duplicate
+    expect(agents![0].status).toBe("running");
+    expect(agents![0].description).toBe("Explore codebase");
+    expect(agents![0].subagentType).toBe("Explore");
+
+    // Cleanup
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-upgrade-1",
+      content: "done",
+      is_error: false,
+    });
+  });
+
+  it("tool_progress creates placeholder if agent doesn't exist yet", () => {
+    // Edge case: tool_progress arrives before both agent_preparing and tool_use_start
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_progress",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-progress-first",
+      tool_name: "Agent",
+      elapsed_seconds: 5.0,
+    });
+    const agents = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agents).toHaveLength(1);
+    expect(agents![0].toolUseId).toBe("agent-progress-first");
+    expect(agents![0].status).toBe("running");
+    expect(agents![0].description).toBe("Agent running...");
+
+    // Cleanup
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-progress-first",
+      content: "done",
+      is_error: false,
+    });
+  });
+
+  it("duplicate agent_preparing for same tool_use_id is idempotent", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "agent_preparing",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-dup-1",
+    } as FrontendEvent);
+    handleActivityEvent(SESSION_ID, {
+      type: "agent_preparing",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-dup-1",
+    } as FrontendEvent);
+    const agents = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agents).toHaveLength(1);
+
+    // Cleanup
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-dup-1",
+      tool_name: "Agent",
+      tool_input: { description: "Test", subagent_type: "general-purpose" },
+    });
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "agent-dup-1",
+      content: "done",
+      is_error: false,
+    });
   });
 });
 

@@ -203,6 +203,16 @@ pub async fn route_events(
                             // emit from ContentBlockStop once all InputJsonDelta
                             // fragments have been accumulated.
                             if let Some(idx) = index {
+                                // Emit early visibility event for Agent tools so the
+                                // UI can show a placeholder immediately (before the
+                                // full input JSON is streamed).
+                                if name == "Agent" {
+                                    let fe = FrontendEvent::AgentPreparing {
+                                        session_id: session_id.clone(),
+                                        tool_use_id: id.clone(),
+                                    };
+                                    let _ = app_handle.emit(&activity_event, &fe);
+                                }
                                 pending_tools.insert(idx, PendingToolBlock {
                                     id,
                                     name,
