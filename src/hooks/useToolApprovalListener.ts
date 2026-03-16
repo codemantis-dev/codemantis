@@ -95,6 +95,19 @@ export function useToolApprovalListener(): void {
       // Auto-approve if user previously clicked "Always allow" for this tool in this session
       if (activityStore.isToolAlwaysAllowed(forgeSessionId, toolName)) {
         console.log("[approval] Auto-approving always-allowed tool:", toolName, "for session:", forgeSessionId);
+        activityStore.addEntry(forgeSessionId, {
+          id: `auto-${requestId}`,
+          toolUseId: requestId,
+          toolName,
+          toolInput,
+          status: "running",
+          result: "Auto-approved (always allowed)",
+          timestamp: new Date().toISOString(),
+          messageId: "",
+          isError: false,
+          approvalStatus: "approved",
+          approvalTimestamp: new Date().toISOString(),
+        });
         resolveToolApproval(requestId, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
         );

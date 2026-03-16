@@ -132,6 +132,7 @@ pub fn run() {
             commands::scaffold::list_templates,
             commands::scaffold::scaffold_from_template,
             commands::scaffold::scaffold_from_cli,
+            commands::scaffold::verify_template,
             commands::preview::open_preview_window,
             commands::preview::close_preview_window,
             commands::preview::navigate_preview,

@@ -1,0 +1,48 @@
+name: Verify Templates
+
+on:
+  schedule:
+    # Run weekly on Mondays at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      template_id:
+        description: 'Specific template ID to verify (leave empty for all)'
+        required: false
+        type: string
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Install uv (for Python templates)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Enable Corepack (for Yarn templates)
+        run: corepack enable
+
+      - name: Verify templates
+        env:
+          SKIP_DEV_CHECK: '1'
+        run: |
+          chmod +x scripts/verify-templates.sh
+          if [ -n "${{ inputs.template_id }}" ]; then
+            ./scripts/verify-templates.sh "${{ inputs.template_id }}"
+          else
+            ./scripts/verify-templates.sh
+          fi

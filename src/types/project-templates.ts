@@ -67,6 +67,15 @@ export interface ScaffoldResult {
   warnings: string[];
 }
 
+export interface VerifyResult {
+  template_id: string;
+  success: boolean;
+  duration_ms: number;
+  step_failed?: string;
+  error?: string;
+  warnings: string[];
+}
+
 /** Steps displayed in the progress UI for git-clone scaffolds */
 export const GIT_CLONE_STEPS: readonly { step: ScaffoldStepName; label: string }[] = [
   { step: "validate", label: "Validating environment" },

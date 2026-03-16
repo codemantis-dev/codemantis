@@ -9,7 +9,7 @@ import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
-import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent } from "../types/project-templates";
+import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult } from "../types/project-templates";
 
 // --- Startup ---
 
@@ -452,6 +452,12 @@ export async function scaffoldFromCli(
     projectName,
     postCommands,
   });
+}
+
+export async function verifyTemplate(
+  templateId: string
+): Promise<VerifyResult> {
+  return invoke<VerifyResult>("verify_template", { templateId });
 }
 
 export function listenScaffoldProgress(

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter, Manager};
+use tempfile::TempDir;
 use tokio::process::Command;
 
 // ── Types ──
@@ -51,6 +52,16 @@ pub struct ScaffoldResult {
     pub project_path: String,
     pub project_name: String,
     pub template_id: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VerifyResult {
+    pub template_id: String,
+    pub success: bool,
+    pub duration_ms: u64,
+    pub step_failed: Option<String>,
+    pub error: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -849,6 +860,202 @@ pub async fn scaffold_from_cli(
         project_path: target_dir.to_string_lossy().to_string(),
         project_name,
         template_id,
+        warnings,
+    })
+}
+
+// ── Template Verification ──
+
+#[tauri::command]
+pub async fn verify_template(
+    app_handle: AppHandle,
+    template_id: String,
+) -> Result<VerifyResult, String> {
+    let start = std::time::Instant::now();
+
+    let registry = load_bundled_registry(&app_handle)?;
+    let template = registry
+        .templates
+        .iter()
+        .find(|t| t.id == template_id)
+        .ok_or_else(|| format!("Template not found: {}", template_id))?
+        .clone();
+
+    let tmp_dir = TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let parent_dir = tmp_dir.path().to_path_buf();
+    let project_name = format!("verify-{}", template_id);
+    let target_dir = parent_dir.join(&project_name);
+
+    let mut warnings: Vec<String> = vec![];
+
+    // Check required CLI tools
+    let required = detect_required_tools(&template);
+    let missing: Vec<&String> = required
+        .iter()
+        .filter(|t| which::which(t).is_err())
+        .collect();
+    if !missing.is_empty() {
+        return Ok(VerifyResult {
+            template_id,
+            success: false,
+            duration_ms: start.elapsed().as_millis() as u64,
+            step_failed: Some("prerequisites".to_string()),
+            error: Some(format!(
+                "Missing tools: {}",
+                missing
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            warnings: vec![],
+        });
+    }
+
+    emit_progress(&app_handle, "verify_template", "in_progress", None);
+
+    // Step 1: Clone or generate
+    if template.scaffold_type == "git-clone" {
+        let output = run_command(
+            "git",
+            &[
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                &template.branch,
+                &template.repo_url,
+                target_dir.to_str().unwrap_or(""),
+            ],
+            &parent_dir,
+            120,
+        )
+        .await;
+
+        match output {
+            Err(e) => {
+                return Ok(VerifyResult {
+                    template_id,
+                    success: false,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    step_failed: Some("clone".to_string()),
+                    error: Some(e),
+                    warnings: vec![],
+                });
+            }
+            Ok(out) if !out.success => {
+                return Ok(VerifyResult {
+                    template_id,
+                    success: false,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    step_failed: Some("clone".to_string()),
+                    error: Some(out.error_msg("git clone failed")),
+                    warnings: vec![],
+                });
+            }
+            Ok(_) => {}
+        }
+    } else if template.scaffold_type == "cli" {
+        let cli_cmd = template
+            .cli_command
+            .as_ref()
+            .ok_or_else(|| "CLI template missing cli_command".to_string())?;
+
+        let resolved_cmd = cli_cmd.replace("{{PROJECT_NAME}}", &project_name);
+
+        let output = run_shell(&resolved_cmd, &parent_dir, 120).await;
+
+        match output {
+            Err(e) => {
+                return Ok(VerifyResult {
+                    template_id,
+                    success: false,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    step_failed: Some("generate".to_string()),
+                    error: Some(e),
+                    warnings: vec![],
+                });
+            }
+            Ok(out) if !out.success => {
+                return Ok(VerifyResult {
+                    template_id,
+                    success: false,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    step_failed: Some("generate".to_string()),
+                    error: Some(out.error_msg("CLI scaffold failed")),
+                    warnings: vec![],
+                });
+            }
+            Ok(_) => {}
+        }
+
+        if !target_dir.exists() {
+            return Ok(VerifyResult {
+                template_id,
+                success: false,
+                duration_ms: start.elapsed().as_millis() as u64,
+                step_failed: Some("generate".to_string()),
+                error: Some("CLI command did not create project directory".to_string()),
+                warnings: vec![],
+            });
+        }
+    } else {
+        return Ok(VerifyResult {
+            template_id,
+            success: false,
+            duration_ms: start.elapsed().as_millis() as u64,
+            step_failed: Some("prerequisites".to_string()),
+            error: Some(format!("Unknown scaffold_type: {}", template.scaffold_type)),
+            warnings: vec![],
+        });
+    }
+
+    // Step 2: Install dependencies
+    match run_shell(&template.install_command, &target_dir, 300).await {
+        Err(e) => {
+            warnings.push(format!("Install failed: {}", e));
+        }
+        Ok(out) if !out.success => {
+            warnings.push(format!(
+                "Install failed: {}",
+                out.error_msg(&template.install_command)
+            ));
+        }
+        Ok(_) => {}
+    }
+
+    // Step 3: Verify project structure
+    warnings.extend(verify_project(&target_dir, &template));
+
+    let success = warnings.is_empty();
+
+    emit_progress(
+        &app_handle,
+        "verify_template",
+        if success { "done" } else { "error" },
+        if success {
+            None
+        } else {
+            Some("Issues detected")
+        },
+    );
+
+    // tmp_dir auto-cleans on drop
+
+    Ok(VerifyResult {
+        template_id,
+        success,
+        duration_ms: start.elapsed().as_millis() as u64,
+        step_failed: if success {
+            None
+        } else {
+            Some("verify".to_string())
+        },
+        error: if success {
+            None
+        } else {
+            Some(warnings.join("; "))
+        },
         warnings,
     })
 }

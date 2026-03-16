@@ -216,12 +216,16 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
         state.currentApprovalIndex,
         Math.max(0, approvalQueue.length - 1)
       );
+      // Clear "always allow" decisions so /clear resets approval state
+      const alwaysAllowedTools = new Map(state.alwaysAllowedTools);
+      alwaysAllowedTools.delete(sessionId);
       return {
         sessionEntries,
         sessionQuestions,
         approvalQueue,
         approvalSeenIds,
         currentApprovalIndex,
+        alwaysAllowedTools,
       };
     }),
 
@@ -229,6 +233,7 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
     set({
       sessionEntries: new Map(),
       sessionQuestions: new Map(),
+      alwaysAllowedTools: new Map(),
       approvalQueue: [],
       approvalSeenIds: new Set<string>(),
       currentApprovalIndex: 0,

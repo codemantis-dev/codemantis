@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionStatus, ThinkingEffort } from "../types/session";
 import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
 import type { SubAgentInfo } from "../types/activity";
+import { useSettingsStore } from "./settingsStore";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -158,7 +159,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionStreaming = new Map(state.sessionStreaming);
       sessionStreaming.set(session.id, { ...DEFAULT_STREAMING });
       const sessionContext = new Map(state.sessionContext);
-      sessionContext.set(session.id, { ...DEFAULT_CONTEXT });
+      const defaultContextMax = useSettingsStore.getState().settings.defaultContextWindow;
+      sessionContext.set(session.id, { used: 0, max: defaultContextMax });
       const sessionStats = new Map(state.sessionStats);
       sessionStats.set(session.id, { ...DEFAULT_STATS });
       const sessionModes = new Map(state.sessionModes);
@@ -496,7 +498,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionStreaming = new Map(state.sessionStreaming);
       sessionStreaming.set(sessionId, { ...DEFAULT_STREAMING });
       const sessionContext = new Map(state.sessionContext);
-      sessionContext.set(sessionId, { ...DEFAULT_CONTEXT });
+      const defaultContextMax = useSettingsStore.getState().settings.defaultContextWindow;
+      sessionContext.set(sessionId, { used: 0, max: defaultContextMax });
       const sessionStats = new Map(state.sessionStats);
       sessionStats.set(sessionId, { ...DEFAULT_STATS });
       const sessionModes = new Map(state.sessionModes);

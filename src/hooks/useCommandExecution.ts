@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import type { SlashCommand } from "../types/slash-commands";
 import { useSessionStore } from "../stores/sessionStore";
+import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
 import { useClaudeSession } from "./useClaudeSession";
 import {
@@ -99,6 +100,7 @@ export function useCommandExecution(): {
     switch (command.name) {
       case "clear": {
         useSessionStore.getState().clearSessionData(sessionId);
+        useActivityStore.getState().clearEntries(sessionId);
         try {
           await pauseSessionProcess(sessionId);
           await resumeSessionProcess(sessionId);
