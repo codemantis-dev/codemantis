@@ -200,11 +200,15 @@ function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: 
   if (streaming?.isStreaming) {
     store.finalizeStreaming(sessionId);
   }
-  // Use dynamic context_window from modelUsage if available, then model lookup, then current stored max
+  // Use the LARGEST known context window — the CLI may report 200K for a [1m] model
   const storedCtx = store.sessionContext.get(sessionId);
-  const contextMax = event.context_window
-    ?? storedCtx?.max
-    ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
+  const settingsDefault = useSettingsStore.getState().settings.defaultContextWindow;
+  const modelMax = getContextWindowForModel(store.sessions.get(sessionId)?.model, settingsDefault);
+  const contextMax = Math.max(
+    event.context_window ?? 0,
+    storedCtx?.max ?? 0,
+    modelMax,
+  );
 
   if (event.usage) {
     const totalInput =
@@ -420,9 +424,13 @@ function handleUsageUpdate(sessionId: string, event: UsageUpdateEvent, store: Se
     (event.usage.cache_read_input_tokens ?? 0) +
     (event.usage.output_tokens ?? 0);
   if (callContext > 0) {
-    // Use current max (may have been updated by session_init, model_changed, or turn_complete)
-    const currentMax = store.sessionContext.get(sessionId)?.max
-      ?? getContextWindowForModel(store.sessions.get(sessionId)?.model);
+    // Use the largest known max — protects against CLI under-reporting for [1m] models
+    const settingsDefaultForUsage = useSettingsStore.getState().settings.defaultContextWindow;
+    const modelMaxForUsage = getContextWindowForModel(store.sessions.get(sessionId)?.model, settingsDefaultForUsage);
+    const currentMax = Math.max(
+      store.sessionContext.get(sessionId)?.max ?? 0,
+      modelMaxForUsage,
+    );
     store.updateContext(sessionId, callContext, currentMax);
     checkContextThresholds(sessionId);
   }

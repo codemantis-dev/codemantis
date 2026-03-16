@@ -95,7 +95,7 @@ export default function FileTreeContextMenu({
   const [assistantExpanded, setAssistantExpanded] = useState(false);
 
   const menuWidth = 220;
-  const menuHeight = node ? (node.is_dir ? 420 : 540) : 160;
+  const menuHeight = node ? (node.is_dir ? 420 : 605) : 160;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -308,6 +308,9 @@ export default function FileTreeContextMenu({
       className="fixed z-50 border border-border rounded-lg shadow-lg py-1"
       style={{ background: "var(--bg-primary)", left: clampedX, top: clampedY, minWidth: menuWidth }}
     >
+      <MenuItem icon={FilePlus} label="New File" onClick={() => handleNewFile(node.path.substring(0, node.path.lastIndexOf("/")))} />
+      <MenuItem icon={FolderPlus} label="New Folder" onClick={() => handleNewFolder(node.path.substring(0, node.path.lastIndexOf("/")))} />
+      <Separator />
       <MenuItem icon={Paperclip} label="Add to Main Chat" onClick={handleAddToChat} />
       {/* Add to Assistant - inline expandable */}
       <button

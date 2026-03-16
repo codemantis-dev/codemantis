@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { GitBranch, FileEdit, Clock, Upload } from "lucide-react";
 import type { GitStatusInfo } from "../../types/git";
 
@@ -23,6 +24,13 @@ interface Props {
 }
 
 export default function GitStatusCard({ gitStatus }: Props) {
+  // Force re-render every 30s so relativeTime() re-evaluates
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   if (!gitStatus.is_git_repo) return null;
 
   return (

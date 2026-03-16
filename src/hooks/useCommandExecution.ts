@@ -7,6 +7,7 @@ import {
   expandSkill,
   pauseSessionProcess,
   resumeSessionProcess,
+  sendMessage as sendMessageCmd,
 } from "../lib/tauri-commands";
 import { showToast } from "../stores/toastStore";
 
@@ -149,6 +150,17 @@ export function useCommandExecution(): {
         break;
       }
 
+      case "compact": {
+        addSystemMessage(sessionId, "Compacting conversation context...");
+        try {
+          await sendMessageCmd(sessionId, "/compact");
+        } catch (e) {
+          console.error("[command] Failed to compact:", e);
+          showToast("Failed to compact conversation", "error");
+        }
+        break;
+      }
+
       case "exit":
         await closeSession(sessionId);
         break;
@@ -197,6 +209,7 @@ function formatHelpMessage(): string {
     "",
     "**Built-in** (instant, no process restart):",
     "- `/clear` — Clear conversation and restart",
+    "- `/compact` — Compact conversation context",
     "- `/context` — Show context window usage",
     "- `/cost` — Show session cost and stats",
     "- `/exit` — Close current session",
@@ -204,7 +217,7 @@ function formatHelpMessage(): string {
     "- `/rename <name>` — Rename session",
     "",
     "**Opens CLI** (interactive terminal):",
-    "- `/config`, `/doctor`, `/model`, `/compact`, `/mcp`, `/hooks`, `/theme`, etc.",
+    "- `/config`, `/doctor`, `/model`, `/mcp`, `/hooks`, `/theme`, etc.",
     "",
     "**Tip:** Press `Cmd+/` to open the command palette.",
   ].join("\n");

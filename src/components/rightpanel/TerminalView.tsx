@@ -6,6 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { listenTerminalOutput, sendTerminalInput } from "../../lib/tauri-commands";
 import { useTerminal } from "../../hooks/useTerminal";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useUiStore } from "../../stores/uiStore";
 import { getXtermTheme } from "../../lib/editor-themes";
 import "@xterm/xterm/css/xterm.css";
 
@@ -53,11 +54,18 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Input handler
+    // Input handler — debounced refresh on Enter so git status / file tree update
+    let refreshTimeout: ReturnType<typeof setTimeout>;
     terminal.onData((data) => {
       sendTerminalInput(terminalId, data).catch((e) =>
         console.error("Failed to send input:", e)
       );
+      if (data === "\r") {
+        clearTimeout(refreshTimeout);
+        refreshTimeout = setTimeout(() => {
+          useUiStore.getState().triggerFileTreeRefresh();
+        }, 2_000);
+      }
     });
 
     // Listen for output
@@ -100,6 +108,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
       cancelled = true;
       observer.disconnect();
       clearTimeout(resizeTimeout);
+      clearTimeout(refreshTimeout);
       if (unlistenFn) unlistenFn();
       terminal.dispose();
       terminalRef.current = null;

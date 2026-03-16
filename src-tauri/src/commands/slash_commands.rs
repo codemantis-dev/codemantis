@@ -206,6 +206,7 @@ async fn scan_skills_dir(dir: &Path, seen: &mut std::collections::HashSet<String
 fn builtin_commands() -> Vec<SlashCommand> {
     let builtins = [
         ("clear", "Clear conversation and restart session"),
+        ("compact", "Compact conversation context"),
         ("cost", "Show session cost and token stats"),
         ("context", "Show context window usage"),
         ("exit", "Close current session"),
@@ -236,7 +237,6 @@ fn cli_only_commands() -> Vec<SlashCommand> {
         ("add-dir", "Add a directory to context"),
         ("agents", "Manage agent configurations"),
         ("chrome", "Open Chrome DevTools"),
-        ("compact", "Compact conversation context"),
         ("config", "Configure Claude Code preferences"),
         ("copy", "Copy last response to clipboard"),
         ("desktop", "Open desktop integration"),

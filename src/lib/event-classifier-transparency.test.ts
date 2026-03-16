@@ -464,17 +464,18 @@ describe("Transparency: Dynamic Context Window from modelUsage", () => {
 
   it("turn_complete with context_window updates max from modelUsage", () => {
     // No usage_update → fallback path sets context
+    // context_window must exceed the 200K fallback to win Math.max
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 3000,
       usage: { input_tokens: 8000, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       cost_usd: 0.02,
-      context_window: 128000,  // Different model (e.g., Sonnet)
+      context_window: 256000,  // Larger than 200K fallback
       max_output_tokens: 16000,
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    expect(ctx?.max).toBe(128000);
+    expect(ctx?.max).toBe(256000);
     // used = (totalInput+totalOutput) / apiCalls — exact value depends on
     // module-level turnToolCallCount which can't be reset between tests,
     // so just verify it's a positive number derived from the 10000 total.
@@ -491,41 +492,40 @@ describe("Transparency: Dynamic Context Window from modelUsage", () => {
     });
     expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.max).toBe(200000);
 
-    // turn_complete with real context_window from modelUsage
+    // turn_complete with context_window larger than 200K fallback
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 2000,
       usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: null, cache_read_input_tokens: null },
       cost_usd: 0.01,
-      context_window: 128000,
+      context_window: 256000,
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    // max should be updated to 128000, used should stay at 5500 (from usage_update)
-    expect(ctx?.max).toBe(128000);
+    // max should be updated to 256000, used should stay at 5500 (from usage_update)
+    expect(ctx?.max).toBe(256000);
     expect(ctx?.used).toBe(5500);
   });
 
   it("usage_update preserves current max from previous turn_complete", () => {
-    // First turn sets max to 128000
+    // First turn sets max to 256000 (must exceed 200K fallback)
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 1000,
       usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       cost_usd: 0.001,
-      context_window: 128000,
+      context_window: 256000,
     });
 
-    // Reset apiCallCount for next turn
-    // Next turn: usage_update should use the 128000 max
+    // Next turn: usage_update should preserve the 256000 max
     handleChatEvent(SESSION_ID, {
       type: "usage_update",
       session_id: SESSION_ID,
       usage: { input_tokens: 3000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    expect(ctx?.max).toBe(128000);
+    expect(ctx?.max).toBe(256000);
     expect(ctx?.used).toBe(3200);
   });
 

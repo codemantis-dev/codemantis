@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import { useFileViewer } from "../../hooks/useFileViewer";
@@ -29,6 +29,10 @@ const extensionColors: Record<string, string> = {
 export interface NewItemState {
   parentPath: string;
   type: "file" | "folder";
+}
+
+export interface FileTreeHandle {
+  openContextMenu(x: number, y: number): void;
 }
 
 interface FileTreeNodeProps {
@@ -331,7 +335,10 @@ function FileTreeNode({
   );
 }
 
-export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: FileTreeProps) {
+const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree(
+  { nodes, depth = 0, projectPath, onRefresh },
+  ref,
+) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -341,6 +348,13 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
   const [newItemState, setNewItemState] = useState<NewItemState | null>(null);
   // null = no override (use local state), true/false = expand/collapse all
   const [expandOverride, setExpandOverride] = useState<boolean | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    openContextMenu(x: number, y: number) {
+      setNewItemState(null);
+      setContextMenu({ x, y, node: null });
+    },
+  }));
 
   function handleContextMenu(x: number, y: number, node: FileNode) {
     setNewItemState(null); // Cancel any in-progress new item
@@ -410,4 +424,6 @@ export default function FileTree({ nodes, depth = 0, projectPath, onRefresh }: F
       )}
     </div>
   );
-}
+});
+
+export default FileTree;

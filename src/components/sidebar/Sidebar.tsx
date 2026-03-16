@@ -1,13 +1,15 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { FolderTree, RefreshCw } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileTree } from "../../hooks/useFileTree";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import FileTree from "./FileTree";
+import type { FileTreeHandle } from "./FileTree";
 import GitStatusCard from "./GitStatusCard";
 import ContextMeter from "../shared/ContextMeter";
 import { getContextWindowForModel } from "../../lib/model-context";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 export default function Sidebar() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -16,7 +18,8 @@ export default function Sidebar() {
   const sessionStats = useSessionStore((s) => s.sessionStats);
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-  const defaultMax = getContextWindowForModel(session?.model);
+  const settingsDefault = useSettingsStore.getState().settings.defaultContextWindow;
+  const defaultMax = getContextWindowForModel(session?.model, settingsDefault);
   const context = activeSessionId
     ? sessionContext.get(activeSessionId) ?? { used: 0, max: defaultMax }
     : { used: 0, max: defaultMax };
@@ -24,6 +27,7 @@ export default function Sidebar() {
     ? sessionStats.get(activeSessionId) ?? undefined
     : undefined;
 
+  const fileTreeRef = useRef<FileTreeHandle>(null);
   const fileTreeRefreshTrigger = useUiStore((s) => s.fileTreeRefreshTrigger);
   const { files, loading, refresh } = useFileTree();
   const { gitStatus, refresh: refreshGit } = useGitStatus(session?.project_path ?? null);
@@ -50,7 +54,13 @@ export default function Sidebar() {
   return (
     <div className="h-full flex flex-col" style={{ background: "var(--bg-subtle)" }}>
       {/* Tab header */}
-      <div className="h-9 flex items-center justify-between px-3 border-b border-border-light shrink-0">
+      <div
+        className="h-9 flex items-center justify-between px-3 border-b border-border-light shrink-0"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          fileTreeRef.current?.openContextMenu(e.clientX, e.clientY);
+        }}
+      >
         <div className="flex items-center gap-1.5 text-text-secondary">
           <FolderTree size={13} />
           <span className="text-ui font-medium">Files</span>
@@ -84,7 +94,7 @@ export default function Sidebar() {
           </div>
         )}
         {files.length > 0 && session && (
-          <FileTree nodes={files} projectPath={session.project_path} onRefresh={doRefresh} />
+          <FileTree ref={fileTreeRef} nodes={files} projectPath={session.project_path} onRefresh={doRefresh} />
         )}
       </div>
 
