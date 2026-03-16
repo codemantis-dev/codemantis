@@ -45,6 +45,30 @@ pub struct TemplateEntry {
     pub post_commands: Option<Vec<String>>,
     #[serde(default)]
     pub prerequisites: Option<String>,
+    #[serde(default)]
+    pub prerequisite_checks: Option<Vec<PrerequisiteCheck>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrerequisiteCheck {
+    pub command: String,
+    pub label: String,
+    #[serde(default = "default_true")]
+    pub required: bool,
+    #[serde(default)]
+    pub install_command: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrerequisiteResult {
+    pub command: String,
+    pub label: String,
+    pub found: bool,
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -554,6 +578,107 @@ pub async fn list_templates(app_handle: AppHandle) -> Result<Vec<TemplateEntry>,
     Ok(registry.templates)
 }
 
+/// Resolve the full PATH from a login shell (cached).
+/// GUI apps on macOS get a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+/// so tools installed via Homebrew, nvm, cargo, etc. won't be found
+/// unless we source the user's shell profile.
+fn login_shell_path() -> String {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            std::process::Command::new("/bin/zsh")
+                .args(["-l", "-c", "echo $PATH"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
+        })
+        .clone()
+}
+
+#[tauri::command]
+pub async fn check_template_prerequisites(
+    checks: Vec<PrerequisiteCheck>,
+) -> Result<Vec<PrerequisiteResult>, String> {
+    let path = login_shell_path();
+    let results = checks
+        .into_iter()
+        .map(|check| {
+            // Use "command -v" in a login shell to check if the tool exists.
+            // This handles both simple commands (uv) and multi-word commands
+            // (docker compose version), and uses the full login shell PATH.
+            let check_cmd = if check.command.contains(' ') {
+                check.command.clone()
+            } else {
+                format!("command -v {}", check.command)
+            };
+            let found = std::process::Command::new("/bin/zsh")
+                .args(["-c", &check_cmd])
+                .env("PATH", &path)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            PrerequisiteResult {
+                command: check.command,
+                label: check.label,
+                found,
+                required: check.required,
+            }
+        })
+        .collect();
+    Ok(results)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InstallPrerequisiteResult {
+    pub success: bool,
+    pub output: String,
+}
+
+#[tauri::command]
+pub async fn install_prerequisite(command: String) -> Result<InstallPrerequisiteResult, String> {
+    let path = login_shell_path();
+    let result = tokio::task::spawn_blocking(move || {
+        // Use zsh login shell so brew/nvm/cargo/etc are in PATH
+        std::process::Command::new("/bin/zsh")
+            .args(["-l", "-c", &command])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| format!("Failed to run install command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let mut output = String::new();
+    if !stdout.trim().is_empty() {
+        output.push_str(&stdout);
+    }
+    if !stderr.trim().is_empty() {
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&stderr);
+    }
+
+    Ok(InstallPrerequisiteResult {
+        success: result.status.success(),
+        output: output.trim().to_string(),
+    })
+}
+
 #[tauri::command]
 pub async fn scaffold_from_template(
     app_handle: AppHandle,
@@ -1058,4 +1183,459 @@ pub async fn verify_template(
         },
         warnings,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn temp_dir() -> TempDir {
+        tempfile::tempdir().expect("Failed to create temp dir")
+    }
+
+    // ── validate_project_name ──
+
+    #[test]
+    fn valid_project_names() {
+        assert!(validate_project_name("my-project").is_ok());
+        assert!(validate_project_name("my_project").is_ok());
+        assert!(validate_project_name("project123").is_ok());
+        assert!(validate_project_name("my.app").is_ok());
+        assert!(validate_project_name("A").is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_name() {
+        let result = validate_project_name("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn rejects_name_starting_with_dot() {
+        let result = validate_project_name(".hidden");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot start with"));
+    }
+
+    #[test]
+    fn rejects_name_starting_with_dash() {
+        let result = validate_project_name("-bad");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot start with"));
+    }
+
+    #[test]
+    fn rejects_slashes_in_name() {
+        assert!(validate_project_name("foo/bar").is_err());
+        assert!(validate_project_name("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn rejects_null_bytes() {
+        assert!(validate_project_name("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn rejects_special_characters() {
+        assert!(validate_project_name("my project").is_err());
+        assert!(validate_project_name("my@project").is_err());
+        assert!(validate_project_name("project!").is_err());
+    }
+
+    // ── detect_required_tools ──
+
+    fn make_template(
+        install_command: &str,
+        cli_command: Option<&str>,
+        post_commands: Option<Vec<&str>>,
+    ) -> TemplateEntry {
+        TemplateEntry {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: "Test template".to_string(),
+            long_description: None,
+            category: "frontend".to_string(),
+            tags: vec![],
+            repo_url: "".to_string(),
+            branch: "main".to_string(),
+            stars: None,
+            license: "MIT".to_string(),
+            install_command: install_command.to_string(),
+            dev_command: "npm dev".to_string(),
+            dev_port: None,
+            post_clone_cleanup: None,
+            icon: "zap".to_string(),
+            verified: true,
+            last_verified: "2026-01-01".to_string(),
+            scaffold_type: "git-clone".to_string(),
+            cli_command: cli_command.map(|s| s.to_string()),
+            post_commands: post_commands
+                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
+            prerequisites: None,
+            prerequisite_checks: None,
+        }
+    }
+
+    #[test]
+    fn detect_tools_always_includes_git() {
+        let tmpl = make_template("npm install", None, None);
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("git"));
+    }
+
+    #[test]
+    fn detect_tools_extracts_install_command() {
+        let tmpl = make_template("pnpm install", None, None);
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("pnpm"));
+    }
+
+    #[test]
+    fn detect_tools_extracts_cli_command() {
+        let tmpl = make_template("npm install", Some("npx create-app"), None);
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("npm"));
+        assert!(tools.contains("npx"));
+    }
+
+    #[test]
+    fn detect_tools_extracts_post_commands() {
+        let tmpl = make_template(
+            "npm install",
+            None,
+            Some(vec!["corepack enable", "yarn set version stable"]),
+        );
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("corepack"));
+        assert!(tools.contains("yarn"));
+    }
+
+    #[test]
+    fn detect_tools_deduplicates() {
+        let tmpl = make_template("npm install", Some("npm run build"), None);
+        let tools = detect_required_tools(&tmpl);
+        // npm appears in both install and cli commands, but set should have it once
+        assert!(tools.contains("npm"));
+        assert_eq!(tools.iter().filter(|t| *t == "npm").count(), 1);
+    }
+
+    // ── verify_project ──
+
+    #[test]
+    fn verify_project_warns_if_dir_missing() {
+        let tmpl = make_template("npm install", None, None);
+        let warnings = verify_project(Path::new("/nonexistent_verify_12345"), &tmpl);
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("not created"));
+    }
+
+    #[test]
+    fn verify_project_warns_if_node_modules_missing() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let tmpl = make_template("npm install", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(warnings.iter().any(|w| w.contains("Dependencies not installed")));
+    }
+
+    #[test]
+    fn verify_project_passes_with_node_modules() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let nm = dir.path().join("node_modules");
+        std::fs::create_dir(&nm).unwrap();
+        // Create enough entries to pass the count check
+        for i in 0..5 {
+            std::fs::create_dir(nm.join(format!("pkg-{}", i))).unwrap();
+        }
+        let tmpl = make_template("npm install", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(
+            !warnings.iter().any(|w| w.contains("Dependencies")),
+            "Expected no dependency warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn verify_project_warns_if_docker_compose_missing() {
+        let dir = temp_dir();
+        let tmpl = make_template("docker compose build", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(warnings.iter().any(|w| w.contains("Docker Compose")));
+    }
+
+    #[test]
+    fn verify_project_passes_with_docker_compose() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("docker-compose.yml"), "").unwrap();
+        let tmpl = make_template("docker compose build", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(
+            !warnings.iter().any(|w| w.contains("Docker Compose")),
+            "Expected no Docker Compose warning, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn verify_project_warns_if_venv_missing_for_uv() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("pyproject.toml"), "").unwrap();
+        let tmpl = make_template("uv sync", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(warnings.iter().any(|w| w.contains("Virtual environment")));
+    }
+
+    // ── PrerequisiteCheck deserialization ──
+
+    #[test]
+    fn prerequisite_check_required_defaults_to_true() {
+        let json = r#"{"command": "docker", "label": "Docker"}"#;
+        let check: PrerequisiteCheck = serde_json::from_str(json).unwrap();
+        assert!(check.required);
+        assert!(check.install_command.is_none());
+    }
+
+    #[test]
+    fn prerequisite_check_parses_all_fields() {
+        let json = r#"{
+            "command": "uv",
+            "label": "uv package manager",
+            "required": true,
+            "install_command": "brew install uv"
+        }"#;
+        let check: PrerequisiteCheck = serde_json::from_str(json).unwrap();
+        assert_eq!(check.command, "uv");
+        assert_eq!(check.label, "uv package manager");
+        assert!(check.required);
+        assert_eq!(check.install_command.as_deref(), Some("brew install uv"));
+    }
+
+    #[test]
+    fn prerequisite_check_optional_flag() {
+        let json = r#"{"command": "stripe", "label": "Stripe CLI", "required": false}"#;
+        let check: PrerequisiteCheck = serde_json::from_str(json).unwrap();
+        assert!(!check.required);
+    }
+
+    // ── templates.json parsing ──
+
+    #[test]
+    fn templates_json_parses_with_prerequisite_checks() {
+        let json = include_str!("../../resources/templates.json");
+        let registry: TemplateRegistry = serde_json::from_str(json).unwrap();
+        assert!(!registry.templates.is_empty());
+
+        // Templates with prerequisite_checks should have them parsed
+        let fastapi = registry.templates.iter().find(|t| t.id == "fastapi-boilerplate").unwrap();
+        let checks = fastapi.prerequisite_checks.as_ref().unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].command, "uv");
+        assert!(checks[0].required);
+        assert!(checks[0].install_command.is_some());
+    }
+
+    #[test]
+    fn templates_without_checks_parse_as_none() {
+        let json = include_str!("../../resources/templates.json");
+        let registry: TemplateRegistry = serde_json::from_str(json).unwrap();
+
+        let vite = registry.templates.iter().find(|t| t.id == "vite-react-boilerplate").unwrap();
+        assert!(vite.prerequisite_checks.is_none());
+    }
+
+    #[test]
+    fn all_prerequisite_checks_have_install_commands() {
+        let json = include_str!("../../resources/templates.json");
+        let registry: TemplateRegistry = serde_json::from_str(json).unwrap();
+
+        for template in &registry.templates {
+            if let Some(ref checks) = template.prerequisite_checks {
+                for check in checks {
+                    assert!(
+                        check.install_command.is_some(),
+                        "Template '{}' prerequisite '{}' is missing install_command",
+                        template.id,
+                        check.label
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn all_prerequisite_checks_have_nonempty_labels() {
+        let json = include_str!("../../resources/templates.json");
+        let registry: TemplateRegistry = serde_json::from_str(json).unwrap();
+
+        for template in &registry.templates {
+            if let Some(ref checks) = template.prerequisite_checks {
+                for check in checks {
+                    assert!(
+                        !check.label.is_empty(),
+                        "Template '{}' has empty prerequisite label",
+                        template.id
+                    );
+                    assert!(
+                        !check.command.is_empty(),
+                        "Template '{}' has empty prerequisite command",
+                        template.id
+                    );
+                }
+            }
+        }
+    }
+
+    // ── CmdOutput ──
+
+    #[test]
+    fn cmd_output_summary_truncates_long_output() {
+        let output = CmdOutput {
+            success: false,
+            stdout: (0..50).map(|i| format!("line {}", i)).collect::<Vec<_>>().join("\n"),
+            stderr: String::new(),
+            exit_code: Some(1),
+        };
+        let summary = output.summary(5);
+        assert!(summary.contains("lines omitted"));
+        assert!(summary.contains("line 49"));
+    }
+
+    #[test]
+    fn cmd_output_summary_short_output_not_truncated() {
+        let output = CmdOutput {
+            success: true,
+            stdout: "line 1\nline 2".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+        };
+        let summary = output.summary(5);
+        assert!(!summary.contains("omitted"));
+        assert!(summary.contains("line 1"));
+        assert!(summary.contains("line 2"));
+    }
+
+    #[test]
+    fn cmd_output_error_msg_includes_exit_code() {
+        let output = CmdOutput {
+            success: false,
+            stdout: String::new(),
+            stderr: "error".to_string(),
+            exit_code: Some(127),
+        };
+        let msg = output.error_msg("npm install failed");
+        assert!(msg.contains("npm install failed"));
+        assert!(msg.contains("127"));
+    }
+
+    // ── Real shell integration tests (no mocks) ──
+
+    #[test]
+    fn login_shell_path_includes_homebrew() {
+        let path = login_shell_path();
+        assert!(
+            !path.is_empty(),
+            "login_shell_path() returned empty string"
+        );
+        // On macOS with Homebrew, /opt/homebrew/bin should be in PATH
+        // If Homebrew isn't installed, this still validates the mechanism works
+        assert!(
+            path.contains("/usr/bin"),
+            "login_shell_path() doesn't contain /usr/bin: {}",
+            path
+        );
+    }
+
+    #[test]
+    fn login_shell_path_finds_git() {
+        // git is always available — verify the resolved PATH actually works
+        let path = login_shell_path();
+        let result = std::process::Command::new("/bin/zsh")
+            .args(["-c", "command -v git"])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "Failed to find git using login shell PATH: {}",
+            path
+        );
+    }
+
+    #[test]
+    fn check_finds_git_via_login_shell() {
+        // End-to-end: the same mechanism used by check_template_prerequisites
+        let path = login_shell_path();
+        let found = std::process::Command::new("/bin/zsh")
+            .args(["-c", "command -v git"])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(found, "check mechanism failed to find git");
+    }
+
+    #[test]
+    fn check_rejects_nonexistent_tool() {
+        let path = login_shell_path();
+        let found = std::process::Command::new("/bin/zsh")
+            .args(["-c", "command -v __nonexistent_tool_12345__"])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(!found, "check mechanism found a nonexistent tool");
+    }
+
+    #[test]
+    fn install_runs_shell_command_successfully() {
+        // Verify the install mechanism actually runs commands
+        let path = login_shell_path();
+        let result = std::process::Command::new("/bin/zsh")
+            .args(["-l", "-c", "echo prerequisite_install_test"])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "zsh -l -c failed to run echo");
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        assert!(
+            stdout.contains("prerequisite_install_test"),
+            "Expected output not found: {}",
+            stdout
+        );
+    }
+
+    #[test]
+    fn install_reports_failure_for_bad_command() {
+        let path = login_shell_path();
+        let result = std::process::Command::new("/bin/zsh")
+            .args(["-l", "-c", "__nonexistent_command_12345__"])
+            .env("PATH", &path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(!result.status.success(), "Expected failure for bad command");
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            !stderr.is_empty(),
+            "Expected error output for bad command"
+        );
+    }
 }

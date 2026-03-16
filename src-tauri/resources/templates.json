@@ -100,7 +100,11 @@
       "last_verified": "2026-03-14",
       "scaffold_type": "cli",
       "cli_command": "npx next-forge@latest init --name {{PROJECT_NAME}} --package-manager pnpm --disable-git",
-      "prerequisites": "Requires Mintlify CLI and Stripe CLI for full functionality"
+      "prerequisites": "Requires Mintlify CLI and Stripe CLI for full functionality",
+      "prerequisite_checks": [
+        { "command": "mintlify", "label": "Mintlify CLI", "required": false, "install_command": "npm install -g mintlify" },
+        { "command": "stripe", "label": "Stripe CLI", "required": false, "install_command": "brew install stripe/stripe-cli/stripe" }
+      ]
     },
     {
       "id": "fastapi-fullstack",
@@ -120,7 +124,11 @@
       "verified": true,
       "last_verified": "2026-03-10",
       "scaffold_type": "git-clone",
-      "prerequisites": "Requires Docker and Docker Compose"
+      "prerequisites": "Requires Docker and Docker Compose",
+      "prerequisite_checks": [
+        { "command": "docker", "label": "Docker", "required": true, "install_command": "brew install --cask docker" },
+        { "command": "docker compose version", "label": "Docker Compose", "required": true, "install_command": "brew install --cask docker" }
+      ]
     },
     {
       "id": "fastapi-boilerplate",
@@ -140,7 +148,10 @@
       "verified": true,
       "last_verified": "2026-03-10",
       "scaffold_type": "git-clone",
-      "prerequisites": "Requires uv package manager (install: curl -LsSf https://astral.sh/uv/install.sh | sh)"
+      "prerequisites": "Requires uv package manager (install: curl -LsSf https://astral.sh/uv/install.sh | sh)",
+      "prerequisite_checks": [
+        { "command": "uv", "label": "uv package manager", "required": true, "install_command": "brew install uv" }
+      ]
     },
     {
       "id": "astro-starter",
@@ -198,7 +209,10 @@
       "verified": true,
       "last_verified": "2026-03-14",
       "scaffold_type": "git-clone",
-      "prerequisites": "Requires Node.js with Corepack (ships with Node 16+)"
+      "prerequisites": "Requires Node.js with Corepack (ships with Node 16+)",
+      "prerequisite_checks": [
+        { "command": "corepack", "label": "Corepack", "required": true, "install_command": "corepack enable" }
+      ]
     },
     {
       "id": "fumadocs",

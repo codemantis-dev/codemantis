@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, ExternalLink, Check, X, RefreshCw, Download, Loader2 } from "lucide-react";
 import {
   Zap, Component, Triangle, CreditCard, FolderTree,
   Server, Database, Rocket, Smartphone, Globe,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { TemplateEntry } from "../../types/project-templates";
+import type { TemplateEntry, PrerequisiteResult } from "../../types/project-templates";
+import { checkTemplatePrerequisites, installPrerequisite } from "../../lib/tauri-commands";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   zap: Zap,
@@ -47,8 +48,53 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
   const [projectName, setProjectName] = useState(slugify(template.name));
   const [parentDir, setParentDir] = useState(getLastScaffoldDir);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [prereqResults, setPrereqResults] = useState<PrerequisiteResult[] | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const Icon = ICON_MAP[template.icon] ?? Zap;
+
+  const runChecks = useCallback(() => {
+    if (!template.prerequisite_checks?.length) return;
+    setChecking(true);
+    checkTemplatePrerequisites(template.prerequisite_checks)
+      .then(setPrereqResults)
+      .catch(() => setPrereqResults(null))
+      .finally(() => setChecking(false));
+  }, [template.id]);
+
+  // Check prerequisites on mount
+  useEffect(() => { runChecks(); }, [runChecks]);
+
+  const hasRequiredMissing = prereqResults?.some((r) => r.required && !r.found) ?? false;
+  const hasMissing = prereqResults?.some((r) => !r.found) ?? false;
+
+  // Find the install_command for a given prerequisite from template data
+  const getInstallCommand = (command: string): string | undefined =>
+    template.prerequisite_checks?.find((c) => c.command === command)?.install_command;
+
+  const handleInstall = async (prereqCommand: string) => {
+    const installCmd = getInstallCommand(prereqCommand);
+    if (!installCmd) return;
+
+    setInstalling(prereqCommand);
+    setInstallError(null);
+
+    try {
+      const result = await installPrerequisite(installCmd);
+      if (result.success) {
+        // Re-check all prerequisites after successful install
+        runChecks();
+      } else {
+        setInstallError(result.output || `Failed to install: ${installCmd}`);
+      }
+    } catch (e) {
+      setInstallError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstalling(null);
+    }
+  };
 
   const handlePickDir = async () => {
     const selected = await openDialog({
@@ -85,7 +131,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
     onUseTemplate(template, parentDir, trimmed);
   };
 
-  const canSubmit = projectName.trim() && parentDir && !nameError;
+  const canSubmit = projectName.trim() && parentDir && !nameError && !hasRequiredMissing;
 
   return (
     <div className="flex flex-col h-full">
@@ -136,10 +182,64 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
         {template.long_description ?? template.description}
       </p>
 
-      {/* Prerequisites warning */}
-      {template.prerequisites && (
-        <div className="px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-200/80 text-label mb-4">
-          {template.prerequisites}
+      {/* Prerequisite checks */}
+      {prereqResults && prereqResults.length > 0 && (
+        <div className="rounded-lg border border-border bg-bg-elevated px-3 py-2.5 mb-4 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-label text-text-dim">Prerequisites</span>
+            {hasMissing && (
+              <button
+                onClick={runChecks}
+                disabled={checking}
+                title="Re-check prerequisites"
+                className="flex items-center gap-1 text-[10px] text-text-dim hover:text-text-secondary transition-colors"
+              >
+                <RefreshCw size={10} className={checking ? "animate-spin" : ""} />
+                Re-check
+              </button>
+            )}
+          </div>
+          {prereqResults.map((r) => (
+            <div key={r.command} className="flex items-center gap-2 text-label">
+              {r.found ? (
+                <Check size={13} className="text-green shrink-0" />
+              ) : (
+                <X size={13} className={`shrink-0 ${r.required ? "text-red" : "text-text-dim"}`} />
+              )}
+              <span className={r.found ? "text-text-secondary" : r.required ? "text-red" : "text-text-dim"}>
+                {r.label}
+              </span>
+              {!r.found && !r.required && (
+                <span className="text-text-ghost text-[10px]">optional</span>
+              )}
+              {!r.found && r.required && (
+                <span className="text-red/60 text-[10px]">required</span>
+              )}
+              {!r.found && getInstallCommand(r.command) && (
+                <button
+                  onClick={() => handleInstall(r.command)}
+                  disabled={installing !== null}
+                  title={`Run: ${getInstallCommand(r.command)}`}
+                  className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                >
+                  {installing === r.command ? (
+                    <>
+                      <Loader2 size={10} className="animate-spin" />
+                      Installing...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={10} />
+                      Install
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          ))}
+          {installError && (
+            <p className="text-red text-[10px] mt-1 leading-snug break-words">{installError}</p>
+          )}
         </div>
       )}
 
@@ -208,10 +308,14 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
 
           <button
             onClick={handleSubmit}
+            disabled={hasRequiredMissing}
+            title={hasRequiredMissing ? "Install missing prerequisites first" : undefined}
             className={`px-5 py-2 rounded-lg text-ui font-medium transition-all ${
-              canSubmit
-                ? "bg-accent text-white hover:bg-accent-light"
-                : "bg-bg-elevated text-text-ghost"
+              hasRequiredMissing
+                ? "bg-bg-elevated text-text-ghost cursor-not-allowed"
+                : canSubmit
+                  ? "bg-accent text-white hover:bg-accent-light"
+                  : "bg-bg-elevated text-text-ghost"
             }`}
           >
             Use This Template

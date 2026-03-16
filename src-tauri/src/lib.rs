@@ -130,6 +130,8 @@ pub fn run() {
             commands::api_logs::cleanup_api_logs,
             commands::assistant_chat::send_assistant_chat,
             commands::scaffold::list_templates,
+            commands::scaffold::check_template_prerequisites,
+            commands::scaffold::install_prerequisite,
             commands::scaffold::scaffold_from_template,
             commands::scaffold::scaffold_from_cli,
             commands::scaffold::verify_template,

@@ -9,7 +9,7 @@ import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
-import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult } from "../types/project-templates";
+import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult } from "../types/project-templates";
 
 // --- Startup ---
 
@@ -424,6 +424,18 @@ export async function renameMcpServer(
 
 export async function listTemplates(): Promise<TemplateEntry[]> {
   return invoke<TemplateEntry[]>("list_templates");
+}
+
+export async function checkTemplatePrerequisites(
+  checks: readonly PrerequisiteCheck[]
+): Promise<PrerequisiteResult[]> {
+  return invoke<PrerequisiteResult[]>("check_template_prerequisites", { checks });
+}
+
+export async function installPrerequisite(
+  command: string
+): Promise<InstallPrerequisiteResult> {
+  return invoke<InstallPrerequisiteResult>("install_prerequisite", { command });
 }
 
 export async function scaffoldFromTemplate(

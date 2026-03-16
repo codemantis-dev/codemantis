@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import TemplateDetail from "./TemplateDetail";
 import type { TemplateEntry } from "../../types/project-templates";
 
@@ -11,6 +11,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 // Mock tauri opener
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
+}));
+
+const mockCheckPrerequisites = vi.fn();
+const mockInstallPrerequisite = vi.fn();
+
+vi.mock("../../lib/tauri-commands", () => ({
+  checkTemplatePrerequisites: (...args: unknown[]) => mockCheckPrerequisites(...args),
+  installPrerequisite: (...args: unknown[]) => mockInstallPrerequisite(...args),
 }));
 
 const TEMPLATE: TemplateEntry = {
@@ -32,6 +40,27 @@ const TEMPLATE: TemplateEntry = {
   scaffold_type: "git-clone",
 };
 
+const TEMPLATE_WITH_CHECKS: TemplateEntry = {
+  ...TEMPLATE,
+  id: "fastapi-boilerplate",
+  name: "FastAPI Boilerplate",
+  prerequisites: "Requires uv and Docker",
+  prerequisite_checks: [
+    { command: "uv", label: "uv package manager", required: true, install_command: "brew install uv" },
+    { command: "docker", label: "Docker", required: true, install_command: "brew install --cask docker" },
+  ],
+};
+
+const TEMPLATE_WITH_OPTIONAL: TemplateEntry = {
+  ...TEMPLATE,
+  id: "next-forge",
+  name: "next-forge",
+  prerequisite_checks: [
+    { command: "mintlify", label: "Mintlify CLI", required: false, install_command: "npm install -g mintlify" },
+    { command: "stripe", label: "Stripe CLI", required: false, install_command: "brew install stripe/stripe-cli/stripe" },
+  ],
+};
+
 describe("TemplateDetail", () => {
   const defaultProps = {
     template: TEMPLATE,
@@ -42,6 +71,8 @@ describe("TemplateDetail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockCheckPrerequisites.mockResolvedValue([]);
+    mockInstallPrerequisite.mockResolvedValue({ success: true, output: "" });
   });
 
   it("renders template name", () => {
@@ -129,12 +160,6 @@ describe("TemplateDetail", () => {
     expect(screen.getByText("Cannot start with '.' or '-'")).toBeInTheDocument();
   });
 
-  it("shows prerequisites warning when present", () => {
-    const withPrereq = { ...TEMPLATE, prerequisites: "Requires Docker" };
-    render(<TemplateDetail {...defaultProps} template={withPrereq} />);
-    expect(screen.getByText("Requires Docker")).toBeInTheDocument();
-  });
-
   it("does not show View on GitHub for templates without repo_url", () => {
     const noRepo = { ...TEMPLATE, repo_url: "" };
     render(<TemplateDetail {...defaultProps} template={noRepo} />);
@@ -145,5 +170,241 @@ describe("TemplateDetail", () => {
     localStorage.setItem("codemantis-last-scaffold-dir", "/Users/test/projects");
     render(<TemplateDetail {...defaultProps} />);
     expect(screen.getByText("/Users/test/projects")).toBeInTheDocument();
+  });
+
+  // ── Prerequisite checks ──
+
+  it("does not show prerequisites section for templates without checks", () => {
+    render(<TemplateDetail {...defaultProps} />);
+    expect(screen.queryByText("Prerequisites")).not.toBeInTheDocument();
+  });
+
+  it("calls checkTemplatePrerequisites on mount for templates with checks", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(mockCheckPrerequisites).toHaveBeenCalledWith(TEMPLATE_WITH_CHECKS.prerequisite_checks);
+  });
+
+  it("shows green checks for found prerequisites", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(screen.getByText("Prerequisites")).toBeInTheDocument();
+    expect(screen.getByText("uv package manager")).toBeInTheDocument();
+    expect(screen.getByText("Docker")).toBeInTheDocument();
+    // No "required" labels shown when found
+    expect(screen.queryByText("required")).not.toBeInTheDocument();
+  });
+
+  it("shows red X and 'required' label for missing required prerequisites", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(screen.getByText("uv package manager")).toBeInTheDocument();
+    expect(screen.getByText("required")).toBeInTheDocument();
+  });
+
+  it("shows 'optional' label for missing optional prerequisites", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "mintlify", label: "Mintlify CLI", found: false, required: false },
+      { command: "stripe", label: "Stripe CLI", found: false, required: false },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_OPTIONAL} />);
+    });
+
+    const optionals = screen.getAllByText("optional");
+    expect(optionals).toHaveLength(2);
+  });
+
+  it("disables Use This Template button when required prerequisites are missing", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+    localStorage.setItem("codemantis-last-scaffold-dir", "/tmp");
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    const button = screen.getByText("Use This Template");
+    expect(button).toBeDisabled();
+  });
+
+  it("enables Use This Template button when only optional prerequisites are missing", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "mintlify", label: "Mintlify CLI", found: false, required: false },
+      { command: "stripe", label: "Stripe CLI", found: false, required: false },
+    ]);
+    localStorage.setItem("codemantis-last-scaffold-dir", "/tmp");
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_OPTIONAL} />);
+    });
+
+    const button = screen.getByText("Use This Template");
+    expect(button).not.toBeDisabled();
+  });
+
+  it("shows Install button for missing prerequisites with install_command", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    const installButtons = screen.getAllByText("Install");
+    expect(installButtons).toHaveLength(1);
+  });
+
+  it("does not show Install button for found prerequisites", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(screen.queryByText("Install")).not.toBeInTheDocument();
+  });
+
+  it("shows Re-check button when prerequisites are missing", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(screen.getByText("Re-check")).toBeInTheDocument();
+  });
+
+  it("does not show Re-check button when all prerequisites are met", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(screen.queryByText("Re-check")).not.toBeInTheDocument();
+  });
+
+  it("Re-check button re-runs prerequisite checks", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    expect(mockCheckPrerequisites).toHaveBeenCalledTimes(1);
+
+    // Now simulate user installed uv manually
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Re-check"));
+    });
+
+    expect(mockCheckPrerequisites).toHaveBeenCalledTimes(2);
+  });
+
+  it("Install button calls installPrerequisite with correct command", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+      { command: "docker", label: "Docker", found: true, required: true },
+    ]);
+    mockInstallPrerequisite.mockResolvedValue({ success: true, output: "Installed!" });
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Install"));
+    });
+
+    expect(mockInstallPrerequisite).toHaveBeenCalledWith("brew install uv");
+  });
+
+  it("auto-rechecks after successful install", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+    ]);
+    mockInstallPrerequisite.mockResolvedValue({ success: true, output: "" });
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    // Initial check + recheck after install = 2
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: true, required: true },
+    ]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Install"));
+    });
+
+    await waitFor(() => {
+      expect(mockCheckPrerequisites).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("shows error message when install fails", async () => {
+    mockCheckPrerequisites.mockResolvedValue([
+      { command: "uv", label: "uv package manager", found: false, required: true },
+    ]);
+    mockInstallPrerequisite.mockResolvedValue({
+      success: false,
+      output: "Error: brew not found",
+    });
+
+    await act(async () => {
+      render(<TemplateDetail {...defaultProps} template={TEMPLATE_WITH_CHECKS} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Install"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Error: brew not found")).toBeInTheDocument();
+    });
   });
 });

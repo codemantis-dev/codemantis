@@ -23,6 +23,26 @@ export interface TemplateEntry {
   readonly cli_command?: string;
   readonly post_commands?: readonly string[];
   readonly prerequisites?: string;
+  readonly prerequisite_checks?: readonly PrerequisiteCheck[];
+}
+
+export interface PrerequisiteCheck {
+  readonly command: string;
+  readonly label: string;
+  readonly required: boolean;
+  readonly install_command?: string;
+}
+
+export interface PrerequisiteResult {
+  readonly command: string;
+  readonly label: string;
+  readonly found: boolean;
+  readonly required: boolean;
+}
+
+export interface InstallPrerequisiteResult {
+  readonly success: boolean;
+  readonly output: string;
 }
 
 export interface TemplateCategoryInfo {
