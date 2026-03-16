@@ -49,6 +49,13 @@ export default function SettingsModal() {
 
   useEffect(() => {
     if (showModal) {
+      const initialTab = useUiStore.getState().initialSettingsTab;
+      if (initialTab) {
+        setActiveTab(initialTab);
+        useUiStore.setState({ initialSettingsTab: null });
+      } else {
+        setActiveTab("general");
+      }
       setTheme(settings.theme);
       setFontSize(settings.fontSize);
       setSendShortcut(settings.sendShortcut);

@@ -25,6 +25,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
+  const openSettingsToTab = useUiStore((s) => s.openSettingsToTab);
   const { startSession } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
@@ -112,6 +113,10 @@ export default function App() {
         onNewProject={() => {
           handleGetStarted(true);
           openProjectPicker("templates");
+        }}
+        onOpenSettings={() => {
+          handleGetStarted(true);
+          openSettingsToTab("ai-providers");
         }}
       />
     );

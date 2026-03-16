@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ActivityEntry } from "../types/activity";
+import type { SettingsTab } from "../components/modals/settings/constants";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
 export type ProjectPickerTab = "templates" | "open" | "recent";
@@ -25,6 +26,7 @@ interface UiState {
   selectedActivityEntry: ActivityEntry | null;
   fileTreeRefreshTrigger: number;
   pendingInputInsert: string | null;
+  initialSettingsTab: SettingsTab | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -47,6 +49,7 @@ interface UiState {
   setDraftInput: (text: string | null) => void;
   triggerFileTreeRefresh: () => void;
   setPendingInputInsert: (text: string | null) => void;
+  openSettingsToTab: (tab: SettingsTab) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -70,6 +73,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedActivityEntry: null,
   fileTreeRefreshTrigger: 0,
   pendingInputInsert: null,
+  initialSettingsTab: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -94,4 +98,5 @@ export const useUiStore = create<UiState>((set) => ({
   setDraftInput: (text) => set({ draftInput: text }),
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
+  openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
 }));
