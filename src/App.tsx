@@ -13,6 +13,7 @@ import { addRecentProject, getRecentProjects } from "./lib/recent-projects";
 import SettingsModal from "./components/modals/SettingsModal";
 import McpModal from "./components/modals/McpModal";
 import QuestionModal from "./components/modals/QuestionModal";
+import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
 import { showToast } from "./stores/toastStore";
@@ -232,6 +233,7 @@ export default function App() {
       <AppShell />
       <ToolApproval />
       <QuestionModal />
+      <PlanCompleteModal />
       <CliOverlay />
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />

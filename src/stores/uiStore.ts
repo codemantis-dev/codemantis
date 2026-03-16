@@ -27,6 +27,8 @@ interface UiState {
   fileTreeRefreshTrigger: number;
   pendingInputInsert: string | null;
   initialSettingsTab: SettingsTab | null;
+  showPlanCompleteModal: boolean;
+  planCompleteSessionId: string | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -50,6 +52,8 @@ interface UiState {
   triggerFileTreeRefresh: () => void;
   setPendingInputInsert: (text: string | null) => void;
   openSettingsToTab: (tab: SettingsTab) => void;
+  setShowPlanCompleteModal: (show: boolean) => void;
+  setPlanCompleteSessionId: (id: string | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -74,6 +78,8 @@ export const useUiStore = create<UiState>((set) => ({
   fileTreeRefreshTrigger: 0,
   pendingInputInsert: null,
   initialSettingsTab: null,
+  showPlanCompleteModal: false,
+  planCompleteSessionId: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -99,4 +105,6 @@ export const useUiStore = create<UiState>((set) => ({
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
   openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
+  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null } : {}) }),
+  setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
 }));

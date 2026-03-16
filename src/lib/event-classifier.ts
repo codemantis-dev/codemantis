@@ -475,6 +475,12 @@ function handleToolUseStart(
     import("./tauri-commands").then(({ syncSessionMode }) => {
       syncSessionMode(sessionId, newMode).catch(console.error);
     });
+    // Show "Plan Complete" modal when CLI exits plan mode for the active session
+    if (event.tool_name === "ExitPlanMode" && sessionId === sessionStore.activeSessionId) {
+      const uiState = useUiStore.getState();
+      uiState.setPlanCompleteSessionId(sessionId);
+      uiState.setShowPlanCompleteModal(true);
+    }
     return; // Don't add to activity feed — mode badge already reflects the change
   }
 
