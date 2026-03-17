@@ -49,6 +49,7 @@ export default function FileViewer() {
   const storeMarkSaved = useFileViewerStore((s) => s.markSaved);
   const storeToggleDiff = useFileViewerStore((s) => s.toggleFileDiff);
   const themeId = useSettingsStore((s) => s.settings.theme);
+  const fontSize = useSettingsStore((s) => s.settings.fontSize);
   const [wordWrap, setWordWrap] = useState(true);
   const [sideBySide, setSideBySide] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -102,7 +103,7 @@ export default function FileViewer() {
   const monacoOptions = useMemo(() => ({
     readOnly: !isEditable,
     minimap: { enabled: false },
-    fontSize: 12,
+    fontSize: fontSize - 1,
     lineNumbers: "on" as const,
     scrollBeyondLastLine: false,
     wordWrap: wordWrap ? "on" as const : "off" as const,
@@ -117,7 +118,7 @@ export default function FileViewer() {
       verticalScrollbarSize: 6,
       horizontalScrollbarSize: 6,
     },
-  }), [wordWrap, isEditable]);
+  }), [wordWrap, isEditable, fontSize]);
 
   const diffOptions = useMemo(() => ({
     ...monacoOptions,

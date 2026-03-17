@@ -33,6 +33,8 @@ export interface NewItemState {
 
 export interface FileTreeHandle {
   openContextMenu(x: number, y: number): void;
+  startNewFile(): void;
+  startNewFolder(): void;
 }
 
 interface FileTreeNodeProps {
@@ -353,6 +355,14 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree(
     openContextMenu(x: number, y: number) {
       setNewItemState(null);
       setContextMenu({ x, y, node: null });
+    },
+    startNewFile() {
+      setContextMenu(null);
+      setNewItemState({ parentPath: projectPath, type: "file" });
+    },
+    startNewFolder() {
+      setContextMenu(null);
+      setNewItemState({ parentPath: projectPath, type: "folder" });
     },
   }));
 

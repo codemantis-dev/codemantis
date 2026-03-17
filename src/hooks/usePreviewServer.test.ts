@@ -15,7 +15,7 @@ const {
 } = vi.hoisted(() => ({
   mockStartDevServer: vi.fn(() => Promise.resolve("term-1")),
   mockStopDevServer: vi.fn(() => Promise.resolve()),
-  mockGetDevServerStatus: vi.fn<(...args: any[]) => Promise<DevServerInfo | null>>(() => Promise.resolve(null)),
+  mockGetDevServerStatus: vi.fn<() => Promise<DevServerInfo | null>>(() => Promise.resolve(null)),
   mockOpenPreviewWindow: vi.fn(() => Promise.resolve()),
 }));
 

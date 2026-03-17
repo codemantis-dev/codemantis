@@ -6,6 +6,7 @@
 :root {
   --font-sans: -apple-system, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
   --font-mono: "SF Mono", "Fira Code", "Cascadia Code", "JetBrains Mono", monospace;
+  --font-size-base: 13px;
 }
 
 /* ── Midnight (default dark) ── */
@@ -198,7 +199,7 @@ body,
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: var(--font-size-base, 13px);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -258,7 +259,7 @@ body,
 .markdown-content pre code {
   background: transparent;
   padding: 0;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 13px) - 1px);
 }
 
 .markdown-content ul,

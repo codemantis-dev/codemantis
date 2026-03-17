@@ -42,9 +42,9 @@ export default {
         mono: "var(--font-mono)",
       },
       fontSize: {
-        chat: "13.5px",
-        ui: "12px",
-        label: "11px",
+        chat: "var(--font-size-base, 13px)",
+        ui: "calc(var(--font-size-base, 13px) - 1px)",
+        label: "calc(var(--font-size-base, 13px) - 2px)",
       },
       keyframes: {
         pulse: {

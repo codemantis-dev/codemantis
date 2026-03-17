@@ -49,6 +49,7 @@ export default function ActivityDetailPanel() {
   const entry = useUiStore((s) => s.selectedActivityEntry);
   const setEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const themeId = useSettingsStore((s) => s.settings.theme);
+  const fontSize = useSettingsStore((s) => s.settings.fontSize);
 
   const dismiss = useCallback(() => setEntry(null), [setEntry]);
 
@@ -96,7 +97,7 @@ export default function ActivityDetailPanel() {
   const diffOptions = useMemo(() => ({
     readOnly: true,
     minimap: { enabled: false },
-    fontSize: 12,
+    fontSize: fontSize - 1,
     lineNumbers: "on" as const,
     scrollBeyondLastLine: false,
     wordWrap: "on" as const,
@@ -110,7 +111,7 @@ export default function ActivityDetailPanel() {
       verticalScrollbarSize: 6,
       horizontalScrollbarSize: 6,
     },
-  }), []);
+  }), [fontSize]);
 
   if (!entry) return null;
 

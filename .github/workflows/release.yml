@@ -7,6 +7,14 @@ on:
 
 jobs:
   release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - args: '--target aarch64-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin'
+          - args: '--target x86_64-apple-darwin'
+            rust-targets: 'x86_64-apple-darwin'
     runs-on: macos-latest
     permissions:
       contents: write
@@ -27,6 +35,8 @@ jobs:
 
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - name: Install dependencies
         run: pnpm install
@@ -42,4 +52,4 @@ jobs:
           releaseDraft: false
           prerelease: false
           tauriScript: pnpm tauri
-          appName: CodeMantis
+          args: ${{ matrix.args }}

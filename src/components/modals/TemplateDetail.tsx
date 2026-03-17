@@ -62,7 +62,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
       .then(setPrereqResults)
       .catch(() => setPrereqResults(null))
       .finally(() => setChecking(false));
-  }, [template.id]);
+  }, [template.prerequisite_checks]);
 
   // Check prerequisites on mount
   useEffect(() => { runChecks(); }, [runChecks]);

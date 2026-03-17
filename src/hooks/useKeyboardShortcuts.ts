@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
@@ -53,6 +54,27 @@ export function useKeyboardShortcuts(): void {
 
       const key = e.key.toLowerCase();
       const shift = e.shiftKey;
+
+      // Cmd+= / Cmd++ — zoom in (increase font size)
+      if ((e.key === "=" || e.key === "+") && !shift) {
+        e.preventDefault();
+        useSettingsStore.getState().adjustFontSize(1);
+        return;
+      }
+
+      // Cmd+- — zoom out (decrease font size)
+      if (e.key === "-" && !shift) {
+        e.preventDefault();
+        useSettingsStore.getState().adjustFontSize(-1);
+        return;
+      }
+
+      // Cmd+0 — reset zoom
+      if (key === "0" && !shift) {
+        e.preventDefault();
+        useSettingsStore.getState().resetFontSize();
+        return;
+      }
 
       // Cmd+N — add new session to current project (or open project picker if no project)
       if (key === "n" && !shift) {

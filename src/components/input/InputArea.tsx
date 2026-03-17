@@ -462,8 +462,6 @@ export default function InputArea() {
           {/* Action bar */}
           <div className="flex items-center justify-between px-3 pb-2">
             <div className="flex items-center gap-1">
-              <ModeSelector />
-              <div className="w-px h-4 bg-border-light mx-0.5" />
               <button
                 onClick={handleFileDialog}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
@@ -498,6 +496,8 @@ export default function InputArea() {
             <div className="flex items-center gap-3">
               {session && (
                 <div className="flex items-center gap-2 select-none">
+                  <ModeSelector />
+                  <div className="w-px h-4 bg-border-light" />
                   <ModelSelector />
                   <button
                     onClick={() => useUiStore.getState().setShowSettingsModal(true)}
@@ -536,6 +536,14 @@ export default function InputArea() {
               )}
             </div>
           </div>
+
+          {/* Keyboard shortcut hints */}
+          {session && (
+            <div className="flex items-center justify-center gap-4 pb-1.5 -mt-0.5 text-[11px] text-text-ghost select-none">
+              <span>Shift+Tab to switch mode</span>
+              <span>⌘+/⌘− to adjust font size</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

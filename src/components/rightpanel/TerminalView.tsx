@@ -21,6 +21,7 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
   const fitAddonRef = useRef<FitAddon | null>(null);
   const { resizeTerminal } = useTerminal();
   const themeId = useSettingsStore((s) => s.settings.theme);
+  const termFontSize = useSettingsStore((s) => s.settings.terminalFontSize);
   const xtermColors = getXtermTheme(themeId);
 
   // Update terminal theme when app theme changes
@@ -30,12 +31,24 @@ export default function TerminalView({ terminalId, isVisible }: TerminalViewProp
     }
   }, [themeId]);
 
+  // Update terminal font size reactively
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.fontSize = termFontSize;
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        // ignore fit errors
+      }
+    }
+  }, [termFontSize]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: termFontSize,
       fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: xtermColors,
       scrollback: 5000,

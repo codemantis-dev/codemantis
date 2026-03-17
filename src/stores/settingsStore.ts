@@ -13,12 +13,18 @@ function applyTheme(theme: ThemeId): void {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
+function applyFontSize(size: number): void {
+  document.documentElement.style.setProperty("--font-size-base", `${size}px`);
+}
+
 interface SettingsState {
   settings: AppSettings;
   loaded: boolean;
 
   loadSettings: () => Promise<void>;
   updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
+  adjustFontSize: (delta: number) => void;
+  resetFontSize: () => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -61,6 +67,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const settings = await getSettings();
       settings.theme = normalizeTheme(settings.theme);
       applyTheme(settings.theme);
+      applyFontSize(settings.fontSize ?? 13);
       set({ settings, loaded: true });
     } catch (e) {
       console.error("Failed to load settings:", e);
@@ -73,6 +80,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (partial.theme) {
       applyTheme(partial.theme);
     }
+    if (partial.fontSize !== undefined) {
+      applyFontSize(partial.fontSize);
+    }
     set({ settings: merged });
     try {
       await updateSettingsCmd(merged);
@@ -80,5 +90,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       console.error("Failed to save settings:", e);
       showToast("Failed to save settings", "error");
     }
+  },
+
+  adjustFontSize: (delta: number) => {
+    const { settings, updateSettings } = get();
+    const newFontSize = Math.max(10, Math.min(20, settings.fontSize + delta));
+    const newTermFontSize = Math.max(10, Math.min(20, settings.terminalFontSize + delta));
+    if (newFontSize === settings.fontSize && newTermFontSize === settings.terminalFontSize) return;
+    updateSettings({ fontSize: newFontSize, terminalFontSize: newTermFontSize });
+    showToast(`Font size: ${newFontSize}px`, "info");
+  },
+
+  resetFontSize: () => {
+    const { updateSettings } = get();
+    updateSettings({ fontSize: 13, terminalFontSize: 13 });
+    showToast("Font size reset to 13px", "info");
   },
 }));

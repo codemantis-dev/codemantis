@@ -18,6 +18,9 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
       { keys: "⌘ ⇧ M", description: "MCP Servers" },
       { keys: "⌘ /", description: "CLI Overlay" },
       { keys: "⌘ .", description: "Toggle mode (Normal/Auto/Plan)" },
+      { keys: "⌘ =", description: "Zoom in (increase font size)" },
+      { keys: "⌘ -", description: "Zoom out (decrease font size)" },
+      { keys: "⌘ 0", description: "Reset zoom" },
     ],
   },
   {

@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
-import { FolderTree, RefreshCw } from "lucide-react";
+import { FolderTree, RefreshCw, FilePlus, FolderPlus } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileTree } from "../../hooks/useFileTree";
@@ -66,13 +66,29 @@ export default function Sidebar() {
           <span className="text-ui font-medium">Files</span>
         </div>
         {session && (
-          <button
-            onClick={doRefresh}
-            className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-bg-elevated transition-colors"
-            title="Refresh file tree"
-          >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => fileTreeRef.current?.startNewFile()}
+              className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+              title="New file"
+            >
+              <FilePlus size={12} />
+            </button>
+            <button
+              onClick={() => fileTreeRef.current?.startNewFolder()}
+              className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+              title="New folder"
+            >
+              <FolderPlus size={12} />
+            </button>
+            <button
+              onClick={doRefresh}
+              className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+              title="Refresh file tree"
+            >
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+            </button>
+          </div>
         )}
       </div>
 
