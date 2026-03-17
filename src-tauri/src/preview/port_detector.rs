@@ -2,6 +2,17 @@ use log::{debug, warn};
 use std::sync::LazyLock;
 use regex::Regex;
 
+/// Strip ANSI escape sequences (SGR, CSI, OSC) from terminal output.
+/// Real PTY output embeds color/style codes that break URL regex matching.
+static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"\x1b\[[0-9;]*[A-Za-z]",       // CSI sequences (e.g. \e[32m, \e[0m)
+        r"|\x1b\].*?(?:\x1b\\|\x07)",     // OSC sequences (e.g. \e]8;;url\e\\)
+        r"|\x1b[()][A-Z0-9]",             // Character set selection
+        r"|\x1b[=>]",                      // Keypad mode
+    )).unwrap()
+});
+
 static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r":(\d+)\s+\(LISTEN\)").unwrap()
 });
@@ -29,6 +40,11 @@ static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 /// Scan a line of terminal output for a dev server URL/port.
 /// Returns (port, url) if found.
 pub fn scan_for_dev_server_url(line: &str) -> Option<(u16, String)> {
+    // Strip ANSI escape codes — real PTY output embeds color/style codes
+    // that break regex matching (e.g. "\e[36mhttp://\e[0mlocalhost:5173")
+    let cleaned = ANSI_RE.replace_all(line, "");
+    let line = cleaned.as_ref();
+
     for pattern in PORT_PATTERNS.iter() {
         if let Some(caps) = pattern.captures(line) {
             if let Some(port_match) = caps.get(1) {
@@ -330,6 +346,64 @@ mod tests {
     #[test]
     fn test_express_output() {
         let line = "Server listening on port 3000";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    // --- ANSI escape code stripping ---
+
+    #[test]
+    fn test_ansi_codes_splitting_url() {
+        // ANSI codes inserted in the middle of the URL (e.g. color change between scheme and host)
+        let line = "\x1b[36mhttp://\x1b[0mlocalhost:5173/";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((5173, "http://localhost:5173".to_string())));
+    }
+
+    #[test]
+    fn test_ansi_bold_and_color_interleaved() {
+        // Bold + color wrapping parts of "Local: http://localhost:5173/"
+        let line = "\x1b[1m\x1b[32m  ➜\x1b[0m  \x1b[1mLocal:\x1b[0m   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[0m\x1b[36m/\x1b[0m";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((5173, "http://localhost:5173".to_string())));
+    }
+
+    #[test]
+    fn test_osc8_hyperlink() {
+        // OSC 8 hyperlink: \e]8;;url\e\\text\e]8;;\e\\
+        let line = "\x1b]8;;http://localhost:3000\x1b\\http://localhost:3000\x1b]8;;\x1b\\";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    #[test]
+    fn test_osc8_hyperlink_bel_terminated() {
+        // OSC 8 hyperlink terminated by BEL (\x07) instead of ST (\e\\)
+        let line = "\x1b]8;;http://localhost:4000\x07http://localhost:4000\x1b]8;;\x07";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((4000, "http://localhost:4000".to_string())));
+    }
+
+    #[test]
+    fn test_ansi_256color_codes() {
+        // 256-color SGR sequences
+        let line = "\x1b[38;5;82m  Local:\x1b[0m   \x1b[38;5;45mhttp://localhost:8080/\x1b[0m";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((8080, "http://localhost:8080".to_string())));
+    }
+
+    #[test]
+    fn test_ansi_truecolor_codes() {
+        // 24-bit truecolor SGR sequences
+        let line = "\x1b[38;2;0;255;0mLocal:\x1b[0m \x1b[38;2;0;200;255mhttp://localhost:9000\x1b[0m";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((9000, "http://localhost:9000".to_string())));
+    }
+
+    #[test]
+    fn test_nextjs_real_terminal_output() {
+        // Real Next.js output with ANSI codes
+        let line = "  \x1b[32m▲\x1b[0m Next.js 16.0.0 (Turbopack)\n  - \x1b[36mLocal:\x1b[0m http://localhost:3000";
         let result = scan_for_dev_server_url(line);
         assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
     }

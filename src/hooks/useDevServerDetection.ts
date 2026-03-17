@@ -17,6 +17,9 @@ export function useDevServerDetection(): void {
     const setup = async () => {
       const unlistenDetected = await listenDevServerDetected((event) => {
         if (!cancelled) {
+          if (import.meta.env.DEV) {
+            console.debug("[DevServer] detected:", event);
+          }
           addDetectedDevServer({
             terminalId: event.terminalId,
             sessionId: event.sessionId,
@@ -28,6 +31,9 @@ export function useDevServerDetection(): void {
 
       const unlistenClosed = await listenDevServerClosed((event) => {
         if (!cancelled) {
+          if (import.meta.env.DEV) {
+            console.debug("[DevServer] closed:", event);
+          }
           removeDetectedDevServersForTerminal(event.terminalId);
         }
       });

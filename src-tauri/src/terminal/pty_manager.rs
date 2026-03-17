@@ -146,9 +146,14 @@ impl TerminalPool {
 
                         // Scan for dev server URLs in output
                         line_buffer.push_str(&data);
-                        while let Some(newline_pos) = line_buffer.find('\n') {
-                            let line: String = line_buffer.drain(..=newline_pos).collect();
-                            if let Some((port, url)) = scan_for_dev_server_url(&line) {
+                        while let Some(delim_pos) = line_buffer.find(|c: char| c == '\n' || c == '\r') {
+                            let line: String = line_buffer.drain(..=delim_pos).collect();
+                            let trimmed = line.trim_matches(|c: char| c == '\n' || c == '\r');
+                            // Skip empty segments (e.g. from \r\n sequences)
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            if let Some((port, url)) = scan_for_dev_server_url(trimmed) {
                                 if detected_ports.insert(port) {
                                     let event = DevServerDetectedEvent {
                                         terminal_id: tid.clone(),

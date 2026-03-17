@@ -48,6 +48,15 @@ export default function DevServerBanner({ currentSessionId }: Props) {
     }
   }
 
+  if (import.meta.env.DEV) {
+    console.debug("[DevServer] Banner render:", {
+      currentSessionId,
+      otherSessions: otherSessionIds.length,
+      grouped: grouped.length,
+      detectedServers: detectedDevServers.size,
+    });
+  }
+
   if (grouped.length === 0) return null;
 
   const handleOpenUrl = (url: string) => {
