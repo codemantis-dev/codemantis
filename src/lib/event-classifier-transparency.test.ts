@@ -697,6 +697,129 @@ describe("Transparency: Early Agent Visibility", () => {
   });
 });
 
+describe("Busy re-assertion on post-TurnComplete events", () => {
+  beforeEach(() => {
+    resetStores();
+    // Simulate turn_complete clearing busy state (the scenario this fix addresses)
+    handleChatEvent(SESSION_ID, {
+      type: "turn_complete",
+      session_id: SESSION_ID,
+      duration_ms: 1000,
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      cost_usd: 0.001,
+    });
+    // Verify precondition: session is NOT busy after turn_complete
+    expect(useSessionStore.getState().sessionBusy.get(SESSION_ID)).toBe(false);
+  });
+
+  it("text_delta after turn_complete re-asserts isBusy", () => {
+    handleChatEvent(SESSION_ID, {
+      type: "text_delta",
+      session_id: SESSION_ID,
+      text: "Continuing...",
+    });
+    expect(useSessionStore.getState().sessionBusy.get(SESSION_ID)).toBe(true);
+    expect(useSessionStore.getState().busySince.get(SESSION_ID)).toBeGreaterThan(0);
+  });
+
+  it("tool_use_start after turn_complete re-asserts isBusy", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "reassert-tool-1",
+      tool_name: "Read",
+      tool_input: { file_path: "/tmp/test.ts" },
+    });
+    expect(useSessionStore.getState().sessionBusy.get(SESSION_ID)).toBe(true);
+  });
+
+  it("agent_preparing after turn_complete re-asserts isBusy", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "agent_preparing",
+      session_id: SESSION_ID,
+      tool_use_id: "reassert-agent-1",
+    } as FrontendEvent);
+    expect(useSessionStore.getState().sessionBusy.get(SESSION_ID)).toBe(true);
+
+    // Cleanup
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "reassert-agent-1",
+      tool_name: "Agent",
+      tool_input: { description: "Test", subagent_type: "general-purpose" },
+    });
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_result",
+      session_id: SESSION_ID,
+      tool_use_id: "reassert-agent-1",
+      content: "done",
+      is_error: false,
+    });
+  });
+
+  it("tool_progress after turn_complete re-asserts isBusy", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_progress",
+      session_id: SESSION_ID,
+      tool_use_id: "reassert-progress-1",
+      tool_name: "Bash",
+      elapsed_seconds: 10,
+    });
+    expect(useSessionStore.getState().sessionBusy.get(SESSION_ID)).toBe(true);
+  });
+
+  it("ensureBusy is a no-op when already busy (preserves activity label)", () => {
+    // Re-set busy with a specific activity label
+    useSessionStore.getState().setSessionBusy(SESSION_ID, true);
+    useSessionStore.getState().setSessionActivity(SESSION_ID, {
+      label: "Editing code...",
+      toolName: "Edit",
+      toolElapsed: 5,
+      filePath: "/tmp/foo.ts",
+    });
+    const busySinceBefore = useSessionStore.getState().busySince.get(SESSION_ID);
+
+    // ensureBusy should be a no-op
+    useSessionStore.getState().ensureBusy(SESSION_ID);
+
+    // Activity label should NOT be reset
+    const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
+    expect(activity?.label).toBe("Editing code...");
+    expect(activity?.toolElapsed).toBe(5);
+    // busySince should not change
+    expect(useSessionStore.getState().busySince.get(SESSION_ID)).toBe(busySinceBefore);
+  });
+
+  it("ensureBusy does not clear activeSubAgents", () => {
+    // Set up: busy with active sub-agents
+    useSessionStore.getState().setSessionBusy(SESSION_ID, true);
+    useSessionStore.getState().addSubAgent(SESSION_ID, {
+      toolUseId: "agent-persist-1",
+      description: "Exploring code",
+      subagentType: "Explore",
+      isBackground: false,
+      startedAt: new Date().toISOString(),
+      elapsed: 0,
+      status: "running",
+    });
+
+    // Clear busy (simulating turn_complete), then re-assert via ensureBusy
+    // Note: setSessionBusy(false) clears subAgents, so we test ensureBusy on already-busy
+    const agentsBefore = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agentsBefore).toHaveLength(1);
+
+    // ensureBusy should preserve sub-agents
+    useSessionStore.getState().ensureBusy(SESSION_ID);
+    const agentsAfter = useSessionStore.getState().activeSubAgents.get(SESSION_ID);
+    expect(agentsAfter).toHaveLength(1);
+    expect(agentsAfter![0].description).toBe("Exploring code");
+
+    // Cleanup
+    useSessionStore.getState().completeSubAgent(SESSION_ID, "agent-persist-1");
+  });
+});
+
 describe("Transparency: Busy State Tracking", () => {
   beforeEach(resetStores);
 

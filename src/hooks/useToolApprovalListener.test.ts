@@ -8,9 +8,17 @@ import type { ToolApprovalRequestEvent } from "../types/claude-events";
 // Capture callbacks registered by the hook
 let toolApprovalCallback: ((event: ToolApprovalRequestEvent) => void) | null = null;
 let sessionModeCallback: ((event: { sessionId: string; mode: string }) => void) | null = null;
-const mockUnlistenApproval = vi.fn();
-const mockUnlistenMode = vi.fn();
-const mockResolveToolApproval = vi.fn(() => Promise.resolve());
+
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockUnlistenApproval,
+  mockUnlistenMode,
+  mockResolveToolApproval,
+} = vi.hoisted(() => ({
+  mockUnlistenApproval: vi.fn(),
+  mockUnlistenMode: vi.fn(),
+  mockResolveToolApproval: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("../lib/tauri-commands", () => ({
   listenToolApprovalRequests: vi.fn((cb: (event: ToolApprovalRequestEvent) => void) => {
@@ -21,7 +29,7 @@ vi.mock("../lib/tauri-commands", () => ({
     sessionModeCallback = cb;
     return Promise.resolve(mockUnlistenMode);
   }),
-  resolveToolApproval: (...args: unknown[]) => mockResolveToolApproval(...args),
+  resolveToolApproval: mockResolveToolApproval,
 }));
 
 import { useToolApprovalListener } from "./useToolApprovalListener";

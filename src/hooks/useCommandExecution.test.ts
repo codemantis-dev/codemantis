@@ -6,11 +6,28 @@ import { useUiStore } from "../stores/uiStore";
 import { useToastStore } from "../stores/toastStore";
 import type { SlashCommand } from "../types/slash-commands";
 
-// Mock useClaudeSession
-const mockSendMessage = vi.fn(() => Promise.resolve());
-const mockCloseSession = vi.fn(() => Promise.resolve());
-const mockRenameSession = vi.fn(() => Promise.resolve());
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockSendMessage,
+  mockCloseSession,
+  mockRenameSession,
+  mockExpandSkill,
+  mockPauseSessionProcess,
+  mockResumeSessionProcess,
+  mockSendMessageCmd,
+} = vi.hoisted(() => ({
+  mockSendMessage: vi.fn(() => Promise.resolve()),
+  mockCloseSession: vi.fn(() => Promise.resolve()),
+  mockRenameSession: vi.fn(() => Promise.resolve()),
+  mockExpandSkill: vi.fn(() =>
+    Promise.resolve({ prompt: "expanded skill prompt", allowed_tools: null, model: null, context_fork: false })
+  ),
+  mockPauseSessionProcess: vi.fn(() => Promise.resolve()),
+  mockResumeSessionProcess: vi.fn(() => Promise.resolve()),
+  mockSendMessageCmd: vi.fn(() => Promise.resolve()),
+}));
 
+// Mock useClaudeSession
 vi.mock("./useClaudeSession", () => ({
   useClaudeSession: () => ({
     sendMessage: mockSendMessage,
@@ -25,18 +42,11 @@ vi.mock("./useClaudeSession", () => ({
 }));
 
 // Mock tauri-commands
-const mockExpandSkill = vi.fn(() =>
-  Promise.resolve({ prompt: "expanded skill prompt", allowed_tools: null, model: null, context_fork: false })
-);
-const mockPauseSessionProcess = vi.fn(() => Promise.resolve());
-const mockResumeSessionProcess = vi.fn(() => Promise.resolve());
-const mockSendMessageCmd = vi.fn(() => Promise.resolve());
-
 vi.mock("../lib/tauri-commands", () => ({
-  expandSkill: (...args: unknown[]) => mockExpandSkill(...args),
-  pauseSessionProcess: (...args: unknown[]) => mockPauseSessionProcess(...args),
-  resumeSessionProcess: (...args: unknown[]) => mockResumeSessionProcess(...args),
-  sendMessage: (...args: unknown[]) => mockSendMessageCmd(...args),
+  expandSkill: mockExpandSkill,
+  pauseSessionProcess: mockPauseSessionProcess,
+  resumeSessionProcess: mockResumeSessionProcess,
+  sendMessage: mockSendMessageCmd,
 }));
 
 import { useCommandExecution } from "./useCommandExecution";

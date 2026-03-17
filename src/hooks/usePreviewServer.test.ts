@@ -4,27 +4,31 @@ import { listen } from "@tauri-apps/api/event";
 import { usePreviewStore } from "../stores/previewStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useSessionStore } from "../stores/sessionStore";
+import type { DevServerInfo } from "../lib/tauri-commands";
 
-// Mock tauri-commands
-const mockStartDevServer = vi.fn(() => Promise.resolve("term-1"));
-const mockStopDevServer = vi.fn(() => Promise.resolve());
-const mockGetDevServerStatus = vi.fn(() => Promise.resolve(null));
-const mockOpenPreviewWindow = vi.fn(() => Promise.resolve());
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockStartDevServer,
+  mockStopDevServer,
+  mockGetDevServerStatus,
+  mockOpenPreviewWindow,
+} = vi.hoisted(() => ({
+  mockStartDevServer: vi.fn(() => Promise.resolve("term-1")),
+  mockStopDevServer: vi.fn(() => Promise.resolve()),
+  mockGetDevServerStatus: vi.fn<(...args: any[]) => Promise<DevServerInfo | null>>(() => Promise.resolve(null)),
+  mockOpenPreviewWindow: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("../lib/tauri-commands", () => ({
-  startDevServer: (...args: unknown[]) => mockStartDevServer(...args),
-  stopDevServer: (...args: unknown[]) => mockStopDevServer(...args),
-  getDevServerStatus: (...args: unknown[]) => mockGetDevServerStatus(...args),
-  openPreviewWindow: (...args: unknown[]) => mockOpenPreviewWindow(...args),
+  startDevServer: mockStartDevServer,
+  stopDevServer: mockStopDevServer,
+  getDevServerStatus: mockGetDevServerStatus,
+  openPreviewWindow: mockOpenPreviewWindow,
 }));
 
 import { usePreviewServer } from "./usePreviewServer";
 
 const PROJECT = "/tmp/my-project";
-
-function setActiveProject(path: string): void {
-  useSessionStore.setState({ activeProjectPath: path });
-}
 
 describe("usePreviewServer", () => {
   beforeEach(() => {

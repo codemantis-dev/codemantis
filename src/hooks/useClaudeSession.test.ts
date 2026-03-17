@@ -8,17 +8,40 @@ import { useAttachmentStore } from "../stores/attachmentStore";
 import { useAssistantStore } from "../stores/assistantStore";
 import type { Session } from "../types/session";
 
-// Mock event-classifier
-const mockHandleChatEvent = vi.fn();
-const mockHandleActivityEvent = vi.fn();
-const mockStartStaleDetection = vi.fn();
-const mockStopStaleDetection = vi.fn();
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockHandleChatEvent,
+  mockHandleActivityEvent,
+  mockStartStaleDetection,
+  mockStopStaleDetection,
+  mockCreateSession,
+  mockSendMessage,
+  mockCloseSession,
+  mockRenameSession,
+  mockListenChatEvents,
+  mockListenActivityEvents,
+  mockCloseTerminal,
+  mockInitializeSession,
+} = vi.hoisted(() => ({
+  mockHandleChatEvent: vi.fn(),
+  mockHandleActivityEvent: vi.fn(),
+  mockStartStaleDetection: vi.fn(),
+  mockStopStaleDetection: vi.fn(),
+  mockCreateSession: vi.fn<(...args: unknown[]) => Promise<Session>>(),
+  mockSendMessage: vi.fn(() => Promise.resolve()),
+  mockCloseSession: vi.fn(() => Promise.resolve()),
+  mockRenameSession: vi.fn(() => Promise.resolve()),
+  mockListenChatEvents: vi.fn(() => Promise.resolve(vi.fn())),
+  mockListenActivityEvents: vi.fn(() => Promise.resolve(vi.fn())),
+  mockCloseTerminal: vi.fn(() => Promise.resolve()),
+  mockInitializeSession: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("../lib/event-classifier", () => ({
-  handleChatEvent: (...args: unknown[]) => mockHandleChatEvent(...args),
-  handleActivityEvent: (...args: unknown[]) => mockHandleActivityEvent(...args),
-  startStaleDetection: (...args: unknown[]) => mockStartStaleDetection(...args),
-  stopStaleDetection: (...args: unknown[]) => mockStopStaleDetection(...args),
+  handleChatEvent: mockHandleChatEvent,
+  handleActivityEvent: mockHandleActivityEvent,
+  startStaleDetection: mockStartStaleDetection,
+  stopStaleDetection: mockStopStaleDetection,
 }));
 
 // Mock useAssistantSession
@@ -26,25 +49,15 @@ vi.mock("./useAssistantSession", () => ({
   getAssistantListeners: () => new Map(),
 }));
 
-// Mock tauri-commands
-const mockCreateSession = vi.fn<(...args: unknown[]) => Promise<Session>>();
-const mockSendMessage = vi.fn(() => Promise.resolve());
-const mockCloseSession = vi.fn(() => Promise.resolve());
-const mockRenameSession = vi.fn(() => Promise.resolve());
-const mockListenChatEvents = vi.fn(() => Promise.resolve(vi.fn()));
-const mockListenActivityEvents = vi.fn(() => Promise.resolve(vi.fn()));
-const mockCloseTerminal = vi.fn(() => Promise.resolve());
-const mockInitializeSession = vi.fn(() => Promise.resolve());
-
 vi.mock("../lib/tauri-commands", () => ({
-  createSession: (...args: unknown[]) => mockCreateSession(...args),
-  sendMessage: (...args: unknown[]) => mockSendMessage(...args),
-  closeSession: (...args: unknown[]) => mockCloseSession(...args),
-  renameSession: (...args: unknown[]) => mockRenameSession(...args),
-  listenChatEvents: (...args: unknown[]) => mockListenChatEvents(...args),
-  listenActivityEvents: (...args: unknown[]) => mockListenActivityEvents(...args),
-  closeTerminal: (...args: unknown[]) => mockCloseTerminal(...args),
-  initializeSession: (...args: unknown[]) => mockInitializeSession(...args),
+  createSession: mockCreateSession,
+  sendMessage: mockSendMessage,
+  closeSession: mockCloseSession,
+  renameSession: mockRenameSession,
+  listenChatEvents: mockListenChatEvents,
+  listenActivityEvents: mockListenActivityEvents,
+  closeTerminal: mockCloseTerminal,
+  initializeSession: mockInitializeSession,
 }));
 
 // Mock input-drafts

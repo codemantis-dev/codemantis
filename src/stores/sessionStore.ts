@@ -81,6 +81,7 @@ interface SessionState {
   setSessionMode: (sessionId: string, mode: SessionMode) => void;
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   setSessionBusy: (sessionId: string, busy: boolean) => void;
+  ensureBusy: (sessionId: string) => void;
   setSessionEffort: (sessionId: string, effort: ThinkingEffort) => void;
   updateSessionStatus: (sessionId: string, status: SessionStatus) => void;
   clearSessionData: (sessionId: string) => void;
@@ -472,6 +473,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         activeSubAgents.delete(sessionId);
       }
       return { sessionBusy, busySince, sessionActivity, lastEventTimestamp, activeSubAgents };
+    }),
+
+  ensureBusy: (sessionId) =>
+    set((state) => {
+      if (state.sessionBusy.get(sessionId)) return {};  // already busy, no-op
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.set(sessionId, true);
+      const busySince = new Map(state.busySince);
+      busySince.set(sessionId, Date.now());
+      const lastEventTimestamp = new Map(state.lastEventTimestamp);
+      lastEventTimestamp.set(sessionId, Date.now());
+      return { sessionBusy, busySince, lastEventTimestamp };
     }),
 
   setSessionEffort: (sessionId, effort) =>

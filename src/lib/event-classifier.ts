@@ -149,6 +149,7 @@ function bufferStreamingText(sessionId: string, text: string): void {
 
 function handleTextDelta(sessionId: string, event: TextDeltaEvent, store: SessionStoreState, now: string): void {
   store.touchLastEvent(sessionId);
+  store.ensureBusy(sessionId);
   store.setSessionActivity(sessionId, { label: "Generating response...", toolName: null, toolElapsed: 0, filePath: null });
   const streaming = store.sessionStreaming.get(sessionId);
   if (!streaming?.isStreaming) {
@@ -446,6 +447,7 @@ function handleToolUseStart(
   now: string,
 ): void {
   useSessionStore.getState().touchLastEvent(sessionId);
+  sessionStore.ensureBusy(sessionId);
   // Track tool calls per turn for context estimation
   turnToolCallCount.set(sessionId, (turnToolCallCount.get(sessionId) ?? 0) + 1);
 
@@ -772,6 +774,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
   switch (event.type) {
     case "agent_preparing": {
+      sessionStore.ensureBusy(sessionId);
       // Early visibility: create a placeholder sub-agent before tool input is fully streamed
       const existingAgents = sessionStore.activeSubAgents.get(sessionId);
       const alreadyExists = existingAgents?.find((a) => a.toolUseId === event.tool_use_id);
@@ -801,6 +804,7 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
 
     case "tool_progress": {
       useSessionStore.getState().touchLastEvent(sessionId);
+      sessionStore.ensureBusy(sessionId);
       const currentActivity = sessionStore.sessionActivity.get(sessionId);
 
       // Update sub-agent elapsed time (create placeholder if it doesn't exist yet)

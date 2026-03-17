@@ -3,50 +3,58 @@ import { renderHook, act } from "@testing-library/react";
 import { useAssistantStore } from "../stores/assistantStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { Session } from "../types/session";
-import type { AIProvider } from "../types/assistant-provider";
 
-// Mock assistant-event-handler
-const mockHandleAssistantChatEvent = vi.fn();
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockHandleAssistantChatEvent,
+  mockHandleActivityEvent,
+  mockFileToBase64,
+  mockCreateSession,
+  mockSendMessage,
+  mockCloseSession,
+  mockListenChatEvents,
+  mockListenActivityEvents,
+  mockSendAssistantChat,
+  mockListenAssistantStream,
+} = vi.hoisted(() => ({
+  mockHandleAssistantChatEvent: vi.fn(),
+  mockHandleActivityEvent: vi.fn(),
+  mockFileToBase64: vi.fn(() =>
+    Promise.resolve({ data: "base64data", mimeType: "image/png" })
+  ),
+  mockCreateSession: vi.fn<(...args: unknown[]) => Promise<Session>>(),
+  mockSendMessage: vi.fn(() => Promise.resolve()),
+  mockCloseSession: vi.fn(() => Promise.resolve()),
+  mockListenChatEvents: vi.fn(() => Promise.resolve(vi.fn())),
+  mockListenActivityEvents: vi.fn(() => Promise.resolve(vi.fn())),
+  mockSendAssistantChat: vi.fn(() => Promise.resolve()),
+  mockListenAssistantStream: vi.fn(() => Promise.resolve(vi.fn())),
+}));
+
 vi.mock("../lib/assistant-event-handler", () => ({
-  handleAssistantChatEvent: (...args: unknown[]) => mockHandleAssistantChatEvent(...args),
+  handleAssistantChatEvent: mockHandleAssistantChatEvent,
 }));
 
-// Mock event-classifier
-const mockHandleActivityEvent = vi.fn();
 vi.mock("../lib/event-classifier", () => ({
-  handleActivityEvent: (...args: unknown[]) => mockHandleActivityEvent(...args),
+  handleActivityEvent: mockHandleActivityEvent,
 }));
 
-// Mock file-utils
-const mockFileToBase64 = vi.fn(() =>
-  Promise.resolve({ data: "base64data", mimeType: "image/png" })
-);
 vi.mock("../lib/file-utils", () => ({
-  fileToBase64: (...args: unknown[]) => mockFileToBase64(...args),
+  fileToBase64: mockFileToBase64,
 }));
 
-// Mock input-drafts
 vi.mock("../lib/input-drafts", () => ({
   assistantInputDrafts: new Map(),
 }));
 
-// Mock tauri-commands
-const mockCreateSession = vi.fn<(...args: unknown[]) => Promise<Session>>();
-const mockSendMessage = vi.fn(() => Promise.resolve());
-const mockCloseSession = vi.fn(() => Promise.resolve());
-const mockListenChatEvents = vi.fn(() => Promise.resolve(vi.fn()));
-const mockListenActivityEvents = vi.fn(() => Promise.resolve(vi.fn()));
-const mockSendAssistantChat = vi.fn(() => Promise.resolve());
-const mockListenAssistantStream = vi.fn(() => Promise.resolve(vi.fn()));
-
 vi.mock("../lib/tauri-commands", () => ({
-  createSession: (...args: unknown[]) => mockCreateSession(...args),
-  sendMessage: (...args: unknown[]) => mockSendMessage(...args),
-  closeSession: (...args: unknown[]) => mockCloseSession(...args),
-  listenChatEvents: (...args: unknown[]) => mockListenChatEvents(...args),
-  listenActivityEvents: (...args: unknown[]) => mockListenActivityEvents(...args),
-  sendAssistantChat: (...args: unknown[]) => mockSendAssistantChat(...args),
-  listenAssistantStream: (...args: unknown[]) => mockListenAssistantStream(...args),
+  createSession: mockCreateSession,
+  sendMessage: mockSendMessage,
+  closeSession: mockCloseSession,
+  listenChatEvents: mockListenChatEvents,
+  listenActivityEvents: mockListenActivityEvents,
+  sendAssistantChat: mockSendAssistantChat,
+  listenAssistantStream: mockListenAssistantStream,
 }));
 
 // Mock showToast

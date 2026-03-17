@@ -1,30 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-const mockOpenPreviewWindow = vi.fn<(url: string, projectName: string) => Promise<void>>();
-const mockClosePreviewWindow = vi.fn<() => Promise<void>>();
-const mockNavigatePreview = vi.fn<(url: string) => Promise<void>>();
-const mockRefreshPreview = vi.fn<() => Promise<void>>();
-const mockFocusPreviewWindow = vi.fn<() => Promise<boolean>>();
-
-vi.mock("../lib/tauri-commands", () => ({
-  openPreviewWindow: (...args: unknown[]) =>
-    mockOpenPreviewWindow(...(args as [string, string])),
-  closePreviewWindow: () => mockClosePreviewWindow(),
-  navigatePreview: (...args: unknown[]) =>
-    mockNavigatePreview(...(args as [string])),
-  refreshPreview: () => mockRefreshPreview(),
-  focusPreviewWindow: () => mockFocusPreviewWindow(),
+// Hoist mock functions so they're available in vi.mock factories
+const {
+  mockOpenPreviewWindow,
+  mockClosePreviewWindow,
+  mockNavigatePreview,
+  mockRefreshPreview,
+  mockFocusPreviewWindow,
+  mockUnlisten,
+} = vi.hoisted(() => ({
+  mockOpenPreviewWindow: vi.fn<(url: string, projectName: string) => Promise<void>>(),
+  mockClosePreviewWindow: vi.fn<() => Promise<void>>(),
+  mockNavigatePreview: vi.fn<(url: string) => Promise<void>>(),
+  mockRefreshPreview: vi.fn<() => Promise<void>>(),
+  mockFocusPreviewWindow: vi.fn<() => Promise<boolean>>(),
+  mockUnlisten: vi.fn(),
 }));
 
-let capturedListenCallback: ((event: unknown) => void) | null = null;
-const mockUnlisten = vi.fn();
+vi.mock("../lib/tauri-commands", () => ({
+  openPreviewWindow: mockOpenPreviewWindow,
+  closePreviewWindow: mockClosePreviewWindow,
+  navigatePreview: mockNavigatePreview,
+  refreshPreview: mockRefreshPreview,
+  focusPreviewWindow: mockFocusPreviewWindow,
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn((eventName: string, cb: (event: unknown) => void) => {
-    if (eventName === "preview-window-closed") {
-      capturedListenCallback = cb;
-    }
+  listen: vi.fn((_eventName: string, _cb: (event: unknown) => void) => {
     return Promise.resolve(mockUnlisten);
   }),
 }));
@@ -36,7 +39,6 @@ import { usePreviewStore } from "../stores/previewStore";
 describe("usePreviewWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedListenCallback = null;
 
     // Set up session store with active project
     useSessionStore.setState({
