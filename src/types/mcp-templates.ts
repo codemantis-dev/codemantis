@@ -83,9 +83,9 @@ export const MCP_TEMPLATES: readonly McpTemplate[] = [
     icon: "\u{1F4E5}",
     category: "no-auth",
     serverType: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-fetch"],
-    setupHint: "Ready to use — fetches any URL and converts it to readable markdown.",
+    command: "uvx",
+    args: ["mcp-server-fetch"],
+    setupHint: "Requires uv installed (curl -LsSf https://astral.sh/uv/install.sh | sh). Fetches any URL and converts it to readable markdown.",
   },
   {
     id: "filesystem",

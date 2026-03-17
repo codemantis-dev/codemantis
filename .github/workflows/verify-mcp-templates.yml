@@ -1,0 +1,50 @@
+name: Verify MCP Templates
+
+on:
+  schedule:
+    # Run weekly on Mondays at 06:30 UTC
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      template_id:
+        description: 'Specific template ID to verify (leave empty for all)'
+        required: false
+        type: string
+      skip_readme:
+        description: 'Skip README cross-reference checks'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Verify MCP templates
+        env:
+          SKIP_README_CHECK: ${{ inputs.skip_readme && '1' || '0' }}
+        run: |
+          chmod +x scripts/verify-mcp-templates.sh
+          if [ -n "${{ inputs.template_id }}" ]; then
+            ./scripts/verify-mcp-templates.sh "${{ inputs.template_id }}"
+          else
+            ./scripts/verify-mcp-templates.sh
+          fi
+
+      - name: Upload verification report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mcp-verification-report
+          path: /tmp/mcp-verification-*.json
+          retention-days: 30

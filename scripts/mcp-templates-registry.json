@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "context7",
+      "serverType": "stdio",
+      "npmPackage": "@upstash/context7-mcp",
+      "githubRepo": "https://github.com/upstash/context7",
+      "docsUrl": "https://github.com/upstash/context7#readme",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "playwright",
+      "serverType": "stdio",
+      "npmPackage": "@playwright/mcp",
+      "githubRepo": "https://github.com/microsoft/playwright-mcp",
+      "docsUrl": "https://github.com/microsoft/playwright-mcp#readme",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "browsermcp",
+      "serverType": "stdio",
+      "npmPackage": "@browsermcp/mcp",
+      "githubRepo": "https://github.com/nichochar/open-browser-mcp",
+      "docsUrl": "https://github.com/nichochar/open-browser-mcp#readme",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "fetch",
+      "serverType": "stdio",
+      "pypiPackage": "mcp-server-fetch",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "filesystem",
+      "serverType": "stdio",
+      "npmPackage": "@modelcontextprotocol/server-filesystem",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "memory",
+      "serverType": "stdio",
+      "npmPackage": "@modelcontextprotocol/server-memory",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "github",
+      "serverType": "stdio",
+      "npmPackage": "@modelcontextprotocol/server-github",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+      "expectedEnvVars": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "brave-search",
+      "serverType": "stdio",
+      "npmPackage": "@brave/brave-search-mcp-server",
+      "githubRepo": "https://github.com/nichochar/brave-search-mcp",
+      "docsUrl": "https://github.com/nichochar/brave-search-mcp#readme",
+      "expectedEnvVars": ["BRAVE_API_KEY"],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "slack",
+      "serverType": "stdio",
+      "npmPackage": "@modelcontextprotocol/server-slack",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
+      "expectedEnvVars": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "postgresql",
+      "serverType": "stdio",
+      "npmPackage": "@modelcontextprotocol/server-postgres",
+      "githubRepo": "https://github.com/modelcontextprotocol/servers",
+      "docsUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "stripe",
+      "serverType": "stdio",
+      "npmPackage": "@stripe/mcp",
+      "githubRepo": "https://github.com/stripe/agent-toolkit",
+      "docsUrl": "https://github.com/stripe/agent-toolkit/tree/main/modelcontextprotocol",
+      "expectedEnvVars": ["STRIPE_SECRET_KEY"],
+      "expectedArgs": ["--tools=all"],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "supabase",
+      "serverType": "http",
+      "httpUrl": "https://mcp.supabase.com/mcp",
+      "githubRepo": "https://github.com/supabase-community/supabase-mcp",
+      "docsUrl": "https://supabase.com/docs/guides/getting-started/mcp",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "sentry",
+      "serverType": "http",
+      "httpUrl": "https://mcp.sentry.dev/mcp",
+      "githubRepo": "https://github.com/getsentry/sentry-mcp",
+      "docsUrl": "https://github.com/getsentry/sentry-mcp#readme",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "neon",
+      "serverType": "http",
+      "httpUrl": "https://mcp.neon.tech/mcp",
+      "githubRepo": "https://github.com/neondatabase/mcp-server-neon",
+      "docsUrl": "https://neon.tech/docs/ai/mcp",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    },
+    {
+      "id": "cloudflare",
+      "serverType": "http",
+      "httpUrl": "https://mcp.cloudflare.com/mcp",
+      "githubRepo": "https://github.com/cloudflare/mcp-server-cloudflare",
+      "docsUrl": "https://developers.cloudflare.com/mcp/",
+      "expectedEnvVars": [],
+      "expectedArgs": [],
+      "verified": false,
+      "lastVerified": null
+    }
+  ]
+}

@@ -44,4 +44,19 @@ describe("MCP Templates data integrity", () => {
   it("has exactly 15 templates", () => {
     expect(MCP_TEMPLATES.length).toBe(15);
   });
+
+  it("npx-based stdio args contain a valid npm scope (@org/pkg pattern)", () => {
+    const npxTemplates = MCP_TEMPLATES.filter(
+      (t) => t.serverType === "stdio" && t.command === "npx",
+    );
+    expect(npxTemplates.length).toBeGreaterThan(0);
+    for (const t of npxTemplates) {
+      const pkgArg = t.args?.find((a) => a.startsWith("@"));
+      expect(
+        pkgArg,
+        `Template "${t.id}" has no @-scoped package in args`,
+      ).toBeDefined();
+      expect(pkgArg).toMatch(/^@[a-z0-9-]+\/[a-z0-9._-]+(@latest)?$/);
+    }
+  });
 });
