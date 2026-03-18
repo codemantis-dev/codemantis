@@ -1,11 +1,26 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
 import ActivityFeed from "./ActivityFeed";
 import { useActivityStore } from "../../stores/activityStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useUiStore } from "../../stores/uiStore";
 import type { ActivityEntry } from "../../types/activity";
 
 const SESSION_ID = "s1";
+const SESSION_ID_2 = "s2";
+
+function makeEntry(overrides: Partial<ActivityEntry> & { id: string; toolName: string }): ActivityEntry {
+  return {
+    toolUseId: overrides.id,
+    toolInput: {},
+    status: "done",
+    timestamp: "2026-01-01T12:00:00Z",
+    messageId: "m1",
+    isError: false,
+    ...overrides,
+  };
+}
 
 function setEntries(entries: ActivityEntry[]): void {
   useSessionStore.setState({
@@ -19,6 +34,36 @@ function setEntries(entries: ActivityEntry[]): void {
   });
   useActivityStore.setState({
     sessionEntries: new Map([[SESSION_ID, entries]]),
+    approvalQueue: [],
+    approvalSeenIds: new Set(),
+    currentApprovalIndex: 0,
+  });
+}
+
+function setMultiSessionEntries(
+  s1Entries: ActivityEntry[],
+  s2Entries: ActivityEntry[],
+): void {
+  useSessionStore.setState({
+    sessions: new Map([
+      [SESSION_ID, { id: SESSION_ID, name: "Session 1", project_path: "/tmp", status: "connected" as const, created_at: "", model: null, icon_index: 0 }],
+      [SESSION_ID_2, { id: SESSION_ID_2, name: "Session 2", project_path: "/tmp", status: "connected" as const, created_at: "", model: null, icon_index: 0 }],
+    ]),
+    activeSessionId: SESSION_ID,
+    activeProjectPath: "/tmp",
+    sessionMessages: new Map([[SESSION_ID, []], [SESSION_ID_2, []]]),
+    sessionStreaming: new Map([
+      [SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }],
+      [SESSION_ID_2, { isStreaming: false, streamingContent: "", currentMessageId: null }],
+    ]),
+    sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }], [SESSION_ID_2, { used: 0, max: 200000 }]]),
+    tabOrder: [SESSION_ID, SESSION_ID_2],
+  });
+  useActivityStore.setState({
+    sessionEntries: new Map([
+      [SESSION_ID, s1Entries],
+      [SESSION_ID_2, s2Entries],
+    ]),
     approvalQueue: [],
     approvalSeenIds: new Set(),
     currentApprovalIndex: 0,
@@ -41,6 +86,7 @@ describe("ActivityFeed", () => {
       approvalSeenIds: new Set(),
       currentApprovalIndex: 0,
     });
+    useUiStore.setState({ activityFeedScope: "session" });
   });
 
   it("shows empty state when no entries", () => {
@@ -93,5 +139,53 @@ describe("ActivityFeed", () => {
     ]);
     render(<ActivityFeed />);
     expect(screen.getByText("npm install")).toBeInTheDocument();
+  });
+
+  describe("session isolation", () => {
+    it("shows only active session entries in session scope (default)", () => {
+      setMultiSessionEntries(
+        [makeEntry({ id: "a1", toolName: "Read", toolInput: { file_path: "s1-file.ts" }, timestamp: "2026-01-01T12:00:00Z" })],
+        [makeEntry({ id: "b1", toolName: "Write", toolInput: { file_path: "s2-file.ts" }, timestamp: "2026-01-01T12:00:01Z" })],
+      );
+      render(<ActivityFeed />);
+      expect(screen.getByText("s1-file.ts")).toBeInTheDocument();
+      expect(screen.queryByText("s2-file.ts")).not.toBeInTheDocument();
+    });
+
+    it("shows all project entries in project scope", () => {
+      useUiStore.setState({ activityFeedScope: "project" });
+      setMultiSessionEntries(
+        [makeEntry({ id: "a1", toolName: "Read", toolInput: { file_path: "s1-file.ts" }, timestamp: "2026-01-01T12:00:00Z" })],
+        [makeEntry({ id: "b1", toolName: "Write", toolInput: { file_path: "s2-file.ts" }, timestamp: "2026-01-01T12:00:01Z" })],
+      );
+      render(<ActivityFeed />);
+      expect(screen.getByText("s1-file.ts")).toBeInTheDocument();
+      expect(screen.getByText("s2-file.ts")).toBeInTheDocument();
+    });
+
+    it("toggles between session and project scope", async () => {
+      const user = userEvent.setup();
+      setMultiSessionEntries(
+        [makeEntry({ id: "a1", toolName: "Read", toolInput: { file_path: "s1-file.ts" }, timestamp: "2026-01-01T12:00:00Z" })],
+        [makeEntry({ id: "b1", toolName: "Write", toolInput: { file_path: "s2-file.ts" }, timestamp: "2026-01-01T12:00:01Z" })],
+      );
+      render(<ActivityFeed />);
+
+      // Default: session scope — only s1 visible
+      expect(screen.getByText("s1-file.ts")).toBeInTheDocument();
+      expect(screen.queryByText("s2-file.ts")).not.toBeInTheDocument();
+      expect(screen.getByText("Session")).toBeInTheDocument();
+
+      // Toggle to project scope
+      await user.click(screen.getByText("Session"));
+      expect(screen.getByText("s1-file.ts")).toBeInTheDocument();
+      expect(screen.getByText("s2-file.ts")).toBeInTheDocument();
+      expect(screen.getByText("Project")).toBeInTheDocument();
+
+      // Toggle back to session scope
+      await user.click(screen.getByText("Project"));
+      expect(screen.getByText("s1-file.ts")).toBeInTheDocument();
+      expect(screen.queryByText("s2-file.ts")).not.toBeInTheDocument();
+    });
   });
 });

@@ -4,6 +4,7 @@ import type { SettingsTab } from "../components/modals/settings/constants";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
 export type ProjectPickerTab = "templates" | "open" | "recent";
+export type ActivityFeedScope = "session" | "project";
 
 interface UiState {
   sidebarWidth: number;
@@ -29,6 +30,7 @@ interface UiState {
   initialSettingsTab: SettingsTab | null;
   showPlanCompleteModal: boolean;
   planCompleteSessionId: string | null;
+  activityFeedScope: ActivityFeedScope;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -54,6 +56,7 @@ interface UiState {
   openSettingsToTab: (tab: SettingsTab) => void;
   setShowPlanCompleteModal: (show: boolean) => void;
   setPlanCompleteSessionId: (id: string | null) => void;
+  toggleActivityFeedScope: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -80,6 +83,7 @@ export const useUiStore = create<UiState>((set) => ({
   initialSettingsTab: null,
   showPlanCompleteModal: false,
   planCompleteSessionId: null,
+  activityFeedScope: "session",
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -107,4 +111,5 @@ export const useUiStore = create<UiState>((set) => ({
   openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
   setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null } : {}) }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
+  toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
 }));

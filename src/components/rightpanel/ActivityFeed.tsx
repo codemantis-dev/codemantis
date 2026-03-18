@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo } from "react";
+import { Layers } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useAssistantStore } from "../../stores/assistantStore";
@@ -72,20 +73,34 @@ interface LabeledEntry extends ActivityEntry {
 
 export default function ActivityFeed() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const tabOrder = useSessionStore((s) => s.tabOrder);
   const sessionEntries = useActivityStore((s) => s.sessionEntries);
   const projectAssistants = useAssistantStore((s) => s.projectAssistants);
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
+  const activityFeedScope = useUiStore((s) => s.activityFeedScope);
+  const toggleActivityFeedScope = useUiStore((s) => s.toggleActivityFeedScope);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Build merged entries from all sessions in the project
+  // Build entries based on scope: session-only or merged from all project sessions
   const { sortedEntries, showLabels } = useMemo(() => {
     if (!activeProjectPath) return { sortedEntries: [] as LabeledEntry[], showLabels: false };
 
+    // Session scope: single lookup, no aggregation
+    if (activityFeedScope === "session" && activeSessionId) {
+      const entries = sessionEntries.get(activeSessionId) ?? [];
+      const session = sessions.get(activeSessionId);
+      const label = session?.name ?? "Chat";
+      const labeled = entries.map((entry) => ({ ...entry, computedLabel: label }));
+      // Entries are already in chronological order; reverse for newest-first
+      const sorted = [...labeled].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return { sortedEntries: sorted, showLabels: false };
+    }
+
+    // Project scope: merge all sessions in the project
     const merged: LabeledEntry[] = [];
 
-    // Collect entries from main sessions in this project
     const projectSessionIds = tabOrder.filter((sid) => {
       const s = sessions.get(sid);
       return s && s.project_path === activeProjectPath;
@@ -116,7 +131,7 @@ export default function ActivityFeed() {
     const sourceCount = projectSessionIds.length + assistants.length;
 
     return { sortedEntries: merged, showLabels: sourceCount >= 2 };
-  }, [activeProjectPath, sessions, tabOrder, sessionEntries, projectAssistants]);
+  }, [activeProjectPath, activeSessionId, activityFeedScope, sessions, tabOrder, sessionEntries, projectAssistants]);
 
   // Scroll to top when new entries appear (newest first)
   useEffect(() => {
@@ -136,16 +151,31 @@ export default function ActivityFeed() {
     [setSelectedActivityEntry]
   );
 
+  const scopeToggle = (
+    <button
+      onClick={toggleActivityFeedScope}
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      title={activityFeedScope === "session" ? "Showing active session — click for all project activity" : "Showing all project activity — click for active session only"}
+    >
+      <Layers size={12} />
+      {activityFeedScope === "session" ? "Session" : "Project"}
+    </button>
+  );
+
   if (sortedEntries.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-text-faint text-ui">No activity yet</p>
+      <div className="h-full flex flex-col">
+        <div className="flex justify-end px-3 pt-1.5">{scopeToggle}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-text-faint text-ui">No activity yet</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-3 pt-2 pb-8 select-text">
+    <div ref={scrollRef} className="h-full overflow-y-auto px-3 pt-1.5 pb-8 select-text">
+      <div className="flex justify-end mb-1">{scopeToggle}</div>
       {sortedEntries.map((entry, i) => {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
