@@ -1,3 +1,4 @@
+import React from "react";
 import type { Message } from "../../types/session";
 import MessageBubble from "../chat/MessageBubble";
 
@@ -14,16 +15,18 @@ interface AssistantChatMessagesProps {
   activeAssistantId: string | null;
   isClaudeCode: boolean;
   onContextMenu: (e: React.MouseEvent, text: string) => void;
+  onRetry?: (sessionId: string) => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export default function AssistantChatMessages({
+export default React.memo(function AssistantChatMessages({
   messages,
   streaming,
   showThinking,
   activeAssistantId,
   isClaudeCode,
   onContextMenu,
+  onRetry,
   messagesEndRef,
 }: AssistantChatMessagesProps) {
   return (
@@ -51,6 +54,9 @@ export default function AssistantChatMessages({
                     ? streaming?.streamingContent
                     : undefined
                 }
+                onRetry={msg.retryable && activeAssistantId && onRetry
+                  ? () => onRetry(activeAssistantId)
+                  : undefined}
               />
             );
             if (msg.role === "user") {
@@ -87,4 +93,4 @@ export default function AssistantChatMessages({
       <div ref={messagesEndRef} />
     </div>
   );
-}
+})

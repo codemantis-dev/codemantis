@@ -255,8 +255,8 @@ impl ClaudeProcess {
             .take()
             .ok_or_else(|| AppError::ClaudeCliError("No stdin".into()))?;
 
-        // Channel for parsed events
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        // Bounded channel for parsed events — provides natural backpressure
+        let (event_tx, event_rx) = mpsc::channel(256);
 
         // Stdin writer task
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();

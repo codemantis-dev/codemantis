@@ -13,7 +13,7 @@ const {
   mockHandleChatEvent,
   mockHandleActivityEvent,
   mockStartStaleDetection,
-  mockStopStaleDetection,
+  mockCleanupSession,
   mockCreateSession,
   mockSendMessage,
   mockCloseSession,
@@ -26,7 +26,7 @@ const {
   mockHandleChatEvent: vi.fn(),
   mockHandleActivityEvent: vi.fn(),
   mockStartStaleDetection: vi.fn(),
-  mockStopStaleDetection: vi.fn(),
+  mockCleanupSession: vi.fn(),
   mockCreateSession: vi.fn<(...args: unknown[]) => Promise<Session>>(),
   mockSendMessage: vi.fn(() => Promise.resolve()),
   mockCloseSession: vi.fn(() => Promise.resolve()),
@@ -41,7 +41,7 @@ vi.mock("../lib/event-classifier", () => ({
   handleChatEvent: mockHandleChatEvent,
   handleActivityEvent: mockHandleActivityEvent,
   startStaleDetection: mockStartStaleDetection,
-  stopStaleDetection: mockStopStaleDetection,
+  cleanupSession: mockCleanupSession,
 }));
 
 // Mock useAssistantSession
@@ -261,7 +261,7 @@ describe("useClaudeSession", () => {
     });
 
     expect(mockUnlisten).toHaveBeenCalled();
-    expect(mockStopStaleDetection).toHaveBeenCalledWith("s1");
+    expect(mockCleanupSession).toHaveBeenCalledWith("s1");
     expect(mockCloseSession).toHaveBeenCalledWith("s1");
     expect(useSessionStore.getState().sessions.has("s1")).toBe(false);
   });

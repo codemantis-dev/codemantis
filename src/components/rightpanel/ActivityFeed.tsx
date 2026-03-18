@@ -4,6 +4,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useUiStore } from "../../stores/uiStore";
+import { EMPTY_ARRAY } from "../../lib/empty-refs";
 import { getActivityType } from "../../types/activity";
 import type { ActivityEntry } from "../../types/activity";
 import ToolBadge from "../shared/ToolBadge";
@@ -76,8 +77,11 @@ export default function ActivityFeed() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const tabOrder = useSessionStore((s) => s.tabOrder);
-  const sessionEntries = useActivityStore((s) => s.sessionEntries);
-  const projectAssistants = useAssistantStore((s) => s.projectAssistants);
+  // For session scope: narrow selector on active session's entries only
+  const activeSessionEntries = useActivityStore((s) => activeSessionId ? s.sessionEntries.get(activeSessionId) ?? EMPTY_ARRAY : EMPTY_ARRAY);
+  // For project scope: need all entries (broader subscription)
+  const allSessionEntries = useActivityStore((s) => s.sessionEntries);
+  const projectAssistants = useAssistantStore((s) => activeProjectPath ? s.projectAssistants.get(activeProjectPath) ?? EMPTY_ARRAY : EMPTY_ARRAY);
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const activityFeedScope = useUiStore((s) => s.activityFeedScope);
   const toggleActivityFeedScope = useUiStore((s) => s.toggleActivityFeedScope);
@@ -87,13 +91,11 @@ export default function ActivityFeed() {
   const { sortedEntries, showLabels } = useMemo(() => {
     if (!activeProjectPath) return { sortedEntries: [] as LabeledEntry[], showLabels: false };
 
-    // Session scope: single lookup, no aggregation
+    // Session scope: use narrow selector (only re-renders when active session's entries change)
     if (activityFeedScope === "session" && activeSessionId) {
-      const entries = sessionEntries.get(activeSessionId) ?? [];
       const session = sessions.get(activeSessionId);
       const label = session?.name ?? "Chat";
-      const labeled = entries.map((entry) => ({ ...entry, computedLabel: label }));
-      // Entries are already in chronological order; reverse for newest-first
+      const labeled = activeSessionEntries.map((entry) => ({ ...entry, computedLabel: label }));
       const sorted = [...labeled].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       return { sortedEntries: sorted, showLabels: false };
     }
@@ -107,7 +109,7 @@ export default function ActivityFeed() {
     });
 
     for (const sid of projectSessionIds) {
-      const entries = sessionEntries.get(sid) ?? [];
+      const entries = allSessionEntries.get(sid) ?? [];
       const session = sessions.get(sid);
       const label = session?.name ?? "Chat";
       for (const entry of entries) {
@@ -116,9 +118,8 @@ export default function ActivityFeed() {
     }
 
     // Collect entries from assistant sessions in this project
-    const assistants = projectAssistants.get(activeProjectPath) ?? [];
-    for (const assistant of assistants) {
-      const entries = sessionEntries.get(assistant.id) ?? [];
+    for (const assistant of projectAssistants) {
+      const entries = allSessionEntries.get(assistant.id) ?? [];
       for (const entry of entries) {
         merged.push({ ...entry, computedLabel: assistant.name });
       }
@@ -128,10 +129,10 @@ export default function ActivityFeed() {
     merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     // Show labels only when there are 2+ active sources
-    const sourceCount = projectSessionIds.length + assistants.length;
+    const sourceCount = projectSessionIds.length + projectAssistants.length;
 
     return { sortedEntries: merged, showLabels: sourceCount >= 2 };
-  }, [activeProjectPath, activeSessionId, activityFeedScope, sessions, tabOrder, sessionEntries, projectAssistants]);
+  }, [activeProjectPath, activeSessionId, activityFeedScope, sessions, tabOrder, activeSessionEntries, allSessionEntries, projectAssistants]);
 
   // Scroll to top when new entries appear (newest first)
   useEffect(() => {

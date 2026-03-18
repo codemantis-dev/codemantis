@@ -22,7 +22,7 @@ import {
   handleChatEvent,
   handleActivityEvent,
   startStaleDetection,
-  stopStaleDetection,
+  cleanupSession,
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
 import { inputDrafts } from "../lib/input-drafts";
@@ -133,7 +133,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       sessionListeners.delete(sessionId);
     }
 
-    stopStaleDetection(sessionId);
+    cleanupSession(sessionId);
 
     // Close all terminals for this session
     const terminals = terminalStore.getState().getTerminals(sessionId);

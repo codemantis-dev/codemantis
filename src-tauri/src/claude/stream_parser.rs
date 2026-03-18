@@ -8,18 +8,24 @@ use tokio::sync::mpsc;
 /// When `--include-partial-messages` is used, the CLI wraps streaming events in:
 ///   `{"type":"stream_event","event":{...}}`
 /// We extract the inner event and parse it as a RawStreamEvent.
-fn try_unwrap_stream_event(value: &serde_json::Value) -> Option<RawStreamEvent> {
-    let obj = value.as_object()?;
-    if obj.get("type")?.as_str()? != "stream_event" {
-        return None;
+fn try_unwrap_stream_event(value: serde_json::Value) -> Result<RawStreamEvent, serde_json::Value> {
+    let mut obj = match value {
+        serde_json::Value::Object(obj) => obj,
+        other => return Err(other),
+    };
+    if obj.get("type").and_then(|v| v.as_str()) != Some("stream_event") {
+        return Err(serde_json::Value::Object(obj));
     }
-    let inner = obj.get("event")?;
-    serde_json::from_value::<RawStreamEvent>(inner.clone()).ok()
+    match obj.remove("event") {
+        Some(inner) => serde_json::from_value::<RawStreamEvent>(inner)
+            .map_err(|_| serde_json::Value::Object(obj)),
+        None => Err(serde_json::Value::Object(obj)),
+    }
 }
 
 pub async fn parse_stream(
     stdout: ChildStdout,
-    sender: mpsc::UnboundedSender<RawStreamEvent>,
+    sender: mpsc::Sender<RawStreamEvent>,
 ) {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
@@ -38,14 +44,16 @@ pub async fn parse_stream(
                 let parsed: Result<serde_json::Value, _> = serde_json::from_str(trimmed);
                 let event = match parsed {
                     Ok(value) => {
-                        if let Some(inner) = try_unwrap_stream_event(&value) {
-                            inner
-                        } else {
-                            match serde_json::from_value::<RawStreamEvent>(value) {
-                                Ok(ev) => ev,
-                                Err(e) => {
-                                    warn!("Failed to parse NDJSON event: {} — raw: {}", e, trimmed);
-                                    continue;
+                        // try_unwrap_stream_event takes ownership; returns Ok(inner) or Err(original)
+                        match try_unwrap_stream_event(value) {
+                            Ok(inner) => inner,
+                            Err(original) => {
+                                match serde_json::from_value::<RawStreamEvent>(original) {
+                                    Ok(ev) => ev,
+                                    Err(e) => {
+                                        warn!("Failed to parse NDJSON event: {} — raw: {}", e, trimmed);
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -56,7 +64,7 @@ pub async fn parse_stream(
                     }
                 };
 
-                if sender.send(event).is_err() {
+                if sender.send(event).await.is_err() {
                     debug!("Stream parser: receiver dropped, stopping");
                     break;
                 }

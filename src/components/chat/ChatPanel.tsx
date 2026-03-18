@@ -1,27 +1,18 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
+import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
 
 export default function ChatPanel() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const sessionMessages = useSessionStore((s) => s.sessionMessages);
-  const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
-  const sessions = useSessionStore((s) => s.sessions);
-
-  const messages = useMemo(
-    () => activeSessionId ? sessionMessages.get(activeSessionId) ?? [] : [],
-    [activeSessionId, sessionMessages]
-  );
-  const streaming = activeSessionId
-    ? sessionStreaming.get(activeSessionId) ?? { isStreaming: false, streamingContent: "", currentMessageId: null }
-    : { isStreaming: false, streamingContent: "", currentMessageId: null };
-  const sessionBusy = useSessionStore((s) => s.sessionBusy);
-  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-  const isBusy = activeSessionId ? sessionBusy.get(activeSessionId) ?? false : false;
+  const messages = useSessionStore((s) => s.activeSessionId ? s.sessionMessages.get(s.activeSessionId) ?? EMPTY_ARRAY : EMPTY_ARRAY);
+  const streaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId) ?? EMPTY_STREAMING : EMPTY_STREAMING);
+  const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
+  const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
   const { startSession } = useClaudeSession();
 
   const handleRestart = useCallback(() => {
@@ -48,6 +39,23 @@ export default function ChatPanel() {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     }
+  }, []);
+
+  // Re-scroll to bottom when scroll container resizes (e.g., ThinkingIndicator appears/grows
+  // with sub-agent cards). Without this, the container shrinks but scrollTop stays the same,
+  // causing the user to appear "scrolled up" and triggering the "New messages" button.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => {
+      if (isAtBottomRef.current && el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   // Force-scroll to bottom when the user sends a new message (even if scrolled up)

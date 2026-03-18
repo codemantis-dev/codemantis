@@ -12,20 +12,12 @@ import { getContextWindowForModel } from "../../lib/model-context";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export default function Sidebar() {
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const sessions = useSessionStore((s) => s.sessions);
-  const sessionContext = useSessionStore((s) => s.sessionContext);
-  const sessionStats = useSessionStore((s) => s.sessionStats);
-
-  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+  const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
+  const rawContext = useSessionStore((s) => s.activeSessionId ? s.sessionContext.get(s.activeSessionId) : undefined);
+  const stats = useSessionStore((s) => s.activeSessionId ? s.sessionStats.get(s.activeSessionId) : undefined);
   const settingsDefault = useSettingsStore.getState().settings.defaultContextWindow;
   const defaultMax = getContextWindowForModel(session?.model, settingsDefault);
-  const context = activeSessionId
-    ? sessionContext.get(activeSessionId) ?? { used: 0, max: defaultMax }
-    : { used: 0, max: defaultMax };
-  const stats = activeSessionId
-    ? sessionStats.get(activeSessionId) ?? undefined
-    : undefined;
+  const context = rawContext ?? { used: 0, max: defaultMax };
 
   const fileTreeRef = useRef<FileTreeHandle>(null);
   const fileTreeRefreshTrigger = useUiStore((s) => s.fileTreeRefreshTrigger);

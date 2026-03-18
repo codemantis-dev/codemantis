@@ -58,17 +58,9 @@ export default function InputArea() {
   const prevSessionRef = useRef<string | null>(null);
   const { executeCommand } = useCommandExecution();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const sessions = useSessionStore((s) => s.sessions);
-  const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
-
-  const sessionBusy = useSessionStore((s) => s.sessionBusy);
-
-  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-  const streaming = activeSessionId
-    ? sessionStreaming.get(activeSessionId)
-    : undefined;
-  const isStreaming = streaming?.isStreaming ?? false;
-  const isBusy = activeSessionId ? sessionBusy.get(activeSessionId) ?? false : false;
+  const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
+  const isStreaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId)?.isStreaming ?? false : false);
+  const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
 
   // Save/restore input drafts per session
   useEffect(() => {
@@ -379,10 +371,9 @@ export default function InputArea() {
     }
   }, [session, activeSessionId, addAttachment]);
 
-  const sessionEffort = useSessionStore((s) => s.sessionEffort);
-  const effort: ThinkingEffort = activeSessionId
-    ? sessionEffort.get(activeSessionId) ?? "high"
-    : "high";
+  const effort: ThinkingEffort = useSessionStore((s) => s.activeSessionId
+    ? s.sessionEffort.get(s.activeSessionId) ?? "high"
+    : "high");
 
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
 

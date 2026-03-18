@@ -218,6 +218,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionEffort.delete(sessionId);
       const activeSubAgents = new Map(state.activeSubAgents);
       activeSubAgents.delete(sessionId);
+      // Clean up the 8 Maps that were previously leaked
+      const sessionActivity = new Map(state.sessionActivity);
+      sessionActivity.delete(sessionId);
+      const sessionCompacting = new Map(state.sessionCompacting);
+      sessionCompacting.delete(sessionId);
+      const busySince = new Map(state.busySince);
+      busySince.delete(sessionId);
+      const rateLimitUtilization = new Map(state.rateLimitUtilization);
+      rateLimitUtilization.delete(sessionId);
+      const sessionCapabilities = new Map(state.sessionCapabilities);
+      sessionCapabilities.delete(sessionId);
+      const sessionRetry = new Map(state.sessionRetry);
+      const existingRetry = sessionRetry.get(sessionId);
+      if (existingRetry?.retryTimerId) clearTimeout(existingRetry.retryTimerId);
+      sessionRetry.delete(sessionId);
+      const lastEventTimestamp = new Map(state.lastEventTimestamp);
+      lastEventTimestamp.delete(sessionId);
+      const contextToastFired = new Map(state.contextToastFired);
+      contextToastFired.delete(sessionId);
       const tabOrder = state.tabOrder.filter((id) => id !== sessionId);
 
       // Update project grouping
@@ -264,6 +283,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionBusy,
         sessionEffort,
         activeSubAgents,
+        sessionActivity,
+        sessionCompacting,
+        busySince,
+        rateLimitUtilization,
+        sessionCapabilities,
+        sessionRetry,
+        lastEventTimestamp,
+        contextToastFired,
         tabOrder,
         activeSessionId,
         activeProjectPath,

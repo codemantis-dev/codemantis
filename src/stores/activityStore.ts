@@ -84,6 +84,11 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
     set((state) => {
       const sessionEntries = new Map(state.sessionEntries);
       const entries = [...(sessionEntries.get(sessionId) ?? []), entry];
+      // Cap entries per session to prevent unbounded growth
+      const MAX_ENTRIES = 500;
+      if (entries.length > MAX_ENTRIES) {
+        entries.splice(0, entries.length - MAX_ENTRIES);
+      }
       sessionEntries.set(sessionId, entries);
       return { sessionEntries };
     }),

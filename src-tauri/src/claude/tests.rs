@@ -1087,7 +1087,7 @@ mod tests {
 {"type":"result","duration_ms":100}
 "#;
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(256);
 
         // Use a child process that echoes our NDJSON
         let mut child = tokio::process::Command::new("echo")
@@ -1126,7 +1126,7 @@ mod tests {
 
 "#;
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(256);
 
         let mut child = tokio::process::Command::new("echo")
             .arg("-n")
@@ -1159,7 +1159,7 @@ mod tests {
 {"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
 {"type":"result","duration_ms":100}"#;
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(256);
 
         let mut child = tokio::process::Command::new("echo")
             .arg("-n")
@@ -1194,7 +1194,7 @@ mod tests {
 {broken json here
 {"type":"result","duration_ms":50}"#;
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(256);
 
         let mut child = tokio::process::Command::new("echo")
             .arg("-n")

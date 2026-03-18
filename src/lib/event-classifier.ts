@@ -928,31 +928,29 @@ function checkContextThresholds(sessionId: string): void {
 
 // ── Stale connection detection (progressive) ──
 // Monitors for silent sessions and provides escalating feedback.
-// Thresholds: 120s (first warning), 300s (second), 600s (third with action).
-const staleTimers = new Map<string, ReturnType<typeof setInterval>>();
+// Uses a single shared interval that checks ALL registered sessions,
+// instead of one timer per session (N sessions = N timers was wasteful).
+const staleSessions = new Set<string>();
 const staleWarningCount = new Map<string, number>();
+let sharedStaleTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startStaleDetection(sessionId: string): void {
-  stopStaleDetection(sessionId);
-  const store = useSessionStore.getState();
-  store.touchLastEvent(sessionId);
-  staleWarningCount.set(sessionId, 0);
+async function checkAllStaleSessions(): Promise<void> {
+  const s = useSessionStore.getState();
 
-  const timer = setInterval(async () => {
-    const s = useSessionStore.getState();
+  for (const sessionId of staleSessions) {
     const isBusy = s.sessionBusy.get(sessionId) ?? false;
     if (!isBusy) {
       staleWarningCount.set(sessionId, 0);
-      return;
+      continue;
     }
 
     const lastTs = s.lastEventTimestamp.get(sessionId) ?? 0;
     const elapsed = Date.now() - lastTs;
 
     // Only check if truly silent for >120s and not streaming text
-    if (elapsed <= 120_000) return;
+    if (elapsed <= 120_000) continue;
     const streaming = s.sessionStreaming.get(sessionId);
-    if (streaming?.isStreaming) return;
+    if (streaming?.isStreaming) continue;
 
     // Check if the process is actually still alive
     try {
@@ -978,7 +976,7 @@ export function startStaleDetection(sessionId: string): void {
         });
         showToast("Session recovered — process had ended", "info", 6000);
         staleWarningCount.set(sessionId, 0);
-        return;
+        continue;
       }
     } catch (e) {
       console.error("[stale-detection] Failed to check process health:", e);
@@ -997,19 +995,40 @@ export function startStaleDetection(sessionId: string): void {
       // Every 3rd check (~45s intervals after first), remind the user
       showToast(`No events for ${elapsedMin}m — process still running`, "info", 8000);
     }
+  }
+}
 
-    // Don't reset timestamp — let elapsed accumulate for accurate reporting
-  }, 15_000);
+export function startStaleDetection(sessionId: string): void {
+  staleSessions.add(sessionId);
+  const store = useSessionStore.getState();
+  store.touchLastEvent(sessionId);
+  staleWarningCount.set(sessionId, 0);
 
-  staleTimers.set(sessionId, timer);
+  if (!sharedStaleTimer) {
+    sharedStaleTimer = setInterval(checkAllStaleSessions, 15_000);
+  }
 }
 
 export function stopStaleDetection(sessionId: string): void {
-  const timer = staleTimers.get(sessionId);
-  if (timer) {
-    clearInterval(timer);
-    staleTimers.delete(sessionId);
+  staleSessions.delete(sessionId);
+  staleWarningCount.delete(sessionId);
+
+  if (staleSessions.size === 0 && sharedStaleTimer) {
+    clearInterval(sharedStaleTimer);
+    sharedStaleTimer = null;
   }
+}
+
+/** Clean up all module-level caches for a closed session. */
+export function cleanupSession(sessionId: string): void {
+  stopStaleDetection(sessionId);
+  streamingBuffers.delete(sessionId);
+  const frame = pendingFrames.get(sessionId);
+  if (frame && typeof cancelAnimationFrame === "function") {
+    cancelAnimationFrame(frame);
+  }
+  pendingFrames.delete(sessionId);
+  turnToolCallCount.delete(sessionId);
 }
 
 function maybeGenerateChangelog(sessionId: string): void {

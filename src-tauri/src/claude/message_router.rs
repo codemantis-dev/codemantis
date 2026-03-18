@@ -64,7 +64,7 @@ async fn sync_session_mode(
 pub async fn route_events(
     app_handle: AppHandle,
     session_id: String,
-    mut receiver: mpsc::UnboundedReceiver<RawStreamEvent>,
+    mut receiver: mpsc::Receiver<RawStreamEvent>,
 ) {
     let chat_event = format!("claude-chat-{}", session_id);
     let activity_event = format!("claude-activity-{}", session_id);

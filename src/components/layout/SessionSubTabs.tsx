@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Plus, X, ScrollText, History } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -15,7 +15,7 @@ interface SessionSubTabProps {
   onRename: (name: string) => void;
 }
 
-function SessionSubTab({
+const SessionSubTab = React.memo(function SessionSubTab({
   name,
   model,
   isActive,
@@ -119,7 +119,7 @@ function SessionSubTab({
       )}
     </div>
   );
-}
+});
 
 interface SessionSubTabsProps {
   onAddSession: () => void;

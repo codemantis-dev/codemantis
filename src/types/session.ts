@@ -37,6 +37,7 @@ export interface Message {
   isStreaming: boolean;
   turnStats?: TurnStats;
   restartable?: boolean;
+  retryable?: boolean;
 }
 
 export interface SessionStats {

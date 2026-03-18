@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ShieldCheck, Map } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SessionActivityInfo } from "../../stores/sessionStore";
 import { formatTokens, formatCost, formatDuration, formatModelName } from "../../lib/format-utils";
@@ -82,7 +83,8 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
   const ctxColor = ctxPct >= 90 ? "text-red" : ctxPct >= 70 ? "text-yellow" : "text-text-ghost";
   const modelLabel = formatModelName(session?.model);
   const turnCount = stats?.turnCount ?? 0;
-  const modeLabel = mode === "plan" ? "Plan" : mode === "auto-accept" ? "Auto" : null;
+  const isAutoAccept = mode === "auto-accept";
+  const isPlan = mode === "plan";
 
   return (
     <div
@@ -113,8 +115,15 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
       <div className="flex-1" />
 
       {/* Right section: mode + model + turns + RL + tokens + cost + ctx */}
-      {modeLabel && (
-        <span className="text-yellow font-medium shrink-0">{modeLabel}</span>
+      {isAutoAccept && (
+        <span className="text-green shrink-0" title="Auto-Accept">
+          <ShieldCheck size={14} />
+        </span>
+      )}
+      {isPlan && (
+        <span className="text-yellow shrink-0" title="Plan mode">
+          <Map size={14} />
+        </span>
       )}
 
       {modelLabel && (

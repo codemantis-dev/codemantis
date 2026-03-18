@@ -30,6 +30,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. You help with
 interface UseAssistantSessionReturn {
   createAssistant: (projectPath: string, provider: AIProvider, model?: string) => Promise<string>;
   sendMessage: (sessionId: string, prompt: string, attachments?: Attachment[]) => void;
+  retryLastMessage: (sessionId: string) => void;
   closeAssistant: (projectPath: string, sessionId: string) => Promise<void>;
   closeAllAssistants: (projectPath: string) => Promise<void>;
 }
@@ -142,9 +143,47 @@ export function useAssistantSession(): UseAssistantSessionReturn {
           timestamp: new Date().toISOString(),
           activityIds: [],
           isStreaming: false,
+          retryable: true,
         });
       });
     }
+  }, []);
+
+  const retryLastMessage = useCallback((sessionId: string) => {
+    const store = useAssistantStore.getState();
+    const instance = store.findAssistantInstance(sessionId);
+    if (!instance || instance.provider === "claude-code") return;
+
+    const messages = store.messages.get(sessionId) ?? [];
+    // Find last user message
+    let lastUserMsg: typeof messages[0] | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserMsg = messages[i];
+        break;
+      }
+    }
+    if (!lastUserMsg) return;
+
+    // Remove all messages after the last user message (error + empty streaming placeholder)
+    store.removeMessagesAfter(sessionId, lastUserMsg.id);
+
+    // Retry the API call
+    store.setBusy(sessionId, true);
+    sendApiMessage(sessionId, instance.provider as APIProvider, instance.model).catch((e) => {
+      console.error("Retry failed:", e);
+      showToast("Retry failed", "error");
+      store.setBusy(sessionId, false);
+      store.addMessage(sessionId, {
+        id: `asst-err-${Date.now()}`,
+        role: "assistant",
+        content: `**Error:** ${String(e)}`,
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+        retryable: true,
+      });
+    });
   }, []);
 
   const closeAssistant = useCallback(async (projectPath: string, sessionId: string) => {
@@ -198,7 +237,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     store.clearProject(projectPath);
   }, []);
 
-  return { createAssistant, sendMessage, closeAssistant, closeAllAssistants };
+  return { createAssistant, sendMessage, retryLastMessage, closeAssistant, closeAllAssistants };
 }
 
 /** Send a message to an API provider (OpenAI/Gemini/Anthropic) with streaming. */
@@ -220,10 +259,10 @@ async function sendApiMessage(
     throw new Error(`No model selected for ${provider}.`);
   }
 
-  // Build conversation history from stored messages
+  // Build conversation history from stored messages (exclude error/retryable messages and empty placeholders)
   const allMessages = store.messages.get(sessionId) ?? [];
   const chatHistory: { role: string; content: string | ContentPart[] }[] = allMessages
-    .filter((m) => m.role === "user" || m.role === "assistant")
+    .filter((m) => (m.role === "user" || m.role === "assistant") && !m.retryable && m.content !== "")
     .map((m) => ({ role: m.role, content: m.content as string | ContentPart[] }));
 
   // For the last user message, attach images as multimodal content
@@ -293,6 +332,7 @@ async function sendApiMessage(
           timestamp: new Date().toISOString(),
           activityIds: [],
           isStreaming: false,
+          retryable: true,
         });
         unlisten();
         break;

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { RotateCcw, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -19,13 +19,15 @@ interface MessageBubbleProps {
   streamingContent?: string;
   sessionId?: string;
   onRestart?: () => void;
+  onRetry?: () => void;
 }
 
-export default function MessageBubble({
+export default React.memo(function MessageBubble({
   message,
   streamingContent,
   sessionId,
   onRestart,
+  onRetry,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const displayContent = message.isStreaming
@@ -97,6 +99,16 @@ export default function MessageBubble({
             Restart Session
           </button>
         )}
+        {/* Retry button for API errors */}
+        {message.retryable && onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-accent bg-accent/10 hover:bg-accent/20 transition-colors font-medium"
+          >
+            <RotateCcw size={13} />
+            Retry
+          </button>
+        )}
         {/* Turn stats + timestamp (shown after streaming completes) */}
         {!message.isStreaming && !message.restartable && (
           <div className="mt-1.5 flex items-center gap-2">
@@ -112,4 +124,4 @@ export default function MessageBubble({
       </div>
     </div>
   );
-}
+})

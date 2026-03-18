@@ -67,6 +67,9 @@ interface AssistantState {
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   getCliSessionId: (sessionId: string) => string | undefined;
 
+  // Remove all messages after a given messageId (for retry)
+  removeMessagesAfter: (sessionId: string, messageId: string) => void;
+
   // Per-session attachment actions
   addAssistantAttachment: (sessionId: string, attachment: Attachment) => void;
   removeAssistantAttachment: (sessionId: string, attachmentId: string) => void;
@@ -291,6 +294,17 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 
   getCliSessionId: (sessionId) =>
     get().cliSessionIds.get(sessionId),
+
+  removeMessagesAfter: (sessionId, messageId) =>
+    set((state) => {
+      const messages = new Map(state.messages);
+      const msgList = messages.get(sessionId) ?? [];
+      const idx = msgList.findIndex((m) => m.id === messageId);
+      if (idx >= 0) {
+        messages.set(sessionId, msgList.slice(0, idx + 1));
+      }
+      return { messages };
+    }),
 
   addAssistantAttachment: (sessionId, attachment) =>
     set((state) => {

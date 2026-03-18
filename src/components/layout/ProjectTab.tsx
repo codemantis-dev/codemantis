@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { X } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 
@@ -13,35 +13,22 @@ interface ProjectTabProps {
 
 /** Returns "busy" | "stale" | "idle" for a project's sessions. */
 function useProjectBusyStatus(projectPath: string): "busy" | "stale" | "idle" {
-  const tabOrder = useSessionStore((s) => s.tabOrder);
-  const sessions = useSessionStore((s) => s.sessions);
-  const sessionBusy = useSessionStore((s) => s.sessionBusy);
-  const lastEventTimestamp = useSessionStore((s) => s.lastEventTimestamp);
-
-  const projectSessionIds = tabOrder.filter((id) => {
-    const s = sessions.get(id);
-    return s && s.project_path === projectPath;
-  });
-
-  let anyBusy = false;
-  let anyStale = false;
-
-  for (const id of projectSessionIds) {
-    if (sessionBusy.get(id)) {
-      anyBusy = true;
-      const lastTs = lastEventTimestamp.get(id) ?? 0;
-      if (Date.now() - lastTs > 30_000) {
-        anyStale = true;
+  return useSessionStore((s) => {
+    let anyBusy = false;
+    let anyStale = false;
+    for (const id of s.tabOrder) {
+      const session = s.sessions.get(id);
+      if (!session || session.project_path !== projectPath) continue;
+      if (s.sessionBusy.get(id)) {
+        anyBusy = true;
+        if (Date.now() - (s.lastEventTimestamp.get(id) ?? 0) > 30_000) anyStale = true;
       }
     }
-  }
-
-  if (anyStale) return "stale";
-  if (anyBusy) return "busy";
-  return "idle";
+    return anyStale ? "stale" : anyBusy ? "busy" : "idle";
+  });
 }
 
-export default function ProjectTab({
+export default React.memo(function ProjectTab({
   projectPath,
   projectName,
   sessionCount,
@@ -128,4 +115,4 @@ export default function ProjectTab({
       )}
     </div>
   );
-}
+})
