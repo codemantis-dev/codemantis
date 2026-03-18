@@ -21,6 +21,7 @@ vi.mock("../../stores/settingsStore", () => ({
 const makeAssistant = (overrides?: Partial<AssistantInstance>): AssistantInstance => ({
   id: "s1",
   projectPath: "/tmp",
+  parentSessionId: "main-s1",
   name: "Claude 1",
   provider: "claude-code",
   model: null,

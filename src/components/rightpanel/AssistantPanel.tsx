@@ -3,6 +3,7 @@ import { Send, Plus, MessageSquare, Info } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAssistantStore } from "../../stores/assistantStore";
+import type { AssistantInstance } from "../../stores/assistantStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { EMPTY_ARRAY } from "../../lib/empty-refs";
@@ -49,10 +50,16 @@ export default function AssistantPanel() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
-  // Targeted per-field selectors instead of useShallow on entire Maps
-  const assistants = useAssistantStore((s) => activeProjectPath ? s.projectAssistants.get(activeProjectPath) ?? EMPTY_ARRAY : EMPTY_ARRAY);
-  const activeAssistantId = useAssistantStore((s) => activeProjectPath ? s.activeAssistantId.get(activeProjectPath) ?? null : null);
+  // Read raw project list (stable reference from store), then filter in useMemo
+  const allProjectAssistants = useAssistantStore((s) => activeProjectPath ? s.projectAssistants.get(activeProjectPath) ?? EMPTY_ARRAY : EMPTY_ARRAY) as AssistantInstance[];
+  const assistants = useMemo(() => {
+    if (!activeSessionId) return EMPTY_ARRAY as AssistantInstance[];
+    const filtered = allProjectAssistants.filter((a) => a.parentSessionId === activeSessionId);
+    return filtered.length > 0 ? filtered : EMPTY_ARRAY as AssistantInstance[];
+  }, [allProjectAssistants, activeSessionId]);
+  const activeAssistantId = useAssistantStore((s) => activeSessionId ? s.activeAssistantId.get(activeSessionId) ?? null : null);
   const messages = useAssistantStore((s) => activeAssistantId ? s.messages.get(activeAssistantId) ?? EMPTY_ARRAY : EMPTY_ARRAY);
   const streaming = useAssistantStore((s) => activeAssistantId ? s.streaming.get(activeAssistantId) : undefined);
   const busy = useAssistantStore((s) => activeAssistantId ? s.busy.get(activeAssistantId) ?? false : false);
@@ -126,7 +133,7 @@ export default function AssistantPanel() {
   }, [activeProjectPath]);
 
   const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {
-    if (!activeProjectPath || creating) return;
+    if (!activeProjectPath || !activeSessionId || creating) return;
 
     // Check API key for non-claude-code providers
     if (provider !== "claude-code" && !(apiKeys[provider] ?? "").trim()) {
@@ -143,13 +150,13 @@ export default function AssistantPanel() {
     setCreating(true);
     setShowProviderMenu(false);
     try {
-      await createAssistant(activeProjectPath, provider, resolvedModel);
+      await createAssistant(activeProjectPath, activeSessionId, provider, resolvedModel);
     } catch (e) {
       console.error("Failed to create assistant:", e);
     } finally {
       setCreating(false);
     }
-  }, [activeProjectPath, creating, createAssistant, apiKeys, defaultModels]);
+  }, [activeProjectPath, activeSessionId, creating, createAssistant, apiKeys, defaultModels]);
 
   const handleClose = useCallback(async (sessionId: string) => {
     if (!activeProjectPath) return;
@@ -157,9 +164,9 @@ export default function AssistantPanel() {
   }, [activeProjectPath, closeAssistant]);
 
   const handleSelect = useCallback((sessionId: string) => {
-    if (!activeProjectPath) return;
-    setActiveAssistant(activeProjectPath, sessionId);
-  }, [activeProjectPath, setActiveAssistant]);
+    if (!activeSessionId) return;
+    setActiveAssistant(activeSessionId, sessionId);
+  }, [activeSessionId, setActiveAssistant]);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();

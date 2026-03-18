@@ -17,6 +17,7 @@ function makeInstance(overrides?: Partial<AssistantInstance>): AssistantInstance
   return {
     id: "s1",
     projectPath: "/tmp/project",
+    parentSessionId: "main-s1",
     name: "Claude 1",
     provider: "claude-code",
     model: null,
@@ -41,7 +42,7 @@ describe("assistantStore", () => {
     store.addAssistant("/tmp/project", instance);
 
     expect(store.getAssistants("/tmp/project")).toHaveLength(1);
-    expect(store.getActiveAssistantId("/tmp/project")).toBe("s1");
+    expect(store.getActiveAssistantId("main-s1")).toBe("s1");
     expect(store.getTokenUsage("s1")).toEqual({ inputTokens: 0, outputTokens: 0 });
   });
 
@@ -51,8 +52,8 @@ describe("assistantStore", () => {
     store.addAssistant("/tmp/project", makeInstance({ id: "s2", name: "GPT 2", provider: "openai", model: "gpt-4.1", sortOrder: 2 }));
 
     expect(store.getAssistants("/tmp/project")).toHaveLength(2);
-    // Last added becomes active
-    expect(store.getActiveAssistantId("/tmp/project")).toBe("s2");
+    // Last added (same parentSessionId) becomes active
+    expect(store.getActiveAssistantId("main-s1")).toBe("s2");
   });
 
   it("removeAssistant removes instance and updates active", () => {
@@ -63,7 +64,7 @@ describe("assistantStore", () => {
     store.removeAssistant("/tmp/project", "s2");
 
     expect(store.getAssistants("/tmp/project")).toHaveLength(1);
-    expect(store.getActiveAssistantId("/tmp/project")).toBe("s1");
+    expect(store.getActiveAssistantId("main-s1")).toBe("s1");
   });
 
   it("removeAssistant cleans up session data", () => {
@@ -87,9 +88,9 @@ describe("assistantStore", () => {
     const store = useAssistantStore.getState();
     store.addAssistant("/tmp/project", makeInstance({ id: "s1" }));
     store.addAssistant("/tmp/project", makeInstance({ id: "s2", sortOrder: 2 }));
-    store.setActiveAssistant("/tmp/project", "s1");
+    store.setActiveAssistant("main-s1", "s1");
 
-    expect(store.getActiveAssistantId("/tmp/project")).toBe("s1");
+    expect(store.getActiveAssistantId("main-s1")).toBe("s1");
   });
 
   it("addMessage stores messages per session", () => {

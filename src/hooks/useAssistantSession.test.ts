@@ -131,7 +131,7 @@ describe("useAssistantSession", () => {
 
     let id: string = "";
     await act(async () => {
-      id = await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     expect(id).toBe("asst-1");
@@ -139,13 +139,14 @@ describe("useAssistantSession", () => {
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
     expect(assistants).toHaveLength(1);
     expect(assistants[0].provider).toBe("claude-code");
+    expect(assistants[0].parentSessionId).toBe("main-s1");
   });
 
   it("createAssistant with claude-code registers listeners", async () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     expect(mockListenChatEvents).toHaveBeenCalledWith("asst-1", expect.any(Function));
@@ -158,6 +159,7 @@ describe("useAssistantSession", () => {
       useAssistantStore.getState().addAssistant(PROJECT_PATH, {
         id: `a${i}`,
         projectPath: PROJECT_PATH,
+        parentSessionId: "main-s1",
         name: `Asst ${i}`,
         provider: "openai",
         model: "gpt-4.1",
@@ -170,7 +172,7 @@ describe("useAssistantSession", () => {
 
     await expect(
       act(async () => {
-        await result.current.createAssistant(PROJECT_PATH, "openai");
+        await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai");
       })
     ).rejects.toThrow("Maximum 6 assistants allowed");
   });
@@ -180,7 +182,7 @@ describe("useAssistantSession", () => {
 
     let id: string = "";
     await act(async () => {
-      id = await result.current.createAssistant(PROJECT_PATH, "openai");
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai");
     });
 
     expect(id).toMatch(/^api-asst-/);
@@ -196,7 +198,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "gemini");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "gemini");
     });
 
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
@@ -207,14 +209,14 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "openai");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai");
     });
 
     // Mock a different returned session for the second call
     mockCreateSession.mockResolvedValue(makeSession("asst-2"));
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "openai");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai");
     });
 
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
@@ -226,7 +228,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     act(() => {
@@ -243,7 +245,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     const attachments = [
@@ -267,7 +269,7 @@ describe("useAssistantSession", () => {
 
     let id: string = "";
     await act(async () => {
-      id = await result.current.createAssistant(PROJECT_PATH, "openai", "gpt-4.1");
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai", "gpt-4.1");
     });
 
     act(() => {
@@ -290,7 +292,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     act(() => {
@@ -307,7 +309,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     act(() => {
@@ -321,7 +323,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     await act(async () => {
@@ -335,7 +337,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     expect(useAssistantStore.getState().getAssistants(PROJECT_PATH)).toHaveLength(1);
@@ -355,7 +357,7 @@ describe("useAssistantSession", () => {
     const { result } = renderHook(() => useAssistantSession());
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     await act(async () => {
@@ -373,10 +375,10 @@ describe("useAssistantSession", () => {
       .mockResolvedValueOnce(makeSession("asst-2"));
 
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
     await act(async () => {
-      await result.current.createAssistant(PROJECT_PATH, "claude-code");
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
     });
 
     expect(useAssistantStore.getState().getAssistants(PROJECT_PATH)).toHaveLength(2);

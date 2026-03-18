@@ -158,7 +158,7 @@ describe("FileTreeContextMenu", () => {
       useAssistantStore.setState({
         projectAssistants: new Map([
           [PROJECT_PATH, [
-            { id: "a1", projectPath: PROJECT_PATH, name: "My Helper", provider: "openai" as const, model: "gpt-4", sortOrder: 0, createdAt: "" },
+            { id: "a1", projectPath: PROJECT_PATH, parentSessionId: "s1", name: "My Helper", provider: "openai" as const, model: "gpt-4", sortOrder: 0, createdAt: "" },
           ]],
         ]),
       });

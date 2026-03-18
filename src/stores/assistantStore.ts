@@ -17,6 +17,7 @@ export interface TokenUsage {
 export interface AssistantInstance {
   id: string;          // sessionId from the CLI, or a generated ID for API providers
   projectPath: string;
+  parentSessionId: string; // main session tab that created this assistant
   name: string;
   provider: AIProvider;
   model: string | null; // null for claude-code (uses CLI's model)
@@ -33,7 +34,7 @@ const DEFAULT_STREAMING: StreamingState = {
 interface AssistantState {
   // Multiple assistants per project (mirrors terminalStore pattern)
   projectAssistants: Map<string, AssistantInstance[]>;  // projectPath → instances
-  activeAssistantId: Map<string, string | null>;        // projectPath → active sessionId
+  activeAssistantId: Map<string, string | null>;        // parentSessionId → active assistant id
 
   // Per-session data
   messages: Map<string, Message[]>;       // sessionId → messages
@@ -46,10 +47,10 @@ interface AssistantState {
   // Instance management
   addAssistant: (projectPath: string, instance: AssistantInstance) => void;
   removeAssistant: (projectPath: string, sessionId: string) => void;
-  setActiveAssistant: (projectPath: string, sessionId: string | null) => void;
+  setActiveAssistant: (parentSessionId: string, sessionId: string | null) => void;
   renameAssistant: (projectPath: string, sessionId: string, newName: string) => void;
   getAssistants: (projectPath: string) => AssistantInstance[];
-  getActiveAssistantId: (projectPath: string) => string | null;
+  getActiveAssistantId: (parentSessionId: string) => string | null;
   getAllSessionIds: (projectPath: string) => string[];
   clearProject: (projectPath: string) => void;
 
@@ -96,7 +97,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       projectAssistants.set(projectPath, list);
 
       const activeAssistantId = new Map(state.activeAssistantId);
-      activeAssistantId.set(projectPath, instance.id);
+      activeAssistantId.set(instance.parentSessionId, instance.id);
 
       const messages = new Map(state.messages);
       messages.set(instance.id, []);
@@ -115,17 +116,21 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   removeAssistant: (projectPath, sessionId) =>
     set((state) => {
       const projectAssistants = new Map(state.projectAssistants);
-      const list = (projectAssistants.get(projectPath) ?? []).filter(
-        (a) => a.id !== sessionId
-      );
+      const allList = projectAssistants.get(projectPath) ?? [];
+      const removed = allList.find((a) => a.id === sessionId);
+      const list = allList.filter((a) => a.id !== sessionId);
       projectAssistants.set(projectPath, list);
 
       const activeAssistantId = new Map(state.activeAssistantId);
-      if (activeAssistantId.get(projectPath) === sessionId) {
-        activeAssistantId.set(
-          projectPath,
-          list.length > 0 ? list[list.length - 1].id : null
-        );
+      if (removed) {
+        const parentKey = removed.parentSessionId;
+        if (activeAssistantId.get(parentKey) === sessionId) {
+          const siblings = list.filter((a) => a.parentSessionId === parentKey);
+          activeAssistantId.set(
+            parentKey,
+            siblings.length > 0 ? siblings[siblings.length - 1].id : null
+          );
+        }
       }
 
       const messages = new Map(state.messages);
@@ -144,10 +149,10 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       return { projectAssistants, activeAssistantId, messages, streaming, busy, sessionCost, attachments, cliSessionIds };
     }),
 
-  setActiveAssistant: (projectPath, sessionId) =>
+  setActiveAssistant: (parentSessionId, sessionId) =>
     set((state) => {
       const activeAssistantId = new Map(state.activeAssistantId);
-      activeAssistantId.set(projectPath, sessionId);
+      activeAssistantId.set(parentSessionId, sessionId);
       return { activeAssistantId };
     }),
 
@@ -166,8 +171,8 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   getAssistants: (projectPath) =>
     get().projectAssistants.get(projectPath) ?? [],
 
-  getActiveAssistantId: (projectPath) =>
-    get().activeAssistantId.get(projectPath) ?? null,
+  getActiveAssistantId: (parentSessionId) =>
+    get().activeAssistantId.get(parentSessionId) ?? null,
 
   getAllSessionIds: (projectPath) =>
     (get().projectAssistants.get(projectPath) ?? []).map((a) => a.id),
@@ -178,7 +183,9 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
       const projectAssistants = new Map(state.projectAssistants);
       projectAssistants.delete(projectPath);
       const activeAssistantId = new Map(state.activeAssistantId);
-      activeAssistantId.delete(projectPath);
+      for (const a of assistants) {
+        activeAssistantId.delete(a.parentSessionId);
+      }
 
       const messages = new Map(state.messages);
       const streaming = new Map(state.streaming);

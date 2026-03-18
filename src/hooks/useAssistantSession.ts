@@ -28,7 +28,7 @@ const MAX_ASSISTANTS = 6;
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful coding assistant. You help with programming questions, code review, debugging, and software architecture. Be concise and direct. Use markdown for code blocks and formatting.`;
 
 interface UseAssistantSessionReturn {
-  createAssistant: (projectPath: string, provider: AIProvider, model?: string) => Promise<string>;
+  createAssistant: (projectPath: string, parentSessionId: string, provider: AIProvider, model?: string) => Promise<string>;
   sendMessage: (sessionId: string, prompt: string, attachments?: Attachment[]) => void;
   retryLastMessage: (sessionId: string) => void;
   closeAssistant: (projectPath: string, sessionId: string) => Promise<void>;
@@ -38,6 +38,7 @@ interface UseAssistantSessionReturn {
 export function useAssistantSession(): UseAssistantSessionReturn {
   const createAssistant = useCallback(async (
     projectPath: string,
+    parentSessionId: string,
     provider: AIProvider,
     model?: string,
   ): Promise<string> => {
@@ -47,7 +48,8 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       throw new Error(`Maximum ${MAX_ASSISTANTS} assistants allowed`);
     }
 
-    const num = existing.length + 1;
+    const siblings = existing.filter((a) => a.parentSessionId === parentSessionId);
+    const num = siblings.length + 1;
     const providerLabel = provider === "claude-code" ? "Claude" :
       provider === "openai" ? "GPT" :
       provider === "gemini" ? "Gemini" :
@@ -61,6 +63,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       store.addAssistant(projectPath, {
         id: session.id,
         projectPath,
+        parentSessionId,
         name,
         provider,
         model: null,
@@ -90,6 +93,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       store.addAssistant(projectPath, {
         id,
         projectPath,
+        parentSessionId,
         name,
         provider,
         model: resolvedModel,
