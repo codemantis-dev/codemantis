@@ -1,7 +1,9 @@
 import { useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { PlanningMessage } from "../../types/task-board";
 import { useTaskBoardStore } from "../../stores/taskBoardStore";
-import { Info, Copy, Check } from "lucide-react";
+import { Info, Copy, Check, Send, AlertCircle } from "lucide-react";
 import ProgressUpdateMessage from "./ProgressUpdateMessage";
 
 interface Props {
@@ -24,12 +26,32 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
   const isAssistant = message.role === "assistant";
   const isProgress = message.message_type === "progress_update";
   const [copied, setCopied] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [message.content]);
+
+  const toggleOption = useCallback((index: number) => {
+    setSelectedOptions((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const sendSelected = useCallback(() => {
+    if (!message.parsedOptions || selectedOptions.size === 0) return;
+    const chosen = [...selectedOptions]
+      .sort()
+      .map((i) => message.parsedOptions![i])
+      .join(", ");
+    onSelectOption?.(chosen);
+    setSelectedOptions(new Set());
+  }, [message.parsedOptions, selectedOptions, onSelectOption]);
 
   if (isProgress && projectPath) {
     const parsed = parseProgressContent(message.content);
@@ -61,6 +83,21 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
         />
       );
     }
+  }
+
+  if (message.message_type === "user_action_required") {
+    return (
+      <div
+        className="flex items-start gap-2 px-3 py-2 rounded-md text-xs"
+        style={{
+          background: "rgba(59,130,246,0.1)",
+          color: "#3b82f6",
+        }}
+      >
+        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+        <div className="whitespace-pre-wrap break-words min-w-0">{message.content}</div>
+      </div>
+    );
   }
 
   if (isProgress || isSystem) {
@@ -97,7 +134,13 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
         )}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        {isAssistant ? (
+          <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        )}
 
         {/* Attachment chips */}
         {message.attachments && message.attachments.length > 0 && (
@@ -117,21 +160,52 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
           </div>
         )}
 
-        {/* Selectable options */}
+        {/* Selectable options — click to toggle, send button for multi-select */}
         {isLastAssistant && message.parsedOptions && message.parsedOptions.length > 0 && (
           <div className="flex flex-col gap-1.5 mt-2">
-            {message.parsedOptions.map((opt, i) => (
+            {message.parsedOptions.map((opt, i) => {
+              const isSelected = selectedOptions.has(i);
+              return (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (selectedOptions.size === 0) {
+                      // First click — send immediately (single select)
+                      onSelectOption?.(opt);
+                    } else {
+                      toggleOption(i);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    // Right-click or long-press to toggle multi-select
+                    e.preventDefault();
+                    toggleOption(i);
+                  }}
+                  className="text-left px-3 py-2 rounded-md border text-xs transition-colors"
+                  style={{
+                    borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                    color: 'var(--text-primary)',
+                    background: isSelected ? 'var(--accent-bg)' : 'var(--bg-primary)',
+                  }}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+            {selectedOptions.size > 0 && (
               <button
-                key={i}
-                onClick={() => onSelectOption?.(opt)}
-                className="text-left px-3 py-2 rounded-md border text-xs transition-colors hover:border-[var(--accent)]"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)', background: 'var(--bg-primary)' }}
+                onClick={sendSelected}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+                style={{ background: "var(--accent)", color: "white" }}
               >
-                {opt}
+                <Send size={11} />
+                Send {selectedOptions.size} selected
               </button>
-            ))}
+            )}
             <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-ghost)' }}>
-              or type your own answer below
+              {selectedOptions.size > 0
+                ? "Click more options to add, or press Send"
+                : "Click to answer \u00b7 Right-click to multi-select"}
             </div>
           </div>
         )}

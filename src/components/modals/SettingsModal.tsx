@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useTaskBoardStore } from "../../stores/taskBoardStore";
 import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, ModelPricing } from "../../types/settings";
 import { AI_MODELS, getDefaultModelPricing } from "../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../types/assistant-provider";
@@ -520,6 +521,136 @@ function TaskBoardSettingsContent({
           className="accent-accent"
         />
       </FieldRow>
+
+      <SavedPlansSection />
+    </div>
+  );
+}
+
+// --- Saved Plans Section ---
+
+function SavedPlansSection() {
+  const [plans, setPlans] = useState<import("../../types/task-board").TaskPlanSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const executingProject = useTaskBoardStore((s) => s.executingProject);
+
+  const loadPlans = useCallback(async () => {
+    try {
+      const { listAllTaskPlans } = await import("../../lib/tauri-commands");
+      const { parsePlanSummary } = await import("../../types/task-board");
+      const rows = await listAllTaskPlans();
+      setPlans(rows.map(parsePlanSummary));
+    } catch (e) {
+      console.error("[SavedPlansSection] Failed to load plans:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
+
+  const handleDelete = useCallback(async (planId: string) => {
+    try {
+      const { deleteTaskPlanById } = await import("../../lib/tauri-commands");
+      await deleteTaskPlanById(planId);
+      setPlans((prev) => prev.filter((p) => p.id !== planId));
+      setConfirmingId(null);
+    } catch (e) {
+      console.error("[SavedPlansSection] Failed to delete plan:", e);
+    }
+  }, []);
+
+  return (
+    <div className="mt-6">
+      <SectionTitle>Saved Plans</SectionTitle>
+      {loading ? (
+        <div className="text-xs py-4 text-center" style={{ color: "var(--text-dim)" }}>
+          Loading...
+        </div>
+      ) : plans.length === 0 ? (
+        <div className="text-xs py-4 text-center" style={{ color: "var(--text-dim)" }}>
+          No saved plans yet.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {plans.map((plan) => {
+            const isConfirming = confirmingId === plan.id;
+            const isExecuting = executingProject === plan.projectPath;
+            const projectName = plan.projectPath.split("/").pop() ?? plan.projectPath;
+
+            if (isConfirming) {
+              return (
+                <div
+                  key={plan.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded text-xs"
+                  style={{ background: "var(--bg-elevated)" }}
+                >
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    Delete &ldquo;{plan.planName}&rdquo;?
+                  </span>
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => setConfirmingId(null)}
+                    className="px-2 py-1 rounded text-xs transition-colors"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleDelete(plan.id)}
+                    className="px-2 py-1 rounded text-xs font-medium transition-colors"
+                    style={{ background: "#ef4444", color: "white" }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={plan.id}
+                className="flex items-center gap-3 px-3 py-2 rounded text-xs"
+                style={{ background: "var(--bg-elevated)" }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                      {plan.planName}
+                    </span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                      style={{
+                        color: plan.status === "archived" ? "var(--text-ghost)" : "var(--accent)",
+                        border: `1px solid ${plan.status === "archived" ? "var(--border)" : "var(--accent)"}`,
+                      }}
+                    >
+                      {plan.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5" style={{ color: "var(--text-dim)" }}>
+                    <span>{projectName}</span>
+                    <span>{plan.doneTasks}/{plan.totalTasks} tasks</span>
+                    <span>{new Date(plan.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setConfirmingId(plan.id)}
+                  disabled={isExecuting}
+                  title={isExecuting ? "Cannot delete while executing" : "Delete plan"}
+                  className="p-1 rounded transition-colors hover:bg-bg-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                  style={{ color: "var(--text-ghost)" }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

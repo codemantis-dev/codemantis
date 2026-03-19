@@ -6,23 +6,16 @@ import type { TaskPlan } from "../../types/task-board";
 import type { FileNode } from "../../types/file-tree";
 
 // Hoist mocks
-const { mockReadFileTree, mockCreateDirectory, mockOpenDialog } = vi.hoisted(() => ({
+const { mockReadFileTree } = vi.hoisted(() => ({
   mockReadFileTree: vi.fn<(rootPath: string) => Promise<FileNode[]>>(() => Promise.resolve([])),
-  mockCreateDirectory: vi.fn(() => Promise.resolve()),
-  mockOpenDialog: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock("../../lib/tauri-commands", () => ({
   readFileTree: mockReadFileTree,
-  createDirectory: mockCreateDirectory,
   listTemplates: vi.fn(() => Promise.resolve([])),
   scaffoldFromTemplate: vi.fn(),
   scaffoldFromCli: vi.fn(),
   listenScaffoldProgress: vi.fn(() => Promise.resolve(() => {})),
-}));
-
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: mockOpenDialog,
 }));
 
 import ProjectTargetDecision from "./ProjectTargetDecision";
@@ -52,6 +45,7 @@ function resetStore(): void {
     executingWorkPackage: null,
     isPaused: false,
     planningStreaming: new Map(),
+    pendingUserAction: new Map(),
     projectTargetDecisions: new Map(),
   });
 }
@@ -64,7 +58,7 @@ describe("ProjectTargetDecision", () => {
     resetStore();
   });
 
-  // ── Basic rendering ──
+  // -- Basic rendering --
 
   it("renders choosing mode with two options", () => {
     render(
@@ -104,7 +98,7 @@ describe("ProjectTargetDecision", () => {
     expect(screen.getByText("vite-react")).toBeInTheDocument();
   });
 
-  // ── R1: Existing project warning ──
+  // -- R1: Existing project warning --
 
   it("proceeds directly when no project markers are found", async () => {
     mockReadFileTree.mockResolvedValueOnce([
@@ -200,7 +194,7 @@ describe("ProjectTargetDecision", () => {
     expect(decision).toEqual({ type: "current_project" });
   });
 
-  it("Choose Different Folder switches to empty_folder mode", async () => {
+  it("Choose Different Folder switches to template picker", async () => {
     mockReadFileTree.mockResolvedValueOnce([
       { name: "pyproject.toml", path: `${PROJECT}/pyproject.toml`, is_dir: false },
     ]);
@@ -221,8 +215,8 @@ describe("ProjectTargetDecision", () => {
 
     fireEvent.click(screen.getByText("Choose Different Folder"));
 
-    // Should switch to empty folder mode
-    expect(screen.getByText("Create empty project folder")).toBeInTheDocument();
+    // Should switch to template picker
+    expect(screen.getByText("Pick a template")).toBeInTheDocument();
   });
 
   it("Cancel returns to choosing mode", async () => {
@@ -298,7 +292,7 @@ describe("ProjectTargetDecision", () => {
     }
   });
 
-  // ── Mode switching ──
+  // -- Mode switching --
 
   it("switches to template picker mode", () => {
     render(
@@ -309,34 +303,7 @@ describe("ProjectTargetDecision", () => {
       />
     );
 
-    fireEvent.click(screen.getByText("Template"));
+    fireEvent.click(screen.getByText("Create New Project"));
     expect(screen.getByText("Pick a template")).toBeInTheDocument();
-  });
-
-  it("switches to empty folder mode", () => {
-    render(
-      <ProjectTargetDecision
-        projectPath={PROJECT}
-        plan={makePlan()}
-        onSwitchProject={onSwitchProject}
-      />
-    );
-
-    fireEvent.click(screen.getByText("Empty"));
-    expect(screen.getByText("Create empty project folder")).toBeInTheDocument();
-  });
-
-  it("Back button from empty folder returns to choosing", () => {
-    render(
-      <ProjectTargetDecision
-        projectPath={PROJECT}
-        plan={makePlan()}
-        onSwitchProject={onSwitchProject}
-      />
-    );
-
-    fireEvent.click(screen.getByText("Empty"));
-    fireEvent.click(screen.getByText("Back"));
-    expect(screen.getByText("Where should this plan execute?")).toBeInTheDocument();
   });
 });

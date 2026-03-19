@@ -28,6 +28,7 @@ export interface TaskItem {
   work_package: string;
   depends_on: string[];
   status: 'planned' | 'in_progress' | 'done' | 'failed' | 'skipped';
+  requires_user_action?: string | null;
 }
 
 export type VerificationCheckType = 'file_exists' | 'file_contains' | 'grep_codebase' | 'command_succeeds' | 'dom_check';
@@ -67,7 +68,7 @@ export interface PlanningMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   attachments?: PlanningAttachment[];
-  message_type: 'conversation' | 'progress_update' | 'gap_review' | 'user_feedback';
+  message_type: 'conversation' | 'progress_update' | 'gap_review' | 'user_feedback' | 'user_action_required';
   timestamp: string;
   parsedOptions?: string[];
 }
@@ -138,3 +139,69 @@ export type ProjectTargetDecision =
   | { type: 'current_project' }
   | { type: 'new_project'; targetPath: string }
   | { type: 'migrated'; migratedTo: string };
+
+/** Raw row from the Rust backend (serde camelCase). */
+export interface TaskPlanSummaryRow {
+  id: string;
+  projectPath: string;
+  status: string;
+  planJson: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Parsed summary for display. */
+export interface TaskPlanSummary {
+  id: string;
+  projectPath: string;
+  status: 'active' | 'archived';
+  planName: string;
+  planStatus: TaskPlan['status'];
+  wpCount: number;
+  doneTasks: number;
+  totalTasks: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Parse a raw DB row into a display-ready summary. */
+export function parsePlanSummary(row: TaskPlanSummaryRow): TaskPlanSummary {
+  let planName = 'Unnamed Plan';
+  let planStatus: TaskPlan['status'] = 'planning';
+  let wpCount = 0;
+  let doneTasks = 0;
+  let totalTasks = 0;
+
+  try {
+    const parsed = JSON.parse(row.planJson);
+    // The persisted blob may be the full TaskBoardState { plan, conversation, projectTarget }
+    // or a raw TaskPlan. Handle both.
+    const plan = parsed.plan ?? parsed;
+    if (plan.name) planName = plan.name;
+    if (plan.status) planStatus = plan.status;
+    if (Array.isArray(plan.work_packages)) {
+      wpCount = plan.work_packages.length;
+      for (const wp of plan.work_packages) {
+        if (Array.isArray(wp.tasks)) {
+          totalTasks += wp.tasks.length;
+          doneTasks += wp.tasks.filter((t: { status: string }) => t.status === 'done').length;
+        }
+      }
+    }
+  } catch {
+    // JSON parse failed — use defaults
+  }
+
+  return {
+    id: row.id,
+    projectPath: row.projectPath,
+    status: row.status === 'archived' ? 'archived' : 'active',
+    planName,
+    planStatus,
+    wpCount,
+    doneTasks,
+    totalTasks,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}

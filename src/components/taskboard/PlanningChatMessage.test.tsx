@@ -32,6 +32,7 @@ function resetStore(): void {
     executingWorkPackage: null,
     isPaused: false,
     planningStreaming: new Map(),
+    pendingUserAction: new Map(),
     projectTargetDecisions: new Map(),
   });
 }
@@ -132,7 +133,7 @@ describe("PlanningChatMessage", () => {
     expect(screen.getByText("React")).toBeInTheDocument();
     expect(screen.getByText("Vue")).toBeInTheDocument();
     expect(screen.getByText("Svelte")).toBeInTheDocument();
-    expect(screen.getByText(/or type your own answer below/)).toBeInTheDocument();
+    expect(screen.getByText(/Click to answer/)).toBeInTheDocument();
   });
 
   it("clicking an option calls onSelectOption with the option text", () => {
@@ -245,6 +246,22 @@ describe("PlanningChatMessage", () => {
     for (const opt of options) {
       expect(screen.getByText(opt)).toBeInTheDocument();
     }
+  });
+
+  // ── User action required messages ──
+
+  it("renders user_action_required message with blue styling", () => {
+    render(
+      <PlanningChatMessage
+        message={makeMsg({
+          role: "system",
+          content: "Create a Supabase project",
+          message_type: "user_action_required",
+        })}
+      />
+    );
+
+    expect(screen.getByText("Create a Supabase project")).toBeInTheDocument();
   });
 
   // ── Progress update messages ──

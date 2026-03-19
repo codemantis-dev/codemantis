@@ -70,6 +70,8 @@ vi.mock("../lib/tauri-commands", () => ({
   sendAssistantChat: mockSendAssistantChat,
   listenAssistantStream: mockListenAssistantStream,
   listTemplates: mockListTemplates,
+  saveTaskBoardState: vi.fn().mockResolvedValue(undefined),
+  loadTaskBoardState: vi.fn().mockResolvedValue(null),
 }));
 
 import { usePlanningConversation } from "./usePlanningConversation";
@@ -85,6 +87,7 @@ function resetStores(): void {
     executingWorkPackage: null,
     isPaused: false,
     planningStreaming: new Map(),
+    pendingUserAction: new Map(),
     projectTargetDecisions: new Map(),
   });
   useSettingsStore.setState({
@@ -212,7 +215,27 @@ describe("usePlanningConversation", () => {
     const callArgs = mockSendAssistantChat.mock.calls[0][0];
     expect(callArgs.systemPrompt).toContain("AVAILABLE PROJECT TEMPLATES");
     expect(callArgs.systemPrompt).toContain("vite-react");
-    expect(callArgs.systemPrompt).toContain("null: No template");
+    expect(callArgs.systemPrompt).toContain("null: No template (ONLY for modifications");
+  });
+
+  it("system prompt requires templates for new projects", async () => {
+    const { result } = renderHook(() => usePlanningConversation());
+    await act(async () => {
+      await result.current.sendPlanningMessage(PROJECT, "Build me something");
+    });
+
+    const callArgs = mockSendAssistantChat.mock.calls[0][0];
+    expect(callArgs.systemPrompt).toContain("MUST use one of the templates");
+  });
+
+  it("system prompt includes Docker awareness", async () => {
+    const { result } = renderHook(() => usePlanningConversation());
+    await act(async () => {
+      await result.current.sendPlanningMessage(PROJECT, "Build me something");
+    });
+
+    const callArgs = mockSendAssistantChat.mock.calls[0][0];
+    expect(callArgs.systemPrompt).toContain("Docker Desktop");
   });
 
   it("does not reload templates on subsequent messages", async () => {

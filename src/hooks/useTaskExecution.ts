@@ -10,6 +10,7 @@ import {
   sendAssistantChat,
   listenAssistantStream,
   closeSession as closeSessionCmd,
+  listTemplates,
 } from "../lib/tauri-commands";
 import { invoke } from "@tauri-apps/api/core";
 import type { FrontendEvent } from "../types/claude-events";
@@ -20,6 +21,59 @@ const COMPLETION_SIGNAL = "ALL TASKS COMPLETE";
 const IDLE_TIMEOUT_MS = 30000;
 const RATE_LIMIT_RETRY_DELAY_MS = 30000;
 const MAX_RATE_LIMIT_RETRIES = 2;
+
+/** Cap conversation messages to the last N non-system entries, stripping multimodal content. */
+function trimConversationMessages(
+  messages: { role: string; content: string }[],
+  limit = 6
+): { role: string; content: string }[] {
+  return messages.slice(-limit).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : "[multimodal content omitted]",
+  }));
+}
+
+/**
+ * Wait for a Claude Code session to complete work, using event-driven listening.
+ * Resolves when COMPLETION_SIGNAL is received, process exits, or idle timeout fires.
+ * CRITICAL: awaits listener setup before starting the timer to prevent race conditions.
+ */
+async function waitForSessionCompletion(
+  sessionId: string,
+  timeoutMs: number,
+): Promise<void> {
+  let unlisten: (() => void) | null = null;
+  let idleTimer: ReturnType<typeof setTimeout>;
+  let resolved = false;
+  let resolveCompletion!: () => void;
+  const completionPromise = new Promise<void>((r) => { resolveCompletion = r; });
+
+  const cleanup = (): void => {
+    if (resolved) return;
+    resolved = true;
+    clearTimeout(idleTimer);
+    if (unlisten) unlisten();
+    resolveCompletion();
+  };
+
+  const resetIdle = (): void => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(cleanup, timeoutMs);
+  };
+
+  // CRITICAL: await before starting timer to prevent race condition
+  unlisten = await listenChatEvents(sessionId, (event: FrontendEvent) => {
+    resetIdle();
+    if (event.type === "text_delta" || event.type === "text_complete") {
+      const text = "text" in event ? (event as { text?: string }).text ?? "" : "";
+      if (text.includes(COMPLETION_SIGNAL)) cleanup();
+    }
+    if (event.type === "process_exited") cleanup();
+  });
+
+  resetIdle();
+  await completionPromise;
+}
 
 function getCheckResultsForWP(
   projectPath: string,
@@ -81,11 +135,16 @@ async function sendProgressUpdate(
       `${c.passed ? "✅" : "❌"} ${c.description}: ${c.evidence}`
     ).join("\n")}\n\nProject Snapshot:\n${snapshot}`;
 
-  const messages = [
-    ...conv.messages.filter((m) => m.role !== "system").map((m) => ({
+  // Fix 4: Trim message history to prevent quadratic growth
+  const recentMessages = trimConversationMessages(
+    conv.messages.filter((m) => m.role !== "system").map((m) => ({
       role: m.role,
       content: m.content,
-    })),
+    }))
+  );
+
+  const messages = [
+    ...recentMessages,
     {
       role: "user" as const,
       content: `Review this progress update and respond with JSON:\n\n${reviewContent}\n\nRespond with JSON: {"assessment":"on_track"|"needs_refinement"|"has_gaps","refined_tasks":[],"new_tasks":[],"removed_task_ids":[],"updated_checks":[],"notes":"your assessment"}`,
@@ -191,11 +250,16 @@ async function sendGapReview(projectPath: string): Promise<void> {
     timestamp: new Date().toISOString(),
   });
 
-  const messages = [
-    ...conv.messages.filter((m) => m.role !== "system").map((m) => ({
+  // Fix 4: Trim message history to prevent quadratic growth
+  const recentMessages = trimConversationMessages(
+    conv.messages.filter((m) => m.role !== "system").map((m) => ({
       role: m.role,
       content: m.content,
-    })),
+    }))
+  );
+
+  const messages = [
+    ...recentMessages,
     {
       role: "user" as const,
       content: `All planned tasks are complete. Review the original requirements against what was built. What is missing?\n\nOriginal requirements:\n${originalMessages}\n\nCurrent project state:\n${snapshot}\n\nRespond with JSON: {"assessment":"on_track"|"has_gaps","new_tasks":[],"notes":"what is missing or confirmation that everything is complete"}`,
@@ -334,11 +398,16 @@ async function sendVerificationRefinement(
     (fileContext ? `\n\nRelevant source files:\n${fileContext}` : "") +
     `\n\nThe selectors or assertions may be wrong. Respond with JSON: {"updated_checks":[{"description":"...","selector":"new_selector","assertion":"exists|contains|count","expected":"..."}]}`;
 
-  const messages = [
-    ...conv.messages.filter((m) => m.role !== "system").map((m) => ({
+  // Fix 4: Trim message history to prevent quadratic growth
+  const recentMessages = trimConversationMessages(
+    conv.messages.filter((m) => m.role !== "system").map((m) => ({
       role: m.role,
       content: m.content,
-    })),
+    }))
+  );
+
+  const messages = [
+    ...recentMessages,
     { role: "user" as const, content: refinementContent },
   ];
 
@@ -493,9 +562,15 @@ export function useTaskExecution(): {
   );
 
   const buildWorkPackagePrompt = useCallback(
-    (wp: WorkPackage): string => {
-      let prompt = `You are executing work package '${wp.name}'. Complete these tasks in order:\n\n`;
-      wp.tasks.forEach((task, idx) => {
+    (wp: WorkPackage, templateContext?: string): string => {
+      let prompt = '';
+      if (templateContext) {
+        prompt += templateContext + '\n\n';
+      }
+      // Only include tasks that aren't already done (e.g. user-action tasks marked done)
+      const pendingTasks = wp.tasks.filter((t) => t.status !== "done");
+      prompt += `You are executing work package '${wp.name}'. Complete these tasks in order:\n\n`;
+      pendingTasks.forEach((task, idx) => {
         prompt += `Task ${idx + 1}: ${task.title}\n`;
         prompt += `${task.description}\n`;
         prompt += `Acceptance: ${task.acceptance_criteria}\n\n`;
@@ -555,47 +630,29 @@ export function useTaskExecution(): {
       // Wait for session to initialize
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
+      // Build template context for execution AI
+      let templateContext: string | undefined;
+      if (plan.template_recommendation) {
+        try {
+          const templates = await listTemplates();
+          const tmpl = templates.find((t) => t.id === plan.template_recommendation);
+          if (tmpl) {
+            templateContext = `PROJECT CONTEXT: This project uses the "${tmpl.name}" template (${tmpl.id}).
+${tmpl.long_description ?? tmpl.description}
+Tech stack: ${tmpl.tags.join(', ')}
+Dev command: ${tmpl.dev_command}
+
+IMPORTANT: Work with the EXISTING project structure. Do NOT create files that the template already provides. Read existing files before modifying them.`;
+          }
+        } catch { /* continue without */ }
+      }
+
       // Build and send the prompt
-      const prompt = buildWorkPackagePrompt(wp);
+      const prompt = buildWorkPackagePrompt(wp, templateContext);
       await sendMessage(session.id, prompt);
 
-      // Wait for completion signal or idle timeout
-      await new Promise<void>((resolve) => {
-        let idleTimer: ReturnType<typeof setTimeout>;
-        let unlisten: (() => void) | null = null;
-
-        const cleanup = (): void => {
-          clearTimeout(idleTimer);
-          if (unlisten) unlisten();
-          resolve();
-        };
-
-        const resetIdle = (): void => {
-          clearTimeout(idleTimer);
-          idleTimer = setTimeout(() => {
-            cleanup();
-          }, IDLE_TIMEOUT_MS);
-        };
-
-        resetIdle();
-
-        listenChatEvents(session.id, (event: FrontendEvent) => {
-          resetIdle();
-
-          if (event.type === "text_delta" || event.type === "text_complete") {
-            const text = "text" in event ? (event as { text?: string }).text ?? "" : "";
-            if (text.includes(COMPLETION_SIGNAL)) {
-              cleanup();
-            }
-          }
-
-          if (event.type === "process_exited") {
-            cleanup();
-          }
-        }).then((fn) => {
-          unlisten = fn;
-        });
-      });
+      // Fix 2: Use event-driven waiting (no race condition)
+      await waitForSessionCompletion(session.id, IDLE_TIMEOUT_MS);
 
       // Run verification
       await runCodeVerification(projectPath, wpId);
@@ -623,8 +680,8 @@ export function useTaskExecution(): {
           const retryPrompt = `Verification found ${failures.length} issues with your work:\n\n${failures.join("\n\n")}\n\nPlease fix these specific issues now. Do not modify anything else.`;
           await sendMessage(session.id, retryPrompt);
 
-          // Wait for completion again
-          await new Promise<void>((resolve) => setTimeout(resolve, IDLE_TIMEOUT_MS));
+          // Fix 3: Use event-driven waiting instead of hard sleep
+          await waitForSessionCompletion(session.id, IDLE_TIMEOUT_MS);
 
           // Re-verify only previously-failed checks
           await runCodeVerification(projectPath, wpId, true);
@@ -632,11 +689,40 @@ export function useTaskExecution(): {
           const newFailures = getFailedChecks(projectPath, wpId);
           if (newFailures.length === 0) {
             store.updateWorkPackageStatus(projectPath, wpId, "done");
+            // Mark all tasks as done
+            const doneWp = store.getActivePlan(projectPath)?.work_packages.find((w) => w.id === wpId);
+            if (doneWp) {
+              for (const task of doneWp.tasks) {
+                store.updateTaskStatus(projectPath, task.id, "done");
+              }
+            }
           } else {
             store.updateWorkPackageStatus(projectPath, wpId, "needs_review");
+            // Mark tasks with all-passing checks as done
+            const reviewWp = store.getActivePlan(projectPath)?.work_packages.find((w) => w.id === wpId);
+            if (reviewWp) {
+              for (const task of reviewWp.tasks) {
+                const allPassed = task.verification_checks.length > 0 &&
+                  task.verification_checks.every((c) => c.result?.passed);
+                if (allPassed) {
+                  store.updateTaskStatus(projectPath, task.id, "done");
+                }
+              }
+            }
           }
         } else {
           store.updateWorkPackageStatus(projectPath, wpId, "needs_review");
+          // Mark tasks with all-passing checks as done
+          const reviewWp = store.getActivePlan(projectPath)?.work_packages.find((w) => w.id === wpId);
+          if (reviewWp) {
+            for (const task of reviewWp.tasks) {
+              const allPassed = task.verification_checks.length > 0 &&
+                task.verification_checks.every((c) => c.result?.passed);
+              if (allPassed) {
+                store.updateTaskStatus(projectPath, task.id, "done");
+              }
+            }
+          }
 
           // Gap 7: If DOM checks failed repeatedly, send to planning AI for refinement
           const updatedWp = store.getActivePlan(projectPath)?.work_packages.find((w) => w.id === wpId);
@@ -649,7 +735,13 @@ export function useTaskExecution(): {
       // Send progress update to planning AI
       await sendProgressUpdate(projectPath, wp.name, getCheckResultsForWP(projectPath, wpId));
 
-      store.setExecuting(null, null);
+      // Fix 1: Close session after work package completion to prevent orphaned processes
+      try {
+        await closeSessionCmd(session.id);
+      } catch { /* session may already be closed */ }
+      store.setWorkPackageSessionId(projectPath, wpId, null);
+
+      store.setExecuting(projectPath, null);
     },
     [runCodeVerification, buildWorkPackagePrompt, getFailedChecks]
   );
@@ -672,8 +764,58 @@ export function useTaskExecution(): {
         if (store.isPaused) break;
         if (wp.status === "done") continue;
 
+        // Fix 7d: Check for tasks requiring user action before executing WP
+        const userActionTasks = wp.tasks.filter(
+          (t) => t.requires_user_action && t.status !== "done" && t.status !== "skipped"
+        );
+        if (userActionTasks.length > 0) {
+          // Aggregate messages and pause
+          const actionMessages = userActionTasks
+            .map((t) => `- ${t.title}: ${t.requires_user_action}`)
+            .join("\n");
+
+          store.addPlanningMessage(projectPath, {
+            id: `user-action-${Date.now()}`,
+            role: "system",
+            content: `Execution paused — manual action needed before "${wp.name}":\n\n${actionMessages}`,
+            message_type: "user_action_required",
+            timestamp: new Date().toISOString(),
+          });
+
+          // Set pending action (use first task's info)
+          store.setPendingUserAction(projectPath, {
+            wpId: wp.id,
+            taskId: userActionTasks[0].id,
+            message: actionMessages,
+          });
+          store.setPaused(true);
+
+          // Poll until user clears pending action or execution is aborted
+          await new Promise<void>((resolve) => {
+            const poll = setInterval(() => {
+              const s = useTaskBoardStore.getState();
+              const pending = s.pendingUserAction.get(projectPath);
+              if (!pending || executionAbortRef.current) {
+                clearInterval(poll);
+                resolve();
+              }
+            }, 500);
+          });
+
+          if (executionAbortRef.current) break;
+
+          // Mark user-action tasks as done and un-pause
+          for (const t of userActionTasks) {
+            store.updateTaskStatus(projectPath, t.id, "done");
+          }
+          store.setPaused(false);
+        }
+
         await executeWorkPackage(projectPath, wp.id);
       }
+
+      // Clear executing state now that all WPs are done
+      store.setExecuting(null, null);
 
       // Check if all done — trigger gap review
       const finalPlan = useTaskBoardStore.getState().getActivePlan(projectPath);
@@ -719,6 +861,7 @@ export function useTaskExecution(): {
     store.updatePlanStatus(projectPath, 'ready');
     store.setExecuting(null, null);
     store.setPaused(false);
+    store.setPendingUserAction(projectPath, null);
   }, []);
 
   return {

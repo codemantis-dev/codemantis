@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, XCircle, Loader2, Clock, SkipForward, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, XCircle, Loader2, Clock, SkipForward, ChevronDown, ChevronRight, Hand } from "lucide-react";
 import VerificationResults from "./VerificationResults";
 import type { TaskItem } from "../../types/task-board";
 
@@ -39,6 +39,16 @@ export default function TaskCard({ task }: Props) {
         >
           {task.title}
         </span>
+        {task.requires_user_action && (
+          <span
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0"
+            style={{ background: "rgba(59,130,246,0.15)", color: "#3b82f6" }}
+            title={task.requires_user_action}
+          >
+            <Hand size={9} />
+            Manual
+          </span>
+        )}
         {hasChecks && (
           expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />
         )}

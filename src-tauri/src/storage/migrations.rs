@@ -85,3 +85,23 @@ pub const MIGRATE_TASK_PLANS: &[&str] = &[
         FOREIGN KEY (project_path) REFERENCES task_plans(project_path) ON DELETE CASCADE
     )",
 ];
+
+/// V2 migration: remove UNIQUE constraint on project_path, add status column.
+/// Allows multiple plans per project (active + archived).
+pub const MIGRATE_TASK_PLANS_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS task_plans_v2 (
+    id TEXT PRIMARY KEY,
+    project_path TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO task_plans_v2 (id, project_path, plan_json, status, created_at, updated_at)
+    SELECT id, project_path, plan_json, 'active', created_at, updated_at FROM task_plans;
+DROP TABLE IF EXISTS planning_messages;
+DROP TABLE IF EXISTS task_plans;
+ALTER TABLE task_plans_v2 RENAME TO task_plans;
+CREATE INDEX IF NOT EXISTS idx_task_plans_project ON task_plans(project_path);
+CREATE INDEX IF NOT EXISTS idx_task_plans_status ON task_plans(status);
+"#;

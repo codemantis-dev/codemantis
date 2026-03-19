@@ -615,6 +615,35 @@ export async function getTaskPlan(
   return invoke<string | null>("get_task_plan", { projectPath });
 }
 
+export async function saveTaskBoardState(
+  projectPath: string,
+  stateJson: string,
+): Promise<void> {
+  return invoke("save_task_board_state", { projectPath, stateJson });
+}
+
+export async function loadTaskBoardState(
+  projectPath: string,
+): Promise<string | null> {
+  return invoke<string | null>("load_task_board_state", { projectPath });
+}
+
+export async function listAllTaskPlans(): Promise<import("../types/task-board").TaskPlanSummaryRow[]> {
+  return invoke("list_all_task_plans");
+}
+
+export async function listProjectTaskPlans(projectPath: string): Promise<import("../types/task-board").TaskPlanSummaryRow[]> {
+  return invoke("list_project_task_plans", { projectPath });
+}
+
+export async function deleteTaskPlanById(planId: string): Promise<void> {
+  return invoke("delete_task_plan_cmd", { planId });
+}
+
+export async function archiveTaskPlan(planId: string): Promise<void> {
+  return invoke("archive_task_plan_cmd", { planId });
+}
+
 export async function updateTaskStatus(
   projectPath: string,
   taskId: string,

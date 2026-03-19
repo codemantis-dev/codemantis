@@ -6,20 +6,62 @@ import { useClaudeSession } from "../../hooks/useClaudeSession";
 import PlanningChat from "./PlanningChat";
 import WorkPackageList from "./WorkPackageList";
 import TaskBoardToolbar from "./TaskBoardToolbar";
+import PlanPicker from "./PlanPicker";
 
 export default function TaskBoardSlideOver() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const uiState = useTaskBoardStore((s) =>
     activeProjectPath ? s.uiState.get(activeProjectPath) ?? null : null
   );
+  const plan = useTaskBoardStore((s) =>
+    activeProjectPath ? s.plans.get(activeProjectPath) : undefined
+  );
   const setSlideOverOpen = useTaskBoardStore((s) => s.setSlideOverOpen);
   const setPlanningChatWidth = useTaskBoardStore((s) => s.setPlanningChatWidth);
+  const discardAndStartNew = useTaskBoardStore((s) => s.discardAndStartNew);
+  const loadState = useTaskBoardStore((s) => s.loadState);
   const { startSession } = useClaudeSession();
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.planning_chat_width ?? 40;
 
   const dividerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showPlanPicker, setShowPlanPicker] = useState(false);
+  const [planPickerChecked, setPlanPickerChecked] = useState<string | null>(null);
+
+  // When slide-over opens, check if we should show the PlanPicker
+  useEffect(() => {
+    if (!isOpen || !activeProjectPath) {
+      return;
+    }
+    // Only check once per open (avoid re-triggering after dismiss)
+    if (planPickerChecked === activeProjectPath) return;
+    setPlanPickerChecked(activeProjectPath);
+
+    // If there's already a plan loaded in memory, show the picker
+    const currentPlan = useTaskBoardStore.getState().plans.get(activeProjectPath);
+    if (currentPlan) {
+      setShowPlanPicker(true);
+      return;
+    }
+    // Otherwise try loading from DB
+    loadState(activeProjectPath).then((found) => {
+      if (found) {
+        const loadedPlan = useTaskBoardStore.getState().plans.get(activeProjectPath);
+        if (loadedPlan) {
+          setShowPlanPicker(true);
+        }
+      }
+    });
+  }, [isOpen, activeProjectPath, planPickerChecked, loadState]);
+
+  // Reset picker state when slide-over closes
+  useEffect(() => {
+    if (!isOpen) {
+      setPlanPickerChecked(null);
+      setShowPlanPicker(false);
+    }
+  }, [isOpen]);
 
   const handleClose = useCallback(() => {
     if (activeProjectPath) {
@@ -94,9 +136,9 @@ export default function TaskBoardSlideOver() {
       <div
         className="fixed top-0 right-0 h-full z-50 flex flex-col transition-transform duration-250 ease-out"
         style={{
-          width: "60%",
+          width: "80%",
           minWidth: 600,
-          maxWidth: "85%",
+          maxWidth: "92%",
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
           background: "var(--bg-primary)",
           borderLeft: "1px solid var(--border)",
@@ -120,38 +162,54 @@ export default function TaskBoardSlideOver() {
           </button>
         </div>
 
-        {/* Two-column content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left: Planning Chat */}
-          <div
-            className="overflow-hidden flex flex-col"
-            style={{ width: `${chatWidth}%` }}
-          >
-            <PlanningChat projectPath={activeProjectPath} />
-          </div>
+        {/* Content: PlanPicker or Two-column layout */}
+        {showPlanPicker && plan ? (
+          <PlanPicker
+            plan={plan}
+            onContinue={() => setShowPlanPicker(false)}
+            onDiscard={() => {
+              if (activeProjectPath) {
+                discardAndStartNew(activeProjectPath);
+              }
+              setShowPlanPicker(false);
+            }}
+          />
+        ) : (
+          <>
+            {/* Two-column content */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left: Planning Chat */}
+              <div
+                className="overflow-hidden flex flex-col"
+                style={{ width: `${chatWidth}%` }}
+              >
+                <PlanningChat projectPath={activeProjectPath} />
+              </div>
 
-          {/* Divider */}
-          <div
-            ref={dividerRef}
-            onMouseDown={handleDividerMouseDown}
-            className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
-          >
-            <div
-              className="w-px transition-colors"
-              style={{
-                background: isDragging ? "var(--accent)" : "var(--border)",
-              }}
-            />
-          </div>
+              {/* Divider */}
+              <div
+                ref={dividerRef}
+                onMouseDown={handleDividerMouseDown}
+                className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
+              >
+                <div
+                  className="w-px transition-colors"
+                  style={{
+                    background: isDragging ? "var(--accent)" : "var(--border)",
+                  }}
+                />
+              </div>
 
-          {/* Right: Work Packages */}
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <WorkPackageList projectPath={activeProjectPath} onSwitchProject={handleSwitchProject} />
-          </div>
-        </div>
+              {/* Right: Work Packages */}
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <WorkPackageList projectPath={activeProjectPath} onSwitchProject={handleSwitchProject} />
+              </div>
+            </div>
 
-        {/* Bottom toolbar */}
-        <TaskBoardToolbar projectPath={activeProjectPath} />
+            {/* Bottom toolbar */}
+            <TaskBoardToolbar projectPath={activeProjectPath} />
+          </>
+        )}
       </div>
     </>
   );

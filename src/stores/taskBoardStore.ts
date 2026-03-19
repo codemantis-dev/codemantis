@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { saveTaskBoardState, loadTaskBoardState, deleteTaskPlanById, archiveTaskPlan } from "../lib/tauri-commands";
 import type {
   TaskPlan,
   WorkPackage,
@@ -10,6 +11,13 @@ import type {
   CheckResult,
   ProjectTargetDecision,
 } from "../types/task-board";
+
+/** Shape persisted to the database */
+interface PersistedTaskBoardState {
+  plan: TaskPlan | null;
+  conversation: PlanningConversation | null;
+  projectTarget: ProjectTargetDecision | null;
+}
 
 interface TaskBoardState {
   // Plan state (per project)
@@ -28,6 +36,9 @@ interface TaskBoardState {
 
   // Streaming state for planning AI
   planningStreaming: Map<string, boolean>;
+
+  // Pending user action (execution paused)
+  pendingUserAction: Map<string, { wpId: string; taskId: string; message: string }>;
 
   // Project target decisions (per project)
   projectTargetDecisions: Map<string, ProjectTargetDecision>;
@@ -77,9 +88,18 @@ interface TaskBoardState {
   setProjectTarget: (projectPath: string, decision: ProjectTargetDecision) => void;
   migratePlanToProject: (sourceProjectPath: string, targetProjectPath: string) => void;
 
+  // Actions - Plan lifecycle
+  deletePlanFromDB: (planId: string, projectPath: string) => Promise<void>;
+  discardAndStartNew: (projectPath: string) => Promise<void>;
+
   // Actions - Execution
   setExecuting: (projectPath: string | null, wpId: string | null) => void;
   setPaused: (paused: boolean) => void;
+  setPendingUserAction: (projectPath: string, action: { wpId: string; taskId: string; message: string } | null) => void;
+
+  // Persistence
+  persistState: (projectPath: string) => void;
+  loadState: (projectPath: string) => Promise<boolean>;
 
   // Helpers
   getActiveConversation: (projectPath: string) => PlanningConversation | undefined;
@@ -103,6 +123,7 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
   executingWorkPackage: null,
   isPaused: false,
   planningStreaming: new Map(),
+  pendingUserAction: new Map(),
   projectTargetDecisions: new Map(),
 
   // Plan management
@@ -520,6 +541,53 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
       return { plans, conversations, uiState, projectTargetDecisions };
     }),
 
+  // Plan lifecycle
+  deletePlanFromDB: async (planId, projectPath) => {
+    await deleteTaskPlanById(planId);
+    // If it's the active in-memory plan, clear everything for this project
+    const state = get();
+    const activePlan = state.plans.get(projectPath);
+    if (activePlan?.id === planId) {
+      set((s) => {
+        const plans = new Map(s.plans);
+        const conversations = new Map(s.conversations);
+        const projectTargetDecisions = new Map(s.projectTargetDecisions);
+        plans.delete(projectPath);
+        conversations.delete(projectPath);
+        projectTargetDecisions.delete(projectPath);
+        return { plans, conversations, projectTargetDecisions };
+      });
+    }
+  },
+
+  discardAndStartNew: async (projectPath) => {
+    // Capture plan ID before clearing memory
+    const activePlanId = get().plans.get(projectPath)?.id;
+
+    // Clear in-memory state FIRST (synchronous) so UI updates immediately.
+    // Init a fresh empty conversation to prevent PlanningChat's eager-init
+    // effect from calling loadState() and reloading the plan from DB before
+    // the archive has committed.
+    set((s) => {
+      const plans = new Map(s.plans);
+      const conversations = new Map(s.conversations);
+      const projectTargetDecisions = new Map(s.projectTargetDecisions);
+      plans.delete(projectPath);
+      conversations.delete(projectPath);
+      projectTargetDecisions.delete(projectPath);
+      return { plans, conversations, projectTargetDecisions };
+    });
+
+    // THEN archive in DB (fire-and-forget — memory is already cleared)
+    if (activePlanId) {
+      try {
+        await archiveTaskPlan(activePlanId);
+      } catch (e) {
+        console.warn("[taskBoardStore] Failed to archive plan:", e);
+      }
+    }
+  },
+
   // Execution
   setExecuting: (projectPath, wpId) =>
     set((state) => {
@@ -539,6 +607,57 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
     }),
 
   setPaused: (paused) => set({ isPaused: paused }),
+
+  setPendingUserAction: (projectPath, action) =>
+    set((state) => {
+      const pendingUserAction = new Map(state.pendingUserAction);
+      if (action) {
+        pendingUserAction.set(projectPath, action);
+      } else {
+        pendingUserAction.delete(projectPath);
+      }
+      return { pendingUserAction };
+    }),
+
+  // Persistence
+  persistState: (projectPath) => {
+    const state = get();
+    const plan = state.plans.get(projectPath) ?? null;
+    const conversation = state.conversations.get(projectPath) ?? null;
+    const projectTarget = state.projectTargetDecisions.get(projectPath) ?? null;
+    if (!plan && !conversation) return; // nothing to save
+    const persisted: PersistedTaskBoardState = { plan, conversation, projectTarget };
+    saveTaskBoardState(projectPath, JSON.stringify(persisted)).catch((e) =>
+      console.error("[taskBoardStore] Failed to persist state:", e)
+    );
+  },
+
+  loadState: async (projectPath) => {
+    try {
+      const json = await loadTaskBoardState(projectPath);
+      if (!json) return false;
+      const persisted: PersistedTaskBoardState = JSON.parse(json);
+      set((state) => {
+        const plans = new Map(state.plans);
+        const conversations = new Map(state.conversations);
+        const projectTargetDecisions = new Map(state.projectTargetDecisions);
+        if (persisted.plan) {
+          plans.set(projectPath, persisted.plan);
+        }
+        if (persisted.conversation) {
+          conversations.set(projectPath, persisted.conversation);
+        }
+        if (persisted.projectTarget) {
+          projectTargetDecisions.set(projectPath, persisted.projectTarget);
+        }
+        return { plans, conversations, projectTargetDecisions };
+      });
+      return true;
+    } catch (e) {
+      console.error("[taskBoardStore] Failed to load state:", e);
+      return false;
+    }
+  },
 
   // Helpers
   getActiveConversation: (projectPath) => get().conversations.get(projectPath),

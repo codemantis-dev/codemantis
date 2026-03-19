@@ -243,9 +243,6 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
         </div>
       )}
 
-      {/* Spacer to push form to bottom */}
-      <div className="flex-1" />
-
       {/* Project setup form */}
       <div className="border-t border-border pt-4 space-y-3">
         {/* Project name */}

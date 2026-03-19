@@ -66,6 +66,17 @@ pub struct ApiCostSummaryRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPlanSummaryRow {
+    pub id: String,
+    pub project_path: String,
+    pub status: String,
+    pub plan_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
     pub id: String,
     pub name: String,
@@ -105,6 +116,29 @@ impl Database {
         for sql in migrations::MIGRATE_TASK_PLANS {
             let _ = conn.execute_batch(sql);
         }
+
+        // V2 migration: add status column, remove UNIQUE constraint on project_path.
+        // Only run if task_plans lacks the 'status' column.
+        let needs_v2_migration = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('task_plans') WHERE name='status'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            == 0;
+        if needs_v2_migration {
+            log::info!("[database] Running task_plans V2 migration (add status column)");
+            let _ = conn.execute_batch(migrations::MIGRATE_TASK_PLANS_V2);
+        }
+
+        // Always drop planning_messages if it exists.
+        // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
+        // CREATE TABLE IF NOT EXISTS, but V2 dropped it and changed task_plans
+        // schema (project_path is no longer UNIQUE), causing FK mismatch on DELETE.
+        // planning_messages is unused — conversation is stored inside plan_json.
+        let _ = conn.execute_batch("DROP TABLE IF EXISTS planning_messages");
+
 
         // Migrate api_logs: remove FOREIGN KEY constraint if present.
         // API assistant sessions use frontend-generated IDs that are not in the sessions table,
@@ -544,7 +578,7 @@ impl Database {
     pub fn insert_task_plan(&self, id: &str, project_path: &str, plan_json: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         conn.execute(
-            "INSERT OR REPLACE INTO task_plans (id, project_path, plan_json, updated_at) VALUES (?1, ?2, ?3, datetime('now'))",
+            "INSERT INTO task_plans (id, project_path, plan_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, 'active', datetime('now'), datetime('now'))",
             rusqlite::params![id, project_path, plan_json],
         ).map_err(|e| AppError::DatabaseError(format!("Insert task plan failed: {}", e)))?;
         Ok(())
@@ -553,7 +587,7 @@ impl Database {
     pub fn get_task_plan(&self, project_path: &str) -> Result<Option<String>, AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         let result = conn.query_row(
-            "SELECT plan_json FROM task_plans WHERE project_path = ?1",
+            "SELECT plan_json FROM task_plans WHERE project_path = ?1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
             rusqlite::params![project_path],
             |row| row.get::<_, String>(0),
         );
@@ -564,67 +598,93 @@ impl Database {
         }
     }
 
+    pub fn get_active_plan_id(&self, project_path: &str) -> Result<Option<String>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let result = conn.query_row(
+            "SELECT id FROM task_plans WHERE project_path = ?1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+            rusqlite::params![project_path],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!("Get active plan ID failed: {}", e))),
+        }
+    }
+
     pub fn update_task_plan(&self, project_path: &str, plan_json: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         conn.execute(
-            "UPDATE task_plans SET plan_json = ?1, updated_at = datetime('now') WHERE project_path = ?2",
+            "UPDATE task_plans SET plan_json = ?1, updated_at = datetime('now') WHERE project_path = ?2 AND status = 'active'",
             rusqlite::params![plan_json, project_path],
         ).map_err(|e| AppError::DatabaseError(format!("Update task plan failed: {}", e)))?;
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn delete_task_plan(&self, project_path: &str) -> Result<(), AppError> {
+    pub fn delete_task_plan_by_id(&self, id: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         conn.execute(
-            "DELETE FROM task_plans WHERE project_path = ?1",
-            rusqlite::params![project_path],
+            "DELETE FROM task_plans WHERE id = ?1",
+            rusqlite::params![id],
         ).map_err(|e| AppError::DatabaseError(format!("Delete task plan failed: {}", e)))?;
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn insert_planning_message(
-        &self,
-        id: &str,
-        project_path: &str,
-        role: &str,
-        content: &str,
-        message_type: &str,
-        attachments_json: Option<&str>,
-        timestamp: &str,
-    ) -> Result<(), AppError> {
+    pub fn archive_task_plan(&self, id: &str) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         conn.execute(
-            "INSERT INTO planning_messages (id, project_path, role, content, message_type, attachments_json, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![id, project_path, role, content, message_type, attachments_json, timestamp],
-        ).map_err(|e| AppError::DatabaseError(format!("Insert planning message failed: {}", e)))?;
+            "UPDATE task_plans SET status = 'archived', updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| AppError::DatabaseError(format!("Archive task plan failed: {}", e)))?;
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn get_planning_messages(&self, project_path: &str) -> Result<Vec<(String, String, String, String, Option<String>, String)>, AppError> {
+    pub fn list_all_plans(&self) -> Result<Vec<TaskPlanSummaryRow>, AppError> {
         let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
         let mut stmt = conn.prepare(
-            "SELECT id, role, content, message_type, attachments_json, timestamp FROM planning_messages WHERE project_path = ?1 ORDER BY timestamp ASC"
+            "SELECT id, project_path, status, plan_json, created_at, updated_at FROM task_plans ORDER BY updated_at DESC"
+        ).map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(TaskPlanSummaryRow {
+                id: row.get(0)?,
+                project_path: row.get(1)?,
+                status: row.get(2)?,
+                plan_json: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        }).map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
+        }
+        Ok(entries)
+    }
+
+    pub fn list_plans_for_project(&self, project_path: &str) -> Result<Vec<TaskPlanSummaryRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, project_path, status, plan_json, created_at, updated_at FROM task_plans WHERE project_path = ?1 ORDER BY updated_at DESC"
         ).map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
         let rows = stmt.query_map(rusqlite::params![project_path], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
-            ))
+            Ok(TaskPlanSummaryRow {
+                id: row.get(0)?,
+                project_path: row.get(1)?,
+                status: row.get(2)?,
+                plan_json: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
         }).map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-        let mut messages = Vec::new();
+        let mut entries = Vec::new();
         for row in rows {
-            messages.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
+            entries.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
         }
-        Ok(messages)
+        Ok(entries)
     }
 }
 

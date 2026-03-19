@@ -1,5 +1,6 @@
 use crate::claude::session::AppState;
 use crate::preview::PreviewState;
+use crate::storage::database::TaskPlanSummaryRow;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -38,6 +39,94 @@ pub async fn get_task_plan(
         .database
         .get_task_plan(&project_path)
         .map_err(|e| format!("Failed to get plan: {}", e))
+}
+
+/// Save the full task board state (plan + conversation + UI) as a single JSON blob.
+/// Reuses the task_plans table — the state_json goes into plan_json column.
+#[tauri::command]
+pub async fn save_task_board_state(
+    state: State<'_, AppState>,
+    project_path: String,
+    state_json: String,
+) -> Result<(), String> {
+    // Check if an active plan already exists for this project
+    let existing_id = state
+        .database
+        .get_active_plan_id(&project_path)
+        .map_err(|e| format!("Failed to check existing state: {}", e))?;
+
+    if existing_id.is_some() {
+        state
+            .database
+            .update_task_plan(&project_path, &state_json)
+            .map_err(|e| format!("Failed to update task board state: {}", e))?;
+    } else {
+        let id = format!("state-{}", chrono::Utc::now().timestamp_millis());
+        state
+            .database
+            .insert_task_plan(&id, &project_path, &state_json)
+            .map_err(|e| format!("Failed to save task board state: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_all_task_plans(
+    state: State<'_, AppState>,
+) -> Result<Vec<TaskPlanSummaryRow>, String> {
+    state
+        .database
+        .list_all_plans()
+        .map_err(|e| format!("Failed to list plans: {}", e))
+}
+
+#[tauri::command]
+pub async fn list_project_task_plans(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<Vec<TaskPlanSummaryRow>, String> {
+    state
+        .database
+        .list_plans_for_project(&project_path)
+        .map_err(|e| format!("Failed to list project plans: {}", e))
+}
+
+#[tauri::command]
+pub async fn delete_task_plan_cmd(
+    state: State<'_, AppState>,
+    plan_id: String,
+) -> Result<(), String> {
+    state
+        .database
+        .delete_task_plan_by_id(&plan_id)
+        .map_err(|e| format!("Failed to delete plan: {}", e))?;
+    info!("Deleted task plan {}", plan_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn archive_task_plan_cmd(
+    state: State<'_, AppState>,
+    plan_id: String,
+) -> Result<(), String> {
+    state
+        .database
+        .archive_task_plan(&plan_id)
+        .map_err(|e| format!("Failed to archive plan: {}", e))?;
+    info!("Archived task plan {}", plan_id);
+    Ok(())
+}
+
+/// Load the full task board state for a project.
+#[tauri::command]
+pub async fn load_task_board_state(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<Option<String>, String> {
+    state
+        .database
+        .get_task_plan(&project_path)
+        .map_err(|e| format!("Failed to load task board state: {}", e))
 }
 
 #[tauri::command]

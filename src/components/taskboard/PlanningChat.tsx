@@ -23,7 +23,10 @@ export default function PlanningChat({ projectPath }: Props) {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const { generatePlan, sendPlanningMessage } = usePlanningConversation();
 
-  // Eager conversation init
+  // Init a fresh conversation if none exists.
+  // NOTE: Do NOT call loadState here — the TaskBoardSlideOver handles DB loading
+  // on open. Calling loadState here races with discardAndStartNew's archive call
+  // and can reload a plan that was just discarded.
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
@@ -126,6 +129,16 @@ export default function PlanningChat({ projectPath }: Props) {
         style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
       >
         <span>Planning Chat</span>
+        {isStreaming && (
+          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]"
+            style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent)" }} />
+              <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent)" }} />
+            </span>
+            AI is responding...
+          </span>
+        )}
         {conversation && !hasUserMessages ? (
           <div className="flex items-center gap-1.5 ml-auto">
             <select

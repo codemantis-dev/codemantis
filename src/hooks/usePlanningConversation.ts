@@ -18,6 +18,7 @@ CONVERSATION RULES:
 - Continue asking one question at a time until you have enough info (typically 3-6 total)
 - NEVER ask multiple questions in one response
 - Ask about: target audience, design preferences, data sources, auth requirements, deployment target, specific UI components they envision, error handling expectations
+- If the project requires backend services, databases, or containerized infrastructure, ask whether the user has Docker Desktop installed. Templates like fastapi-fullstack require Docker — mention this explicitly. For cloud-hosted databases (e.g., Supabase Cloud), Docker is not required.
 - If the user attaches images (mockups, screenshots, Figma exports), analyze them and reference specific elements you see
 - If the user attaches documents (PDFs, specs), read them and confirm your understanding
 - When ready, say: "I have enough information to create the plan. Shall I proceed?"
@@ -47,7 +48,8 @@ When generating the plan, respond in JSON format ONLY (no markdown, no preamble)
             { "type": "dom_check", "route": "string", "selector": "string", "assertion": "exists|visible|has_text|has_options|count_gte|not_exists", "expected": "string or number (optional)", "description": "string" }
           ],
           "work_package": "WP1",
-          "depends_on": []
+          "depends_on": [],
+          "requires_user_action": null
         }
       ]
     }
@@ -61,14 +63,22 @@ RULES for task decomposition:
 - Order tasks by dependency (foundational tasks first)
 - Group related tasks into work packages of 5-8 tasks each
 - For DOM checks: provide multiple fallback selectors separated by commas
-- Use assertions: exists | visible | has_text | has_options | count_gte | not_exists`;
+- Use assertions: exists | visible | has_text | has_options | count_gte | not_exists
+
+MANUAL/USER ACTION TASKS:
+- If a task requires the user to do something outside the codebase (create an account, enter credentials, make a design decision, configure a third-party service), add "requires_user_action" with a clear instruction
+- Examples: "Create a Supabase project at supabase.com and copy the project URL and anon key"
+- These tasks pause execution until the user confirms completion
+- Only use for actions that genuinely cannot be automated`;
 
 function buildPlanningSystemPrompt(templateCatalog: string): string {
   return `${BASE_PLANNING_PROMPT}
 
 AVAILABLE PROJECT TEMPLATES (use exact template ID for template_recommendation):
 ${templateCatalog}
-- null: No template (build from scratch or modify existing project)
+- null: No template (ONLY for modifications to an existing project that already has its own setup)
+
+IMPORTANT: New projects MUST use one of the templates listed above. CodeMantis can only reliably scaffold new projects using its built-in templates. If no template is an exact match, recommend the closest one and note what customization will be needed afterward. Do NOT recommend null/no template for new projects.
 
 When recommending a template, use the exact template ID. Only recommend if creating a new project and a template clearly fits.`;
 }
@@ -104,6 +114,7 @@ interface ParsedPlanJson {
       }[];
       work_package?: string;
       depends_on?: string[];
+      requires_user_action?: string | null;
     }[];
   }[];
 }
@@ -138,7 +149,14 @@ export function usePlanningConversation(): {
         try {
           const templates = await listTemplates();
           templateCatalog = templates
-            .map((t) => `- ${t.id}: "${t.name}" [${t.category}] — ${t.description}`)
+            .map((t) => {
+              let entry = `- ${t.id}: "${t.name}" [${t.category}]\n  ${t.description}`;
+              if (t.long_description) entry += `\n  Details: ${t.long_description}`;
+              if (t.tags.length > 0) entry += `\n  Tech: ${t.tags.join(', ')}`;
+              entry += `\n  Install: ${t.install_command} | Dev: ${t.dev_command}`;
+              if (t.prerequisites) entry += `\n  Requires: ${t.prerequisites}`;
+              return entry;
+            })
             .join("\n");
         } catch {
           // Continue without template catalog
@@ -288,6 +306,7 @@ export function usePlanningConversation(): {
                       })),
                       work_package: wp.id,
                       depends_on: t.depends_on ?? [],
+                      requires_user_action: t.requires_user_action ?? null,
                       status: "planned" as const,
                     })),
                     status: "planned" as const,
@@ -301,6 +320,8 @@ export function usePlanningConversation(): {
                 currentStore.createPlan(projectPath, plan);
                 currentStore.setProjectTarget(projectPath, { type: 'undecided' });
                 currentStore.setConversationStatus(projectPath, "monitoring");
+                // Persist plan + conversation to database
+                currentStore.persistState(projectPath);
               }
             } catch {
               // Not valid JSON — that's ok, it might be conversational
@@ -308,6 +329,8 @@ export function usePlanningConversation(): {
           }
 
           streamBufferRef.current = "";
+          // Persist conversation after each completed response
+          currentStore.persistState(projectPath);
           if (unlistenRef.current) {
             unlistenRef.current();
             unlistenRef.current = null;

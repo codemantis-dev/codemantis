@@ -4,6 +4,7 @@ import { useTaskBoardStore } from "../../stores/taskBoardStore";
 import { useTaskExecution } from "../../hooks/useTaskExecution";
 import WorkPackageCard from "./WorkPackageCard";
 import ProjectTargetDecisionComponent from "./ProjectTargetDecision";
+import UserActionBanner from "./UserActionBanner";
 
 interface Props {
   projectPath: string;
@@ -19,16 +20,19 @@ export default function WorkPackageList({ projectPath, onSwitchProject }: Props)
   const setExpandedWorkPackage = useTaskBoardStore((s) => s.setExpandedWorkPackage);
   const reorderWorkPackages = useTaskBoardStore((s) => s.reorderWorkPackages);
   const executingWp = useTaskBoardStore((s) => s.executingWorkPackage);
+  const executingProject = useTaskBoardStore((s) => s.executingProject);
   const { resumeExecution } = useTaskExecution();
 
   // Resume banner state
   const [showResumeBanner, setShowResumeBanner] = useState(false);
 
   useEffect(() => {
-    if (plan && plan.status === 'executing' && !executingWp) {
+    if (plan && plan.status === 'executing' && !executingWp && !executingProject) {
       setShowResumeBanner(true);
+    } else {
+      setShowResumeBanner(false);
     }
-  }, [plan?.status, executingWp]);
+  }, [plan?.status, executingWp, executingProject]);
 
   const handleResume = useCallback(() => {
     if (!plan) return;
@@ -175,6 +179,9 @@ export default function WorkPackageList({ projectPath, onSwitchProject }: Props)
           />
         </div>
       )}
+
+      {/* User action banner — takes priority */}
+      <UserActionBanner projectPath={projectPath} />
 
       {/* Resume banner */}
       {showResumeBanner && (
