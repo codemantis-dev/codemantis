@@ -1,30 +1,19 @@
 import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { PlanningMessage } from "../../types/task-board";
-import { useTaskBoardStore } from "../../stores/taskBoardStore";
-import { Info, Copy, Check, Send, AlertCircle } from "lucide-react";
-import ProgressUpdateMessage from "./ProgressUpdateMessage";
+import type { SpecMessage } from "../../types/spec-writer";
+import { Copy, Check, Send, Info } from "lucide-react";
 
 interface Props {
-  message: PlanningMessage;
-  projectPath?: string;
+  message: SpecMessage;
   isLastAssistant?: boolean;
   onSelectOption?: (option: string) => void;
 }
 
-/** Try to extract wp name and pass/total counts from a progress message. */
-function parseProgressContent(content: string): { wpName: string; passCount: number; totalCount: number } | null {
-  const match = content.match(/Work Package "(.+?)" completed\.\s*(\d+)\/(\d+) checks passed/);
-  if (!match) return null;
-  return { wpName: match[1], passCount: parseInt(match[2], 10), totalCount: parseInt(match[3], 10) };
-}
-
-export default function PlanningChatMessage({ message, projectPath, isLastAssistant, onSelectOption }: Props) {
+export default function SpecChatMessage({ message, isLastAssistant, onSelectOption }: Props) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isAssistant = message.role === "assistant";
-  const isProgress = message.message_type === "progress_update";
   const [copied, setCopied] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
 
@@ -53,59 +42,12 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
     setSelectedOptions(new Set());
   }, [message.parsedOptions, selectedOptions, onSelectOption]);
 
-  if (isProgress && projectPath) {
-    const parsed = parseProgressContent(message.content);
-    if (parsed) {
-      // Look up the work package by name to get check results
-      const plan = useTaskBoardStore.getState().plans.get(projectPath);
-      const wp = plan?.work_packages.find((w) => w.name === parsed.wpName);
-      const checks = wp
-        ? wp.tasks.flatMap((t) =>
-            t.verification_checks.map((c) => ({
-              description: c.description,
-              passed: c.result?.passed ?? false,
-              evidence: c.result?.evidence ?? "",
-            }))
-          )
-        : [];
-      const filesChanged = wp
-        ? wp.tasks.filter((t) => t.status === "done").map((t) => t.title)
-        : [];
-
-      return (
-        <ProgressUpdateMessage
-          wpName={parsed.wpName}
-          passCount={parsed.passCount}
-          totalCount={parsed.totalCount}
-          checks={checks}
-          filesChanged={filesChanged}
-          hasConsoleErrors={false}
-        />
-      );
-    }
-  }
-
-  if (message.message_type === "user_action_required") {
+  if (isSystem) {
     return (
       <div
         className="flex items-start gap-2 px-3 py-2 rounded-md text-xs"
         style={{
-          background: "rgba(59,130,246,0.1)",
-          color: "#3b82f6",
-        }}
-      >
-        <AlertCircle size={14} className="shrink-0 mt-0.5" />
-        <div className="whitespace-pre-wrap break-words min-w-0">{message.content}</div>
-      </div>
-    );
-  }
-
-  if (isProgress || isSystem) {
-    return (
-      <div
-        className="flex items-start gap-2 px-3 py-2 rounded-md text-xs"
-        style={{
-          background: isProgress ? "var(--accent-bg)" : "var(--bg-elevated)",
+          background: "var(--bg-elevated)",
           color: "var(--text-secondary)",
         }}
       >
@@ -160,7 +102,7 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
           </div>
         )}
 
-        {/* Selectable options — click to toggle, send button for multi-select */}
+        {/* Selectable options */}
         {isLastAssistant && message.parsedOptions && message.parsedOptions.length > 0 && (
           <div className="flex flex-col gap-1.5 mt-2">
             {message.parsedOptions.map((opt, i) => {
@@ -170,14 +112,12 @@ export default function PlanningChatMessage({ message, projectPath, isLastAssist
                   key={i}
                   onClick={() => {
                     if (selectedOptions.size === 0) {
-                      // First click — send immediately (single select)
                       onSelectOption?.(opt);
                     } else {
                       toggleOption(i);
                     }
                   }}
                   onContextMenu={(e) => {
-                    // Right-click or long-press to toggle multi-select
                     e.preventDefault();
                     toggleOption(i);
                   }}

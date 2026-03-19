@@ -1,14 +1,14 @@
-import { Plus, FolderOpen, Blocks, Settings, ClipboardList, Globe, Camera } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
-import { useTaskBoardStore } from "../../stores/taskBoardStore";
+import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { usePreviewStore } from "../../stores/previewStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { usePreviewServer } from "../../hooks/usePreviewServer";
 import { focusPreviewWindow, openPreviewWindow, capturePreviewScreenshot, readFileBytes } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import ProjectTab from "./ProjectTab";
-import TaskBoardBadge from "../taskboard/TaskBoardBadge";
+import SpecWriterBadge from "../specwriter/SpecWriterBadge";
 import type { Attachment } from "../../types/attachment";
 
 interface TitleBarProps {
@@ -24,7 +24,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
-  const toggleSlideOver = useTaskBoardStore((s) => s.toggleSlideOver);
+  const toggleSlideOver = useSpecWriterStore((s) => s.toggleSlideOver);
   const previewOpen = usePreviewStore((s) => activeProjectPath ? s.previewOpen.get(activeProjectPath) : false);
   const devServer = usePreviewStore((s) => activeProjectPath ? s.devServer.get(activeProjectPath) : undefined);
   const { startServer } = usePreviewServer();
@@ -142,14 +142,14 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         <FolderOpen size={14} />
       </button>
 
-      {/* Task Board button */}
+      {/* SpecWriter button */}
       <button
         onClick={() => activeProjectPath && toggleSlideOver(activeProjectPath)}
-        title="Task Board (Cmd+Shift+B)"
+        title="SpecWriter (Cmd+Shift+B)"
         className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors flex items-center gap-1"
       >
-        <ClipboardList size={14} />
-        {activeProjectPath && <TaskBoardBadge projectPath={activeProjectPath} />}
+        <PenTool size={14} />
+        {activeProjectPath && <SpecWriterBadge projectPath={activeProjectPath} />}
       </button>
 
       {/* Run Application (Preview) button */}

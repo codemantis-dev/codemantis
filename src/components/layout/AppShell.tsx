@@ -17,7 +17,7 @@ import RightPanel from "../rightpanel/RightPanel";
 import InputArea from "../input/InputArea";
 import ConfirmCloseModal from "../modals/ConfirmCloseModal";
 import type { PendingClose } from "../modals/ConfirmCloseModal";
-import TaskBoardSlideOver from "../taskboard/TaskBoardSlideOver";
+import SpecWriterSlideOver from "../specwriter/SpecWriterSlideOver";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -272,7 +272,7 @@ export default function AppShell() {
         onCancel={() => setPendingClose(null)}
       />
 
-      <TaskBoardSlideOver />
+      <SpecWriterSlideOver />
     </div>
   );
 }

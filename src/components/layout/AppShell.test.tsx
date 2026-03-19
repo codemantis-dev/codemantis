@@ -36,10 +36,10 @@ vi.mock("../../hooks/useClaudeSession", () => ({
     renameSession: vi.fn(),
   }),
 }));
-vi.mock("../taskboard/TaskBoardSlideOver", () => ({
+vi.mock("../specwriter/SpecWriterSlideOver", () => ({
   default: () => null,
 }));
-vi.mock("../taskboard/TaskBoardBadge", () => ({
+vi.mock("../specwriter/SpecWriterBadge", () => ({
   default: () => null,
 }));
 // Capture the preview console callback so tests can invoke it
@@ -64,17 +64,8 @@ vi.mock("../../lib/tauri-commands", () => ({
     return Promise.resolve(() => { capturedConsoleCallback = null; });
   }),
 }));
-vi.mock("../../hooks/usePlanningConversation", () => ({
-  usePlanningConversation: () => ({ sendPlanningMessage: vi.fn(), generatePlan: vi.fn() }),
-}));
-vi.mock("../../hooks/useTaskExecution", () => ({
-  useTaskExecution: () => ({
-    executeWorkPackage: vi.fn(),
-    executeAllWorkPackages: vi.fn(),
-    pauseExecution: vi.fn(),
-    resumeExecution: vi.fn(),
-    runCodeVerification: vi.fn(),
-  }),
+vi.mock("../../hooks/useSpecConversation", () => ({
+  useSpecConversation: () => ({ sendMessage: vi.fn(), writeSpec: vi.fn(), loadContext: vi.fn() }),
 }));
 
 const SESSION = {

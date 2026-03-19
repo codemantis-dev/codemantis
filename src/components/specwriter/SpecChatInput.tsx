@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback } from "react";
-import { Send, Paperclip, AlertCircle } from "lucide-react";
-import { usePlanningConversation } from "../../hooks/usePlanningConversation";
-import { useTaskBoardStore } from "../../stores/taskBoardStore";
-import type { PlanningAttachment } from "../../types/task-board";
+import { Send, Paperclip } from "lucide-react";
+import { useSpecConversation } from "../../hooks/useSpecConversation";
+import { useSpecWriterStore } from "../../stores/specWriterStore";
+import type { SpecAttachment } from "../../types/spec-writer";
 
 interface Props {
   projectPath: string;
@@ -45,12 +45,12 @@ function resizeImage(dataUri: string, maxSize: number = 1024): Promise<string> {
   });
 }
 
-export default function PlanningChatInput({ projectPath }: Props) {
+export default function SpecChatInput({ projectPath }: Props) {
   const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<PlanningAttachment[]>([]);
+  const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { sendPlanningMessage } = usePlanningConversation();
-  const isStreaming = useTaskBoardStore((s) => s.planningStreaming.get(projectPath) ?? false);
+  const { sendMessage } = useSpecConversation();
+  const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,8 +63,8 @@ export default function PlanningChatInput({ projectPath }: Props) {
     const atts = [...attachments];
     setAttachments([]);
 
-    await sendPlanningMessage(projectPath, trimmed, atts.length > 0 ? atts : undefined);
-  }, [text, attachments, projectPath, sendPlanningMessage, isStreaming]);
+    await sendMessage(projectPath, trimmed, atts.length > 0 ? atts : undefined);
+  }, [text, attachments, projectPath, sendMessage, isStreaming]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -87,7 +87,7 @@ export default function PlanningChatInput({ projectPath }: Props) {
           if (!file) continue;
           const rawUri = await fileToBrowserBase64(file);
           const dataUri = await resizeImage(rawUri);
-          const att: PlanningAttachment = {
+          const att: SpecAttachment = {
             id: `att-${Date.now()}-${i}`,
             type: "image",
             name: file.name || `paste-${Date.now()}.png`,
@@ -110,7 +110,7 @@ export default function PlanningChatInput({ projectPath }: Props) {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const isImage = file.type.startsWith("image/");
-        let att: PlanningAttachment;
+        let att: SpecAttachment;
         if (isImage) {
           const rawUri = await fileToBrowserBase64(file);
           const dataUri = await resizeImage(rawUri);
@@ -170,7 +170,7 @@ export default function PlanningChatInput({ projectPath }: Props) {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const isImage = file.type.startsWith("image/");
-        let att: PlanningAttachment;
+        let att: SpecAttachment;
         if (isImage) {
           const rawUri = await fileToBrowserBase64(file);
           const dataUri = await resizeImage(rawUri);
@@ -290,16 +290,6 @@ export default function PlanningChatInput({ projectPath }: Props) {
       <div className="text-[10px] mt-1 text-center select-none" style={{ color: "var(--text-ghost)" }}>
         Cmd+Enter to send
       </div>
-
-      {/* Report Issue quick action */}
-      <button
-        onClick={() => setText("I found an issue: ")}
-        className="flex items-center gap-1 mt-1.5 text-xs hover:opacity-80 transition-opacity"
-        style={{ color: "var(--text-ghost)" }}
-      >
-        <AlertCircle size={11} />
-        Report Issue
-      </button>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
 import { usePreviewWindow } from "./usePreviewWindow";
-import { useTaskBoardStore } from "../stores/taskBoardStore";
+import { useSpecWriterStore } from "../stores/specWriterStore";
 import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
@@ -142,7 +142,7 @@ export function useKeyboardShortcuts(): void {
         e.preventDefault();
         const activeProject = useSessionStore.getState().activeProjectPath;
         if (activeProject) {
-          useTaskBoardStore.getState().toggleSlideOver(activeProject);
+          useSpecWriterStore.getState().toggleSlideOver(activeProject);
         }
         return;
       }

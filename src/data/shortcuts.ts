@@ -52,9 +52,9 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
     ],
   },
   {
-    name: "Task Board",
+    name: "SpecWriter",
     shortcuts: [
-      { keys: "⌘ ⇧ B", description: "Toggle Task Board slide-over" },
+      { keys: "⌘ ⇧ B", description: "Toggle SpecWriter slide-over" },
     ],
   },
   {

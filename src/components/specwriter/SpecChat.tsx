@@ -1,38 +1,34 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
-import { useTaskBoardStore } from "../../stores/taskBoardStore";
+import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { usePlanningConversation } from "../../hooks/usePlanningConversation";
+import { useSpecConversation } from "../../hooks/useSpecConversation";
 import { AI_PROVIDERS, AI_MODELS, getProviderForModel } from "../../types/assistant-provider";
 import type { APIProvider } from "../../types/assistant-provider";
-import PlanningChatMessage from "./PlanningChatMessage";
-import PlanningChatInput from "./PlanningChatInput";
+import SpecChatMessage from "./SpecChatMessage";
+import SpecChatInput from "./SpecChatInput";
 
 interface Props {
   projectPath: string;
 }
 
-export default function PlanningChat({ projectPath }: Props) {
-  const conversation = useTaskBoardStore((s) => s.conversations.get(projectPath));
-  const isStreaming = useTaskBoardStore((s) => s.planningStreaming.get(projectPath) ?? false);
-  const setConversationStatus = useTaskBoardStore((s) => s.setConversationStatus);
-  const updateConversationProvider = useTaskBoardStore((s) => s.updateConversationProvider);
+export default function SpecChat({ projectPath }: Props) {
+  const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
+  const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
+  const updateConversationProvider = useSpecWriterStore((s) => s.updateConversationProvider);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const { generatePlan, sendPlanningMessage } = usePlanningConversation();
+  const { writeSpec, sendMessage } = useSpecConversation();
 
   // Init a fresh conversation if none exists.
-  // NOTE: Do NOT call loadState here — the TaskBoardSlideOver handles DB loading
-  // on open. Calling loadState here races with discardAndStartNew's archive call
-  // and can reload a plan that was just discarded.
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
       const planningModel = settings.taskBoardPlanningModel || 'gemini-2.5-flash';
       const provider = getProviderForModel(planningModel) ?? 'gemini';
-      useTaskBoardStore.getState().initConversation(projectPath, provider, planningModel);
+      useSpecWriterStore.getState().initConversation(projectPath, provider, planningModel, 'new_application');
     }
   }, [projectPath, conversation]);
 
@@ -86,22 +82,21 @@ export default function PlanningChat({ projectPath }: Props) {
     }
   }, [conversation?.messages, isStreaming]);
 
-  const handleGeneratePlan = useCallback(() => {
-    setConversationStatus(projectPath, "planning");
-    generatePlan(projectPath);
-  }, [projectPath, generatePlan, setConversationStatus]);
+  const handleWriteSpec = useCallback(() => {
+    writeSpec(projectPath);
+  }, [projectPath, writeSpec]);
 
   const handleSelectOption = useCallback(
     (option: string) => {
-      sendPlanningMessage(projectPath, option);
+      sendMessage(projectPath, option);
     },
-    [projectPath, sendPlanningMessage]
+    [projectPath, sendMessage]
   );
 
   const messages = conversation?.messages ?? [];
   const hasUserMessages = messages.some((m) => m.role === "user");
 
-  // Filter providers: exclude claude-code for planning
+  // Filter providers: exclude claude-code for spec writing
   const availableProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
   const currentProvider = conversation?.ai_provider ?? "gemini";
   const currentModel = conversation?.ai_model ?? "";
@@ -128,7 +123,7 @@ export default function PlanningChat({ projectPath }: Props) {
         className="px-3 py-2 text-xs font-medium border-b shrink-0 flex items-center gap-2"
         style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
       >
-        <span>Planning Chat</span>
+        <span>SpecWriter Chat</span>
         {isStreaming && (
           <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]"
             style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>
@@ -185,7 +180,7 @@ export default function PlanningChat({ projectPath }: Props) {
       <div ref={scrollRef} onScroll={checkAtBottom} className="h-full overflow-y-auto px-3 py-2 space-y-3">
         {messages.length === 0 && (
           <div className="text-center py-8 text-sm" style={{ color: "var(--text-dim)" }}>
-            Describe what you want to build. The AI will ask clarifying questions before generating a task plan.
+            Describe what you want to build. The AI will ask clarifying questions before writing a specification.
           </div>
         )}
         {messages.map((msg, idx) => {
@@ -193,10 +188,9 @@ export default function PlanningChat({ projectPath }: Props) {
             msg.role === "assistant" &&
             idx === messages.length - 1;
           return (
-            <PlanningChatMessage
+            <SpecChatMessage
               key={msg.id}
               message={msg}
-              projectPath={projectPath}
               isLastAssistant={isLastAssistant}
               onSelectOption={handleSelectOption}
             />
@@ -222,19 +216,33 @@ export default function PlanningChat({ projectPath }: Props) {
       )}
       </div>
 
-      {conversation?.status === "ready_to_plan" && (
+      {conversation?.status === "ready_to_write" && (
         <div className="px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
           <button
-            onClick={handleGeneratePlan}
-            className="w-full py-2 px-3 rounded-md text-sm font-medium transition-colors hover:opacity-90"
+            onClick={handleWriteSpec}
+            disabled={isStreaming}
+            className="w-full py-2 px-3 rounded-md text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
             style={{ background: "var(--accent)", color: "white" }}
           >
-            Generate Plan
+            Write Spec
           </button>
         </div>
       )}
 
-      <PlanningChatInput projectPath={projectPath} />
+      {/* Mode indicator */}
+      <div
+        className="px-3 py-1.5 border-t text-[10px] flex items-center gap-2"
+        style={{ borderColor: "var(--border)", color: "var(--text-ghost)" }}
+      >
+        <span>Mode: {conversation?.mode === 'feature' ? 'Feature' : 'New Application'}</span>
+        {conversation?.mode === 'feature' && (
+          <span>
+            Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
+          </span>
+        )}
+      </div>
+
+      <SpecChatInput projectPath={projectPath} />
     </div>
   );
 }
