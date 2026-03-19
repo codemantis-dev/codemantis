@@ -465,13 +465,13 @@ export function useSpecConversation(): {
 } {
   const unlistenRef = useRef<(() => void) | null>(null);
   const streamBufferRef = useRef("");
-  const projectContextRef = useRef<Map<string, string>>(new Map());
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
       const context = await gatherSpecContext(projectPath);
-      projectContextRef.current.set(projectPath, context);
-      useSpecWriterStore.getState().setContextLoaded(projectPath, true);
+      const store = useSpecWriterStore.getState();
+      store.setProjectContext(projectPath, context);
+      store.setContextLoaded(projectPath, true);
     } catch (e) {
       console.warn("[useSpecConversation] Context gathering failed:", e);
       useSpecWriterStore.getState().setContextLoaded(projectPath, false);
@@ -744,8 +744,8 @@ export function useSpecConversation(): {
         }
       });
 
-      // Build system prompt
-      const projectContext = projectContextRef.current.get(projectPath) ?? "";
+      // Build system prompt — read project context from store
+      const projectContext = useSpecWriterStore.getState().projectContext.get(projectPath) ?? "";
       const systemPrompt = buildSystemPrompt(
         conv.mode,
         conv.templateCatalog ?? '',

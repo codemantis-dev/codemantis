@@ -31,6 +31,9 @@ interface SpecWriterState {
   // File request loading state (per project)
   fileRequestsPending: Map<string, boolean>;
 
+  // Gathered project context for feature mode (per project)
+  projectContext: Map<string, string>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -45,6 +48,9 @@ interface SpecWriterState {
 
   // Actions - File requests
   setFileRequestsPending: (projectPath: string, pending: boolean) => void;
+
+  // Actions - Project context
+  setProjectContext: (projectPath: string, context: string) => void;
 
   // Actions - Spec content
   setCurrentSpecContent: (projectPath: string, content: string | null) => void;
@@ -84,6 +90,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   currentSpecContent: new Map(),
   savedSpecs: new Map(),
   fileRequestsPending: new Map(),
+  projectContext: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -208,6 +215,14 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const fileRequestsPending = new Map(state.fileRequestsPending);
       fileRequestsPending.set(projectPath, pending);
       return { fileRequestsPending };
+    }),
+
+  // Project context
+  setProjectContext: (projectPath, context) =>
+    set((state) => {
+      const projectContext = new Map(state.projectContext);
+      projectContext.set(projectPath, context);
+      return { projectContext };
     }),
 
   // Spec content

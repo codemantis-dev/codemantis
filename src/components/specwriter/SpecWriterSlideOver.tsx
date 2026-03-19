@@ -19,6 +19,7 @@ export default function SpecWriterSlideOver() {
   const setChatWidth = useSpecWriterStore((s) => s.setChatWidth);
   const clearConversation = useSpecWriterStore((s) => s.clearConversation);
   const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
+  const persistState = useSpecWriterStore((s) => s.persistState);
   const currentSpecContent = useSpecWriterStore((s) =>
     activeProjectPath ? s.currentSpecContent.get(activeProjectPath) ?? null : null
   );
@@ -28,6 +29,7 @@ export default function SpecWriterSlideOver() {
   const loadState = useSpecWriterStore((s) => s.loadState);
   const setSavedSpecs = useSpecWriterStore((s) => s.setSavedSpecs);
   const setContextLoaded = useSpecWriterStore((s) => s.setContextLoaded);
+  const setProjectContext = useSpecWriterStore((s) => s.setProjectContext);
   const addMessage = useSpecWriterStore((s) => s.addMessage);
 
   const isOpen = uiState?.is_open ?? false;
@@ -39,6 +41,9 @@ export default function SpecWriterSlideOver() {
   const [copiedClaudemd, setCopiedClaudemd] = useState(false);
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const initCheckedRef = useRef<string | null>(null);
+  const contextAbortRef = useRef(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
 
   // When slide-over opens, load state and context
   useEffect(() => {
@@ -49,31 +54,52 @@ export default function SpecWriterSlideOver() {
     // Load persisted conversation
     loadState(activeProjectPath);
 
-    // Load context for feature mode
-    gatherSpecContext(activeProjectPath).then(() => {
+    // Load context for feature mode — store result for the system prompt
+    contextAbortRef.current = false;
+    setContextLoading(true);
+    setContextError(null);
+    gatherSpecContext(activeProjectPath).then((context) => {
+      if (contextAbortRef.current) return;
+      setProjectContext(activeProjectPath, context);
       setContextLoaded(activeProjectPath, true);
-    }).catch(() => {
-      setContextLoaded(activeProjectPath, false);
+      setContextLoading(false);
+    }).catch((e) => {
+      if (contextAbortRef.current) return;
+      console.error("[SpecWriter] Context gathering failed:", e);
+      setContextError(String(e));
+      setContextLoading(false);
     });
 
     // Load saved specs list
     listSpecDocuments(activeProjectPath).then((specs) => {
       setSavedSpecs(activeProjectPath, specs);
     }).catch(() => {});
-  }, [isOpen, activeProjectPath, loadState, setContextLoaded, setSavedSpecs]);
+  }, [isOpen, activeProjectPath, loadState, setContextLoaded, setSavedSpecs, setProjectContext]);
 
-  // Reset init check when slide-over closes
+  // Reset init check when slide-over closes; persist state
   useEffect(() => {
     if (!isOpen) {
       initCheckedRef.current = null;
+      contextAbortRef.current = true;
+      setContextLoading(false);
     }
   }, [isOpen]);
 
   const handleClose = useCallback(() => {
     if (activeProjectPath) {
+      // Persist conversation state before closing
+      persistState(activeProjectPath);
       setSlideOverOpen(activeProjectPath, false);
     }
-  }, [activeProjectPath, setSlideOverOpen]);
+  }, [activeProjectPath, setSlideOverOpen, persistState]);
+
+  const handleCancelContext = useCallback(() => {
+    contextAbortRef.current = true;
+    setContextLoading(false);
+    if (activeProjectPath) {
+      setContextLoaded(activeProjectPath, false);
+    }
+  }, [activeProjectPath, setContextLoaded]);
 
   // Escape key closes
   useEffect(() => {
@@ -175,19 +201,20 @@ export default function SpecWriterSlideOver() {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — starts below title bar (h-12 = 48px) so window remains draggable */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 transition-opacity duration-200"
-          style={{ background: "rgba(0,0,0,0.4)" }}
+          className="fixed left-0 right-0 bottom-0 z-40 transition-opacity duration-200"
+          style={{ top: 48, background: "rgba(0,0,0,0.4)" }}
           onClick={handleClose}
         />
       )}
 
-      {/* Slide-over panel */}
+      {/* Slide-over panel — starts below title bar */}
       <div
-        className="fixed top-0 right-0 h-full z-50 flex flex-col transition-transform duration-250 ease-out"
+        className="fixed right-0 bottom-0 z-50 flex flex-col transition-transform duration-250 ease-out"
         style={{
+          top: 48,
           width: "80%",
           minWidth: 600,
           maxWidth: "92%",
@@ -198,7 +225,7 @@ export default function SpecWriterSlideOver() {
       >
         {/* Header */}
         <div
-          className="h-12 flex items-center justify-between px-4 border-b shrink-0"
+          className="h-10 flex items-center justify-between px-4 border-b shrink-0"
           style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
         >
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
@@ -217,13 +244,42 @@ export default function SpecWriterSlideOver() {
         {/* Two-column content — only mount children when open */}
         {isOpen && (
           <>
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden relative">
+              {/* Context loading overlay (feature mode only) */}
+              {contextLoading && conversation?.mode === 'feature' && (
+                <ContextLoadingOverlay
+                  projectPath={activeProjectPath}
+                  onCancel={handleCancelContext}
+                />
+              )}
+
+              {/* Context error banner */}
+              {contextError && (
+                <div
+                  className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-xs flex items-center gap-2"
+                  style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
+                >
+                  <span className="flex-1">Context loading failed: {contextError}</span>
+                  <button
+                    onClick={() => setContextError(null)}
+                    className="text-[10px] px-2 py-0.5 rounded border"
+                    style={{ borderColor: "rgba(239,68,68,0.3)" }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               {/* Left: Chat */}
               <div
                 className="overflow-hidden flex flex-col"
                 style={{ width: `${chatWidth}%` }}
               >
-                <SpecChat projectPath={activeProjectPath} />
+                <SpecChat
+                  projectPath={activeProjectPath}
+                  contextLoading={contextLoading}
+                  contextError={contextError}
+                />
               </div>
 
               {/* Divider */}
@@ -320,5 +376,56 @@ export default function SpecWriterSlideOver() {
         />
       )}
     </>
+  );
+}
+
+// ── Context Loading Overlay ─────────────────────────────────────
+
+function ContextLoadingOverlay({ projectPath, onCancel }: { projectPath: string; onCancel: () => void }) {
+  const projectName = projectPath.split("/").pop() ?? "project";
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center"
+      style={{ background: "var(--bg-primary)", opacity: 0.97 }}
+    >
+      <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
+        {/* Spinner */}
+        <div className="relative w-10 h-10">
+          <div
+            className="absolute inset-0 rounded-full border-2 border-t-transparent animate-spin"
+            style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
+          />
+        </div>
+
+        <div>
+          <h3
+            className="text-sm font-medium mb-1"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Analyzing project...
+          </h3>
+          <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Scanning <strong>{projectName}</strong> to understand its structure —
+            framework, dependencies, routes, components, hooks, stores, and existing specs.
+          </p>
+          <p className="text-[10px] mt-2" style={{ color: "var(--text-ghost)" }}>
+            This context helps the AI write specifications that reference your actual codebase.
+          </p>
+        </div>
+
+        <button
+          onClick={onCancel}
+          className="px-4 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
+          style={{
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          Skip — start without context
+        </button>
+      </div>
+    </div>
   );
 }

@@ -10,9 +10,11 @@ import SpecChatInput from "./SpecChatInput";
 
 interface Props {
   projectPath: string;
+  contextLoading?: boolean;
+  contextError?: string | null;
 }
 
-export default function SpecChat({ projectPath }: Props) {
+export default function SpecChat({ projectPath, contextLoading, contextError }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
@@ -267,7 +269,7 @@ export default function SpecChat({ projectPath }: Props) {
             </select>
             {conversation.mode === 'feature' && (
               <span>
-                Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
+                Context: {contextLoading ? '⏳ scanning...' : contextError ? '❌ error' : conversation.context_loaded ? '✅ loaded' : '—'}
               </span>
             )}
           </>
@@ -276,7 +278,7 @@ export default function SpecChat({ projectPath }: Props) {
             <span>Mode: {conversation?.mode === 'feature' ? 'Feature' : 'New Application'}</span>
             {conversation?.mode === 'feature' && (
               <span>
-                Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
+                Context: {contextLoading ? '⏳ scanning...' : contextError ? '❌ error' : conversation?.context_loaded ? '✅ loaded' : '—'}
               </span>
             )}
           </>
