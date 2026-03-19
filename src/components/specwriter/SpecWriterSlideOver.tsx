@@ -2,9 +2,8 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { X, Copy, Check } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
-import { useSpecConversation } from "../../hooks/useSpecConversation";
 import { showToast } from "../../stores/toastStore";
-import { listSpecDocuments } from "../../lib/tauri-commands";
+import { listSpecDocuments, gatherSpecContext } from "../../lib/tauri-commands";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -28,8 +27,8 @@ export default function SpecWriterSlideOver() {
   );
   const loadState = useSpecWriterStore((s) => s.loadState);
   const setSavedSpecs = useSpecWriterStore((s) => s.setSavedSpecs);
+  const setContextLoaded = useSpecWriterStore((s) => s.setContextLoaded);
   const addMessage = useSpecWriterStore((s) => s.addMessage);
-  const { loadContext } = useSpecConversation();
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
@@ -51,13 +50,17 @@ export default function SpecWriterSlideOver() {
     loadState(activeProjectPath);
 
     // Load context for feature mode
-    loadContext(activeProjectPath);
+    gatherSpecContext(activeProjectPath).then(() => {
+      setContextLoaded(activeProjectPath, true);
+    }).catch(() => {
+      setContextLoaded(activeProjectPath, false);
+    });
 
     // Load saved specs list
     listSpecDocuments(activeProjectPath).then((specs) => {
       setSavedSpecs(activeProjectPath, specs);
     }).catch(() => {});
-  }, [isOpen, activeProjectPath, loadState, loadContext, setSavedSpecs]);
+  }, [isOpen, activeProjectPath, loadState, setContextLoaded, setSavedSpecs]);
 
   // Reset init check when slide-over closes
   useEffect(() => {
@@ -209,94 +212,98 @@ export default function SpecWriterSlideOver() {
           </button>
         </div>
 
-        {/* Two-column content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left: Chat */}
-          <div
-            className="overflow-hidden flex flex-col"
-            style={{ width: `${chatWidth}%` }}
-          >
-            <SpecChat projectPath={activeProjectPath} />
-          </div>
+        {/* Two-column content — only mount children when open */}
+        {isOpen && (
+          <>
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left: Chat */}
+              <div
+                className="overflow-hidden flex flex-col"
+                style={{ width: `${chatWidth}%` }}
+              >
+                <SpecChat projectPath={activeProjectPath} />
+              </div>
 
-          {/* Divider */}
-          <div
-            ref={dividerRef}
-            onMouseDown={handleDividerMouseDown}
-            className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
-          >
-            <div
-              className="w-px transition-colors"
-              style={{
-                background: isDragging ? "var(--accent)" : "var(--border)",
-              }}
-            />
-          </div>
+              {/* Divider */}
+              <div
+                ref={dividerRef}
+                onMouseDown={handleDividerMouseDown}
+                className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
+              >
+                <div
+                  className="w-px transition-colors"
+                  style={{
+                    background: isDragging ? "var(--accent)" : "var(--border)",
+                  }}
+                />
+              </div>
 
-          {/* Right: Spec Preview + Actions + Saved Specs */}
-          <div className="flex-1 overflow-hidden flex flex-col">
-            {/* Spec Preview */}
-            <div className="flex-1 overflow-hidden">
-              <SpecPreview content={currentSpecContent} />
+              {/* Right: Spec Preview + Actions + Saved Specs */}
+              <div className="flex-1 overflow-hidden flex flex-col">
+                {/* Spec Preview */}
+                <div className="flex-1 overflow-hidden">
+                  <SpecPreview content={currentSpecContent} />
+                </div>
+
+                {/* Action buttons */}
+                {currentSpecContent && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
+                    <button
+                      onClick={() => setShowSaveDialog(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+                      style={{ background: "var(--accent)", color: "white" }}
+                    >
+                      Save to Project
+                    </button>
+                    <button
+                      onClick={handleCopySpec}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
+                      style={{
+                        background: "var(--bg-elevated)",
+                        color: "var(--text-secondary)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      Copy to Clipboard
+                    </button>
+                  </div>
+                )}
+
+                {/* CLAUDE.md integration tip */}
+                {lastSavedFile && (
+                  <div
+                    className="flex items-center gap-2 px-3 py-2 border-t text-xs"
+                    style={{ borderColor: "var(--border)", background: "var(--accent-bg)", color: "var(--accent)" }}
+                  >
+                    <span className="flex-1">
+                      Add to CLAUDE.md: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
+                    </span>
+                    <button
+                      onClick={handleCopyClaudemdSnippet}
+                      title="Copy snippet"
+                      className="p-1 rounded hover:bg-bg-elevated transition-colors"
+                    >
+                      {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                )}
+
+                {/* Saved Specs List */}
+                <SavedSpecsList
+                  projectPath={activeProjectPath}
+                  onLoadSpec={handleLoadSpec}
+                />
+              </div>
             </div>
 
-            {/* Action buttons */}
-            {currentSpecContent && (
-              <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
-                <button
-                  onClick={() => setShowSaveDialog(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-                  style={{ background: "var(--accent)", color: "white" }}
-                >
-                  Save to Project
-                </button>
-                <button
-                  onClick={handleCopySpec}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
-                  style={{
-                    background: "var(--bg-elevated)",
-                    color: "var(--text-secondary)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  Copy to Clipboard
-                </button>
-              </div>
-            )}
-
-            {/* CLAUDE.md integration tip */}
-            {lastSavedFile && (
-              <div
-                className="flex items-center gap-2 px-3 py-2 border-t text-xs"
-                style={{ borderColor: "var(--border)", background: "var(--accent-bg)", color: "var(--accent)" }}
-              >
-                <span className="flex-1">
-                  Add to CLAUDE.md: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
-                </span>
-                <button
-                  onClick={handleCopyClaudemdSnippet}
-                  title="Copy snippet"
-                  className="p-1 rounded hover:bg-bg-elevated transition-colors"
-                >
-                  {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              </div>
-            )}
-
-            {/* Saved Specs List */}
-            <SavedSpecsList
+            {/* Bottom toolbar */}
+            <SpecToolbar
               projectPath={activeProjectPath}
-              onLoadSpec={handleLoadSpec}
+              onNewSpec={handleNewSpec}
+              onSave={() => setShowSaveDialog(true)}
             />
-          </div>
-        </div>
-
-        {/* Bottom toolbar */}
-        <SpecToolbar
-          projectPath={activeProjectPath}
-          onNewSpec={handleNewSpec}
-          onSave={() => setShowSaveDialog(true)}
-        />
+          </>
+        )}
       </div>
 
       {/* Save dialog */}

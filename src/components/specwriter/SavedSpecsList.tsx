@@ -5,17 +5,23 @@ import { listSpecDocuments, readSpecDocument, deleteSpecDocument } from "../../l
 import { showToast } from "../../stores/toastStore";
 import type { SpecDocumentInfo } from "../../types/spec-writer";
 
+const EMPTY_SPECS: SpecDocumentInfo[] = [];
+
 interface Props {
   projectPath: string;
   onLoadSpec: (content: string, filename: string) => void;
 }
 
 export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
-  const savedSpecs = useSpecWriterStore((s) => s.savedSpecs.get(projectPath) ?? []);
+  const savedSpecs = useSpecWriterStore((s) => s.savedSpecs.get(projectPath));
   const setSavedSpecs = useSpecWriterStore((s) => s.setSavedSpecs);
-  const selectedSpec = useSpecWriterStore((s) => s.getUIState(projectPath).selected_saved_spec);
+  const selectedSpec = useSpecWriterStore((s) => {
+    const ui = s.uiState.get(projectPath);
+    return ui?.selected_saved_spec ?? null;
+  });
   const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
   const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
+  const specsList = savedSpecs ?? EMPTY_SPECS;
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -74,19 +80,19 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
         className="w-full px-3 py-2 text-xs font-medium flex items-center justify-between hover:bg-bg-elevated transition-colors"
         style={{ color: "var(--text-secondary)" }}
       >
-        <span>Saved Specs ({savedSpecs.length})</span>
+        <span>Saved Specs ({specsList.length})</span>
         <span className="text-[10px]">{isCollapsed ? "▸" : "▾"}</span>
       </button>
 
       {!isCollapsed && (
         <div className="px-2 pb-2">
-          {savedSpecs.length === 0 ? (
+          {specsList.length === 0 ? (
             <div className="text-xs px-2 py-3 text-center" style={{ color: "var(--text-dim)" }}>
               No specifications yet.
             </div>
           ) : (
             <div className="space-y-1">
-              {savedSpecs.map((spec) => (
+              {specsList.map((spec) => (
                 <div
                   key={spec.filename}
                   className="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors text-xs"

@@ -65,16 +65,6 @@ pub struct ApiCostSummaryRow {
     pub by_provider: Vec<ProviderCostRow>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskPlanSummaryRow {
-    pub id: String,
-    pub project_path: String,
-    pub status: String,
-    pub plan_json: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
@@ -639,53 +629,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_all_plans(&self) -> Result<Vec<TaskPlanSummaryRow>, AppError> {
-        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, project_path, status, plan_json, created_at, updated_at FROM task_plans ORDER BY updated_at DESC"
-        ).map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
-
-        let rows = stmt.query_map([], |row| {
-            Ok(TaskPlanSummaryRow {
-                id: row.get(0)?,
-                project_path: row.get(1)?,
-                status: row.get(2)?,
-                plan_json: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        }).map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-
-        let mut entries = Vec::new();
-        for row in rows {
-            entries.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
-        }
-        Ok(entries)
-    }
-
-    pub fn list_plans_for_project(&self, project_path: &str) -> Result<Vec<TaskPlanSummaryRow>, AppError> {
-        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, project_path, status, plan_json, created_at, updated_at FROM task_plans WHERE project_path = ?1 ORDER BY updated_at DESC"
-        ).map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
-
-        let rows = stmt.query_map(rusqlite::params![project_path], |row| {
-            Ok(TaskPlanSummaryRow {
-                id: row.get(0)?,
-                project_path: row.get(1)?,
-                status: row.get(2)?,
-                plan_json: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-            })
-        }).map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-
-        let mut entries = Vec::new();
-        for row in rows {
-            entries.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
-        }
-        Ok(entries)
-    }
 }
 
 #[cfg(test)]
