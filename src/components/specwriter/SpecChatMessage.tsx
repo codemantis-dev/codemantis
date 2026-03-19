@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { SpecMessage } from "../../types/spec-writer";
-import { Copy, Check, Send, Info } from "lucide-react";
+import { Copy, Check, Send, Info, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
 
 interface Props {
   message: SpecMessage;
@@ -41,6 +41,11 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
     onSelectOption?.(chosen);
     setSelectedOptions(new Set());
   }, [message.parsedOptions, selectedOptions, onSelectOption]);
+
+  // File context messages — collapsible, abbreviated view
+  if (isSystem && message.message_type === 'file_context') {
+    return <FileContextMessage content={message.content} timestamp={message.timestamp} />;
+  }
 
   if (isSystem) {
     return (
@@ -157,6 +162,117 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
           {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── File Context Message (collapsible) ──────────────────────────
+
+interface FileEntry {
+  path: string;
+  found: boolean;
+  lineInfo: string;
+  content: string;
+}
+
+function parseFileContextContent(raw: string): FileEntry[] {
+  const entries: FileEntry[] = [];
+  // Match === path (info) === blocks
+  const pattern = /^===\s+(.+?)\s+(?:\(NOT FOUND\)|(?:\((?:showing first \d+ of )?(\d+) lines?\)))\s+===$/gm;
+  let match;
+  const positions: { path: string; found: boolean; lineInfo: string; start: number }[] = [];
+
+  while ((match = pattern.exec(raw)) !== null) {
+    const path = match[1];
+    const found = !raw.substring(match.index, match.index + match[0].length).includes("NOT FOUND");
+    const lineInfo = found ? (match[2] ? `${match[2]} lines` : '') : 'not found';
+    positions.push({ path, found, lineInfo, start: match.index + match[0].length });
+  }
+
+  for (let i = 0; i < positions.length; i++) {
+    const endPos = i + 1 < positions.length
+      ? raw.lastIndexOf('\n===', positions[i + 1].start - positions[i + 1].path.length - 20)
+      : raw.length;
+    const content = raw.substring(positions[i].start, endPos).trim();
+    entries.push({ ...positions[i], content });
+  }
+
+  return entries;
+}
+
+function FileContextMessage({ content, timestamp }: { content: string; timestamp: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedFiles, setExpandedFiles] = useState<Set<number>>(new Set());
+  const entries = parseFileContextContent(content);
+
+  const toggleFile = useCallback((idx: number) => {
+    setExpandedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  return (
+    <div
+      className="rounded-md text-xs border"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:brightness-95 transition-colors"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <FolderOpen size={13} className="shrink-0" style={{ color: "var(--accent)" }} />
+        <span className="font-medium">
+          📂 {entries.length} file{entries.length !== 1 ? 's' : ''} loaded
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <span className="text-[10px] opacity-60">
+            {new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1">
+          {entries.map((entry, idx) => (
+            <div key={idx} className="rounded" style={{ background: "var(--bg-primary)" }}>
+              <button
+                onClick={() => entry.found ? toggleFile(idx) : undefined}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
+                style={{
+                  color: entry.found ? "var(--text-primary)" : "var(--text-ghost)",
+                  cursor: entry.found ? "pointer" : "default",
+                }}
+              >
+                <span className="font-mono truncate flex-1">{entry.path}</span>
+                <span className="text-[10px] shrink-0 opacity-60">
+                  {entry.found ? entry.lineInfo : '⚠ not found'}
+                </span>
+                {entry.found && (
+                  expandedFiles.has(idx)
+                    ? <ChevronDown size={11} className="shrink-0" />
+                    : <ChevronRight size={11} className="shrink-0" />
+                )}
+              </button>
+              {entry.found && expandedFiles.has(idx) && (
+                <pre
+                  className="px-2 pb-2 overflow-x-auto text-[11px] leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {entry.content}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

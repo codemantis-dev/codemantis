@@ -15,9 +15,17 @@ export interface SpecMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   attachments?: SpecAttachment[];
-  message_type: 'conversation' | 'spec_document' | 'context_summary';
+  message_type: 'conversation' | 'spec_document' | 'context_summary' | 'file_context';
   timestamp: string;
   parsedOptions?: string[];
+}
+
+export interface FileReadResult {
+  path: string;
+  found: boolean;
+  content: string | null;
+  totalLines: number;
+  truncated: boolean;
 }
 
 export interface SpecAttachment {

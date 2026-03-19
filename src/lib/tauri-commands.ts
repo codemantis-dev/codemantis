@@ -658,6 +658,14 @@ export async function gatherSpecContext(
   return invoke<string>("gather_spec_context", { projectPath });
 }
 
+export async function readProjectFiles(
+  projectPath: string,
+  filePaths: string[],
+  maxLines?: number,
+): Promise<import("../types/spec-writer").FileReadResult[]> {
+  return invoke("read_project_files", { projectPath, filePaths, maxLines });
+}
+
 export async function gatherProjectSnapshot(
   projectPath: string,
 ): Promise<string> {

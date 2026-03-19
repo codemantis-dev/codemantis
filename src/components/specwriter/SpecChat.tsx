@@ -15,6 +15,7 @@ interface Props {
 export default function SpecChat({ projectPath }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
+  const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
   const updateConversationProvider = useSpecWriterStore((s) => s.updateConversationProvider);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -200,6 +201,12 @@ export default function SpecChat({ projectPath }: Props) {
           <div className="flex items-center gap-2 py-1">
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--accent)" }} />
             <span className="text-xs" style={{ color: "var(--text-dim)" }}>Thinking...</span>
+          </div>
+        )}
+        {isLoadingFiles && (
+          <div className="flex items-center gap-2 py-1 px-3">
+            <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--warning, #f59e0b)" }} />
+            <span className="text-xs" style={{ color: "var(--text-dim)" }}>Loading requested files...</span>
           </div>
         )}
       </div>
