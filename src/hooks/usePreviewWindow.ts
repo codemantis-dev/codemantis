@@ -37,8 +37,10 @@ export function usePreviewWindow(): {
       if (!sessionId) return;
 
       let thumbnailUrl: string | undefined;
+      let fileSize = 0;
       try {
         const bytes = await readFileBytes(filePath);
+        fileSize = bytes.length;
         const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
         thumbnailUrl = URL.createObjectURL(blob);
       } catch {
@@ -49,7 +51,7 @@ export function usePreviewWindow(): {
         id: `screenshot-${Date.now()}`,
         fileName: "preview-screenshot.png",
         filePath,
-        fileSize: 0,
+        fileSize,
         mimeType: "image/png",
         isImage: true,
         thumbnailUrl,

@@ -154,15 +154,24 @@
   });
   toolbar.appendChild(vpContainer);
 
-  // Open in Browser
+  // Open in Browser — calls local Rust HTTP callback server
   toolbar.appendChild(tbBtn('\u2197', 'Open in Browser', function() {
-    window.open(window.location.href, '_blank');
+    var port = window.__CM_CALLBACK_PORT;
+    if (!port) { ORIG.warn('Preview callback port not set yet'); return; }
+    fetch('http://127.0.0.1:' + port + '/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: window.location.href }),
+    }).catch(function(err) { ORIG.error('Open in browser failed:', err); });
   }));
 
-  // Screenshot to Chat — signals Rust via title change (no IPC on external URLs)
+  // Screenshot to Chat — calls local Rust HTTP callback server
   toolbar.appendChild(tbBtn('\uD83D\uDCF7', 'Screenshot to Chat', function() {
-    window.__CM_PRE_SS_TITLE = document.title;
-    document.title = '__CMSS__';
+    var port = window.__CM_CALLBACK_PORT;
+    if (!port) { ORIG.warn('Preview callback port not set yet'); return; }
+    fetch('http://127.0.0.1:' + port + '/screenshot', {
+      method: 'POST',
+    }).catch(function(err) { ORIG.error('Screenshot failed:', err); });
   }));
 
   // Console badge
@@ -177,7 +186,13 @@
 
   // Close preview button
   toolbar.appendChild(tbBtn('\u2715', 'Close Preview', function() {
-    window.close();
+    var port = window.__CM_CALLBACK_PORT;
+    if (port) {
+      fetch('http://127.0.0.1:' + port + '/close', { method: 'POST' })
+        .catch(function() { window.close(); });
+    } else {
+      window.close();
+    }
   }));
 
   function updateConsoleBadge() {

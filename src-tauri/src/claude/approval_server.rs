@@ -1,4 +1,4 @@
-use axum::{extract::State as AxumState, http::StatusCode, routing::post, Json, Router};
+use axum::{extract::State as AxumState, http::StatusCode, routing::{options, post}, Json, Router};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
 
 use crate::claude::session::SessionMode;
+use crate::commands::preview::capture_screenshot_inner;
 
 /// Tools that are auto-approved without asking the user (read-only tools).
 const AUTO_APPROVED_TOOLS: &[&str] = &[
@@ -106,6 +107,10 @@ impl ApprovalServerState {
     pub async fn set_app_handle(&self, handle: AppHandle) {
         let mut h = self.app_handle.lock().await;
         *h = Some(handle);
+    }
+
+    pub async fn app_handle(&self) -> Option<AppHandle> {
+        self.app_handle.lock().await.clone()
     }
 
     /// Resolve a pending approval by request ID.
@@ -385,11 +390,81 @@ async fn handle_tool_approval(
     }
 }
 
+// ── Preview callback handlers ───────────────────────────────────────────
+// The preview WebView loads external URLs, where document.title changes
+// are NOT reflected back to Rust via window.title() (WKWebView limitation).
+// Instead, the preview toolbar's JS buttons call fetch() to these endpoints.
+
+/// CORS preflight — allows cross-origin fetch from preview page (e.g. http://localhost:3000).
+async fn preview_cors_preflight() -> (StatusCode, [(&'static str, &'static str); 3]) {
+    (
+        StatusCode::NO_CONTENT,
+        [
+            ("access-control-allow-origin", "*"),
+            ("access-control-allow-methods", "POST, OPTIONS"),
+            ("access-control-allow-headers", "content-type"),
+        ],
+    )
+}
+
+#[derive(Deserialize)]
+struct OpenBrowserRequest {
+    url: String,
+}
+
+async fn handle_preview_screenshot(
+    AxumState(state): AxumState<Arc<ApprovalServerState>>,
+) -> (StatusCode, [(&'static str, &'static str); 1]) {
+    let cors = [("access-control-allow-origin", "*")];
+    let Some(app_handle) = state.app_handle().await else {
+        warn!("[preview-callback] No app handle available for screenshot");
+        return (StatusCode::INTERNAL_SERVER_ERROR, cors);
+    };
+    match capture_screenshot_inner(&app_handle) {
+        Ok(path) => {
+            info!("[preview-callback] Screenshot captured: {}", path);
+            let _ = app_handle.emit("preview-screenshot-taken", path);
+            (StatusCode::OK, cors)
+        }
+        Err(e) => {
+            warn!("[preview-callback] Screenshot failed: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, cors)
+        }
+    }
+}
+
+async fn handle_preview_open_browser(
+    Json(body): Json<OpenBrowserRequest>,
+) -> (StatusCode, [(&'static str, &'static str); 1]) {
+    info!("[preview-callback] Opening in browser: {}", body.url);
+    let _ = std::process::Command::new("open").arg(&body.url).spawn();
+    (StatusCode::OK, [("access-control-allow-origin", "*")])
+}
+
+async fn handle_preview_close(
+    AxumState(state): AxumState<Arc<ApprovalServerState>>,
+) -> (StatusCode, [(&'static str, &'static str); 1]) {
+    let cors = [("access-control-allow-origin", "*")];
+    let Some(app_handle) = state.app_handle().await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, cors);
+    };
+    if let Some(window) = app_handle.get_webview_window("preview") {
+        let _ = window.close();
+    }
+    (StatusCode::OK, cors)
+}
+
 /// Start the approval HTTP server on a random available port.
 /// Returns the port number.
 pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> Result<u16, String> {
     let app = Router::new()
         .route("/tool-approval", post(handle_tool_approval))
+        .route("/screenshot", post(handle_preview_screenshot))
+        .route("/screenshot", options(preview_cors_preflight))
+        .route("/open", post(handle_preview_open_browser))
+        .route("/open", options(preview_cors_preflight))
+        .route("/close", post(handle_preview_close))
+        .route("/close", options(preview_cors_preflight))
         .with_state(approval_state);
 
     let listener = TcpListener::bind("127.0.0.1:0")
