@@ -283,7 +283,7 @@ export default function FileViewer() {
       )}
 
       {/* Editor */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden" style={{ backgroundColor: monacoColors.editorBackground }}>
         {activeTab?.isDiff && activeTab.oldContent !== undefined && activeTab.newContent !== undefined ? (
           <DiffEditor
             original={activeTab.oldContent}

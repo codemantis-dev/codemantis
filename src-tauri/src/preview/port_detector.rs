@@ -17,6 +17,11 @@ static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r":(\d+)\s+\(LISTEN\)").unwrap()
 });
 
+/// Lines indicating a port is already occupied — must be skipped before pattern matching.
+static PORT_IN_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:already in use|in use.*trying|EADDRINUSE|address already|port is occupied|is already running on port)").unwrap()
+});
+
 static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         // Framework-specific patterns (most reliable)
@@ -34,8 +39,6 @@ static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         Regex::new(r"(?i)server (?:running|started|listening) (?:at|on) .+?:(\d+)").unwrap(),
         // Uvicorn: "Uvicorn running on http://127.0.0.1:8000"
         Regex::new(r"Uvicorn running on https?://(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)").unwrap(),
-        // "port 3000"
-        Regex::new(r"(?i)port[:\s]+(\d+)").unwrap(),
     ]
 });
 
@@ -46,6 +49,13 @@ pub fn scan_for_dev_server_url(line: &str) -> Option<(u16, String)> {
     // that break regex matching (e.g. "\e[36mhttp://\e[0mlocalhost:5173")
     let cleaned = ANSI_RE.replace_all(line, "");
     let line = cleaned.as_ref();
+
+    // Skip lines about ports already in use — prevents matching the occupied port
+    // (e.g. Vite: "Port 5173 is already in use, trying 5174...")
+    if PORT_IN_USE_RE.is_match(line) {
+        debug!("Skipping port-in-use line: {}", line.trim());
+        return None;
+    }
 
     for pattern in PORT_PATTERNS.iter() {
         if let Some(caps) = pattern.captures(line) {
@@ -219,9 +229,10 @@ mod tests {
 
     #[test]
     fn test_port_colon_format() {
+        // Bare "port: 5000" no longer matches — pattern #8 was removed to prevent false positives
         let line = "Application port: 5000";
         let result = scan_for_dev_server_url(line);
-        assert_eq!(result, Some((5000, "http://localhost:5000".to_string())));
+        assert!(result.is_none());
     }
 
     // --- Case insensitivity ---
@@ -422,5 +433,42 @@ mod tests {
         let line = "  \x1b[32m▲\x1b[0m Next.js 16.0.0 (Turbopack)\n  - \x1b[36mLocal:\x1b[0m http://localhost:3000";
         let result = scan_for_dev_server_url(line);
         assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    // --- Port-in-use rejection ---
+
+    #[test]
+    fn test_port_in_use_vite() {
+        let line = "Port 5173 is already in use, trying 5174...";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_in_use_nextjs() {
+        let line = "Port 3000 is in use, trying 3001 instead.";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_in_use_cra() {
+        let line = "Something is already running on port 3000.";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_in_use_eaddrinuse() {
+        let line = "Error: listen EADDRINUSE: address already in use :::5173";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_in_use_ansi_wrapped() {
+        let line = "\x1b[31mPort 5173 is already in use\x1b[0m, trying 5174...";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
     }
 }
