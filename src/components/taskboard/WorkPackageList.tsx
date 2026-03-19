@@ -13,6 +13,7 @@ interface Props {
 
 export default function WorkPackageList({ projectPath, onSwitchProject }: Props) {
   const plan = useTaskBoardStore((s) => s.plans.get(projectPath));
+  const planStatus = plan?.status;
   const decision = useTaskBoardStore((s) => s.projectTargetDecisions.get(projectPath));
   const expandedWp = useTaskBoardStore(
     (s) => s.uiState.get(projectPath)?.expanded_work_package ?? null
@@ -27,12 +28,12 @@ export default function WorkPackageList({ projectPath, onSwitchProject }: Props)
   const [showResumeBanner, setShowResumeBanner] = useState(false);
 
   useEffect(() => {
-    if (plan && plan.status === 'executing' && !executingWp && !executingProject) {
+    if (planStatus === 'executing' && !executingWp && !executingProject) {
       setShowResumeBanner(true);
     } else {
       setShowResumeBanner(false);
     }
-  }, [plan?.status, executingWp, executingProject]);
+  }, [planStatus, executingWp, executingProject]);
 
   const handleResume = useCallback(() => {
     if (!plan) return;

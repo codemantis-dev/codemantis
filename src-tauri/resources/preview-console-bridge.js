@@ -377,6 +377,23 @@
     navigator.clipboard.writeText(text).catch(function() {});
   }));
 
+  drawerActions.appendChild(drawerBtn('Send to Chat', 'Send logs to chat input', function() {
+    var port = window.__CM_CALLBACK_PORT;
+    if (!port) { ORIG.warn('No callback port'); return; }
+    var entries = window.__CM_CONSOLE_LOG.filter(function(e) {
+      return e.level === 'error' || e.level === 'warn';
+    });
+    if (entries.length === 0) entries = window.__CM_CONSOLE_LOG;
+    var text = entries.map(function(e) {
+      return '[' + e.level.toUpperCase() + '] ' + e.msg;
+    }).join('\n');
+    fetch('http://127.0.0.1:' + port + '/console-to-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logs: text }),
+    }).catch(function(err) { ORIG.error('Send to chat failed:', err); });
+  }));
+
   drawerActions.appendChild(drawerBtn('\u2715', 'Close console', function() {
     toggleConsoleDrawer();
   }));

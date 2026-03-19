@@ -412,6 +412,11 @@ struct OpenBrowserRequest {
     url: String,
 }
 
+#[derive(Deserialize)]
+struct ConsoleToChat {
+    logs: String,
+}
+
 async fn handle_preview_screenshot(
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
@@ -441,6 +446,20 @@ async fn handle_preview_open_browser(
     (StatusCode::OK, [("access-control-allow-origin", "*")])
 }
 
+async fn handle_preview_console_to_chat(
+    AxumState(state): AxumState<Arc<ApprovalServerState>>,
+    Json(body): Json<ConsoleToChat>,
+) -> (StatusCode, [(&'static str, &'static str); 1]) {
+    let cors = [("access-control-allow-origin", "*")];
+    let Some(app_handle) = state.app_handle().await else {
+        warn!("[preview-callback] No app handle available for console-to-chat");
+        return (StatusCode::INTERNAL_SERVER_ERROR, cors);
+    };
+    info!("[preview-callback] Sending console logs to chat ({} bytes)", body.logs.len());
+    let _ = app_handle.emit("preview-console-to-chat", body.logs);
+    (StatusCode::OK, cors)
+}
+
 async fn handle_preview_close(
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
@@ -465,6 +484,8 @@ pub async fn start_approval_server(approval_state: Arc<ApprovalServerState>) -> 
         .route("/open", options(preview_cors_preflight))
         .route("/close", post(handle_preview_close))
         .route("/close", options(preview_cors_preflight))
+        .route("/console-to-chat", post(handle_preview_console_to_chat))
+        .route("/console-to-chat", options(preview_cors_preflight))
         .with_state(approval_state);
 
     let listener = TcpListener::bind("127.0.0.1:0")

@@ -5,6 +5,7 @@ import { useActivityStore } from "../../stores/activityStore";
 import { showToast } from "../../stores/toastStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useDevServerDetection } from "../../hooks/useDevServerDetection";
+import { listen } from "@tauri-apps/api/event";
 import { listenPreviewConsoleEntry } from "../../lib/tauri-commands";
 import TitleBar from "./TitleBar";
 import SessionSubTabs from "./SessionSubTabs";
@@ -137,6 +138,22 @@ export default function AppShell() {
       cancelled = true;
       unlisten?.();
     };
+  }, []);
+
+  // Subscribe to preview console-to-chat events → populate chat input
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<string>("preview-console-to-chat", (e) => {
+      if (cancelled) return;
+      const formatted = `Browser console logs from preview:\n\`\`\`\n${e.payload}\n\`\`\``;
+      useUiStore.getState().setDraftInput(formatted);
+    }).then((fn) => {
+      if (cancelled) { fn(); } else { unlisten = fn; }
+    });
+
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Reset project log / history view when switching projects

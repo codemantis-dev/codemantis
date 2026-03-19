@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo } from "react";
-import { Layers } from "lucide-react";
+import { Layers, MessageSquareShare } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useAssistantStore } from "../../stores/assistantStore";
@@ -246,7 +246,24 @@ export default function ActivityFeed() {
                     {entry.computedLabel}
                   </span>
                 )}
-                <span className="text-label text-text-ghost ml-auto shrink-0">
+                {entry.toolName === "preview_console" && (
+                  <button
+                    className="ml-auto shrink-0 p-0.5 rounded text-text-ghost hover:text-accent hover:bg-bg-elevated transition-colors"
+                    title="Send to chat"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const level = (entry.toolInput.level as string || "log").toUpperCase();
+                      const msg = entry.result || "";
+                      const formatted = msg.includes("\n")
+                        ? `Browser console from preview:\n\`\`\`\n[${level}] ${msg}\n\`\`\``
+                        : `Browser console from preview: \`[${level}] ${msg}\``;
+                      useUiStore.getState().setDraftInput(formatted);
+                    }}
+                  >
+                    <MessageSquareShare size={12} />
+                  </button>
+                )}
+                <span className={`text-label text-text-ghost ${entry.toolName === "preview_console" ? "" : "ml-auto"} shrink-0`}>
                   {new Date(entry.timestamp).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
