@@ -459,5 +459,5 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
   getActiveConversation: (projectPath) => get().conversations.get(projectPath),
   getActivePlan: (projectPath) => get().plans.get(projectPath),
   getUIState: (projectPath) =>
-    get().uiState.get(projectPath) ?? { ...DEFAULT_UI_STATE },
+    get().uiState.get(projectPath) ?? DEFAULT_UI_STATE,
 }));

@@ -9,7 +9,7 @@ import TaskBoardToolbar from "./TaskBoardToolbar";
 export default function TaskBoardSlideOver() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const uiState = useTaskBoardStore((s) =>
-    activeProjectPath ? s.getUIState(activeProjectPath) : null
+    activeProjectPath ? s.uiState.get(activeProjectPath) ?? null : null
   );
   const setSlideOverOpen = useTaskBoardStore((s) => s.setSlideOverOpen);
   const setPlanningChatWidth = useTaskBoardStore((s) => s.setPlanningChatWidth);
