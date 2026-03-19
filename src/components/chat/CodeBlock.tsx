@@ -4,12 +4,14 @@ import { Check, Copy } from "lucide-react";
 interface CodeBlockProps extends HTMLAttributes<HTMLElement> {
   children?: React.ReactNode;
   className?: string;
+  node?: { position?: { start: { line: number }; end: { line: number } } };
 }
 
-export default function CodeBlock({ children, className, ...props }: CodeBlockProps) {
+export default function CodeBlock({ children, className, node, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
 
-  const isInline = !className;
+  // Block code: has a language class OR spans multiple lines in the markdown source
+  const isBlock = !!className || (node?.position != null && node.position.end.line > node.position.start.line);
   const language = className?.replace("language-", "") ?? "";
 
   const handleCopy = useCallback(() => {
@@ -20,7 +22,7 @@ export default function CodeBlock({ children, className, ...props }: CodeBlockPr
     });
   }, [children]);
 
-  if (isInline) {
+  if (!isBlock) {
     return (
       <code className={className} {...props}>
         {children}
@@ -36,7 +38,8 @@ export default function CodeBlock({ children, className, ...props }: CodeBlockPr
         )}
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-secondary transition-colors opacity-0 group-hover:opacity-100 ml-auto"
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-secondary transition-colors ml-auto"
+          title="Copy code"
         >
           {copied ? (
             <>

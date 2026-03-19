@@ -65,3 +65,23 @@ pub const MIGRATE_API_LOGS: &[&str] = &[
         error_message TEXT
     )",
 ];
+
+pub const MIGRATE_TASK_PLANS: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS task_plans (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL UNIQUE,
+        plan_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )",
+    "CREATE TABLE IF NOT EXISTS planning_messages (
+        id TEXT PRIMARY KEY,
+        project_path TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        message_type TEXT NOT NULL DEFAULT 'conversation',
+        attachments_json TEXT,
+        timestamp TEXT NOT NULL,
+        FOREIGN KEY (project_path) REFERENCES task_plans(project_path) ON DELETE CASCADE
+    )",
+];

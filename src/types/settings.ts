@@ -64,6 +64,13 @@ export interface AppSettings {
   previewDefaultHeight: number;
   previewAutoStart: boolean;
   previewCustomDevCommand: string | null;
+  previewConsoleAutoOpen: boolean;
+
+  // Task Board
+  taskBoardPlanningModel: string;
+  taskBoardMaxRetries: number;
+  taskBoardAutoStartNext: boolean;
+  taskBoardAutoOpenSlideOver: boolean;
 
   // Trivia
   triviaEnabled: boolean;

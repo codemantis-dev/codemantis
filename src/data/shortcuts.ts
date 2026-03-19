@@ -40,13 +40,21 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
       { keys: "⌘ ⇧ A", description: "Focus activity feed" },
       { keys: "⌘ ⇧ F", description: "Focus file viewer" },
       { keys: "⌘ ⇧ T", description: "Focus terminal" },
-      { keys: "⌘ ⇧ C", description: "Focus changelog" },
+      { keys: "⌘ ⇧ L", description: "Focus changelog" },
     ],
   },
   {
     name: "Preview",
     shortcuts: [
       { keys: "⌘ ⇧ P", description: "Toggle Preview Window" },
+      { keys: "⌘ R", description: "Refresh preview (when focused)" },
+      { keys: "⌘ ⇧ C", description: "Toggle Console Drawer (when focused)" },
+    ],
+  },
+  {
+    name: "Task Board",
+    shortcuts: [
+      { keys: "⌘ ⇧ B", description: "Toggle Task Board slide-over" },
     ],
   },
   {

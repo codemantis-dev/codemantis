@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useActivityStore } from "../../stores/activityStore";
+import { showToast } from "../../stores/toastStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useDevServerDetection } from "../../hooks/useDevServerDetection";
+import { listenPreviewConsoleEntry } from "../../lib/tauri-commands";
 import TitleBar from "./TitleBar";
 import SessionSubTabs from "./SessionSubTabs";
 import Sidebar from "../sidebar/Sidebar";
@@ -13,6 +16,7 @@ import RightPanel from "../rightpanel/RightPanel";
 import InputArea from "../input/InputArea";
 import ConfirmCloseModal from "../modals/ConfirmCloseModal";
 import type { PendingClose } from "../modals/ConfirmCloseModal";
+import TaskBoardSlideOver from "../taskboard/TaskBoardSlideOver";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -88,6 +92,51 @@ export default function AppShell() {
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
   useDevServerDetection();
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+
+  // Subscribe to preview console entries → Activity Feed + toast on errors
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listenPreviewConsoleEntry((entry) => {
+      if (cancelled) return;
+
+      // Toast on console.error
+      if (entry.level === "error") {
+        showToast(`Preview error: ${entry.msg.slice(0, 100)}`, "error");
+      }
+
+      // Surface errors and warnings in the Activity Feed
+      if (entry.level === "error" || entry.level === "warn") {
+        const activeSessionId = useSessionStore.getState().activeSessionId;
+        if (activeSessionId) {
+          const ts = String(Date.now());
+          useActivityStore.getState().addEntry(activeSessionId, {
+            id: `preview-${ts}`,
+            toolUseId: `preview-console-${ts}`,
+            toolName: "preview_console",
+            toolInput: { level: entry.level, url: entry.url },
+            status: "done",
+            timestamp: entry.ts,
+            messageId: "",
+            result: entry.msg.slice(0, 500),
+            isError: entry.level === "error",
+          });
+        }
+      }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Reset project log / history view when switching projects
   useEffect(() => {
@@ -203,6 +252,8 @@ export default function AppShell() {
         onConfirm={handleConfirmClose}
         onCancel={() => setPendingClose(null)}
       />
+
+      <TaskBoardSlideOver />
     </div>
   );
 }

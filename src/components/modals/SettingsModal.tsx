@@ -17,6 +17,7 @@ import ChangelogSettingsTab from "./settings/ChangelogSettingsTab";
 import AssistantSettingsTab from "./settings/AssistantSettingsTab";
 import ShortcutsTab from "./settings/ShortcutsTab";
 import ApiLogsTab from "./settings/ApiLogsTab";
+import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
 export default function SettingsModal() {
   const showModal = useUiStore((s) => s.showSettingsModal);
@@ -44,6 +45,15 @@ export default function SettingsModal() {
   const [autoOpenFiles, setAutoOpenFiles] = useState(settings.autoOpenFiles);
   const [defaultContextWindow, setDefaultContextWindow] = useState(settings.defaultContextWindow);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(!settings.onboardingCompleted);
+  const [previewDefaultWidth, setPreviewDefaultWidth] = useState(settings.previewDefaultWidth);
+  const [previewDefaultHeight, setPreviewDefaultHeight] = useState(settings.previewDefaultHeight);
+  const [previewAutoStart, setPreviewAutoStart] = useState(settings.previewAutoStart);
+  const [previewCustomDevCommand, setPreviewCustomDevCommand] = useState(settings.previewCustomDevCommand ?? "");
+  const [previewConsoleAutoOpen, setPreviewConsoleAutoOpen] = useState(settings.previewConsoleAutoOpen);
+  const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-2.5-flash");
+  const [taskBoardMaxRetries, setTaskBoardMaxRetries] = useState(settings.taskBoardMaxRetries ?? 3);
+  const [taskBoardAutoStartNext, setTaskBoardAutoStartNext] = useState(settings.taskBoardAutoStartNext ?? true);
+  const [taskBoardAutoOpenSlideOver, setTaskBoardAutoOpenSlideOver] = useState(settings.taskBoardAutoOpenSlideOver ?? true);
   const [testingKey, setTestingKey] = useState<string | false>(false);
   const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
 
@@ -75,6 +85,15 @@ export default function SettingsModal() {
       setAutoOpenFiles(settings.autoOpenFiles);
       setDefaultContextWindow(settings.defaultContextWindow);
       setShowWelcomeScreen(!settings.onboardingCompleted);
+      setPreviewDefaultWidth(settings.previewDefaultWidth);
+      setPreviewDefaultHeight(settings.previewDefaultHeight);
+      setPreviewAutoStart(settings.previewAutoStart);
+      setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
+      setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
+      setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-2.5-flash");
+      setTaskBoardMaxRetries(settings.taskBoardMaxRetries ?? 3);
+      setTaskBoardAutoStartNext(settings.taskBoardAutoStartNext ?? true);
+      setTaskBoardAutoOpenSlideOver(settings.taskBoardAutoOpenSlideOver ?? true);
       setTestingKey(false);
       setTestResults({});
     }
@@ -101,6 +120,15 @@ export default function SettingsModal() {
       autoOpenFiles,
       defaultContextWindow,
       onboardingCompleted: !showWelcomeScreen,
+      previewDefaultWidth,
+      previewDefaultHeight,
+      previewAutoStart,
+      previewCustomDevCommand: previewCustomDevCommand.trim() || null,
+      previewConsoleAutoOpen,
+      taskBoardPlanningModel,
+      taskBoardMaxRetries,
+      taskBoardAutoStartNext,
+      taskBoardAutoOpenSlideOver,
     });
     setShowModal(false);
   };
@@ -291,6 +319,34 @@ export default function SettingsModal() {
               />
             )}
 
+            {activeTab === "preview" && (
+              <PreviewSettingsContent
+                defaultWidth={previewDefaultWidth}
+                defaultHeight={previewDefaultHeight}
+                autoStart={previewAutoStart}
+                customDevCommand={previewCustomDevCommand}
+                consoleAutoOpen={previewConsoleAutoOpen}
+                onDefaultWidthChange={setPreviewDefaultWidth}
+                onDefaultHeightChange={setPreviewDefaultHeight}
+                onAutoStartChange={setPreviewAutoStart}
+                onCustomDevCommandChange={setPreviewCustomDevCommand}
+                onConsoleAutoOpenChange={setPreviewConsoleAutoOpen}
+              />
+            )}
+
+            {activeTab === "task-board" && (
+              <TaskBoardSettingsContent
+                planningModel={taskBoardPlanningModel}
+                maxRetries={taskBoardMaxRetries}
+                autoStartNext={taskBoardAutoStartNext}
+                autoOpenSlideOver={taskBoardAutoOpenSlideOver}
+                onPlanningModelChange={setTaskBoardPlanningModel}
+                onMaxRetriesChange={setTaskBoardMaxRetries}
+                onAutoStartNextChange={setTaskBoardAutoStartNext}
+                onAutoOpenSlideOverChange={setTaskBoardAutoOpenSlideOver}
+              />
+            )}
+
             {activeTab === "shortcuts" && <ShortcutsTab />}
 
             {activeTab === "api-logs" && <ApiLogsTab />}
@@ -298,5 +354,152 @@ export default function SettingsModal() {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+// --- Preview Settings ---
+
+function PreviewSettingsContent({
+  defaultWidth,
+  defaultHeight,
+  autoStart,
+  customDevCommand,
+  consoleAutoOpen,
+  onDefaultWidthChange,
+  onDefaultHeightChange,
+  onAutoStartChange,
+  onCustomDevCommandChange,
+  onConsoleAutoOpenChange,
+}: {
+  defaultWidth: number;
+  defaultHeight: number;
+  autoStart: boolean;
+  customDevCommand: string;
+  consoleAutoOpen: boolean;
+  onDefaultWidthChange: (v: number) => void;
+  onDefaultHeightChange: (v: number) => void;
+  onAutoStartChange: (v: boolean) => void;
+  onCustomDevCommandChange: (v: string) => void;
+  onConsoleAutoOpenChange: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <SectionTitle>Preview Window</SectionTitle>
+      <FieldRow label="Default width (px)">
+        <input
+          type="number"
+          value={defaultWidth}
+          onChange={(e) => onDefaultWidthChange(Number(e.target.value) || 1024)}
+          className="w-24 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border text-right"
+        />
+      </FieldRow>
+      <FieldRow label="Default height (px)">
+        <input
+          type="number"
+          value={defaultHeight}
+          onChange={(e) => onDefaultHeightChange(Number(e.target.value) || 768)}
+          className="w-24 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border text-right"
+        />
+      </FieldRow>
+      <FieldRow label="Auto-start dev server on project open">
+        <input
+          type="checkbox"
+          checked={autoStart}
+          onChange={(e) => onAutoStartChange(e.target.checked)}
+          className="accent-accent"
+        />
+      </FieldRow>
+      <FieldRow label="Custom dev command override">
+        <input
+          type="text"
+          value={customDevCommand}
+          onChange={(e) => onCustomDevCommandChange(e.target.value)}
+          placeholder="npm run dev"
+          className="w-48 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border"
+        />
+      </FieldRow>
+      <FieldRow label="Auto-open console on errors">
+        <input
+          type="checkbox"
+          checked={consoleAutoOpen}
+          onChange={(e) => onConsoleAutoOpenChange(e.target.checked)}
+          className="accent-accent"
+        />
+      </FieldRow>
+    </div>
+  );
+}
+
+// --- Task Board Settings ---
+
+function TaskBoardSettingsContent({
+  planningModel,
+  maxRetries,
+  autoStartNext,
+  autoOpenSlideOver,
+  onPlanningModelChange,
+  onMaxRetriesChange,
+  onAutoStartNextChange,
+  onAutoOpenSlideOverChange,
+}: {
+  planningModel: string;
+  maxRetries: number;
+  autoStartNext: boolean;
+  autoOpenSlideOver: boolean;
+  onPlanningModelChange: (v: string) => void;
+  onMaxRetriesChange: (v: number) => void;
+  onAutoStartNextChange: (v: boolean) => void;
+  onAutoOpenSlideOverChange: (v: boolean) => void;
+}) {
+  const PLANNING_MODELS = [
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
+    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite (free)" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { id: "gpt-4.1", label: "GPT-4.1" },
+    { id: "gpt-5-mini", label: "GPT-5 Mini" },
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  ];
+
+  return (
+    <div>
+      <SectionTitle>Task Board</SectionTitle>
+      <FieldRow label="Planning AI model">
+        <select
+          value={planningModel}
+          onChange={(e) => onPlanningModelChange(e.target.value)}
+          className="w-56 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border"
+        >
+          {PLANNING_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>{m.label}</option>
+          ))}
+        </select>
+      </FieldRow>
+      <FieldRow label="Max retry count per work package">
+        <input
+          type="number"
+          value={maxRetries}
+          onChange={(e) => onMaxRetriesChange(Math.max(1, Math.min(10, Number(e.target.value) || 3)))}
+          min={1}
+          max={10}
+          className="w-16 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border text-right"
+        />
+      </FieldRow>
+      <FieldRow label="Auto-start next work package">
+        <input
+          type="checkbox"
+          checked={autoStartNext}
+          onChange={(e) => onAutoStartNextChange(e.target.checked)}
+          className="accent-accent"
+        />
+      </FieldRow>
+      <FieldRow label="Auto-open slide-over during execution">
+        <input
+          type="checkbox"
+          checked={autoOpenSlideOver}
+          onChange={(e) => onAutoOpenSlideOverChange(e.target.checked)}
+          className="accent-accent"
+        />
+      </FieldRow>
+    </div>
   );
 }

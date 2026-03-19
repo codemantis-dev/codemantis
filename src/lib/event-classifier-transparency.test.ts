@@ -133,6 +133,19 @@ describe("Transparency: Activity Labels", () => {
     expect(activity?.filePath).toBeNull();
   });
 
+  it("tool_use_start sets activity label for preview_console tool", () => {
+    handleActivityEvent(SESSION_ID, {
+      type: "tool_use_start",
+      session_id: SESSION_ID,
+      tool_use_id: "preview-1",
+      tool_name: "preview_console",
+      tool_input: { level: "error", url: "http://localhost:3000" },
+    });
+    const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
+    expect(activity?.label).toBe("Preview console");
+    expect(activity?.toolName).toBe("preview_console");
+  });
+
   it("tool_result resets activity back to 'Thinking...'", () => {
     // First set to a tool activity
     handleActivityEvent(SESSION_ID, {

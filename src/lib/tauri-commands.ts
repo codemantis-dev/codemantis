@@ -598,3 +598,87 @@ export function listenDevServerClosed(
     callback(e.payload)
   );
 }
+
+// --- Task Board ---
+
+export async function createTaskPlan(
+  projectPath: string,
+  planJson: string,
+): Promise<string> {
+  return invoke<string>("create_task_plan", { projectPath, planJson });
+}
+
+export async function getTaskPlan(
+  projectPath: string,
+): Promise<string | null> {
+  return invoke<string | null>("get_task_plan", { projectPath });
+}
+
+export async function updateTaskStatus(
+  projectPath: string,
+  taskId: string,
+  status: string,
+): Promise<void> {
+  return invoke("update_task_status", { projectPath, taskId, status });
+}
+
+export async function updateTask(
+  projectPath: string,
+  taskId: string,
+  taskJson: string,
+): Promise<void> {
+  return invoke("update_task", { projectPath, taskId, taskJson });
+}
+
+export async function deleteTask(
+  projectPath: string,
+  taskId: string,
+): Promise<void> {
+  return invoke("delete_task", { projectPath, taskId });
+}
+
+export async function reorderTasks(
+  projectPath: string,
+  wpId: string,
+  orderedIds: string[],
+): Promise<void> {
+  return invoke("reorder_tasks", { projectPath, wpId, orderedIds });
+}
+
+export async function runCodeVerification(
+  projectPath: string,
+  checkType: string,
+  path: string | null,
+  pattern: string | null,
+  command: string | null,
+): Promise<{ passed: boolean; evidence: string; checked_at: string }> {
+  return invoke("run_code_verification", { projectPath, checkType, path, pattern, command });
+}
+
+export async function runDomVerification(
+  projectPath: string,
+  route: string,
+  selector: string,
+  assertion: string,
+  expected: string | null,
+): Promise<{ passed: boolean; evidence: string; checked_at: string }> {
+  return invoke("run_dom_verification", { projectPath, route, selector, assertion, expected });
+}
+
+export async function gatherProjectSnapshot(
+  projectPath: string,
+): Promise<string> {
+  return invoke<string>("gather_project_snapshot", { projectPath });
+}
+
+export async function getPreviewConsoleLogs(
+  projectPath: string,
+): Promise<{ level: string; ts: string; msg: string; url: string; stack?: string }[]> {
+  return invoke("get_preview_console_logs", { projectPath });
+}
+
+export function listenPreviewConsoleEntry(
+  callback: (entry: { level: string; ts: string; msg: string; url: string; stack?: string }) => void,
+): Promise<UnlistenFn> {
+  return listen("preview-console-entry", (e: { payload: { level: string; ts: string; msg: string; url: string; stack?: string } }) => callback(e.payload));
+}

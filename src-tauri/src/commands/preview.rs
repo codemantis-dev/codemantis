@@ -1,8 +1,9 @@
 use crate::preview::port_detector;
-use crate::preview::{DevServerInfo, DevServerStatus, PreviewState};
+use crate::preview::{ConsoleLogEntry, DevServerInfo, DevServerStatus, PreviewState};
 use crate::terminal::pty_manager::TerminalPool;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,48 @@ pub struct DevServerErrorEvent {
     pub project_path: String,
 }
 
+/// Write console error/warn entries to ~/.codemantis/preview-console.log as NDJSON.
+/// Truncates to the most recent 200 entries.
+fn write_console_log_file(entries: &[ConsoleLogEntry]) {
+    let error_entries: Vec<&ConsoleLogEntry> = entries
+        .iter()
+        .filter(|e| e.level == "error" || e.level == "warn")
+        .collect();
+
+    // Only keep the last 200 error/warn entries
+    let to_write: Vec<&ConsoleLogEntry> = if error_entries.len() > 200 {
+        error_entries[error_entries.len() - 200..].to_vec()
+    } else {
+        error_entries
+    };
+
+    let log_dir = match dirs::home_dir() {
+        Some(h) => h.join(".codemantis"),
+        None => return,
+    };
+
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        debug!("Failed to create .codemantis dir: {}", e);
+        return;
+    }
+
+    let log_path = log_dir.join("preview-console.log");
+    let file = match std::fs::File::create(&log_path) {
+        Ok(f) => f,
+        Err(e) => {
+            debug!("Failed to create preview-console.log: {}", e);
+            return;
+        }
+    };
+
+    let mut writer = std::io::BufWriter::new(file);
+    for entry in to_write {
+        if let Ok(json) = serde_json::to_string(entry) {
+            let _ = writeln!(writer, "{}", json);
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn open_preview_window(
     url: String,
@@ -28,6 +71,7 @@ pub async fn open_preview_window(
     width: Option<f64>,
     height: Option<f64>,
     app_handle: AppHandle,
+    preview_state: State<'_, PreviewState>,
 ) -> Result<(), String> {
     let w = width.unwrap_or(1024.0);
     let h = height.unwrap_or(768.0);
@@ -40,7 +84,15 @@ pub async fn open_preview_window(
         let _ = existing.destroy();
     }
 
+    // Clear console logs from previous preview session
+    {
+        let mut logs = preview_state.console_logs.lock().await;
+        logs.clear();
+    }
+
     let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
+
+    let console_bridge = include_str!("../../resources/preview-console-bridge.js");
 
     let window = WebviewWindowBuilder::new(
         &app_handle,
@@ -48,6 +100,7 @@ pub async fn open_preview_window(
         WebviewUrl::External(parsed_url),
     )
     .title(format!("CodeMantis Preview — {}", project_name))
+    .initialization_script(console_bridge)
     .inner_size(w, h)
     .min_inner_size(400.0, 300.0)
     .resizable(true)
@@ -59,6 +112,134 @@ pub async fn open_preview_window(
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { .. } = event {
             let _ = ah.emit("preview-window-closed", ());
+        }
+    });
+
+    // Spawn console polling task.
+    // Strategy: since eval() is fire-and-forget in Tauri (no return value),
+    // we use a two-step approach:
+    //   1. eval drains __CM_CONSOLE_BUFFER into document.title with a known prefix
+    //   2. Rust reads window.title() and parses the entries
+    let poll_ah = app_handle.clone();
+    let console_logs = preview_state.console_logs.clone();
+    tokio::spawn(async move {
+        // Wait briefly for the window to load
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+        loop {
+            interval.tick().await;
+
+            // Check if preview window still exists
+            let preview_win = match poll_ah.get_webview_window("preview") {
+                Some(w) => w,
+                None => {
+                    debug!("Preview window closed, stopping console polling");
+                    break;
+                }
+            };
+
+            // Step 0: Re-inject console bridge if not present (SPA navigation / external URL fallback)
+            let reinject_js = r#"
+                (function() {
+                    if (typeof window.__CM_CONSOLE_BUFFER === 'undefined') {
+                        window.__CM_CONSOLE_BRIDGE_REINJECT = true;
+                    }
+                })();
+            "#;
+            let _ = preview_win.eval(reinject_js);
+
+            // If bridge is missing, re-inject it via eval()
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            let check_reinject_js = format!(
+                r#"
+                (function() {{
+                    if (window.__CM_CONSOLE_BRIDGE_REINJECT) {{
+                        delete window.__CM_CONSOLE_BRIDGE_REINJECT;
+                        {}
+                    }}
+                }})();
+                "#,
+                include_str!("../../resources/preview-console-bridge.js")
+                    .replace("if (window.__CM_CONSOLE_BRIDGE) return;", "")
+            );
+            let _ = preview_win.eval(&check_reinject_js);
+
+            // Step 1: Drain the buffer and encode into document.title with a prefix
+            let drain_js = r#"
+                (function() {
+                    if (window.__CM_CONSOLE_BUFFER && window.__CM_CONSOLE_BUFFER.length > 0) {
+                        var entries = window.__CM_CONSOLE_BUFFER.splice(0);
+                        var json = JSON.stringify(entries);
+                        window.__CM_CONSOLE_PENDING = json;
+                    }
+                })();
+            "#;
+            if let Err(e) = preview_win.eval(drain_js) {
+                debug!("Console poll drain eval failed: {}", e);
+                continue;
+            }
+
+            // Small delay to let the JS execute
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+            // Step 2: Move pending data into document.title temporarily so Rust can read it
+            let title_js = r#"
+                (function() {
+                    var pending = window.__CM_CONSOLE_PENDING;
+                    if (pending) {
+                        window.__CM_CONSOLE_PENDING = null;
+                        window.__CM_ORIGINAL_TITLE = document.title;
+                        document.title = '__CM_CONSOLE__' + pending;
+                    }
+                })();
+            "#;
+            if let Err(e) = preview_win.eval(title_js) {
+                debug!("Console poll title eval failed: {}", e);
+                continue;
+            }
+
+            // Small delay for title to update
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+            // Step 3: Read the title from Rust side
+            match preview_win.title() {
+                Ok(title) => {
+                    if let Some(json_str) = title.strip_prefix("__CM_CONSOLE__") {
+                        // Restore the original title
+                        let restore_js = r#"
+                            (function() {
+                                if (window.__CM_ORIGINAL_TITLE !== undefined) {
+                                    document.title = window.__CM_ORIGINAL_TITLE;
+                                    delete window.__CM_ORIGINAL_TITLE;
+                                }
+                            })();
+                        "#;
+                        let _ = preview_win.eval(restore_js);
+
+                        if let Ok(entries) = serde_json::from_str::<Vec<ConsoleLogEntry>>(json_str) {
+                            if !entries.is_empty() {
+                                let mut store = console_logs.lock().await;
+
+                                // Emit events for errors and warnings to main window
+                                for entry in &entries {
+                                    if entry.level == "error" || entry.level == "warn" {
+                                        let _ = poll_ah.emit("preview-console-entry", entry.clone());
+                                    }
+                                }
+
+                                store.extend(entries);
+
+                                // Write error/warn entries to log file
+                                write_console_log_file(&store);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to read preview window title: {}", e);
+                }
+            }
         }
     });
 
@@ -109,6 +290,14 @@ pub async fn focus_preview_window(app_handle: AppHandle) -> Result<bool, String>
     } else {
         Ok(false)
     }
+}
+
+#[tauri::command]
+pub async fn get_preview_console_logs(
+    preview_state: State<'_, PreviewState>,
+) -> Result<Vec<ConsoleLogEntry>, String> {
+    let logs = preview_state.console_logs.lock().await;
+    Ok(logs.clone())
 }
 
 #[tauri::command]

@@ -1,7 +1,13 @@
-import { Plus, FolderOpen, Blocks, Settings } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, ClipboardList, Globe } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useTaskBoardStore } from "../../stores/taskBoardStore";
+import { usePreviewStore } from "../../stores/previewStore";
+import { usePreviewServer } from "../../hooks/usePreviewServer";
+import { focusPreviewWindow, openPreviewWindow } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 import ProjectTab from "./ProjectTab";
+import TaskBoardBadge from "../taskboard/TaskBoardBadge";
 
 interface TitleBarProps {
   onCloseProject: (projectPath: string) => void;
@@ -16,6 +22,34 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
+  const toggleSlideOver = useTaskBoardStore((s) => s.toggleSlideOver);
+  const previewOpen = usePreviewStore((s) => activeProjectPath ? s.previewOpen.get(activeProjectPath) : false);
+  const devServer = usePreviewStore((s) => activeProjectPath ? s.devServer.get(activeProjectPath) : undefined);
+  const { startServer } = usePreviewServer();
+
+  const handleRunApplication = async (): Promise<void> => {
+    if (!activeProjectPath) {
+      showToast("Open a project first", "info");
+      return;
+    }
+
+    // If preview is already open, just focus it
+    if (previewOpen) {
+      const focused = await focusPreviewWindow();
+      if (focused) return;
+    }
+
+    // If dev server is running, open/focus the preview
+    if (devServer?.status === "running" && devServer.url) {
+      const projectName = activeProjectPath.split("/").filter(Boolean).pop() ?? "Preview";
+      await openPreviewWindow(devServer.url, projectName);
+      usePreviewStore.getState().setPreviewOpen(activeProjectPath, true);
+      return;
+    }
+
+    // Start dev server (will auto-open preview when ready)
+    await startServer();
+  };
 
   return (
     <div
@@ -75,6 +109,25 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <FolderOpen size={14} />
+      </button>
+
+      {/* Task Board button */}
+      <button
+        onClick={() => activeProjectPath && toggleSlideOver(activeProjectPath)}
+        title="Task Board (Cmd+Shift+B)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors flex items-center gap-1"
+      >
+        <ClipboardList size={14} />
+        {activeProjectPath && <TaskBoardBadge projectPath={activeProjectPath} />}
+      </button>
+
+      {/* Run Application (Preview) button */}
+      <button
+        onClick={handleRunApplication}
+        title="Run Application"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      >
+        <Globe size={14} />
       </button>
 
       {/* MCP Servers button */}

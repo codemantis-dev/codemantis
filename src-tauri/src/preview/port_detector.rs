@@ -32,6 +32,8 @@ static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         Regex::new(r"(?i)listening on (?:port )?(\d+)").unwrap(),
         // "server running at http://...:3000"
         Regex::new(r"(?i)server (?:running|started|listening) (?:at|on) .+?:(\d+)").unwrap(),
+        // Uvicorn: "Uvicorn running on http://127.0.0.1:8000"
+        Regex::new(r"Uvicorn running on https?://(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)").unwrap(),
         // "port 3000"
         Regex::new(r"(?i)port[:\s]+(\d+)").unwrap(),
     ]
@@ -348,6 +350,20 @@ mod tests {
         let line = "Server listening on port 3000";
         let result = scan_for_dev_server_url(line);
         assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    #[test]
+    fn test_uvicorn_output() {
+        let line = "INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((8000, "http://localhost:8000".to_string())));
+    }
+
+    #[test]
+    fn test_uvicorn_0000() {
+        let line = "Uvicorn running on http://0.0.0.0:8080";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((8080, "http://localhost:8080".to_string())));
     }
 
     // --- ANSI escape code stripping ---

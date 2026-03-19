@@ -10,5 +10,7 @@ pub mod scaffold;
 pub mod session;
 pub mod settings;
 pub mod slash_commands;
+pub mod snapshot;
 pub mod startup;
+pub mod taskboard;
 pub mod terminal;

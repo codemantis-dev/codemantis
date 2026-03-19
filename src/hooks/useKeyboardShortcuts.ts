@@ -5,6 +5,7 @@ import { useUiStore } from "../stores/uiStore";
 import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
 import { usePreviewWindow } from "./usePreviewWindow";
+import { useTaskBoardStore } from "../stores/taskBoardStore";
 import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
@@ -133,6 +134,16 @@ export function useKeyboardShortcuts(): void {
       if (key === "p" && shift) {
         e.preventDefault();
         togglePreview();
+        return;
+      }
+
+      // Cmd+Shift+B — toggle task board slide-over
+      if (key === "b" && shift) {
+        e.preventDefault();
+        const activeProject = useSessionStore.getState().activeProjectPath;
+        if (activeProject) {
+          useTaskBoardStore.getState().toggleSlideOver(activeProject);
+        }
         return;
       }
 

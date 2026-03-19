@@ -52,6 +52,18 @@ pub struct AppSettings {
     pub preview_auto_start: bool,
     #[serde(default)]
     pub preview_custom_dev_command: Option<String>,
+    #[serde(default = "default_true")]
+    pub preview_console_auto_open: bool,
+
+    // --- Task Board ---
+    #[serde(default = "default_task_board_model")]
+    pub task_board_planning_model: String,
+    #[serde(default = "default_task_board_retries")]
+    pub task_board_max_retries: u32,
+    #[serde(default = "default_true")]
+    pub task_board_auto_start_next: bool,
+    #[serde(default = "default_true")]
+    pub task_board_auto_open_slide_over: bool,
 
     // --- Trivia ---
     #[serde(default = "default_true")]
@@ -122,6 +134,12 @@ fn default_preview_width() -> u32 {
 fn default_preview_height() -> u32 {
     768
 }
+fn default_task_board_model() -> String {
+    "gemini-2.5-flash".to_string()
+}
+fn default_task_board_retries() -> u32 {
+    3
+}
 fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
     m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
@@ -174,6 +192,11 @@ impl Default for AppSettings {
             preview_default_height: default_preview_height(),
             preview_auto_start: false,
             preview_custom_dev_command: None,
+            preview_console_auto_open: true,
+            task_board_planning_model: default_task_board_model(),
+            task_board_max_retries: default_task_board_retries(),
+            task_board_auto_start_next: true,
+            task_board_auto_open_slide_over: true,
             default_context_window: default_context_window(),
             trivia_enabled: true,
             auto_open_files: false,

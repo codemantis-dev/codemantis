@@ -46,6 +46,7 @@ function toolActivityLabel(toolName: string): string {
     case "TodoRead": case "TodoWrite": return "Managing tasks...";
     case "EnterPlanMode": return "Entering plan mode...";
     case "ExitPlanMode": return "Exiting plan mode...";
+    case "preview_console": return "Preview console";
     default:
       if (toolName.startsWith("mcp__")) {
         // mcp__server__tool → "Running tool (server)..."

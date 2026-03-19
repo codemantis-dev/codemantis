@@ -33,6 +33,11 @@ function resetStore(): void {
       defaultContextWindow: 200000,
       autoOpenFiles: false,
       onboardingCompleted: false,
+      previewConsoleAutoOpen: true,
+      taskBoardPlanningModel: "gemini-2.5-flash",
+      taskBoardMaxRetries: 3,
+      taskBoardAutoStartNext: true,
+      taskBoardAutoOpenSlideOver: true,
     },
     loaded: false,
   });

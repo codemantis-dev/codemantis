@@ -25,14 +25,26 @@ pub enum DevServerStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsoleLogEntry {
+    pub level: String,
+    pub ts: String,
+    pub msg: String,
+    pub url: String,
+    pub stack: Option<String>,
+}
+
 pub struct PreviewState {
     pub dev_servers: Arc<Mutex<HashMap<String, DevServerInfo>>>,
+    pub console_logs: Arc<Mutex<Vec<ConsoleLogEntry>>>,
 }
 
 impl PreviewState {
     pub fn new() -> Self {
         Self {
             dev_servers: Arc::new(Mutex::new(HashMap::new())),
+            console_logs: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
