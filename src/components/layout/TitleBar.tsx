@@ -1,13 +1,15 @@
-import { Plus, FolderOpen, Blocks, Settings, ClipboardList, Globe } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, ClipboardList, Globe, Camera } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useTaskBoardStore } from "../../stores/taskBoardStore";
 import { usePreviewStore } from "../../stores/previewStore";
+import { useAttachmentStore } from "../../stores/attachmentStore";
 import { usePreviewServer } from "../../hooks/usePreviewServer";
-import { focusPreviewWindow, openPreviewWindow } from "../../lib/tauri-commands";
+import { focusPreviewWindow, openPreviewWindow, capturePreviewScreenshot, readFileBytes } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import ProjectTab from "./ProjectTab";
 import TaskBoardBadge from "../taskboard/TaskBoardBadge";
+import type { Attachment } from "../../types/attachment";
 
 interface TitleBarProps {
   onCloseProject: (projectPath: string) => void;
@@ -26,6 +28,35 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const previewOpen = usePreviewStore((s) => activeProjectPath ? s.previewOpen.get(activeProjectPath) : false);
   const devServer = usePreviewStore((s) => activeProjectPath ? s.devServer.get(activeProjectPath) : undefined);
   const { startServer } = usePreviewServer();
+
+  const handleScreenshot = async (): Promise<void> => {
+    const sessionId = useSessionStore.getState().activeSessionId;
+    if (!sessionId) return;
+    try {
+      const filePath = await capturePreviewScreenshot();
+      let thumbnailUrl: string | undefined;
+      try {
+        const bytes = await readFileBytes(filePath);
+        const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+        thumbnailUrl = URL.createObjectURL(blob);
+      } catch {
+        // Preview thumbnail optional
+      }
+      const attachment: Attachment = {
+        id: `screenshot-${Date.now()}`,
+        fileName: "preview-screenshot.png",
+        filePath,
+        fileSize: 0,
+        mimeType: "image/png",
+        isImage: true,
+        thumbnailUrl,
+      };
+      useAttachmentStore.getState().addAttachment(sessionId, attachment);
+      showToast("Screenshot added to chat", "success");
+    } catch (err) {
+      showToast(`Screenshot failed: ${err}`, "error");
+    }
+  };
 
   const handleRunApplication = async (): Promise<void> => {
     if (!activeProjectPath) {
@@ -129,6 +160,17 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       >
         <Globe size={14} />
       </button>
+
+      {/* Screenshot preview to chat */}
+      {previewOpen && (
+        <button
+          onClick={handleScreenshot}
+          title="Screenshot preview to chat"
+          className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+        >
+          <Camera size={14} />
+        </button>
+      )}
 
       {/* MCP Servers button */}
       <button

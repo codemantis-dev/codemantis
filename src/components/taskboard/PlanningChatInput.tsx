@@ -265,13 +265,13 @@ export default function PlanningChatInput({ projectPath }: Props) {
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Describe what you want to build..."
-          rows={2}
+          rows={6}
           className="flex-1 resize-none rounded-md px-3 py-2 text-sm outline-none"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-primary)",
             border: "1px solid var(--border)",
-            maxHeight: 120,
+            maxHeight: 250,
           }}
           disabled={isStreaming}
         />
@@ -285,6 +285,10 @@ export default function PlanningChatInput({ projectPath }: Props) {
         >
           <Send size={16} />
         </button>
+      </div>
+
+      <div className="text-[10px] mt-1 text-center select-none" style={{ color: "var(--text-ghost)" }}>
+        Cmd+Enter to send
       </div>
 
       {/* Report Issue quick action */}

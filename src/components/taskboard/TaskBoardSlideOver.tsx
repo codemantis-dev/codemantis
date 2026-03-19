@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { X } from "lucide-react";
 import { useTaskBoardStore } from "../../stores/taskBoardStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useClaudeSession } from "../../hooks/useClaudeSession";
 import PlanningChat from "./PlanningChat";
 import WorkPackageList from "./WorkPackageList";
 import TaskBoardToolbar from "./TaskBoardToolbar";
@@ -13,6 +14,7 @@ export default function TaskBoardSlideOver() {
   );
   const setSlideOverOpen = useTaskBoardStore((s) => s.setSlideOverOpen);
   const setPlanningChatWidth = useTaskBoardStore((s) => s.setPlanningChatWidth);
+  const { startSession } = useClaudeSession();
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.planning_chat_width ?? 40;
 
@@ -24,6 +26,10 @@ export default function TaskBoardSlideOver() {
       setSlideOverOpen(activeProjectPath, false);
     }
   }, [activeProjectPath, setSlideOverOpen]);
+
+  const handleSwitchProject = useCallback(async (newPath: string) => {
+    await startSession(newPath);
+  }, [startSession]);
 
   // Escape key closes
   useEffect(() => {
@@ -140,7 +146,7 @@ export default function TaskBoardSlideOver() {
 
           {/* Right: Work Packages */}
           <div className="flex-1 overflow-hidden flex flex-col">
-            <WorkPackageList projectPath={activeProjectPath} />
+            <WorkPackageList projectPath={activeProjectPath} onSwitchProject={handleSwitchProject} />
           </div>
         </div>
 

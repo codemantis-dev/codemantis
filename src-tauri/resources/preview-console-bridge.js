@@ -159,6 +159,12 @@
     window.open(window.location.href, '_blank');
   }));
 
+  // Screenshot to Chat — signals Rust via title change (no IPC on external URLs)
+  toolbar.appendChild(tbBtn('\uD83D\uDCF7', 'Screenshot to Chat', function() {
+    window.__CM_PRE_SS_TITLE = document.title;
+    document.title = '__CMSS__';
+  }));
+
   // Console badge
   var consoleBadge = document.createElement('button');
   consoleBadge.title = 'Toggle Console';
@@ -168,6 +174,11 @@
   consoleBadge.addEventListener('mouseleave', function() { consoleBadge.style.background = 'none'; });
   consoleBadge.addEventListener('click', function() { toggleConsoleDrawer(); });
   toolbar.appendChild(consoleBadge);
+
+  // Close preview button
+  toolbar.appendChild(tbBtn('\u2715', 'Close Preview', function() {
+    window.close();
+  }));
 
   function updateConsoleBadge() {
     var errorCount = window.__CM_CONSOLE_LOG.filter(function(e) { return e.level === 'error'; }).length;
@@ -189,17 +200,80 @@
   }
   updateConsoleBadge();
 
-  // Push body content down so it's not hidden behind toolbar
-  document.documentElement.style.paddingTop = TOOLBAR_HEIGHT + 'px';
+  // Push body content down so it's not hidden behind toolbar.
+  // margin-top handles normal flow content; scroll-padding-top handles anchor scrolling.
+  // Fixed/sticky elements (headers, navs) are offset separately via JS below.
+  var cmStyle = document.createElement('style');
+  cmStyle.id = '__cm_toolbar_style';
+  cmStyle.textContent =
+    'body { margin-top: ' + TOOLBAR_HEIGHT + 'px !important; }' +
+    ' html { scroll-padding-top: ' + TOOLBAR_HEIGHT + 'px; }';
 
-  // Insert toolbar
+  function insertStyle() {
+    var target = document.head || document.documentElement;
+    target.appendChild(cmStyle);
+  }
+
+  // Scan for fixed/sticky elements at top:0 and push them below the toolbar.
+  // CSS margin-top cannot affect position:fixed elements (they're viewport-relative),
+  // so we must adjust their top property directly.
+  // Uses WeakSet (not data attributes) to track offset elements — avoids mutating
+  // the DOM in ways that cause React/Next.js hydration mismatches.
+  var _cmOffsetted = typeof WeakSet !== 'undefined' ? new WeakSet() : { _s: [], has: function(e) { return this._s.indexOf(e) >= 0; }, add: function(e) { this._s.push(e); } };
+
+  function offsetFixedElements() {
+    if (!document.body) return;
+    var els = document.body.getElementsByTagName('*');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (_cmOffsetted.has(el)) continue;
+      if (el.id === '__cm_toolbar' || el.id === '__cm_console_drawer' || el.id === '__cm_toolbar_style') continue;
+      var cs = window.getComputedStyle(el);
+      if ((cs.position === 'fixed' || cs.position === 'sticky') && cs.top === '0px') {
+        el.style.setProperty('top', TOOLBAR_HEIGHT + 'px', 'important');
+        _cmOffsetted.add(el);
+      }
+    }
+  }
+
+  // Debounced MutationObserver for SPA frameworks that mount headers dynamically
+  var _cmOffsetTimer = null;
+  var _cmObserver = new MutationObserver(function() {
+    if (_cmOffsetTimer) clearTimeout(_cmOffsetTimer);
+    _cmOffsetTimer = setTimeout(offsetFixedElements, 200);
+  });
+
+  // Start offset scanning after hydration is complete.
+  // Running before hydration causes React/Next.js mismatch errors because we
+  // modify element attributes that React compares against server-rendered HTML.
+  function startOffsetScanning() {
+    if (!document.body) return;
+    offsetFixedElements();
+    _cmObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function scheduleOffsetScanning() {
+    if (document.readyState === 'complete') {
+      setTimeout(startOffsetScanning, 500);
+    } else {
+      window.addEventListener('load', function() {
+        setTimeout(startOffsetScanning, 500);
+      });
+    }
+  }
+
+  // Insert toolbar + style (immediate), schedule offset scanning (deferred)
   function insertToolbar() {
     if (!document.body) {
       document.addEventListener('DOMContentLoaded', function() {
         document.body.parentNode.insertBefore(toolbar, document.body);
+        insertStyle();
+        scheduleOffsetScanning();
       });
     } else {
       document.body.parentNode.insertBefore(toolbar, document.body);
+      insertStyle();
+      scheduleOffsetScanning();
     }
   }
   insertToolbar();

@@ -58,6 +58,8 @@ pub struct AppSettings {
     // --- Task Board ---
     #[serde(default = "default_task_board_model")]
     pub task_board_planning_model: String,
+    #[serde(default = "default_task_board_max_tokens")]
+    pub task_board_max_tokens: u32,
     #[serde(default = "default_task_board_retries")]
     pub task_board_max_retries: u32,
     #[serde(default = "default_true")]
@@ -137,6 +139,9 @@ fn default_preview_height() -> u32 {
 fn default_task_board_model() -> String {
     "gemini-2.5-flash".to_string()
 }
+fn default_task_board_max_tokens() -> u32 {
+    32768
+}
 fn default_task_board_retries() -> u32 {
     3
 }
@@ -194,6 +199,7 @@ impl Default for AppSettings {
             preview_custom_dev_command: None,
             preview_console_auto_open: true,
             task_board_planning_model: default_task_board_model(),
+            task_board_max_tokens: default_task_board_max_tokens(),
             task_board_max_retries: default_task_board_retries(),
             task_board_auto_start_next: true,
             task_board_auto_open_slide_over: true,

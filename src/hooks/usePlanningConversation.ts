@@ -1,19 +1,25 @@
 import { useCallback, useRef } from "react";
 import { useTaskBoardStore } from "../stores/taskBoardStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { sendAssistantChat, listenAssistantStream } from "../lib/tauri-commands";
+import { sendAssistantChat, listenAssistantStream, listTemplates } from "../lib/tauri-commands";
+import { getProviderForModel } from "../types/assistant-provider";
 import type { PlanningMessage, PlanningAttachment, TaskPlan, WorkPackage } from "../types/task-board";
 import type { ContentPart } from "../lib/tauri-commands";
 
-const PLANNING_SYSTEM_PROMPT = `You are a senior product manager and technical architect. Before creating a task plan, you MUST have a thorough conversation with the user to understand their requirements completely.
+const BASE_PLANNING_PROMPT = `You are a senior product manager and technical architect. Before creating a task plan, you MUST have a thorough conversation with the user to understand their requirements completely.
 
 CONVERSATION RULES:
 - Start by acknowledging what the user described and identifying what's clear
-- Ask 3-5 focused clarifying questions about ambiguities, decisions, and preferences
+- Ask ONE clarifying question at a time
+- After your question, provide 2-5 selectable options using this EXACT format (one per line):
+  ?> Option text here
+  ?> Another option
+- The user will select an option or provide a custom answer
+- Continue asking one question at a time until you have enough info (typically 3-6 total)
+- NEVER ask multiple questions in one response
 - Ask about: target audience, design preferences, data sources, auth requirements, deployment target, specific UI components they envision, error handling expectations
 - If the user attaches images (mockups, screenshots, Figma exports), analyze them and reference specific elements you see
 - If the user attaches documents (PDFs, specs), read them and confirm your understanding
-- Continue the conversation until you have enough information — typically 2-4 exchanges
 - When ready, say: "I have enough information to create the plan. Shall I proceed?"
 - Only after the user confirms, generate the structured JSON task plan
 
@@ -56,6 +62,16 @@ RULES for task decomposition:
 - Group related tasks into work packages of 5-8 tasks each
 - For DOM checks: provide multiple fallback selectors separated by commas
 - Use assertions: exists | visible | has_text | has_options | count_gte | not_exists`;
+
+function buildPlanningSystemPrompt(templateCatalog: string): string {
+  return `${BASE_PLANNING_PROMPT}
+
+AVAILABLE PROJECT TEMPLATES (use exact template ID for template_recommendation):
+${templateCatalog}
+- null: No template (build from scratch or modify existing project)
+
+When recommending a template, use the exact template ID. Only recommend if creating a new project and a template clearly fits.`;
+}
 
 const PLAN_READY_PATTERNS = [
   /shall i (?:proceed|generate|create)/i,
@@ -115,11 +131,19 @@ export function usePlanningConversation(): {
 
       // Initialize conversation if needed
       if (!conv) {
-        const provider = settings.assistantDefaultProvider === "claude-code"
-          ? "gemini"
-          : settings.assistantDefaultProvider;
-        const model = settings.assistantDefaultModel[provider] ?? "gemini-2.5-flash";
-        store.initConversation(projectPath, provider, model);
+        const planningModel = settings.taskBoardPlanningModel || "gemini-2.5-flash";
+        const provider = getProviderForModel(planningModel) ?? "gemini";
+        const model = planningModel;
+        let templateCatalog = "";
+        try {
+          const templates = await listTemplates();
+          templateCatalog = templates
+            .map((t) => `- ${t.id}: "${t.name}" [${t.category}] — ${t.description}`)
+            .join("\n");
+        } catch {
+          // Continue without template catalog
+        }
+        store.initConversation(projectPath, provider, model, templateCatalog);
         conv = store.getActiveConversation(projectPath)!;
       }
 
@@ -211,6 +235,19 @@ export function usePlanningConversation(): {
           currentStore.setPlanningStreaming(projectPath, false);
           const finalContent = streamBufferRef.current;
 
+          // Parse selectable options from ?> markers
+          const optionPattern = /^\?>\s*(.+)$/gm;
+          const options: string[] = [];
+          let m;
+          while ((m = optionPattern.exec(finalContent)) !== null) {
+            options.push(m[1].trim());
+          }
+          if (options.length > 0) {
+            const cleanContent = finalContent.replace(/^\?>\s*.+$/gm, '').trim();
+            currentStore.updateLastAssistantMessage(projectPath, cleanContent);
+            currentStore.setMessageOptions(projectPath, options);
+          }
+
           // Check if AI is ready to generate plan
           if (PLAN_READY_PATTERNS.some((p) => p.test(finalContent))) {
             currentStore.setConversationStatus(projectPath, "ready_to_plan");
@@ -262,6 +299,7 @@ export function usePlanningConversation(): {
                   project_path: projectPath,
                 };
                 currentStore.createPlan(projectPath, plan);
+                currentStore.setProjectTarget(projectPath, { type: 'undecided' });
                 currentStore.setConversationStatus(projectPath, "monitoring");
               }
             } catch {
@@ -299,8 +337,9 @@ export function usePlanningConversation(): {
           provider: conv.ai_provider,
           apiKey,
           model: conv.ai_model,
-          systemPrompt: PLANNING_SYSTEM_PROMPT,
+          systemPrompt: buildPlanningSystemPrompt(conv.templateCatalog ?? ''),
           messages: apiMessages,
+          maxTokens: settings.taskBoardMaxTokens || 32768,
         });
       } catch (err) {
         store.setPlanningStreaming(projectPath, false);

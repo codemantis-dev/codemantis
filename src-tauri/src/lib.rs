@@ -148,6 +148,7 @@ pub fn run() {
             commands::preview::stop_dev_server,
             commands::preview::get_dev_server_status,
             commands::preview::get_preview_console_logs,
+            commands::preview::capture_preview_screenshot,
             commands::taskboard::create_task_plan,
             commands::taskboard::get_task_plan,
             commands::taskboard::update_task_status,

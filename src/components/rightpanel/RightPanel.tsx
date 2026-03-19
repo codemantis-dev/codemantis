@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare } from "lucide-react";
 import { useUiStore, type RightTab } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -28,7 +28,42 @@ export default function RightPanel() {
   const activeTerminalId = activeSessionId ? activeTerminalIdMap.get(activeSessionId) ?? null : null;
 
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
+  const setRightPanelMinWidth = useUiStore((s) => s.setRightPanelMinWidth);
   const { createTerminal, closeTerminal } = useTerminal();
+
+  // Measure tab buttons' intrinsic width and enforce as right panel minimum.
+  // We sum individual button widths rather than reading container scrollWidth,
+  // because scrollWidth grows with the container and causes a feedback loop.
+  const tabHeaderRef = useRef<HTMLDivElement>(null);
+  const lastMinWidth = useRef(0);
+  const measureTabWidth = useCallback(() => {
+    const el = tabHeaderRef.current;
+    if (!el) return;
+    let total = 0;
+    for (const child of el.children) {
+      total += (child as HTMLElement).offsetWidth;
+    }
+    // Add container horizontal padding (px-1 = 4px each side = 8px) + buffer
+    const needed = total + 10;
+    // Only update if changed to avoid render loops
+    if (needed !== lastMinWidth.current) {
+      lastMinWidth.current = needed;
+      setRightPanelMinWidth(needed);
+    }
+  }, [setRightPanelMinWidth]);
+
+  useEffect(() => {
+    const el = tabHeaderRef.current;
+    if (!el) return;
+    // Measure once after mount
+    measureTabWidth();
+    // Re-measure if font size changes (observed via any child resizing)
+    const ro = new ResizeObserver(measureTabWidth);
+    for (const child of el.children) {
+      ro.observe(child);
+    }
+    return () => ro.disconnect();
+  }, [measureTabWidth]);
 
   // Auto-dismiss activity detail panel on tab change
   useEffect(() => {
@@ -56,14 +91,14 @@ export default function RightPanel() {
   return (
     <div className="h-full flex flex-col relative" style={{ background: "var(--bg-subtle)" }}>
       {/* Tab header */}
-      <div className="h-9 flex items-center px-1 border-b border-border-light shrink-0">
+      <div ref={tabHeaderRef} className="h-9 flex items-center px-1 border-b border-border-light shrink-0 whitespace-nowrap">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
               onClick={() => setRightTab(tab.id)}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-ui transition-colors ${
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-ui transition-colors shrink-0 ${
                 rightTab === tab.id
                   ? "text-text-primary bg-bg-elevated font-medium"
                   : "text-text-dim hover:text-text-secondary"

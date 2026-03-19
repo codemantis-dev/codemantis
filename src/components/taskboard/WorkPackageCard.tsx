@@ -22,6 +22,8 @@ interface Props {
 export default function WorkPackageCard({ wp, projectPath, isExpanded, onToggle }: Props) {
   const { executeWorkPackage } = useTaskExecution();
   const executingWp = useTaskBoardStore((s) => s.executingWorkPackage);
+  const decision = useTaskBoardStore((s) => s.projectTargetDecisions.get(projectPath));
+  const isTargetDecided = decision?.type === 'current_project' || decision?.type === 'new_project';
   const doneTasks = wp.tasks.filter((t) => t.status === "done").length;
   const statusInfo = STATUS_ICONS[wp.status] ?? STATUS_ICONS.planned;
 
@@ -66,7 +68,7 @@ export default function WorkPackageCard({ wp, projectPath, isExpanded, onToggle 
         </div>
 
         {/* Start button */}
-        {(wp.status === "planned" || wp.status === "needs_review") && !executingWp && (
+        {(wp.status === "planned" || wp.status === "needs_review") && !executingWp && isTargetDecided && (
           <button
             onClick={(e) => {
               e.stopPropagation();

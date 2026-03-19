@@ -11,9 +11,10 @@ type View = "grid" | "detail" | "progress";
 
 interface TemplatePickerProps {
   onProjectCreated: (projectPath: string) => void;
+  preselectedTemplateId?: string;
 }
 
-export default function TemplatePicker({ onProjectCreated }: TemplatePickerProps) {
+export default function TemplatePicker({ onProjectCreated, preselectedTemplateId }: TemplatePickerProps) {
   const [templates, setTemplates] = useState<TemplateEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -31,10 +32,20 @@ export default function TemplatePicker({ onProjectCreated }: TemplatePickerProps
 
   useEffect(() => {
     listTemplates()
-      .then(setTemplates)
+      .then((loaded) => {
+        setTemplates(loaded);
+        // Auto-navigate to preselected template if provided
+        if (preselectedTemplateId) {
+          const match = loaded.find((t) => t.id === preselectedTemplateId);
+          if (match) {
+            setSelectedTemplate(match);
+            setView("detail");
+          }
+        }
+      })
       .catch((e) => console.error("Failed to load templates:", e))
       .finally(() => setLoading(false));
-  }, []);
+  }, [preselectedTemplateId]);
 
   const filtered = useMemo(() => {
     let result = templates;

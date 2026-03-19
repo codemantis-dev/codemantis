@@ -9,6 +9,7 @@ export type ActivityFeedScope = "session" | "project";
 interface UiState {
   sidebarWidth: number;
   rightPanelWidth: number;
+  rightPanelMinWidth: number;
   rightTab: RightTab;
   showApprovalModal: boolean;
   showQuestionModal: boolean;
@@ -35,6 +36,7 @@ interface UiState {
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
   setRightPanelWidth: (width: number) => void;
+  setRightPanelMinWidth: (width: number) => void;
   setRightTab: (tab: RightTab) => void;
   setShowApprovalModal: (show: boolean) => void;
   setShowQuestionModal: (show: boolean) => void;
@@ -62,6 +64,7 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   sidebarWidth: 220,
   rightPanelWidth: 420,
+  rightPanelMinWidth: 200,
   rightTab: "activity",
   showApprovalModal: false,
   showQuestionModal: false,
@@ -89,7 +92,12 @@ export const useUiStore = create<UiState>((set) => ({
   setSidebarWidth: (width) =>
     set({ sidebarWidth: Math.max(140, width) }),
   setRightPanelWidth: (width) =>
-    set({ rightPanelWidth: Math.max(200, width) }),
+    set((s) => ({ rightPanelWidth: Math.max(s.rightPanelMinWidth, width) })),
+  setRightPanelMinWidth: (width) =>
+    set((s) => ({
+      rightPanelMinWidth: width,
+      rightPanelWidth: Math.max(width, s.rightPanelWidth),
+    })),
   setRightTab: (tab) => set({ rightTab: tab }),
   setShowApprovalModal: (show) => set({ showApprovalModal: show }),
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),

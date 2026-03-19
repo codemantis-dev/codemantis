@@ -51,6 +51,7 @@ export default function SettingsModal() {
   const [previewCustomDevCommand, setPreviewCustomDevCommand] = useState(settings.previewCustomDevCommand ?? "");
   const [previewConsoleAutoOpen, setPreviewConsoleAutoOpen] = useState(settings.previewConsoleAutoOpen);
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-2.5-flash");
+  const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 32768);
   const [taskBoardMaxRetries, setTaskBoardMaxRetries] = useState(settings.taskBoardMaxRetries ?? 3);
   const [taskBoardAutoStartNext, setTaskBoardAutoStartNext] = useState(settings.taskBoardAutoStartNext ?? true);
   const [taskBoardAutoOpenSlideOver, setTaskBoardAutoOpenSlideOver] = useState(settings.taskBoardAutoOpenSlideOver ?? true);
@@ -91,6 +92,7 @@ export default function SettingsModal() {
       setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-2.5-flash");
+      setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 32768);
       setTaskBoardMaxRetries(settings.taskBoardMaxRetries ?? 3);
       setTaskBoardAutoStartNext(settings.taskBoardAutoStartNext ?? true);
       setTaskBoardAutoOpenSlideOver(settings.taskBoardAutoOpenSlideOver ?? true);
@@ -126,6 +128,7 @@ export default function SettingsModal() {
       previewCustomDevCommand: previewCustomDevCommand.trim() || null,
       previewConsoleAutoOpen,
       taskBoardPlanningModel,
+      taskBoardMaxTokens,
       taskBoardMaxRetries,
       taskBoardAutoStartNext,
       taskBoardAutoOpenSlideOver,
@@ -337,10 +340,12 @@ export default function SettingsModal() {
             {activeTab === "task-board" && (
               <TaskBoardSettingsContent
                 planningModel={taskBoardPlanningModel}
+                maxTokens={taskBoardMaxTokens}
                 maxRetries={taskBoardMaxRetries}
                 autoStartNext={taskBoardAutoStartNext}
                 autoOpenSlideOver={taskBoardAutoOpenSlideOver}
                 onPlanningModelChange={setTaskBoardPlanningModel}
+                onMaxTokensChange={setTaskBoardMaxTokens}
                 onMaxRetriesChange={setTaskBoardMaxRetries}
                 onAutoStartNextChange={setTaskBoardAutoStartNext}
                 onAutoOpenSlideOverChange={setTaskBoardAutoOpenSlideOver}
@@ -434,19 +439,23 @@ function PreviewSettingsContent({
 
 function TaskBoardSettingsContent({
   planningModel,
+  maxTokens,
   maxRetries,
   autoStartNext,
   autoOpenSlideOver,
   onPlanningModelChange,
+  onMaxTokensChange,
   onMaxRetriesChange,
   onAutoStartNextChange,
   onAutoOpenSlideOverChange,
 }: {
   planningModel: string;
+  maxTokens: number;
   maxRetries: number;
   autoStartNext: boolean;
   autoOpenSlideOver: boolean;
   onPlanningModelChange: (v: string) => void;
+  onMaxTokensChange: (v: number) => void;
   onMaxRetriesChange: (v: number) => void;
   onAutoStartNextChange: (v: boolean) => void;
   onAutoOpenSlideOverChange: (v: boolean) => void;
@@ -473,6 +482,17 @@ function TaskBoardSettingsContent({
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
+      </FieldRow>
+      <FieldRow label="Max output tokens">
+        <input
+          type="number"
+          value={maxTokens}
+          onChange={(e) => onMaxTokensChange(Math.max(1024, Math.min(200000, Number(e.target.value) || 32768)))}
+          min={1024}
+          max={200000}
+          step={1024}
+          className="w-24 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border text-right"
+        />
       </FieldRow>
       <FieldRow label="Max retry count per work package">
         <input

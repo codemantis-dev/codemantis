@@ -68,6 +68,7 @@ export interface AppSettings {
 
   // Task Board
   taskBoardPlanningModel: string;
+  taskBoardMaxTokens: number;
   taskBoardMaxRetries: number;
   taskBoardAutoStartNext: boolean;
   taskBoardAutoOpenSlideOver: boolean;

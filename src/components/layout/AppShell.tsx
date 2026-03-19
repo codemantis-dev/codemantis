@@ -84,6 +84,7 @@ const HANDLE_WIDTH = 9; // each resize handle
 export default function AppShell() {
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
+  const rightPanelMinWidth = useUiStore((s) => s.rightPanelMinWidth);
   const showProjectLog = useUiStore((s) => s.showProjectLog);
   const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
   const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
@@ -195,6 +196,7 @@ export default function AppShell() {
       const state = useUiStore.getState();
       const maxRight = window.innerWidth - state.sidebarWidth - MIN_CENTER - HANDLE_WIDTH * 2;
       const next = Math.min(state.rightPanelWidth - delta, maxRight);
+      // setRightPanelWidth already clamps to rightPanelMinWidth
       state.setRightPanelWidth(next);
     },
     []
@@ -241,7 +243,7 @@ export default function AppShell() {
         {/* Right Panel */}
         <div
           className="shrink-0 border-l border-border overflow-hidden pb-3"
-          style={{ width: rightPanelWidth }}
+          style={{ width: rightPanelWidth, minWidth: rightPanelMinWidth }}
         >
           <RightPanel />
         </div>

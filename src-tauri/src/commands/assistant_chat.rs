@@ -119,19 +119,20 @@ pub async fn send_assistant_chat(
     model: String,
     system_prompt: String,
     messages: Vec<ChatMessage>,
+    max_tokens: Option<u32>,
 ) -> Result<(), String> {
     let event_name = format!("assistant-stream-{}", assistant_id);
     let client = reqwest::Client::new();
 
     let result = match provider.as_str() {
         "openai" => {
-            stream_openai(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages).await
+            stream_openai(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
         }
         "gemini" => {
-            stream_gemini(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages).await
+            stream_gemini(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
         }
         "anthropic" => {
-            stream_anthropic(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages).await
+            stream_anthropic(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
         }
         _ => Err(format!("Unknown provider: {}", provider)),
     };
@@ -195,18 +196,22 @@ async fn stream_openai(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
+    max_tokens: Option<u32>,
 ) -> Result<(u32, u32), String> {
     let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for msg in messages {
         api_messages.push(serde_json::json!({"role": msg.role, "content": openai_content(&msg.content)}));
     }
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": api_messages,
         "stream": true,
         "stream_options": {"include_usage": true},
     });
+    if let Some(mt) = max_tokens {
+        body["max_completion_tokens"] = serde_json::json!(mt);
+    }
 
     let resp = client
         .post("https://api.openai.com/v1/chat/completions")
@@ -287,6 +292,7 @@ async fn stream_gemini(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
+    max_tokens: Option<u32>,
 ) -> Result<(u32, u32), String> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
@@ -304,10 +310,13 @@ async fn stream_gemini(
         })
         .collect();
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
     });
+    if let Some(mt) = max_tokens {
+        body["generationConfig"] = serde_json::json!({"maxOutputTokens": mt});
+    }
 
     let resp = client
         .post(&url)
@@ -384,6 +393,7 @@ async fn stream_anthropic(
     model: &str,
     system_prompt: &str,
     messages: &[ChatMessage],
+    max_tokens: Option<u32>,
 ) -> Result<(u32, u32), String> {
     let api_messages: Vec<serde_json::Value> = messages
         .iter()
@@ -392,7 +402,7 @@ async fn stream_anthropic(
 
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens.unwrap_or(8192),
         "system": system_prompt,
         "messages": api_messages,
         "stream": true,

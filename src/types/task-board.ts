@@ -7,6 +7,7 @@ export interface TaskPlan {
   created_at: string;
   status: 'planning' | 'ready' | 'executing' | 'done' | 'error';
   project_path: string;
+  last_executing_wp_id?: string | null;
 }
 
 export interface WorkPackage {
@@ -58,6 +59,7 @@ export interface PlanningConversation {
   ai_provider: string;
   ai_model: string;
   status: 'gathering' | 'ready_to_plan' | 'planning' | 'monitoring' | 'reviewing';
+  templateCatalog?: string;
 }
 
 export interface PlanningMessage {
@@ -67,6 +69,7 @@ export interface PlanningMessage {
   attachments?: PlanningAttachment[];
   message_type: 'conversation' | 'progress_update' | 'gap_review' | 'user_feedback';
   timestamp: string;
+  parsedOptions?: string[];
 }
 
 export interface PlanningAttachment {
@@ -129,3 +132,9 @@ export interface TaskBoardUIState {
   expanded_task: string | null;
   scroll_position: number;
 }
+
+export type ProjectTargetDecision =
+  | { type: 'undecided' }
+  | { type: 'current_project' }
+  | { type: 'new_project'; targetPath: string }
+  | { type: 'migrated'; migratedTo: string };

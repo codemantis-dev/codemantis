@@ -139,6 +139,56 @@ pub async fn open_preview_window(
                 }
             };
 
+            // Screenshot request: JS sets title to '__CMSS__' on camera button click
+            if let Ok(title) = preview_win.title() {
+                if title == "__CMSS__" {
+                    // Restore original title
+                    let _ = preview_win.eval(
+                        "document.title = window.__CM_PRE_SS_TITLE || ''; delete window.__CM_PRE_SS_TITLE;"
+                    );
+
+                    // Capture screenshot
+                    if let (Ok(pos), Ok(sz), Ok(sc)) = (
+                        preview_win.outer_position(),
+                        preview_win.outer_size(),
+                        preview_win.scale_factor(),
+                    ) {
+                        let x = (pos.x as f64 / sc) as i32;
+                        let y = (pos.y as f64 / sc) as i32;
+                        let w = (sz.width as f64 / sc) as u32;
+                        let h = (sz.height as f64 / sc) as u32;
+
+                        let tmp_path = std::env::temp_dir().join(format!(
+                            "codemantis-screenshot-{}.png",
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis()
+                        ));
+
+                        if let Some(path_str) = tmp_path.to_str() {
+                            match std::process::Command::new("screencapture")
+                                .args(["-R", &format!("{},{},{},{}", x, y, w, h), "-x", path_str])
+                                .output()
+                            {
+                                Ok(output) if output.status.success() => {
+                                    info!("Preview screenshot saved to {}", path_str);
+                                    let _ = poll_ah.emit("preview-screenshot-taken", path_str.to_string());
+                                }
+                                Ok(output) => {
+                                    warn!("screencapture failed: {}", String::from_utf8_lossy(&output.stderr));
+                                }
+                                Err(e) => {
+                                    warn!("screencapture error: {}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    continue; // Skip console polling this iteration
+                }
+            }
+
             // Step 0: Re-inject console bridge if not present (SPA navigation / external URL fallback)
             let reinject_js = r#"
                 (function() {
@@ -245,6 +295,48 @@ pub async fn open_preview_window(
 
     info!("Opened preview window for {}: {}", project_name, url);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn capture_preview_screenshot(
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    let window = app_handle
+        .get_webview_window("preview")
+        .ok_or("Preview window not open")?;
+
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+
+    // screencapture -R takes point coordinates (not physical pixels) on macOS
+    let x = (position.x as f64 / scale) as i32;
+    let y = (position.y as f64 / scale) as i32;
+    let w = (size.width as f64 / scale) as u32;
+    let h = (size.height as f64 / scale) as u32;
+
+    let tmp_path = std::env::temp_dir().join(format!(
+        "codemantis-screenshot-{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    let path_str = tmp_path.to_str().ok_or("Invalid temp path")?;
+
+    let output = std::process::Command::new("screencapture")
+        .args(["-R", &format!("{},{},{},{}", x, y, w, h), "-x", path_str])
+        .output()
+        .map_err(|e| format!("screencapture failed: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "screencapture error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(path_str.to_string())
 }
 
 #[tauri::command]

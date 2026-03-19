@@ -8,6 +8,7 @@ import type {
   ProgressReview,
   TaskBoardUIState,
   CheckResult,
+  ProjectTargetDecision,
 } from "../types/task-board";
 
 interface TaskBoardState {
@@ -27,6 +28,9 @@ interface TaskBoardState {
 
   // Streaming state for planning AI
   planningStreaming: Map<string, boolean>;
+
+  // Project target decisions (per project)
+  projectTargetDecisions: Map<string, ProjectTargetDecision>;
 
   // Actions - Plan management
   createPlan: (projectPath: string, plan: TaskPlan) => void;
@@ -51,11 +55,13 @@ interface TaskBoardState {
   updateCheckResult: (projectPath: string, taskId: string, checkIndex: number, result: CheckResult) => void;
 
   // Actions - Planning conversation
-  initConversation: (projectPath: string, provider: string, model: string) => void;
+  initConversation: (projectPath: string, provider: string, model: string, templateCatalog?: string) => void;
   addPlanningMessage: (projectPath: string, message: PlanningMessage) => void;
   updateLastAssistantMessage: (projectPath: string, content: string) => void;
   setConversationStatus: (projectPath: string, status: PlanningConversation['status']) => void;
   setPlanningStreaming: (projectPath: string, streaming: boolean) => void;
+  setMessageOptions: (projectPath: string, options: string[]) => void;
+  updateConversationProvider: (projectPath: string, provider: string, model: string) => void;
 
   // Actions - Apply AI review
   applyProgressReview: (projectPath: string, review: ProgressReview) => void;
@@ -66,6 +72,10 @@ interface TaskBoardState {
   setPlanningChatWidth: (projectPath: string, width: number) => void;
   setExpandedWorkPackage: (projectPath: string, wpId: string | null) => void;
   setExpandedTask: (projectPath: string, taskId: string | null) => void;
+
+  // Actions - Project target
+  setProjectTarget: (projectPath: string, decision: ProjectTargetDecision) => void;
+  migratePlanToProject: (sourceProjectPath: string, targetProjectPath: string) => void;
 
   // Actions - Execution
   setExecuting: (projectPath: string | null, wpId: string | null) => void;
@@ -93,6 +103,7 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
   executingWorkPackage: null,
   isPaused: false,
   planningStreaming: new Map(),
+  projectTargetDecisions: new Map(),
 
   // Plan management
   createPlan: (projectPath, plan) =>
@@ -290,7 +301,7 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
     }),
 
   // Planning conversation
-  initConversation: (projectPath, provider, model) =>
+  initConversation: (projectPath, provider, model, templateCatalog) =>
     set((state) => {
       const conversations = new Map(state.conversations);
       conversations.set(projectPath, {
@@ -300,6 +311,7 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
         ai_provider: provider,
         ai_model: model,
         status: 'gathering',
+        templateCatalog,
       });
       return { conversations };
     }),
@@ -347,6 +359,31 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
       const planningStreaming = new Map(state.planningStreaming);
       planningStreaming.set(projectPath, streaming);
       return { planningStreaming };
+    }),
+
+  setMessageOptions: (projectPath, options) =>
+    set((state) => {
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (conv && conv.messages.length > 0) {
+        const messages = [...conv.messages];
+        const lastIdx = messages.length - 1;
+        if (messages[lastIdx].role === 'assistant') {
+          messages[lastIdx] = { ...messages[lastIdx], parsedOptions: options };
+        }
+        conversations.set(projectPath, { ...conv, messages });
+      }
+      return { conversations };
+    }),
+
+  updateConversationProvider: (projectPath, provider, model) =>
+    set((state) => {
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (conv) {
+        conversations.set(projectPath, { ...conv, ai_provider: provider, ai_model: model });
+      }
+      return { conversations };
     }),
 
   // Apply AI review
@@ -449,9 +486,57 @@ export const useTaskBoardStore = create<TaskBoardState>((set, get) => ({
       return { uiState };
     }),
 
+  // Project target
+  setProjectTarget: (projectPath, decision) =>
+    set((state) => {
+      const projectTargetDecisions = new Map(state.projectTargetDecisions);
+      projectTargetDecisions.set(projectPath, decision);
+      return { projectTargetDecisions };
+    }),
+
+  migratePlanToProject: (sourceProjectPath, targetProjectPath) =>
+    set((state) => {
+      const plans = new Map(state.plans);
+      const conversations = new Map(state.conversations);
+      const uiState = new Map(state.uiState);
+      const projectTargetDecisions = new Map(state.projectTargetDecisions);
+
+      const sourcePlan = plans.get(sourceProjectPath);
+      const sourceConv = conversations.get(sourceProjectPath);
+
+      if (sourcePlan) {
+        plans.set(targetProjectPath, { ...sourcePlan, project_path: targetProjectPath });
+        plans.delete(sourceProjectPath);
+      }
+      if (sourceConv) {
+        conversations.set(targetProjectPath, sourceConv);
+        conversations.delete(sourceProjectPath);
+      }
+
+      uiState.set(targetProjectPath, { ...DEFAULT_UI_STATE, is_open: true });
+      projectTargetDecisions.set(targetProjectPath, { type: 'current_project' });
+      projectTargetDecisions.set(sourceProjectPath, { type: 'migrated', migratedTo: targetProjectPath });
+
+      return { plans, conversations, uiState, projectTargetDecisions };
+    }),
+
   // Execution
   setExecuting: (projectPath, wpId) =>
-    set({ executingProject: projectPath, executingWorkPackage: wpId }),
+    set((state) => {
+      const result: Partial<TaskBoardState> = {
+        executingProject: projectPath,
+        executingWorkPackage: wpId,
+      };
+      if (projectPath) {
+        const plans = new Map(state.plans);
+        const plan = plans.get(projectPath);
+        if (plan) {
+          plans.set(projectPath, { ...plan, last_executing_wp_id: wpId });
+          result.plans = plans;
+        }
+      }
+      return result;
+    }),
 
   setPaused: (paused) => set({ isPaused: paused }),
 

@@ -9,6 +9,7 @@ import {
   gatherProjectSnapshot,
   sendAssistantChat,
   listenAssistantStream,
+  closeSession as closeSessionCmd,
 } from "../lib/tauri-commands";
 import { invoke } from "@tauri-apps/api/core";
 import type { FrontendEvent } from "../types/claude-events";
@@ -416,6 +417,7 @@ export function useTaskExecution(): {
   executeAllWorkPackages: (projectPath: string) => Promise<void>;
   pauseExecution: () => void;
   resumeExecution: (projectPath: string) => void;
+  cancelExecution: (projectPath: string) => Promise<void>;
   runCodeVerification: (projectPath: string, wpId: string, onlyFailed?: boolean) => Promise<void>;
 } {
   const executionAbortRef = useRef(false);
@@ -529,6 +531,9 @@ export function useTaskExecution(): {
   const executeWorkPackage = useCallback(
     async (projectPath: string, wpId: string): Promise<void> => {
       const store = useTaskBoardStore.getState();
+      const decision = store.projectTargetDecisions.get(projectPath);
+      if (!decision || decision.type === 'undecided' || decision.type === 'migrated') return;
+
       const plan = store.getActivePlan(projectPath);
       if (!plan) return;
 
@@ -653,6 +658,9 @@ export function useTaskExecution(): {
     async (projectPath: string): Promise<void> => {
       executionAbortRef.current = false;
       const store = useTaskBoardStore.getState();
+      const decision = store.projectTargetDecisions.get(projectPath);
+      if (!decision || decision.type === 'undecided' || decision.type === 'migrated') return;
+
       const plan = store.getActivePlan(projectPath);
       if (!plan) return;
 
@@ -694,11 +702,31 @@ export function useTaskExecution(): {
     [executeAllWorkPackages]
   );
 
+  const cancelExecution = useCallback(async (projectPath: string) => {
+    executionAbortRef.current = true;
+    const store = useTaskBoardStore.getState();
+    const plan = store.getActivePlan(projectPath);
+    const executingWpId = store.executingWorkPackage;
+
+    if (plan && executingWpId) {
+      const wp = plan.work_packages.find((w) => w.id === executingWpId);
+      if (wp?.session_id) {
+        try { await closeSessionCmd(wp.session_id); } catch { /* ignore */ }
+      }
+      store.updateWorkPackageStatus(projectPath, executingWpId, 'planned');
+    }
+
+    store.updatePlanStatus(projectPath, 'ready');
+    store.setExecuting(null, null);
+    store.setPaused(false);
+  }, []);
+
   return {
     executeWorkPackage,
     executeAllWorkPackages,
     pauseExecution,
     resumeExecution,
+    cancelExecution,
     runCodeVerification,
   };
 }

@@ -346,6 +346,7 @@ export async function sendAssistantChat(params: {
   model: string;
   systemPrompt: string;
   messages: { role: string; content: string | ContentPart[] }[];
+  maxTokens?: number;
 }): Promise<void> {
   return invoke("send_assistant_chat", params);
 }
@@ -669,6 +670,10 @@ export async function gatherProjectSnapshot(
   projectPath: string,
 ): Promise<string> {
   return invoke<string>("gather_project_snapshot", { projectPath });
+}
+
+export async function capturePreviewScreenshot(): Promise<string> {
+  return invoke<string>("capture_preview_screenshot");
 }
 
 export async function getPreviewConsoleLogs(

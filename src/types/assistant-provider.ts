@@ -57,6 +57,16 @@ export function getDefaultModelPricing(): Record<string, ModelPricing> {
   return pricing;
 }
 
+/** Look up the provider for a given model ID. Returns null if not found. */
+export function getProviderForModel(modelId: string): APIProvider | null {
+  for (const [provider, models] of Object.entries(AI_MODELS)) {
+    if (models.some((m) => m.id === modelId)) {
+      return provider as APIProvider;
+    }
+  }
+  return null;
+}
+
 /** Find the display label for a model ID. */
 export function getModelLabel(provider: APIProvider, modelId: string): string {
   const model = AI_MODELS[provider]?.find((m) => m.id === modelId);

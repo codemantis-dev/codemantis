@@ -1,18 +1,56 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
+import { ArrowRight } from "lucide-react";
 import { useTaskBoardStore } from "../../stores/taskBoardStore";
+import { useTaskExecution } from "../../hooks/useTaskExecution";
 import WorkPackageCard from "./WorkPackageCard";
+import ProjectTargetDecisionComponent from "./ProjectTargetDecision";
 
 interface Props {
   projectPath: string;
+  onSwitchProject: (path: string) => Promise<void>;
 }
 
-export default function WorkPackageList({ projectPath }: Props) {
+export default function WorkPackageList({ projectPath, onSwitchProject }: Props) {
   const plan = useTaskBoardStore((s) => s.plans.get(projectPath));
+  const decision = useTaskBoardStore((s) => s.projectTargetDecisions.get(projectPath));
   const expandedWp = useTaskBoardStore(
     (s) => s.uiState.get(projectPath)?.expanded_work_package ?? null
   );
   const setExpandedWorkPackage = useTaskBoardStore((s) => s.setExpandedWorkPackage);
   const reorderWorkPackages = useTaskBoardStore((s) => s.reorderWorkPackages);
+  const executingWp = useTaskBoardStore((s) => s.executingWorkPackage);
+  const { resumeExecution } = useTaskExecution();
+
+  // Resume banner state
+  const [showResumeBanner, setShowResumeBanner] = useState(false);
+
+  useEffect(() => {
+    if (plan && plan.status === 'executing' && !executingWp) {
+      setShowResumeBanner(true);
+    }
+  }, [plan?.status, executingWp]);
+
+  const handleResume = useCallback(() => {
+    if (!plan) return;
+    // Reset any stuck WP back to planned
+    const stuckWp = plan.work_packages.find((w) => w.status === 'in_progress');
+    if (stuckWp) {
+      useTaskBoardStore.getState().updateWorkPackageStatus(projectPath, stuckWp.id, 'planned');
+    }
+    useTaskBoardStore.getState().updatePlanStatus(projectPath, 'ready');
+    setShowResumeBanner(false);
+    resumeExecution(projectPath);
+  }, [plan, projectPath, resumeExecution]);
+
+  const handleResetBanner = useCallback(() => {
+    if (!plan) return;
+    const stuckWp = plan.work_packages.find((w) => w.status === 'in_progress');
+    if (stuckWp) {
+      useTaskBoardStore.getState().updateWorkPackageStatus(projectPath, stuckWp.id, 'planned');
+    }
+    useTaskBoardStore.getState().updatePlanStatus(projectPath, 'ready');
+    setShowResumeBanner(false);
+  }, [plan, projectPath]);
 
   // Drag-and-drop state
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -69,6 +107,32 @@ export default function WorkPackageList({ projectPath }: Props) {
     dragIdxRef.current = null;
   };
 
+  const isUndecided = decision?.type === 'undecided';
+  const isMigrated = decision?.type === 'migrated';
+
+  // Migrated banner
+  if (isMigrated) {
+    const migratedTo = decision.type === 'migrated' ? decision.migratedTo : '';
+    const targetName = migratedTo.split('/').pop() ?? migratedTo;
+    return (
+      <div className="flex-1 flex items-center justify-center px-4">
+        <div className="text-center space-y-2">
+          <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+            Plan migrated to {targetName}
+          </div>
+          <button
+            onClick={() => onSwitchProject(migratedTo)}
+            className="flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+            style={{ background: "var(--accent)", color: "white" }}
+          >
+            <ArrowRight size={12} />
+            Switch to project
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -101,8 +165,48 @@ export default function WorkPackageList({ projectPath }: Props) {
         </div>
       </div>
 
+      {/* Decision gate */}
+      {isUndecided && (
+        <div className="px-3 py-2 shrink-0">
+          <ProjectTargetDecisionComponent
+            projectPath={projectPath}
+            plan={plan}
+            onSwitchProject={onSwitchProject}
+          />
+        </div>
+      )}
+
+      {/* Resume banner */}
+      {showResumeBanner && (
+        <div
+          className="px-3 py-2 border-b flex items-center gap-2 shrink-0"
+          style={{ borderColor: 'var(--border)', background: 'rgba(245,158,11,0.1)' }}
+        >
+          <span className="text-xs flex-1" style={{ color: '#f59e0b' }}>
+            Execution was interrupted. Resume from where you left off?
+          </span>
+          <button
+            onClick={handleResume}
+            className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          >
+            Resume
+          </button>
+          <button
+            onClick={handleResetBanner}
+            className="px-2.5 py-1 rounded-md border text-xs transition-colors hover:bg-bg-elevated"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-dim)' }}
+          >
+            Reset
+          </button>
+        </div>
+      )}
+
       {/* Work packages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+      <div
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
+        style={isUndecided ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+      >
         {plan.work_packages.map((wp, idx) => (
           <div
             key={wp.id}
