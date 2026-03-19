@@ -17,19 +17,20 @@ export default function SpecChat({ projectPath }: Props) {
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
   const updateConversationProvider = useSpecWriterStore((s) => s.updateConversationProvider);
+  const setConversationMode = useSpecWriterStore((s) => s.setConversationMode);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const { writeSpec, sendMessage } = useSpecConversation();
 
-  // Init a fresh conversation if none exists.
+  // Init a fresh conversation if none exists — default to 'feature' mode
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
       const planningModel = settings.taskBoardPlanningModel || 'gemini-2.5-flash';
       const provider = getProviderForModel(planningModel) ?? 'gemini';
-      useSpecWriterStore.getState().initConversation(projectPath, provider, planningModel, 'new_application');
+      useSpecWriterStore.getState().initConversation(projectPath, provider, planningModel, 'feature');
     }
   }, [projectPath, conversation]);
 
@@ -116,6 +117,13 @@ export default function SpecChat({ projectPath }: Props) {
       updateConversationProvider(projectPath, currentProvider, newModel);
     },
     [projectPath, currentProvider, updateConversationProvider]
+  );
+
+  const handleModeChange = useCallback(
+    (mode: 'feature' | 'new_application') => {
+      setConversationMode(projectPath, mode);
+    },
+    [projectPath, setConversationMode]
   );
 
   return (
@@ -231,21 +239,47 @@ export default function SpecChat({ projectPath }: Props) {
             className="w-full py-2 px-3 rounded-md text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
             style={{ background: "var(--accent)", color: "white" }}
           >
-            Write Spec
+            Generate Spec
           </button>
         </div>
       )}
 
-      {/* Mode indicator */}
+      {/* Mode indicator / selector */}
       <div
         className="px-3 py-1.5 border-t text-[10px] flex items-center gap-2"
         style={{ borderColor: "var(--border)", color: "var(--text-ghost)" }}
       >
-        <span>Mode: {conversation?.mode === 'feature' ? 'Feature' : 'New Application'}</span>
-        {conversation?.mode === 'feature' && (
-          <span>
-            Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
-          </span>
+        {conversation && !hasUserMessages ? (
+          <>
+            <span>Mode:</span>
+            <select
+              value={conversation.mode}
+              onChange={(e) => handleModeChange(e.target.value as 'feature' | 'new_application')}
+              className="px-1 py-0.5 rounded border text-[10px]"
+              style={{
+                background: "var(--bg-primary)",
+                borderColor: "var(--border)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <option value="feature">Feature (existing project)</option>
+              <option value="new_application">New Application</option>
+            </select>
+            {conversation.mode === 'feature' && (
+              <span>
+                Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <span>Mode: {conversation?.mode === 'feature' ? 'Feature' : 'New Application'}</span>
+            {conversation?.mode === 'feature' && (
+              <span>
+                Context: {conversation.context_loaded ? '✅ loaded' : '⏳ loading...'}
+              </span>
+            )}
+          </>
         )}
       </div>
 

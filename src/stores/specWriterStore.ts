@@ -40,6 +40,7 @@ interface SpecWriterState {
   setMessageOptions: (projectPath: string, options: string[]) => void;
   updateConversationProvider: (projectPath: string, provider: string, model: string) => void;
   setContextLoaded: (projectPath: string, loaded: boolean) => void;
+  setConversationMode: (projectPath: string, mode: SpecConversation['mode']) => void;
   clearConversation: (projectPath: string) => void;
 
   // Actions - File requests
@@ -182,6 +183,16 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { conversations };
     }),
 
+  setConversationMode: (projectPath, mode) =>
+    set((state) => {
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (conv) {
+        conversations.set(projectPath, { ...conv, mode });
+      }
+      return { conversations };
+    }),
+
   clearConversation: (projectPath) =>
     set((state) => {
       const conversations = new Map(state.conversations);
@@ -279,9 +290,19 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const json = await loadTaskBoardState(projectPath);
       if (!json) return false;
       const persisted = JSON.parse(json);
-      // Handle both old TaskBoard format and new SpecWriter format
       const conversation = persisted.conversation ?? null;
       if (!conversation) return false;
+
+      // Validate this is a SpecWriter conversation, not old TaskBoard data.
+      // SpecWriter conversations have mode ('new_application'|'feature') and
+      // status ('gathering'|'ready_to_write'|'writing'|'done').
+      const validModes = ['new_application', 'feature'];
+      const validStatuses = ['gathering', 'ready_to_write', 'writing', 'done'];
+      if (!validModes.includes(conversation.mode) || !validStatuses.includes(conversation.status)) {
+        console.warn("[specWriterStore] Discarding incompatible persisted state (old TaskBoard data)");
+        return false;
+      }
+
       set((state) => {
         const conversations = new Map(state.conversations);
         conversations.set(projectPath, conversation);

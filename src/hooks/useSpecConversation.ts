@@ -550,8 +550,8 @@ export function useSpecConversation(): {
         const model = planningModel;
 
         // Determine mode: feature if there's an active project context
-        const hasContext = projectContextRef.current.has(projectPath);
-        const mode = hasContext ? 'feature' as const : 'new_application' as const;
+        // Default to 'feature' mode — user can switch via mode selector before first message
+        const mode = 'feature' as const;
 
         let templateCatalog = "";
         try {

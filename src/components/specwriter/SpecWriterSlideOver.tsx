@@ -3,7 +3,7 @@ import { X, Copy, Check } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
-import { listSpecDocuments, gatherSpecContext } from "../../lib/tauri-commands";
+import { listSpecDocuments, gatherSpecContext, saveTaskBoardState } from "../../lib/tauri-commands";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -121,11 +121,13 @@ export default function SpecWriterSlideOver() {
     [chatWidth, activeProjectPath, setChatWidth]
   );
 
-  const handleNewSpec = useCallback(() => {
+  const handleReset = useCallback(() => {
     if (activeProjectPath) {
       clearConversation(activeProjectPath);
       setCurrentSpecContent(activeProjectPath, null);
       setLastSavedFile(null);
+      // Clear persisted state from database so stale data doesn't reload
+      saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
   }, [activeProjectPath, clearConversation, setCurrentSpecContent]);
 
@@ -299,7 +301,7 @@ export default function SpecWriterSlideOver() {
             {/* Bottom toolbar */}
             <SpecToolbar
               projectPath={activeProjectPath}
-              onNewSpec={handleNewSpec}
+              onReset={handleReset}
               onSave={() => setShowSaveDialog(true)}
             />
           </>

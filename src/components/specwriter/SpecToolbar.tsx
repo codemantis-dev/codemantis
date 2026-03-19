@@ -1,14 +1,14 @@
-import { FilePlus, PenTool, Lightbulb } from "lucide-react";
+import { RotateCcw, PenTool, Lightbulb } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
 
 interface Props {
   projectPath: string;
-  onNewSpec: () => void;
+  onReset: () => void;
   onSave: () => void;
 }
 
-export default function SpecToolbar({ projectPath, onNewSpec, onSave }: Props) {
+export default function SpecToolbar({ projectPath, onReset, onSave }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const currentSpec = useSpecWriterStore((s) => s.currentSpecContent.get(projectPath));
@@ -18,6 +18,7 @@ export default function SpecToolbar({ projectPath, onNewSpec, onSave }: Props) {
   const mode = conversation?.mode;
   const canWrite = status === 'ready_to_write' && !isStreaming;
   const canSave = !!currentSpec && !isStreaming;
+  const hasMessages = (conversation?.messages.length ?? 0) > 0;
 
   const handleWriteSpec = (): void => {
     writeSpec(projectPath);
@@ -35,24 +36,27 @@ export default function SpecToolbar({ projectPath, onNewSpec, onSave }: Props) {
       className="flex items-center gap-2 px-3 py-2 border-t shrink-0"
       style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
     >
-      <button
-        onClick={onNewSpec}
-        title="New Spec"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95"
-        style={{
-          background: "var(--bg-elevated)",
-          color: "var(--text-secondary)",
-          border: "1px solid var(--border)",
-        }}
-      >
-        <FilePlus size={13} />
-        New Spec
-      </button>
+      {hasMessages && (
+        <button
+          onClick={onReset}
+          disabled={isStreaming}
+          title="Reset — clear conversation and start fresh"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+          style={{
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <RotateCcw size={13} />
+          Reset
+        </button>
+      )}
 
       <button
         onClick={handleWriteSpec}
         disabled={!canWrite}
-        title="Write Spec"
+        title="Tell the AI to generate the specification document"
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90 disabled:opacity-40"
         style={{
           background: canWrite ? "var(--accent)" : "var(--bg-elevated)",
@@ -61,13 +65,13 @@ export default function SpecToolbar({ projectPath, onNewSpec, onSave }: Props) {
         }}
       >
         <PenTool size={13} />
-        Write Spec
+        Generate Spec
       </button>
 
       {canSave && (
         <button
           onClick={onSave}
-          title="Save to Project"
+          title="Save specification to project"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
           style={{ background: "var(--accent)", color: "white" }}
         >
@@ -79,7 +83,7 @@ export default function SpecToolbar({ projectPath, onNewSpec, onSave }: Props) {
         <button
           onClick={handleSuggestFeatures}
           disabled={isStreaming}
-          title="Suggest Features"
+          title="Ask the AI to suggest features for this project"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40 ml-auto"
           style={{
             background: "var(--bg-elevated)",

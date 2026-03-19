@@ -9,6 +9,7 @@ vi.mock("../lib/tauri-commands", () => ({
   listenAssistantStream: vi.fn().mockResolvedValue(() => {}),
   listTemplates: vi.fn().mockResolvedValue([]),
   gatherSpecContext: vi.fn().mockResolvedValue("Project: test"),
+  readProjectFiles: vi.fn().mockResolvedValue([]),
   saveTaskBoardState: vi.fn().mockResolvedValue(undefined),
   loadTaskBoardState: vi.fn().mockResolvedValue(null),
   archiveTaskPlan: vi.fn().mockResolvedValue(undefined),
@@ -25,6 +26,7 @@ beforeEach(() => {
     planningStreaming: new Map(),
     currentSpecContent: new Map(),
     savedSpecs: new Map(),
+    fileRequestsPending: new Map(),
   });
   useSettingsStore.setState({
     settings: {
@@ -45,7 +47,7 @@ describe("useSpecConversation", () => {
 
     const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
     expect(conv).toBeDefined();
-    expect(conv!.mode).toBe("new_application");
+    expect(conv!.mode).toBe("feature");
     expect(conv!.messages.length).toBeGreaterThan(0);
     expect(conv!.messages[0].role).toBe("user");
   });
