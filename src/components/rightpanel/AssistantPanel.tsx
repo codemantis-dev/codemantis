@@ -10,8 +10,8 @@ import { EMPTY_ARRAY } from "../../lib/empty-refs";
 import { useUiStore } from "../../stores/uiStore";
 import { useAssistantSession } from "../../hooks/useAssistantSession";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import { AI_MODELS } from "../../types/assistant-provider";
-import type { AIProvider, APIProvider } from "../../types/assistant-provider";
+import { useProviderMenu } from "../../hooks/useProviderMenu";
+import { useAssistantShortcuts } from "../../hooks/useAssistantShortcuts";
 import type { SlashCommand } from "../../types/slash-commands";
 import {
   discoverCommands,
@@ -28,18 +28,12 @@ import AssistantMessageMenu from "./AssistantMessageMenu";
 import AssistantProviderMenu from "./AssistantProviderMenu";
 import AssistantCommandPalette from "./AssistantCommandPalette";
 import AssistantChatMessages from "./AssistantChatMessages";
-import type { AssistantShortcut } from "../../types/settings";
-
 import { assistantInputDrafts } from "../../lib/input-drafts";
 
 export default function AssistantPanel() {
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string } | null>(null);
-  const [shortcutDraft, setShortcutDraft] = useState<{ prompt: string } | null>(null);
-  const [shortcutName, setShortcutName] = useState("");
-  const [showProviderMenu, setShowProviderMenu] = useState(false);
-  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
@@ -78,6 +72,26 @@ export default function AssistantPanel() {
 
   const { createAssistant, sendMessage, retryLastMessage, cancelAssistant, closeAssistant } = useAssistantSession();
 
+  const {
+    showProviderMenu, setShowProviderMenu,
+    expandedProvider, setExpandedProvider,
+    handleCreate,
+  } = useProviderMenu({
+    activeProjectPath,
+    activeSessionId,
+    creating,
+    setCreating,
+    apiKeys,
+    defaultModels,
+    createAssistant,
+  });
+
+  const {
+    shortcutDraft, setShortcutDraft,
+    shortcutName, setShortcutName,
+    handleAddShortcut, handleSaveShortcut,
+  } = useAssistantShortcuts({ shortcuts, updateSettings });
+
   const { activeInstance, isClaudeCode, isApiProvider, showThinking } = useMemo(() => {
     const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
     const isClaudeCode = activeInstance?.provider === "claude-code";
@@ -87,7 +101,7 @@ export default function AssistantPanel() {
   }, [activeAssistantId, assistants, busy, streaming]);
 
   // Close provider menu on click outside
-  const closeProviderMenu = useCallback(() => setShowProviderMenu(false), []);
+  const closeProviderMenu = useCallback(() => setShowProviderMenu(false), [setShowProviderMenu]);
   const providerMenuRef = useClickOutside<HTMLDivElement>(showProviderMenu, closeProviderMenu);
 
   // Close command palette on click outside
@@ -117,7 +131,7 @@ export default function AssistantPanel() {
     setDragOver(false);
     setContextMenu(null);
     prevAssistantRef.current = activeAssistantId;
-  }, [activeAssistantId]);
+  }, [activeAssistantId, setShowProviderMenu, setExpandedProvider]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -131,32 +145,6 @@ export default function AssistantPanel() {
       .then(setCommands)
       .catch((e) => console.error("[assistant] Failed to discover commands:", e));
   }, [activeProjectPath]);
-
-  const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {
-    if (!activeProjectPath || !activeSessionId || creating) return;
-
-    // Check API key for non-claude-code providers
-    if (provider !== "claude-code" && !(apiKeys[provider] ?? "").trim()) {
-      return; // shouldn't happen since button is disabled, but guard
-    }
-
-    // Use settings default model if none provided
-    const resolvedModel = model ?? (
-      provider !== "claude-code"
-        ? (defaultModels[provider] ?? AI_MODELS[provider as APIProvider]?.[0]?.id)
-        : undefined
-    );
-
-    setCreating(true);
-    setShowProviderMenu(false);
-    try {
-      await createAssistant(activeProjectPath, activeSessionId, provider, resolvedModel);
-    } catch (e) {
-      console.error("Failed to create assistant:", e);
-    } finally {
-      setCreating(false);
-    }
-  }, [activeProjectPath, activeSessionId, creating, createAssistant, apiKeys, defaultModels]);
 
   const handleClose = useCallback(async (sessionId: string) => {
     if (!activeProjectPath) return;
@@ -333,7 +321,7 @@ export default function AssistantPanel() {
     }
   }, [activeAssistantId, activeProjectPath, commands, sendMessage, handleClose, isClaudeCode]);
 
-  const getFilteredCommands = useCallback((): SlashCommand[] => {
+  const filteredCommands = useMemo((): SlashCommand[] => {
     if (!commandQuery) return commands;
     const q = commandQuery.toLowerCase().split(/\s/)[0];
     return commands.filter(
@@ -345,7 +333,7 @@ export default function AssistantPanel() {
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       // Command palette navigation
       if (showCommandPalette) {
-        const filtered = getFilteredCommands();
+        const filtered = filteredCommands;
         switch (e.key) {
           case "ArrowDown":
             e.preventDefault();
@@ -390,7 +378,7 @@ export default function AssistantPanel() {
         handleSend();
       }
     },
-    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, getFilteredCommands]
+    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands]
   );
 
   // Auto-resize textarea + slash command detection
@@ -414,25 +402,6 @@ export default function AssistantPanel() {
     },
     [isClaudeCode]
   );
-
-  const handleAddShortcut = useCallback((prompt: string) => {
-    setShortcutDraft({ prompt });
-    setShortcutName("");
-  }, []);
-
-  const handleSaveShortcut = useCallback(() => {
-    if (!shortcutDraft || !shortcutName.trim()) return;
-    const newShortcut: AssistantShortcut = {
-      id: crypto.randomUUID(),
-      name: shortcutName.trim(),
-      prompt: shortcutDraft.prompt,
-    };
-    updateSettings({
-      assistantShortcuts: [...shortcuts, newShortcut],
-    });
-    setShortcutDraft(null);
-    setShortcutName("");
-  }, [shortcutDraft, shortcutName, shortcuts, updateSettings]);
 
   /** Read a file via Rust and create a blob: URL for previewing in the webview. */
   const createPreviewUrl = useCallback(async (filePath: string, mimeType: string): Promise<string | undefined> => {
@@ -623,8 +592,6 @@ export default function AssistantPanel() {
       </div>
     );
   }
-
-  const filteredCommands = getFilteredCommands();
 
   return (
     <div className="h-full flex flex-col">

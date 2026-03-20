@@ -89,8 +89,8 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
               </button>
               {expanded && (
                 <ul className="mt-1 ml-1 space-y-0.5">
-                  {detailBullets.map((bullet, i) => (
-                    <li key={i} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
+                  {detailBullets.map((bullet) => (
+                    <li key={bullet} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
                       <span className="text-text-ghost mt-px shrink-0">&#x2022;</span>
                       <span className="changelog-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{bullet}</ReactMarkdown></span>
                     </li>
@@ -145,7 +145,7 @@ export default function ChangelogFeed() {
         entry.technical_details,
         entry.tools_summary,
         entry.category,
-        ...entry.files_changed,
+        ...(entry.files_changed ?? []),
       ].join(" ").toLowerCase();
       return tokens.every((t) => haystack.includes(t));
     });

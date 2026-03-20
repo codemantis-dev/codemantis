@@ -249,13 +249,15 @@ async fn handle_tool_approval(
                 );
                 modes.insert(sid.clone(), new_mode.clone());
             }
-            let _ = app_handle.emit(
+            if let Err(e) = app_handle.emit(
                 "session-mode-changed",
                 serde_json::json!({
                     "sessionId": sid,
                     "mode": new_mode
                 }),
-            );
+            ) {
+                warn!("[approval-server] Failed to emit session-mode-changed: {}", e);
+            }
         } else {
             warn!(
                 "[approval-server] {} approved but session not found — mode not updated",
@@ -396,15 +398,48 @@ async fn handle_tool_approval(
 // Instead, the preview toolbar's JS buttons call fetch() to these endpoints.
 
 /// CORS preflight — allows cross-origin fetch from preview page (e.g. http://localhost:3000).
-async fn preview_cors_preflight() -> (StatusCode, [(&'static str, &'static str); 3]) {
+/// Origin is restricted to localhost/127.0.0.1 to prevent external pages from calling these endpoints.
+async fn preview_cors_preflight(
+    headers: axum::http::HeaderMap,
+) -> (StatusCode, [(&'static str, &'static str); 3]) {
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let allowed = is_localhost_origin(origin);
     (
         StatusCode::NO_CONTENT,
         [
-            ("access-control-allow-origin", "*"),
+            (
+                "access-control-allow-origin",
+                if allowed { "http://127.0.0.1" } else { "" },
+            ),
             ("access-control-allow-methods", "POST, OPTIONS"),
             ("access-control-allow-headers", "content-type"),
         ],
     )
+}
+
+/// Returns true if the origin matches localhost or 127.0.0.1 (any port).
+fn is_localhost_origin(origin: &str) -> bool {
+    let lower = origin.to_lowercase();
+    lower.starts_with("http://127.0.0.1")
+        || lower.starts_with("http://localhost")
+        || lower.starts_with("https://127.0.0.1")
+        || lower.starts_with("https://localhost")
+}
+
+/// Build CORS header restricted to localhost origins.
+fn cors_header(headers: &axum::http::HeaderMap) -> [(&'static str, &'static str); 1] {
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if is_localhost_origin(origin) {
+        [("access-control-allow-origin", "http://127.0.0.1")]
+    } else {
+        [("access-control-allow-origin", "")]
+    }
 }
 
 #[derive(Deserialize)]
@@ -418,9 +453,10 @@ struct ConsoleToChat {
 }
 
 async fn handle_preview_screenshot(
+    headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
-    let cors = [("access-control-allow-origin", "*")];
+    let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         warn!("[preview-callback] No app handle available for screenshot");
         return (StatusCode::INTERNAL_SERVER_ERROR, cors);
@@ -428,7 +464,9 @@ async fn handle_preview_screenshot(
     match capture_screenshot_inner(&app_handle) {
         Ok(path) => {
             info!("[preview-callback] Screenshot captured: {}", path);
-            let _ = app_handle.emit("preview-screenshot-taken", path);
+            if let Err(e) = app_handle.emit("preview-screenshot-taken", path) {
+                warn!("[approval-server] Failed to emit preview-screenshot-taken: {}", e);
+            }
             (StatusCode::OK, cors)
         }
         Err(e) => {
@@ -439,31 +477,36 @@ async fn handle_preview_screenshot(
 }
 
 async fn handle_preview_open_browser(
+    headers: axum::http::HeaderMap,
     Json(body): Json<OpenBrowserRequest>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
     info!("[preview-callback] Opening in browser: {}", body.url);
     let _ = std::process::Command::new("open").arg(&body.url).spawn();
-    (StatusCode::OK, [("access-control-allow-origin", "*")])
+    (StatusCode::OK, cors_header(&headers))
 }
 
 async fn handle_preview_console_to_chat(
+    headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
     Json(body): Json<ConsoleToChat>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
-    let cors = [("access-control-allow-origin", "*")];
+    let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         warn!("[preview-callback] No app handle available for console-to-chat");
         return (StatusCode::INTERNAL_SERVER_ERROR, cors);
     };
     info!("[preview-callback] Sending console logs to chat ({} bytes)", body.logs.len());
-    let _ = app_handle.emit("preview-console-to-chat", body.logs);
+    if let Err(e) = app_handle.emit("preview-console-to-chat", body.logs) {
+        warn!("[approval-server] Failed to emit preview-console-to-chat: {}", e);
+    }
     (StatusCode::OK, cors)
 }
 
 async fn handle_preview_close(
+    headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
-    let cors = [("access-control-allow-origin", "*")];
+    let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         return (StatusCode::INTERNAL_SERVER_ERROR, cors);
     };

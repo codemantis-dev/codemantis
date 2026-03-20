@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { BarChart3, AlertTriangle } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
+import { formatCost, formatTimestamp } from "../../../lib/format-utils";
 import { SectionTitle } from "./SettingsShared";
 
 type TabId = "cost" | "errors";
@@ -47,23 +48,6 @@ export default function ApiLogsTab() {
     return () => { cancelled = true; };
   }, []);
 
-  const formatCost = (cost: number): string => {
-    if (cost === 0) return "Free";
-    if (cost < 0.01) return `$${cost.toFixed(6)}`;
-    return `$${cost.toFixed(4)}`;
-  };
-
-  const formatTimestamp = (ts: string): string => {
-    try {
-      const d = new Date(ts);
-      return d.toLocaleString(undefined, {
-        month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-      });
-    } catch {
-      return ts;
-    }
-  };
-
   if (loading) {
     return (
       <div>
@@ -104,7 +88,7 @@ export default function ApiLogsTab() {
             <div className="rounded-lg border border-border p-4 mb-4 shrink-0" style={{ background: "var(--bg-elevated)" }}>
               <div className="flex items-baseline justify-between mb-3">
                 <span className="text-ui text-text-secondary">Total Cost</span>
-                <span className="text-lg font-semibold text-text-primary">{formatCost(summary.totalCost)}</span>
+                <span className="text-lg font-semibold text-text-primary">{formatCost(summary.totalCost, "explicit")}</span>
               </div>
               <div className="flex items-baseline justify-between mb-3">
                 <span className="text-ui text-text-secondary">Total Calls</span>

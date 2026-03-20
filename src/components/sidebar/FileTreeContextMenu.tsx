@@ -32,7 +32,7 @@ import {
   duplicateFile,
 } from "../../lib/tauri-commands";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 
 interface FileTreeContextMenuProps {
   x: number;
@@ -151,8 +151,7 @@ export default function FileTreeContextMenu({
       await duplicateFile(node.path);
       onRefresh();
     } catch (e) {
-      console.error("Failed to duplicate:", e);
-      showToast("Failed to duplicate file", "error");
+      handleError("FileTreeContextMenu.duplicate", e);
     }
     onClose();
   }
@@ -182,8 +181,7 @@ export default function FileTreeContextMenu({
       }
       onRefresh();
     } catch (e) {
-      console.error("Failed to delete:", e);
-      showToast("Failed to delete item", "error");
+      handleError("FileTreeContextMenu.delete", e);
     }
     onClose();
   }
@@ -193,8 +191,7 @@ export default function FileTreeContextMenu({
     try {
       await revealItemInDir(node.path);
     } catch (e) {
-      console.error("Failed to reveal:", e);
-      showToast("Failed to reveal in Finder", "error");
+      handleError("FileTreeContextMenu.reveal", e);
     }
     onClose();
   }
@@ -205,8 +202,7 @@ export default function FileTreeContextMenu({
       const content = await readFileContent(node.path);
       await navigator.clipboard.writeText(content);
     } catch (e) {
-      console.error("Failed to copy file content:", e);
-      showToast("Failed to copy file content", "error");
+      handleError("FileTreeContextMenu.copyContent", e);
     }
     onClose();
   }

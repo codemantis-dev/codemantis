@@ -156,7 +156,9 @@ pub async fn open_preview_window(
     let ah = app_handle.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { .. } = event {
-            let _ = ah.emit("preview-window-closed", ());
+            if let Err(e) = ah.emit("preview-window-closed", ()) {
+                warn!("[preview] Failed to emit preview-window-closed: {}", e);
+            }
         }
     });
 
@@ -293,7 +295,9 @@ pub async fn open_preview_window(
                                 // Emit events for errors and warnings to main window
                                 for entry in &entries {
                                     if entry.level == "error" || entry.level == "warn" {
-                                        let _ = poll_ah.emit("preview-console-entry", entry.clone());
+                                        if let Err(e) = poll_ah.emit("preview-console-entry", entry.clone()) {
+                                            warn!("[preview] Failed to emit preview-console-entry: {}", e);
+                                        }
                                     }
                                 }
 
@@ -505,12 +509,14 @@ pub async fn start_dev_server(
                                 info.url = Some(url.clone());
                                 info.status = DevServerStatus::Detected;
                             }
-                            let _ = ah.emit("dev-server-ready", DevServerReadyEvent {
+                            if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
                                 port,
                                 url,
                                 terminal_id: output_tid.clone(),
                                 project_path: output_pp.clone(),
-                            });
+                            }) {
+                                warn!("[preview] Failed to emit dev-server-ready: {}", e);
+                            }
                             unlisten_ah.unlisten(listener_id);
                             return;
                         }
@@ -562,12 +568,14 @@ pub async fn start_dev_server(
                         info.url = Some(url.clone());
                         info.status = DevServerStatus::Detected;
                     }
-                    let _ = ah.emit("dev-server-ready", DevServerReadyEvent {
+                    if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
                         port,
                         url,
                         terminal_id: output_tid.clone(),
                         project_path: output_pp.clone(),
-                    });
+                    }) {
+                        warn!("[preview] Failed to emit dev-server-ready: {}", e);
+                    }
                     return;
                 }
             }
@@ -586,10 +594,12 @@ pub async fn start_dev_server(
                 info.status = DevServerStatus::Failed;
             }
         }
-        let _ = ah.emit("dev-server-error", DevServerErrorEvent {
+        if let Err(e) = ah.emit("dev-server-error", DevServerErrorEvent {
             message: "Could not detect dev server port. Try entering the URL manually.".to_string(),
             project_path: output_pp,
-        });
+        }) {
+            warn!("[preview] Failed to emit dev-server-error: {}", e);
+        }
     });
 
     info!(

@@ -20,7 +20,7 @@ export default function QuickCommandsTab({
       </p>
       <div className="space-y-2">
         {commands.map((cmd, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={`${cmd.label}-${cmd.command}-${i}`} className="flex items-center gap-2">
             <input
               type="text"
               value={cmd.label}

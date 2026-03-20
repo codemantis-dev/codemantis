@@ -224,7 +224,44 @@ async fn run_command(
     })
 }
 
+/// Allowed base commands for scaffold shell execution.
+/// Only commands in this list (or prefixed by these) are permitted.
+const ALLOWED_SCAFFOLD_COMMANDS: &[&str] = &[
+    "which", "node", "npm", "npx", "pnpm", "yarn", "bun", "bunx",
+    "cargo", "rustup", "go", "python", "python3", "pip", "pip3",
+    "git", "deno", "flutter", "dart", "ruby", "gem", "composer",
+    "php", "java", "javac", "mvn", "gradle", "swift",
+    "create-react-app", "create-next-app", "create-vite",
+    "mkdir", "cp", "mv", "rm", "cat", "echo", "sed", "chmod",
+    "cd", "ls", "test", "brew",
+];
+
+/// Validates that a shell command starts with an allowed base command.
+fn validate_shell_command(command_str: &str) -> Result<(), String> {
+    let trimmed = command_str.trim();
+    // Extract the first command token (handles env vars, path prefixes, etc.)
+    let first_token = trimmed
+        .split(|c: char| c.is_whitespace() || c == ';' || c == '&' || c == '|')
+        .find(|s| !s.is_empty() && !s.contains('='))
+        .unwrap_or("");
+    // Get basename (strip any path like /usr/bin/node → node)
+    let basename = first_token.rsplit('/').next().unwrap_or(first_token);
+
+    if basename.is_empty() {
+        return Err("Empty shell command".to_string());
+    }
+    if ALLOWED_SCAFFOLD_COMMANDS.iter().any(|allowed| basename == *allowed) {
+        return Ok(());
+    }
+    Err(format!(
+        "Shell command '{}' is not in the allowed list for scaffold operations",
+        basename
+    ))
+}
+
 async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<CmdOutput, String> {
+    validate_shell_command(command_str)?;
+
     let shell = if cfg!(target_os = "windows") {
         "cmd"
     } else {

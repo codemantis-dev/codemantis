@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, File, Folder } from "lucide-react";
 import type { FileNode } from "../../types/file-tree";
 import { useFileViewer } from "../../hooks/useFileViewer";
 import { renameFile, createFile, createDirectory } from "../../lib/tauri-commands";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 import FileTreeContextMenu from "./FileTreeContextMenu";
 
 interface FileTreeProps {
@@ -90,8 +90,7 @@ function InlineRenameInput({
       await renameFile(node.path, newPath);
       onRefresh();
     } catch (e) {
-      console.error("Failed to rename:", e);
-      showToast("Failed to rename item", "error");
+      handleError("FileTree.rename", e);
     }
     onDone();
   }
@@ -161,8 +160,7 @@ function InlineNewItemInput({
         onRefresh();
       }
     } catch (e) {
-      console.error(`Failed to create ${type}:`, e);
-      showToast(`Failed to create ${type}`, "error");
+      handleError(`FileTree.create.${type}`, e);
     }
     onDone();
   }

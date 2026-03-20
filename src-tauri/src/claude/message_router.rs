@@ -1,4 +1,4 @@
-use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, StreamDelta};
+use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, RateLimitInfo, StreamDelta};
 use crate::claude::session::{AppState, ControlRequestKind, SessionMode};
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -10,6 +10,70 @@ struct PendingToolBlock {
     id: String,
     name: String,
     input_json: String,
+}
+
+// ── Pure helper functions (testable without AppHandle) ──
+
+/// Map a CLI permissionMode string to our SessionMode enum.
+pub(crate) fn classify_permission_mode(cli_perm_mode: &str) -> SessionMode {
+    match cli_perm_mode {
+        "plan" => SessionMode::Plan,
+        "acceptEdits" => SessionMode::AutoAccept,
+        _ => SessionMode::Normal,
+    }
+}
+
+/// Extract model name, contextWindow, and maxOutputTokens from the CLI's modelUsage blob.
+pub(crate) fn extract_model_usage_info(
+    model_usage: &Option<serde_json::Value>,
+) -> (Option<String>, Option<u64>, Option<u64>) {
+    model_usage
+        .as_ref()
+        .and_then(|mu| mu.as_object())
+        .and_then(|obj| {
+            obj.iter().next().map(|(key, val)| (key.clone(), val.as_object()))
+        })
+        .map(|(name, entry_opt)| {
+            let (cw, mot) = entry_opt
+                .map(|entry| {
+                    let cw = entry.get("contextWindow").and_then(|v| v.as_u64());
+                    let mot = entry.get("maxOutputTokens").and_then(|v| v.as_u64());
+                    (cw, mot)
+                })
+                .unwrap_or((None, None));
+            (Some(name), cw, mot)
+        })
+        .unwrap_or((None, None, None))
+}
+
+/// Extract thinking effort from the extra fields of a system init event.
+/// Checks three possible locations: `extra.thinking.effort`, `extra.effort`, `extra.thinking_effort`.
+pub(crate) fn extract_thinking_effort(extra: &serde_json::Value) -> Option<String> {
+    extra
+        .get("thinking")
+        .and_then(|v| v.get("effort"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            extra.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string())
+        })
+        .or_else(|| {
+            extra.get("thinking_effort").and_then(|v| v.as_str()).map(|s| s.to_string())
+        })
+}
+
+/// Convert a tool result content value to a string representation.
+pub(crate) fn tool_result_content_to_string(content: &Option<serde_json::Value>) -> Option<String> {
+    content.as_ref().map(|c| match c {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    })
+}
+
+/// Determine whether a rate_limit_event should trigger a frontend warning.
+pub(crate) fn should_emit_rate_limit_warning(info: &RateLimitInfo) -> bool {
+    let utilization = info.utilization.unwrap_or(0.0);
+    utilization > 0.7 || info.status.as_deref() == Some("allowed_warning")
 }
 
 /// Helper: update the model stored in a session's SessionInfo.
@@ -36,11 +100,7 @@ async fn sync_session_mode(
     session_id: &str,
     cli_perm_mode: &str,
 ) {
-    let new_mode = match cli_perm_mode {
-        "plan" => SessionMode::Plan,
-        "acceptEdits" => SessionMode::AutoAccept,
-        _ => SessionMode::Normal,
-    };
+    let new_mode = classify_permission_mode(cli_perm_mode);
     if let Some(state) = app_handle.try_state::<AppState>() {
         let mut modes = state.session_modes.lock().await;
         if modes.get(session_id) != Some(&new_mode) {
@@ -50,13 +110,15 @@ async fn sync_session_mode(
             );
             modes.insert(session_id.to_string(), new_mode.clone());
             drop(modes);
-            let _ = app_handle.emit(
+            if let Err(e) = app_handle.emit(
                 "session-mode-changed",
                 serde_json::json!({
                     "sessionId": session_id,
                     "mode": new_mode
                 }),
-            );
+            ) {
+                warn!("[message-router] Failed to emit session-mode-changed: {}", e);
+            }
         }
     }
 }
@@ -92,23 +154,15 @@ pub async fn route_events(
                     }
 
                     // Try to extract thinking effort from extra fields
-                    let thinking_effort = extra
-                        .get("thinking")
-                        .and_then(|v| v.get("effort"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            extra.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string())
-                        })
-                        .or_else(|| {
-                            extra.get("thinking_effort").and_then(|v| v.as_str()).map(|s| s.to_string())
-                        });
+                    let thinking_effort = extract_thinking_effort(extra);
                     let fe = FrontendEvent::SessionInit {
                         session_id: session_id.clone(),
                         model,
                         thinking_effort,
                     };
-                    let _ = app_handle.emit(&chat_event, &fe);
+                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                        warn!("[message-router] Failed to emit session-init: {}", e);
+                    }
 
                     // Emit CLI's own session_id if present and store in AppState
                     if let Some(ref sid) = cli_sid {
@@ -119,7 +173,9 @@ pub async fn route_events(
                                 session_id: session_id.clone(),
                                 cli_session_id: sid.clone(),
                             };
-                            let _ = app_handle.emit(&chat_event, &fe);
+                            if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                warn!("[message-router] Failed to emit cli-session-id: {}", e);
+                            }
                         }
                     }
 
@@ -144,7 +200,9 @@ pub async fn route_events(
                                     session_id: session_id.clone(),
                                     full_text: text.clone(),
                                 };
-                                let _ = app_handle.emit(&chat_event, &fe);
+                                if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                    warn!("[message-router] Failed to emit text-complete: {}", e);
+                                }
                             }
                             ContentBlock::ToolUse { id, name, input } => {
                                 // Skip if this tool is still being streamed via
@@ -158,7 +216,9 @@ pub async fn route_events(
                                         tool_name: name.clone(),
                                         tool_input: input.clone(),
                                     };
-                                    let _ = app_handle.emit(&activity_event, &fe);
+                                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                        warn!("[message-router] Failed to emit tool-use-start: {}", e);
+                                    }
                                 }
                             }
                             ContentBlock::ToolResult {
@@ -166,19 +226,16 @@ pub async fn route_events(
                                 content,
                                 is_error,
                             } => {
-                                let content_str = content.as_ref().map(|c| {
-                                    match c {
-                                        serde_json::Value::String(s) => s.clone(),
-                                        other => other.to_string(),
-                                    }
-                                });
+                                let content_str = tool_result_content_to_string(content);
                                 let fe = FrontendEvent::ToolResult {
                                     session_id: session_id.clone(),
                                     tool_use_id: tool_use_id.clone(),
                                     content: content_str,
                                     is_error: is_error.unwrap_or(false),
                                 };
-                                let _ = app_handle.emit(&activity_event, &fe);
+                                if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                    warn!("[message-router] Failed to emit tool-result: {}", e);
+                                }
                             }
                             ContentBlock::Thinking { .. } => {
                                 // Extended thinking — silently skip
@@ -199,7 +256,9 @@ pub async fn route_events(
                             session_id: session_id.clone(),
                             text,
                         };
-                        let _ = app_handle.emit(&chat_event, &fe);
+                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                            warn!("[message-router] Failed to emit text-delta: {}", e);
+                        }
                     }
                     Some(StreamDelta::InputJsonDelta { partial_json }) => {
                         // Accumulate tool input JSON fragments
@@ -229,7 +288,9 @@ pub async fn route_events(
                                         session_id: session_id.clone(),
                                         tool_use_id: id.clone(),
                                     };
-                                    let _ = app_handle.emit(&activity_event, &fe);
+                                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                        warn!("[message-router] Failed to emit agent-preparing: {}", e);
+                                    }
                                 }
                                 pending_tools.insert(idx, PendingToolBlock {
                                     id,
@@ -245,7 +306,9 @@ pub async fn route_events(
                                     session_id: session_id.clone(),
                                     text,
                                 };
-                                let _ = app_handle.emit(&chat_event, &fe);
+                                if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                    warn!("[message-router] Failed to emit text-delta: {}", e);
+                                }
                             }
                         }
                         _ => {}
@@ -266,7 +329,9 @@ pub async fn route_events(
                                 tool_name: pending.name,
                                 tool_input: input,
                             };
-                            let _ = app_handle.emit(&activity_event, &fe);
+                            if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                warn!("[message-router] Failed to emit tool-use-start: {}", e);
+                            }
                         }
                     }
                 }
@@ -294,7 +359,9 @@ pub async fn route_events(
                             session_id: session_id.clone(),
                             cli_session_id: sid.clone(),
                         };
-                        let _ = app_handle.emit(&chat_event, &fe);
+                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                            warn!("[message-router] Failed to emit cli-session-id: {}", e);
+                        }
                     }
                 }
                 if is_error == Some(true) {
@@ -303,27 +370,13 @@ pub async fn route_events(
                         session_id: session_id.clone(),
                         error: error_msg,
                     };
-                    let _ = app_handle.emit(&chat_event, &fe);
+                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                        warn!("[message-router] Failed to emit process-error: {}", e);
+                    }
                 } else {
                     // Extract model name, contextWindow, and maxOutputTokens from modelUsage
-                    let (model_name, context_window, max_output_tokens) = model_usage
-                        .as_ref()
-                        .and_then(|mu| mu.as_object())
-                        .and_then(|obj| {
-                            // modelUsage is keyed by model name — take the first entry
-                            obj.iter().next().map(|(key, val)| (key.clone(), val.as_object()))
-                        })
-                        .map(|(name, entry_opt)| {
-                            let (cw, mot) = entry_opt
-                                .map(|entry| {
-                                    let cw = entry.get("contextWindow").and_then(|v| v.as_u64());
-                                    let mot = entry.get("maxOutputTokens").and_then(|v| v.as_u64());
-                                    (cw, mot)
-                                })
-                                .unwrap_or((None, None));
-                            (Some(name), cw, mot)
-                        })
-                        .unwrap_or((None, None, None));
+                    let (model_name, context_window, max_output_tokens) =
+                        extract_model_usage_info(&model_usage);
 
                     let fe = FrontendEvent::TurnComplete {
                         session_id: session_id.clone(),
@@ -337,7 +390,9 @@ pub async fn route_events(
                         context_window,
                         max_output_tokens,
                     };
-                    let _ = app_handle.emit(&chat_event, &fe);
+                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                        warn!("[message-router] Failed to emit turn-complete: {}", e);
+                    }
                 }
                 accumulated_text.clear();
             }
@@ -353,7 +408,9 @@ pub async fn route_events(
                     session_id: session_id.clone(),
                     is_compacting,
                 };
-                let _ = app_handle.emit(&chat_event, &fe);
+                if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                    warn!("[message-router] Failed to emit compacting-status: {}", e);
+                }
             }
 
             RawStreamEvent::System {
@@ -375,7 +432,9 @@ pub async fn route_events(
                     trigger,
                     pre_tokens,
                 };
-                let _ = app_handle.emit(&chat_event, &fe);
+                if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                    warn!("[message-router] Failed to emit compact-complete: {}", e);
+                }
             }
 
             RawStreamEvent::ToolProgress {
@@ -393,7 +452,9 @@ pub async fn route_events(
                         tool_name: name.clone(),
                         elapsed_seconds: elapsed,
                     };
-                    let _ = app_handle.emit(&activity_event, &fe);
+                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                        warn!("[message-router] Failed to emit tool-progress: {}", e);
+                    }
 
                     // Extract tool_count/token_count from extra for Agent tools
                     if name == "Agent" {
@@ -407,7 +468,9 @@ pub async fn route_events(
                                 token_count,
                                 current_activity: None,
                             };
-                            let _ = app_handle.emit(&activity_event, &fe);
+                            if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                warn!("[message-router] Failed to emit sub-agent-progress: {}", e);
+                            }
                         }
                     }
                 }
@@ -416,10 +479,7 @@ pub async fn route_events(
             RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
                 if let Some(info) = rate_limit_info {
                     let utilization = info.utilization.unwrap_or(0.0);
-                    // Emit when status is "allowed_warning" OR utilization is high.
-                    // The real CLI typically sends status but not utilization, so
-                    // the status-based path is the primary trigger.
-                    if utilization > 0.7 || info.status.as_deref() == Some("allowed_warning") {
+                    if should_emit_rate_limit_warning(&info) {
                         let fe = FrontendEvent::RateLimitWarning {
                             session_id: session_id.clone(),
                             utilization,
@@ -428,7 +488,9 @@ pub async fn route_events(
                             overage_status: info.overage_status,
                             is_using_overage: info.is_using_overage,
                         };
-                        let _ = app_handle.emit(&chat_event, &fe);
+                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                            warn!("[message-router] Failed to emit rate-limit-warning: {}", e);
+                        }
                     }
                 }
             }
@@ -458,7 +520,9 @@ pub async fn route_events(
                             description,
                             subagent_type,
                         };
-                        let _ = app_handle.emit(&activity_event, &fe);
+                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                            warn!("[message-router] Failed to emit sub-agent-started: {}", e);
+                        }
                     }
                     "task_progress" => {
                         let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
@@ -471,7 +535,9 @@ pub async fn route_events(
                             token_count,
                             current_activity,
                         };
-                        let _ = app_handle.emit(&activity_event, &fe);
+                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                            warn!("[message-router] Failed to emit sub-agent-progress: {}", e);
+                        }
                     }
                     "task_complete" => {
                         let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
@@ -482,7 +548,9 @@ pub async fn route_events(
                             tool_count,
                             token_count,
                         };
-                        let _ = app_handle.emit(&activity_event, &fe);
+                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                            warn!("[message-router] Failed to emit sub-agent-complete: {}", e);
+                        }
                     }
                     _ => {}
                 }
@@ -504,7 +572,9 @@ pub async fn route_events(
                         session_id: session_id.clone(),
                         usage: usage.clone(),
                     };
-                    let _ = app_handle.emit(&chat_event, &fe);
+                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                        warn!("[message-router] Failed to emit usage-update: {}", e);
+                    }
                 }
             }
 
@@ -522,17 +592,16 @@ pub async fn route_events(
                                 is_error,
                             } = block
                             {
-                                let content_str = content.as_ref().map(|c| match c {
-                                    serde_json::Value::String(s) => s.clone(),
-                                    other => other.to_string(),
-                                });
+                                let content_str = tool_result_content_to_string(content);
                                 let fe = FrontendEvent::ToolResult {
                                     session_id: session_id.clone(),
                                     tool_use_id: tool_use_id.clone(),
                                     content: content_str,
                                     is_error: is_error.unwrap_or(false),
                                 };
-                                let _ = app_handle.emit(&activity_event, &fe);
+                                if let Err(e) = app_handle.emit(&activity_event, &fe) {
+                                    warn!("[message-router] Failed to emit tool-result: {}", e);
+                                }
                             }
                         }
                     }
@@ -569,7 +638,9 @@ pub async fn route_events(
                                         success: is_success,
                                         error: error_msg,
                                     };
-                                    let _ = app_handle.emit(&chat_event, &fe);
+                                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                        warn!("[message-router] Failed to emit interrupt-result: {}", e);
+                                    }
                                 }
                                 Some((_, ControlRequestKind::SetModel(model))) => {
                                     if is_success {
@@ -584,7 +655,9 @@ pub async fn route_events(
                                         success: is_success,
                                         error: error_msg,
                                     };
-                                    let _ = app_handle.emit(&chat_event, &fe);
+                                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                        warn!("[message-router] Failed to emit model-changed: {}", e);
+                                    }
                                 }
                                 Some((_, ControlRequestKind::SetPermissionMode(mode))) => {
                                     if is_success {
@@ -614,7 +687,9 @@ pub async fn route_events(
                                                 .cloned()
                                                 .unwrap_or_default(),
                                         };
-                                        let _ = app_handle.emit(&chat_event, &fe);
+                                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
+                                            warn!("[message-router] Failed to emit capabilities-discovered: {}", e);
+                                        }
                                     } else {
                                         warn!(
                                             "[message_router] initialize failed: {:?}",
@@ -643,4 +718,622 @@ pub async fn route_events(
     }
 
     debug!("Message router: channel closed for session {}", session_id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::claude::event_types::{
+        ContentBlock, RateLimitInfo, RawStreamEvent, StreamDelta,
+    };
+    use crate::claude::session::SessionMode;
+
+    // ── classify_permission_mode ──
+
+    #[test]
+    fn classify_plan_mode() {
+        assert_eq!(classify_permission_mode("plan"), SessionMode::Plan);
+    }
+
+    #[test]
+    fn classify_accept_edits_mode() {
+        assert_eq!(classify_permission_mode("acceptEdits"), SessionMode::AutoAccept);
+    }
+
+    #[test]
+    fn classify_default_mode() {
+        assert_eq!(classify_permission_mode("default"), SessionMode::Normal);
+    }
+
+    #[test]
+    fn classify_unknown_mode_falls_back_to_normal() {
+        assert_eq!(classify_permission_mode("some_future_mode"), SessionMode::Normal);
+        assert_eq!(classify_permission_mode(""), SessionMode::Normal);
+    }
+
+    // ── extract_model_usage_info ──
+
+    #[test]
+    fn extract_model_usage_full_info() {
+        let model_usage = Some(serde_json::json!({
+            "claude-opus-4-6": {
+                "contextWindow": 200000,
+                "maxOutputTokens": 32000,
+                "costUSD": 0.05,
+                "inputTokens": 100,
+                "outputTokens": 200
+            }
+        }));
+        let (name, cw, mot) = extract_model_usage_info(&model_usage);
+        assert_eq!(name.as_deref(), Some("claude-opus-4-6"));
+        assert_eq!(cw, Some(200000));
+        assert_eq!(mot, Some(32000));
+    }
+
+    #[test]
+    fn extract_model_usage_none() {
+        let (name, cw, mot) = extract_model_usage_info(&None);
+        assert!(name.is_none());
+        assert!(cw.is_none());
+        assert!(mot.is_none());
+    }
+
+    #[test]
+    fn extract_model_usage_empty_object() {
+        let model_usage = Some(serde_json::json!({}));
+        let (name, cw, mot) = extract_model_usage_info(&model_usage);
+        assert!(name.is_none());
+        assert!(cw.is_none());
+        assert!(mot.is_none());
+    }
+
+    #[test]
+    fn extract_model_usage_missing_context_window() {
+        let model_usage = Some(serde_json::json!({
+            "sonnet": {
+                "maxOutputTokens": 16000
+            }
+        }));
+        let (name, cw, mot) = extract_model_usage_info(&model_usage);
+        assert_eq!(name.as_deref(), Some("sonnet"));
+        assert!(cw.is_none());
+        assert_eq!(mot, Some(16000));
+    }
+
+    #[test]
+    fn extract_model_usage_not_an_object() {
+        let model_usage = Some(serde_json::json!("not an object"));
+        let (name, cw, mot) = extract_model_usage_info(&model_usage);
+        assert!(name.is_none());
+        assert!(cw.is_none());
+        assert!(mot.is_none());
+    }
+
+    // ── extract_thinking_effort ──
+
+    #[test]
+    fn extract_thinking_effort_nested() {
+        let extra = serde_json::json!({
+            "thinking": { "effort": "high" }
+        });
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn extract_thinking_effort_flat() {
+        let extra = serde_json::json!({
+            "effort": "medium"
+        });
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some("medium"));
+    }
+
+    #[test]
+    fn extract_thinking_effort_underscore_key() {
+        let extra = serde_json::json!({
+            "thinking_effort": "low"
+        });
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn extract_thinking_effort_priority_order() {
+        // The nested `thinking.effort` should take priority
+        let extra = serde_json::json!({
+            "thinking": { "effort": "high" },
+            "effort": "low",
+            "thinking_effort": "medium"
+        });
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn extract_thinking_effort_none_when_missing() {
+        let extra = serde_json::json!({});
+        assert!(extract_thinking_effort(&extra).is_none());
+    }
+
+    // ── tool_result_content_to_string ──
+
+    #[test]
+    fn tool_result_content_string_value() {
+        let content = Some(serde_json::Value::String("file contents here".to_string()));
+        assert_eq!(
+            tool_result_content_to_string(&content).as_deref(),
+            Some("file contents here")
+        );
+    }
+
+    #[test]
+    fn tool_result_content_json_object() {
+        let content = Some(serde_json::json!({"error": "not found"}));
+        let result = tool_result_content_to_string(&content).unwrap();
+        assert!(result.contains("error"));
+        assert!(result.contains("not found"));
+    }
+
+    #[test]
+    fn tool_result_content_none() {
+        assert!(tool_result_content_to_string(&None).is_none());
+    }
+
+    #[test]
+    fn tool_result_content_number() {
+        let content = Some(serde_json::json!(42));
+        assert_eq!(tool_result_content_to_string(&content).as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn tool_result_content_array() {
+        let content = Some(serde_json::json!([1, 2, 3]));
+        assert_eq!(tool_result_content_to_string(&content).as_deref(), Some("[1,2,3]"));
+    }
+
+    // ── should_emit_rate_limit_warning ──
+
+    #[test]
+    fn rate_limit_warning_on_high_utilization() {
+        let info = RateLimitInfo {
+            status: None,
+            resets_at: None,
+            utilization: Some(0.85),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+        };
+        assert!(should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_warning_on_allowed_warning_status() {
+        let info = RateLimitInfo {
+            status: Some("allowed_warning".to_string()),
+            resets_at: None,
+            utilization: None, // utilization defaults to 0.0
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+        };
+        assert!(should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_no_warning_on_low_utilization() {
+        let info = RateLimitInfo {
+            status: Some("allowed".to_string()),
+            resets_at: None,
+            utilization: Some(0.3),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+        };
+        assert!(!should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_no_warning_on_zero_utilization_no_status() {
+        let info = RateLimitInfo {
+            status: None,
+            resets_at: None,
+            utilization: Some(0.0),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+        };
+        assert!(!should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_boundary_at_0_7() {
+        // Exactly 0.7 should NOT trigger (> 0.7 required)
+        let info = RateLimitInfo {
+            status: None,
+            resets_at: None,
+            utilization: Some(0.7),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+        };
+        assert!(!should_emit_rate_limit_warning(&info));
+
+        // Just above 0.7 should trigger
+        let info_above = RateLimitInfo {
+            utilization: Some(0.701),
+            ..info
+        };
+        assert!(should_emit_rate_limit_warning(&info_above));
+    }
+
+    // ── Event deserialization → routing classification ──
+    // These verify that real NDJSON payloads parse into the expected RawStreamEvent variants,
+    // which is what determines which match arm in route_events handles them.
+
+    #[test]
+    fn system_init_event_routes_correctly() {
+        let json = r#"{"type":"system","subtype":"init","model":"claude-sonnet-4-20250514","tools":[],"mcp_servers":[],"permissionMode":"plan"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, model, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("init"));
+                assert_eq!(model.as_deref(), Some("claude-sonnet-4-20250514"));
+                // permissionMode gets captured in extra via flatten
+                assert_eq!(extra.get("permissionMode").and_then(|v| v.as_str()), Some("plan"));
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn assistant_text_event_routes_correctly() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello!"}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Assistant { message, .. } => {
+                let blocks = message.content.as_ref().unwrap();
+                assert_eq!(blocks.len(), 1);
+                match &blocks[0] {
+                    ContentBlock::Text { text } => assert_eq!(text, "Hello!"),
+                    other => panic!("Expected Text block, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn assistant_tool_use_event_routes_correctly() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_abc","name":"Read","input":{"file_path":"main.rs"}}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Assistant { message, .. } => {
+                let blocks = message.content.as_ref().unwrap();
+                match &blocks[0] {
+                    ContentBlock::ToolUse { id, name, input } => {
+                        assert_eq!(id, "toolu_abc");
+                        assert_eq!(name, "Read");
+                        assert_eq!(input["file_path"], "main.rs");
+                    }
+                    other => panic!("Expected ToolUse, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn tool_result_event_routes_correctly() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"OK","is_error":false}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Assistant { message, .. } => {
+                let blocks = message.content.as_ref().unwrap();
+                match &blocks[0] {
+                    ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                        assert_eq!(tool_use_id, "toolu_abc");
+                        assert_eq!(content.as_ref().unwrap(), &serde_json::Value::String("OK".into()));
+                        assert_eq!(*is_error, Some(false));
+                    }
+                    other => panic!("Expected ToolResult, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn result_success_event_routes_correctly() {
+        let json = r#"{"type":"result","subtype":"success","duration_ms":5000,"cost_usd":0.01,"usage":{"input_tokens":500,"output_tokens":300},"num_turns":2,"stop_reason":"end_turn","modelUsage":{"sonnet":{"contextWindow":200000,"maxOutputTokens":8192}}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Result { is_error, duration_ms, usage, model_usage, num_turns, stop_reason, .. } => {
+                // is_error is None for success (not explicitly set)
+                assert!(is_error.is_none() || *is_error == Some(false));
+                assert_eq!(*duration_ms, Some(5000));
+                assert!(usage.is_some());
+                let (name, cw, mot) = extract_model_usage_info(model_usage);
+                assert_eq!(name.as_deref(), Some("sonnet"));
+                assert_eq!(cw, Some(200000));
+                assert_eq!(mot, Some(8192));
+                assert_eq!(*num_turns, Some(2));
+                assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn result_error_event_routes_correctly() {
+        let json = r#"{"type":"result","is_error":true,"result":"Rate limit exceeded","duration_ms":100}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Result { is_error, result, .. } => {
+                assert_eq!(*is_error, Some(true));
+                assert_eq!(result.as_deref(), Some("Rate limit exceeded"));
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn unknown_event_type_does_not_panic() {
+        let json = r#"{"type":"completely_new_event","data":"test"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, RawStreamEvent::Unknown));
+    }
+
+    #[test]
+    fn content_block_delta_text_routes_correctly() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"chunk"}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::ContentBlockDelta { index, delta, .. } => {
+                assert_eq!(*index, Some(0));
+                match delta {
+                    Some(StreamDelta::TextDelta { text }) => assert_eq!(text, "chunk"),
+                    other => panic!("Expected TextDelta, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn content_block_delta_input_json_routes_correctly() {
+        let json = r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"cmd\":\"ls\"}"}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                match delta {
+                    Some(StreamDelta::InputJsonDelta { partial_json }) => {
+                        assert!(partial_json.is_some());
+                    }
+                    other => panic!("Expected InputJsonDelta, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn message_delta_with_usage_routes_correctly() {
+        let json = r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":50,"output_tokens":100}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::MessageDelta { usage, .. } => {
+                let u = usage.as_ref().unwrap();
+                assert_eq!(u.input_tokens, Some(50));
+                assert_eq!(u.output_tokens, Some(100));
+            }
+            other => panic!("Expected MessageDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rate_limit_event_routes_correctly() {
+        let json = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1741800000,"utilization":0.85,"rateLimitType":"five_hour","isUsingOverage":false}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
+                let info = rate_limit_info.as_ref().unwrap();
+                assert!(should_emit_rate_limit_warning(info));
+                assert_eq!(info.rate_limit_type.as_deref(), Some("five_hour"));
+            }
+            other => panic!("Expected RateLimitEvent, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_status_event_routes_differently_from_init() {
+        let json = r#"{"type":"system","subtype":"status","status":"compacting"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("status"));
+                // In route_events, this hits the `subtype == Some("status")` guard
+                let status = extra.get("status").and_then(|v| v.as_str());
+                assert_eq!(status, Some("compacting"));
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_compact_boundary_event_routes_correctly() {
+        let json = r#"{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":50000}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("compact_boundary"));
+                let metadata = extra.get("compact_metadata").unwrap();
+                assert_eq!(metadata["trigger"], "auto");
+                assert_eq!(metadata["pre_tokens"], 50000);
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_task_started_event_routes_correctly() {
+        let json = r#"{"type":"system","subtype":"task_started","tool_use_id":"toolu_abc","description":"Analyze code","subagent_type":"analysis"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("task_started"));
+                assert_eq!(extra.get("tool_use_id").and_then(|v| v.as_str()), Some("toolu_abc"));
+                assert_eq!(extra.get("description").and_then(|v| v.as_str()), Some("Analyze code"));
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn user_event_with_tool_result_routes_correctly() {
+        let json = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_xyz","content":"Success","is_error":false}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::User { message, .. } => {
+                let msg = message.as_ref().unwrap();
+                let blocks = msg.content.as_ref().unwrap();
+                match &blocks[0] {
+                    ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                        assert_eq!(tool_use_id, "toolu_xyz");
+                        assert_eq!(tool_result_content_to_string(content).as_deref(), Some("Success"));
+                        assert_eq!(*is_error, Some(false));
+                    }
+                    other => panic!("Expected ToolResult, got {:?}", other),
+                }
+            }
+            other => panic!("Expected User, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn tool_progress_event_routes_correctly() {
+        let json = r#"{"type":"tool_progress","tool_use_id":"toolu_abc","tool_name":"Bash","elapsed_time_seconds":5.2}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::ToolProgress { tool_use_id, tool_name, elapsed_time_seconds, .. } => {
+                assert_eq!(tool_use_id.as_deref(), Some("toolu_abc"));
+                assert_eq!(tool_name.as_deref(), Some("Bash"));
+                assert!((elapsed_time_seconds.unwrap() - 5.2).abs() < f64::EPSILON);
+            }
+            other => panic!("Expected ToolProgress, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn message_start_and_stop_are_passthrough() {
+        let start_json = r#"{"type":"message_start","message":{"id":"msg_001"}}"#;
+        let stop_json = r#"{"type":"message_stop"}"#;
+
+        let start: RawStreamEvent = serde_json::from_str(start_json).unwrap();
+        let stop: RawStreamEvent = serde_json::from_str(stop_json).unwrap();
+
+        assert!(matches!(start, RawStreamEvent::MessageStart { .. }));
+        assert!(matches!(stop, RawStreamEvent::MessageStop { .. }));
+    }
+
+    // ── PendingToolBlock accumulation logic ──
+
+    #[test]
+    fn pending_tool_block_accumulates_json() {
+        let mut pending = PendingToolBlock {
+            id: "toolu_01".to_string(),
+            name: "Bash".to_string(),
+            input_json: String::new(),
+        };
+        pending.input_json.push_str("{\"com");
+        pending.input_json.push_str("mand\":");
+        pending.input_json.push_str("\"ls -la\"}");
+
+        let parsed: serde_json::Value = serde_json::from_str(&pending.input_json).unwrap();
+        assert_eq!(parsed["command"], "ls -la");
+    }
+
+    #[test]
+    fn pending_tool_block_empty_json_falls_back_to_empty_object() {
+        let input = "";
+        let parsed: serde_json::Value =
+            serde_json::from_str(input).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        assert!(parsed.is_object());
+        assert!(parsed.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn pending_tool_block_malformed_json_falls_back_to_empty_object() {
+        let input = "{broken";
+        let parsed: serde_json::Value =
+            serde_json::from_str(input).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        assert!(parsed.is_object());
+        assert!(parsed.as_object().unwrap().is_empty());
+    }
+
+    // ── Error handling paths ──
+
+    #[test]
+    fn result_error_with_no_result_field_uses_default_message() {
+        // When is_error=true but result is None, route_events uses "Unknown error"
+        let json = r#"{"type":"result","is_error":true}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Result { is_error, result, .. } => {
+                assert_eq!(is_error, Some(true));
+                let error_msg = result.unwrap_or_else(|| "Unknown error".to_string());
+                assert_eq!(error_msg, "Unknown error");
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn control_response_event_routes_correctly() {
+        let json = r#"{"type":"control_response","response":{"subtype":"success","request_id":"req_123","response":{"models":[]}}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::ControlResponse { response, .. } => {
+                let resp = response.as_ref().unwrap();
+                assert_eq!(resp["subtype"], "success");
+                assert_eq!(resp["request_id"], "req_123");
+            }
+            other => panic!("Expected ControlResponse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn control_response_error_routes_correctly() {
+        let json = r#"{"type":"control_response","response":{"subtype":"error","request_id":"req_456","error":"model not found"}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::ControlResponse { response, .. } => {
+                let resp = response.as_ref().unwrap();
+                assert_eq!(resp["subtype"], "error");
+                assert_eq!(resp["error"], "model not found");
+            }
+            other => panic!("Expected ControlResponse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_unhandled_subtype_does_not_panic() {
+        // A future system subtype that doesn't match any guard
+        let json = r#"{"type":"system","subtype":"some_new_feature","data":"test"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, RawStreamEvent::System { .. }));
+    }
+
+    #[test]
+    fn system_null_subtype_does_not_panic() {
+        let json = r#"{"type":"system"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, .. } => {
+                assert!(subtype.is_none());
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
 }

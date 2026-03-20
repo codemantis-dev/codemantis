@@ -88,6 +88,21 @@ export function formatSecondsElapsed(seconds: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
+/** Format a timestamp string to a short human-readable date/time. */
+export function formatTimestamp(ts: string): string {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return ts;
+  }
+}
+
 /** Format a model ID to a human-readable name.
  * "claude-opus-4-6-20250101" → "Opus 4.6"
  * Returns null if model is null/undefined. */

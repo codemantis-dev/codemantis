@@ -92,7 +92,7 @@ describe("ActivityDetailPanel", () => {
   it("renders duration", () => {
     showEntry(makeEntry({ durationMs: 3500 }));
     render(<ActivityDetailPanel />);
-    expect(screen.getByText("4s")).toBeInTheDocument();
+    expect(screen.getByText("3.5s")).toBeInTheDocument();
   });
 
   it("renders error section for error entries", () => {

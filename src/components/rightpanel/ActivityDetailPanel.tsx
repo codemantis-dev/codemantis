@@ -8,6 +8,7 @@ import { useFileViewerStore, getLanguageFromPath } from "../../stores/fileViewer
 import { getActivityType } from "../../types/activity";
 import { getMonacoTheme } from "../../lib/editor-themes";
 import { readFileContent } from "../../lib/tauri-commands";
+import { formatDuration } from "../../lib/format-utils";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
 
@@ -34,15 +35,6 @@ function getToolDisplayName(toolName: string): string {
     return `${server}: ${tool}`;
   }
   return toolName;
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
 }
 
 export default function ActivityDetailPanel() {
@@ -208,7 +200,7 @@ export default function ActivityDetailPanel() {
         />
         {entry.durationMs !== undefined && (
           <span className="text-label text-text-ghost">
-            {formatDuration(entry.durationMs)}
+            {formatDuration(entry.durationMs, "medium")}
           </span>
         )}
         <span className="text-label text-text-ghost ml-auto shrink-0">

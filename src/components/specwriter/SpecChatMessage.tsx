@@ -116,7 +116,7 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
                 const isSelected = selectedOptions.has(i);
                 return (
                   <button
-                    key={i}
+                    key={`opt-${opt.slice(0, 40)}-${i}`}
                     onClick={() => {
                       if (isMultiSelectDefault) {
                         // 4+ options: click always toggles
@@ -215,14 +215,14 @@ function parseFileContextContent(raw: string): FileEntry[] {
 
 function FileContextMessage({ content, timestamp }: { content: string; timestamp: string }) {
   const [expanded, setExpanded] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Set<number>>(new Set());
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const entries = parseFileContextContent(content);
 
-  const toggleFile = useCallback((idx: number) => {
+  const toggleFile = useCallback((path: string) => {
     setExpandedFiles(prev => {
       const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       return next;
     });
   }, []);
@@ -254,10 +254,10 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
 
       {expanded && (
         <div className="px-3 pb-2 space-y-1">
-          {entries.map((entry, idx) => (
-            <div key={idx} className="rounded" style={{ background: "var(--bg-primary)" }}>
+          {entries.map((entry) => (
+            <div key={entry.path} className="rounded" style={{ background: "var(--bg-primary)" }}>
               <button
-                onClick={() => entry.found ? toggleFile(idx) : undefined}
+                onClick={() => entry.found ? toggleFile(entry.path) : undefined}
                 className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
                 style={{
                   color: entry.found ? "var(--text-primary)" : "var(--text-ghost)",
@@ -269,12 +269,12 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
                   {entry.found ? entry.lineInfo : '⚠ not found'}
                 </span>
                 {entry.found && (
-                  expandedFiles.has(idx)
+                  expandedFiles.has(entry.path)
                     ? <ChevronDown size={11} className="shrink-0" />
                     : <ChevronRight size={11} className="shrink-0" />
                 )}
               </button>
-              {entry.found && expandedFiles.has(idx) && (
+              {entry.found && expandedFiles.has(entry.path) && (
                 <pre
                   className="px-2 pb-2 overflow-x-auto text-[11px] leading-relaxed"
                   style={{ color: "var(--text-secondary)" }}

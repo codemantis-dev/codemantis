@@ -4,6 +4,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { listSessionHistory } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 import type { SessionHistoryEntry } from "../../types/session";
 
 const SESSION_ICONS = ["\u2B21", "\u25C8", "\u25B3", "\u25CB", "\u25A1", "\u25C7", "\u2B22", "\u25BD", "\u25CE", "\u2B1F"];
@@ -104,7 +105,7 @@ export default function ClaudeHistory() {
       const result = await listSessionHistory(activeProjectPath);
       setEntries(result);
     } catch (e) {
-      console.error("Failed to load session history:", e);
+      handleError("ClaudeHistory.loadHistory", e);
       setEntries([]);
     } finally {
       setLoading(false);
@@ -120,7 +121,8 @@ export default function ClaudeHistory() {
     setResumingId(entry.cli_session_id);
     try {
       await resumeFromHistory(activeProjectPath, entry.cli_session_id, entry.name);
-    } catch {
+    } catch (e) {
+      console.error("[ClaudeHistory.handleResume]", e);
       showToast("Session no longer available — try creating a new session", "error");
     } finally {
       setResumingId(null);

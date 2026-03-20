@@ -753,14 +753,14 @@ mod tests {
             "server": {
                 "command": "cmd",
                 "env": {
-                    "TOKEN": "sk-ant-api03-xxxxx",
+                    "TOKEN": "FAKE_TOKEN_FOR_TESTING",
                     "URL": "https://example.com?key=value&other=123"
                 }
             }
         });
         let servers = parse_servers(&val, "global");
         let env = servers[0].env.as_ref().unwrap();
-        assert_eq!(env.get("TOKEN").unwrap(), "sk-ant-api03-xxxxx");
+        assert_eq!(env.get("TOKEN").unwrap(), "FAKE_TOKEN_FOR_TESTING");
         assert_eq!(env.get("URL").unwrap(), "https://example.com?key=value&other=123");
     }
 

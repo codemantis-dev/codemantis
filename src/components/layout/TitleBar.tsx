@@ -7,6 +7,7 @@ import { useAttachmentStore } from "../../stores/attachmentStore";
 import { usePreviewServer } from "../../hooks/usePreviewServer";
 import { focusPreviewWindow, openPreviewWindow, capturePreviewScreenshot, readFileBytes } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 import ProjectTab from "./ProjectTab";
 import SpecWriterBadge from "../specwriter/SpecWriterBadge";
 import type { Attachment } from "../../types/attachment";
@@ -54,7 +55,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       useAttachmentStore.getState().addAttachment(sessionId, attachment);
       showToast("Screenshot added to chat", "success");
     } catch (err) {
-      showToast(`Screenshot failed: ${err}`, "error");
+      handleError("TitleBar.screenshot", err);
     }
   };
 
@@ -80,7 +81,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         await openPreviewWindow(devServer.url, projectName);
       } catch (err) {
         usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
-        showToast(`Failed to open preview window: ${err}`, "error");
+        handleError("TitleBar.openPreviewWindow", err);
       }
       return;
     }
@@ -100,7 +101,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         showToast(ds.errorMessage ?? "Failed to start dev server", "error");
       }
     } catch (err) {
-      showToast(`Preview failed: ${err}`, "error");
+      handleError("TitleBar.startServer", err);
     }
   };
 

@@ -33,7 +33,11 @@ TOOL_NAME=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' 
 # Inject CodeMantis session ID into the JSON payload so the approval
 # server can route to the correct session (session IDs are UUIDs: [a-f0-9-])
 if [ -n "$CODEMANTIS_SESSION_ID" ]; then
-    INPUT=$(echo "$INPUT" | sed "s/^{/{\"forge_session_id\":\"${CODEMANTIS_SESSION_ID}\",/")
+    if command -v jq >/dev/null 2>&1; then
+        INPUT=$(echo "$INPUT" | jq -c --arg sid "$CODEMANTIS_SESSION_ID" '.forge_session_id = $sid')
+    else
+        INPUT=$(echo "$INPUT" | sed "s/^{/{\"forge_session_id\":\"${CODEMANTIS_SESSION_ID}\",/")
+    fi
 fi
 
 # Auto-approve read-only tools without network roundtrip
@@ -439,7 +443,9 @@ impl ClaudeProcess {
         info!("Shutting down Claude process for session {}", self.session_id);
         let mut guard = self.child.lock().await;
         if let Some(mut child) = guard.take() {
-            let _ = child.kill().await;
+            if let Err(e) = child.kill().await {
+                warn!("[process] Failed to kill child process for session {}: {}", self.session_id, e);
+            }
         }
     }
 
