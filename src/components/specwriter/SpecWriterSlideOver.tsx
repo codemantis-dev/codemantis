@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { X, Copy, Check } from "lucide-react";
+import { X, Copy, Check, Pencil, Eye, Send, Play } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
 import { listSpecDocuments, gatherSpecContext, saveTaskBoardState } from "../../lib/tauri-commands";
+import { useClaudeSession } from "../../hooks/useClaudeSession";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -40,6 +41,12 @@ export default function SpecWriterSlideOver() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [copiedClaudemd, setCopiedClaudemd] = useState(false);
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const { sendMessage: sendChatMessage } = useClaudeSession();
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const isStreaming = useSpecWriterStore((s) =>
+    activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false
+  );
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
   const [contextLoading, setContextLoading] = useState(false);
@@ -147,11 +154,23 @@ export default function SpecWriterSlideOver() {
     [chatWidth, activeProjectPath, setChatWidth]
   );
 
+  const handleSpecEdit = useCallback((newContent: string) => {
+    if (activeProjectPath) {
+      setCurrentSpecContent(activeProjectPath, newContent);
+    }
+  }, [activeProjectPath, setCurrentSpecContent]);
+
+  // Auto-exit edit mode when streaming starts
+  useEffect(() => {
+    if (isStreaming) setIsEditing(false);
+  }, [isStreaming]);
+
   const handleReset = useCallback(() => {
     if (activeProjectPath) {
       clearConversation(activeProjectPath);
       setCurrentSpecContent(activeProjectPath, null);
       setLastSavedFile(null);
+      setIsEditing(false);
       // Clear persisted state from database so stale data doesn't reload
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
@@ -183,6 +202,28 @@ export default function SpecWriterSlideOver() {
       setTimeout(() => setCopiedClaudemd(false), 2000);
     }
   }, [lastSavedFile]);
+
+  const handleSendToChat = useCallback(async () => {
+    if (!lastSavedFile || !activeSessionId) {
+      showToast("No active chat session", "error");
+      return;
+    }
+    await sendChatMessage(activeSessionId, `Read docs/specs/${lastSavedFile} for implementation`);
+    showToast("Sent spec reference to chat", "success");
+    handleClose();
+  }, [lastSavedFile, activeSessionId, sendChatMessage, handleClose]);
+
+  const handleImplement = useCallback(async () => {
+    if (!lastSavedFile || !activeSessionId) {
+      showToast("No active chat session", "error");
+      return;
+    }
+    await sendChatMessage(activeSessionId,
+      `Please implement the feature described in docs/specs/${lastSavedFile}. Follow the specification and implementation checklist.`
+    );
+    showToast("Implementation request sent", "success");
+    handleClose();
+  }, [lastSavedFile, activeSessionId, sendChatMessage, handleClose]);
 
   const handleLoadSpec = useCallback((content: string, filename: string) => {
     if (!activeProjectPath) return;
@@ -300,12 +341,33 @@ export default function SpecWriterSlideOver() {
               <div className="flex-1 overflow-hidden flex flex-col">
                 {/* Spec Preview */}
                 <div className="flex-1 overflow-hidden">
-                  <SpecPreview content={currentSpecContent} />
+                  <SpecPreview
+                    content={currentSpecContent}
+                    isEditing={isEditing}
+                    onContentChange={handleSpecEdit}
+                  />
                 </div>
 
                 {/* Action buttons */}
                 {currentSpecContent && (
                   <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
+                    <button
+                      onClick={() => setIsEditing((prev) => !prev)}
+                      disabled={isStreaming}
+                      title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                      style={isEditing ? {
+                        background: "var(--accent)",
+                        color: "white",
+                      } : {
+                        background: "var(--bg-elevated)",
+                        color: "var(--text-secondary)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
+                      {isEditing ? "Preview" : "Edit"}
+                    </button>
                     <button
                       onClick={() => setShowSaveDialog(true)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
@@ -327,22 +389,50 @@ export default function SpecWriterSlideOver() {
                   </div>
                 )}
 
-                {/* CLAUDE.md integration tip */}
+                {/* CLAUDE.md integration tip + Send to Chat / Implement */}
                 {lastSavedFile && (
-                  <div
-                    className="flex items-center gap-2 px-3 py-2 border-t text-xs"
-                    style={{ borderColor: "var(--border)", background: "var(--accent-bg)", color: "var(--accent)" }}
-                  >
-                    <span className="flex-1">
-                      Add to CLAUDE.md: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
-                    </span>
-                    <button
-                      onClick={handleCopyClaudemdSnippet}
-                      title="Copy snippet"
-                      className="p-1 rounded hover:bg-bg-elevated transition-colors"
+                  <div className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 text-xs"
+                      style={{ background: "var(--accent-bg)", color: "var(--accent)" }}
                     >
-                      {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
-                    </button>
+                      <span className="flex-1">
+                        Add to CLAUDE.md: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
+                      </span>
+                      <button
+                        onClick={handleCopyClaudemdSnippet}
+                        title="Copy snippet"
+                        className="p-1 rounded hover:bg-bg-elevated transition-colors"
+                      >
+                        {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <button
+                        onClick={handleSendToChat}
+                        disabled={!activeSessionId}
+                        title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+                        style={{
+                          background: "var(--bg-elevated)",
+                          color: "var(--text-secondary)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <Send size={13} />
+                        Send to Chat
+                      </button>
+                      <button
+                        onClick={handleImplement}
+                        disabled={!activeSessionId}
+                        title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+                        style={{ background: "var(--accent)", color: "white" }}
+                      >
+                        <Play size={13} />
+                        Implement
+                      </button>
+                    </div>
                   </div>
                 )}
 

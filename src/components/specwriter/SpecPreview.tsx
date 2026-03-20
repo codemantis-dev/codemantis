@@ -4,20 +4,23 @@ import remarkGfm from "remark-gfm";
 
 interface Props {
   content: string | null;
+  isEditing?: boolean;
+  onContentChange?: (content: string) => void;
 }
 
-export default function SpecPreview({ content }: Props) {
+export default function SpecPreview({ content, isEditing, onContentChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
 
-  // Auto-scroll during streaming if user was at bottom
+  // Auto-scroll during streaming if user was at bottom (skip in edit mode)
   useEffect(() => {
+    if (isEditing) return;
     const el = scrollRef.current;
     if (!el) return;
     if (wasAtBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [content]);
+  }, [content, isEditing]);
 
   const handleScroll = (): void => {
     const el = scrollRef.current;
@@ -53,15 +56,28 @@ export default function SpecPreview({ content }: Props) {
           {title}
         </div>
       )}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-3"
-      >
-        <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      {isEditing ? (
+        <textarea
+          className="flex-1 w-full resize-none font-mono text-sm px-4 py-3 outline-none"
+          style={{
+            background: "var(--bg-primary)",
+            color: "var(--text-primary)",
+            border: "none",
+          }}
+          value={content}
+          onChange={(e) => onContentChange?.(e.target.value)}
+        />
+      ) : (
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-4 py-3"
+        >
+          <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
