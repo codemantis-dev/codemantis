@@ -63,6 +63,12 @@ Semantic versioning across THREE locations (must stay in sync):
 
 Add entry to `RELEASES.md` with every version bump.
 
+## Database Migrations
+- All schema migrations run at startup in `Database::new()` (`src-tauri/src/storage/database.rs`)
+- Migration SQL lives in `src-tauri/src/storage/migrations.rs`
+- **Before `Database::new()` is called, `lib.rs` backs up the database file** (`codemantis.db` → `codemantis.db.backup`). This MUST remain in place — never remove or skip this backup step.
+- When adding new migrations: use `ALTER TABLE … ADD COLUMN` for simple additions (ignore "duplicate column" errors), or the rename-table pattern (create new → copy → drop old → rename) for constraint changes. Test with both fresh databases and existing ones.
+
 ## Code Standards
 - **TypeScript:** strict mode, no `any`, explicit return types on exports
 - **React:** functional components only, hooks for state/effects

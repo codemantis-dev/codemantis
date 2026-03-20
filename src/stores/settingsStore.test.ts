@@ -32,6 +32,7 @@ function resetStore(): void {
       triviaEnabled: true,
       defaultContextWindow: 200000,
       autoOpenFiles: false,
+      claudeBinaryOverride: null,
       onboardingCompleted: false,
       previewConsoleAutoOpen: true,
       taskBoardPlanningModel: "gemini-2.5-flash",

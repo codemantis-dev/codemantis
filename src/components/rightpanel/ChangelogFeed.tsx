@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import type { ChangelogEntry } from "../../types/changelog";
@@ -59,14 +61,14 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
           </div>
 
           {/* Headline */}
-          <p className="text-ui text-text-primary font-medium leading-tight mb-0.5">
-            {entry.headline}
-          </p>
+          <div className="changelog-markdown text-ui text-text-primary font-medium leading-tight mb-0.5">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.headline}</ReactMarkdown>
+          </div>
 
           {/* Description */}
-          <p className="text-label text-text-dim leading-snug">
-            {entry.description}
-          </p>
+          <div className="changelog-markdown text-label text-text-dim leading-snug">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.description}</ReactMarkdown>
+          </div>
 
           {/* Tools summary badge */}
           {entry.tools_summary && (
@@ -90,7 +92,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
                   {detailBullets.map((bullet, i) => (
                     <li key={i} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
                       <span className="text-text-ghost mt-px shrink-0">&#x2022;</span>
-                      <span>{bullet}</span>
+                      <span className="changelog-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{bullet}</ReactMarkdown></span>
                     </li>
                   ))}
                 </ul>
@@ -125,12 +127,29 @@ export default function ChangelogFeed() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessionEntries = useChangelogStore((s) => s.sessionEntries);
   const generating = useChangelogStore((s) => s.generating);
+  const [query, setQuery] = useState("");
 
   const entries = activeSessionId ? sessionEntries.get(activeSessionId) ?? [] : [];
   const isGenerating = activeSessionId ? generating.get(activeSessionId) ?? false : false;
 
   // Show most recent first
   const sortedEntries = [...entries].reverse();
+
+  const filteredEntries = useMemo(() => {
+    if (!query.trim()) return sortedEntries;
+    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    return sortedEntries.filter((entry) => {
+      const haystack = [
+        entry.headline,
+        entry.description,
+        entry.technical_details,
+        entry.tools_summary,
+        entry.category,
+        ...entry.files_changed,
+      ].join(" ").toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
+    });
+  }, [sortedEntries, query]);
 
   if (sortedEntries.length === 0 && !isGenerating) {
     return (
@@ -144,21 +163,66 @@ export default function ChangelogFeed() {
     );
   }
 
+  const isFiltering = query.trim().length > 0;
+
   return (
-    <div className="h-full overflow-y-auto pb-8">
-      {isGenerating && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-light text-text-dim text-label">
-          <Loader2 size={12} className="animate-spin" />
-          <span>Generating summary...</span>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Search bar */}
+      {sortedEntries.length > 0 && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border-light shrink-0">
+          <Search size={12} className="text-text-ghost shrink-0" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search changelog..."
+            className="flex-1 bg-transparent text-label text-text-secondary placeholder:text-text-ghost outline-none min-w-0"
+          />
+          {isFiltering && (
+            <>
+              <span className="text-[10px] text-text-ghost shrink-0">
+                {filteredEntries.length} of {sortedEntries.length}
+              </span>
+              <button
+                onClick={() => setQuery("")}
+                className="p-0.5 rounded text-text-ghost hover:text-text-secondary transition-colors shrink-0"
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            </>
+          )}
         </div>
       )}
-      {sortedEntries.map((entry) => (
-        <ChangelogCard
-          key={entry.id}
-          entry={entry}
-          sessionId={activeSessionId!}
-        />
-      ))}
+
+      <div className="flex-1 overflow-y-auto pb-8">
+        {isGenerating && (
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border-light text-text-dim text-label">
+            <Loader2 size={12} className="animate-spin" />
+            <span>Generating summary...</span>
+          </div>
+        )}
+
+        {isFiltering && filteredEntries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+            <p className="text-text-faint text-ui mb-1">No entries match your search</p>
+            <button
+              onClick={() => setQuery("")}
+              className="text-label text-accent-light hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        ) : (
+          filteredEntries.map((entry) => (
+            <ChangelogCard
+              key={entry.id}
+              entry={entry}
+              sessionId={activeSessionId!}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }

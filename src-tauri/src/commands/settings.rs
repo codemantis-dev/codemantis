@@ -68,7 +68,7 @@ pub struct AppSettings {
     pub task_board_auto_open_slide_over: bool,
 
     // --- Trivia ---
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub trivia_enabled: bool,
 
     // --- Context window ---
@@ -78,6 +78,10 @@ pub struct AppSettings {
     // --- File viewer ---
     #[serde(default)]
     pub auto_open_files: bool,
+
+    // --- Claude binary override ---
+    #[serde(default)]
+    pub claude_binary_override: Option<String>,
 
     // --- Onboarding ---
     #[serde(default)]
@@ -104,7 +108,7 @@ pub struct AssistantShortcut {
 }
 
 fn default_theme() -> String {
-    "midnight".to_string()
+    "sand".to_string()
 }
 fn default_font_size() -> u32 {
     13
@@ -125,7 +129,7 @@ fn default_assistant_provider() -> String {
     "claude-code".to_string()
 }
 fn default_context_window() -> u64 {
-    200_000
+    1_000_000
 }
 fn default_true() -> bool {
     true
@@ -157,14 +161,17 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
     m.insert("gemini-3.1-pro-preview".into(), ModelPricing { input: 1.25, output: 10.0 });
     m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.0, output: 0.0 });
     m.insert("gpt-5.4".into(), ModelPricing { input: 2.0, output: 8.0 });
+    m.insert("claude-opus-4-6".into(), ModelPricing { input: 5.0, output: 25.0 });
     m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
     m
 }
 fn default_changelog_prompt() -> String {
-    r#"Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+    r#"Summarize this coding session turn as a changelog entry. Return JSON only, markdown ONLY in the description field (5-6 sentences).
+Make sure to briefly describe in general, what was changed, the most important topics.
+Add the most important changes done.
 
-JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}"#.to_string()
+Mandatory JSON format response format: {"headline":"max 80 chars","description":"5-6 sentences in markdown","category":"feature|bugfix|refactor|docs|config|test"}"#.to_string()
 }
 fn default_quick_commands() -> Vec<QuickCommand> {
     vec![
@@ -204,17 +211,17 @@ impl Default for AppSettings {
             task_board_auto_start_next: true,
             task_board_auto_open_slide_over: true,
             default_context_window: default_context_window(),
-            trivia_enabled: true,
+            trivia_enabled: false,
             auto_open_files: false,
+            claude_binary_override: None,
             onboarding_completed: false,
         }
     }
 }
 
 fn settings_path() -> PathBuf {
-    dirs::data_dir()
+    crate::utils::paths::app_data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("dev.codemantis.app")
         .join("settings.json")
 }
 

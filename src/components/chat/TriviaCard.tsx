@@ -1,3 +1,5 @@
+import { useSettingsStore } from "../../stores/settingsStore";
+
 interface TriviaCardProps {
   topic: string;
   fact: string;
@@ -11,6 +13,8 @@ export default function TriviaCard({
   isEasterEgg,
   factKey,
 }: TriviaCardProps) {
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
   return (
     <div
       key={factKey}
@@ -32,6 +36,14 @@ export default function TriviaCard({
         </span>
       </div>
       <p className="text-chat text-text-secondary leading-relaxed">{fact}</p>
+      <div className="flex justify-end mt-1.5">
+        <button
+          onClick={() => updateSettings({ triviaEnabled: false })}
+          className="text-label text-text-ghost hover:text-text-dim transition-colors"
+        >
+          Disable trivia
+        </button>
+      </div>
     </div>
   );
 }

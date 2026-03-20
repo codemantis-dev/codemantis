@@ -32,7 +32,7 @@ function resetStores(): void {
     activeSessionId: SESSION_ID,
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
-    sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+    sessionContext: new Map([[SESSION_ID, { used: 0, max: 1000000 }]]),
     sessionModes: new Map([[SESSION_ID, "normal"]]),
     tabOrder: [SESSION_ID],
   });
@@ -175,7 +175,7 @@ describe("event-classifier", () => {
       const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
       // Total = (5000 + 10000 + 150000 + 2000) / 1 api call = 167000
       expect(ctx?.used).toBe(167000);
-      expect(ctx?.max).toBe(200000);
+      expect(ctx?.max).toBe(1000000);
     });
 
     it("turn_complete divides by api call count when tool calls occurred", () => {

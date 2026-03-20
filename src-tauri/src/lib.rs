@@ -11,7 +11,9 @@ use claude::approval_server::start_approval_server;
 use claude::session::AppState;
 use log::{error, info};
 use storage::Database;
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,8 +21,8 @@ pub fn run() {
         env_logger::Env::default().default_filter_or("warn")
     ).init();
 
-    let db_path = match dirs::data_dir() {
-        Some(d) => d.join("dev.codemantis.app").join("codemantis.db"),
+    let db_path = match utils::paths::app_data_dir() {
+        Some(d) => d.join("codemantis.db"),
         None => {
             eprintln!("FATAL: Cannot determine data directory. Ensure your home directory exists.");
             std::process::exit(1);
@@ -43,6 +45,15 @@ pub fn run() {
         }
     };
 
+    // Back up the database before opening (which runs migrations).
+    // Protects user data if a schema migration fails on version update.
+    if db_path.exists() {
+        let backup_path = db_path.with_extension("db.backup");
+        if let Err(e) = std::fs::copy(&db_path, &backup_path) {
+            eprintln!("WARNING: Could not back up database before migration: {}", e);
+        }
+    }
+
     let database = match Database::new(db_str) {
         Ok(db) => db,
         Err(e) => {
@@ -57,6 +68,107 @@ pub fn run() {
         .manage(AppState::new(database))
         .manage(terminal::pty_manager::TerminalPool::new())
         .manage(preview::PreviewState::new())
+        .menu(|app| {
+            let about_metadata = AboutMetadata {
+                credits: Some(
+                    "A native desktop UI for Claude Code.\n\
+                     Use your Claude subscription to code with\n\
+                     an intuitive, powerful interface."
+                        .into(),
+                ),
+                ..Default::default()
+            };
+
+            let app_submenu = Submenu::with_items(
+                app,
+                "CodeMantis",
+                true,
+                &[
+                    &PredefinedMenuItem::about(
+                        app,
+                        Some("About CodeMantis"),
+                        Some(about_metadata),
+                    )?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::show_all(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::quit(app, None)?,
+                ],
+            )?;
+
+            let file_submenu = Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[&PredefinedMenuItem::close_window(app, None)?],
+            )?;
+
+            let edit_submenu = Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?;
+
+            let view_submenu = Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[&PredefinedMenuItem::fullscreen(app, None)?],
+            )?;
+
+            let window_submenu = Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::maximize(app, None)?,
+                ],
+            )?;
+
+            let help_submenu = Submenu::with_items(
+                app,
+                "Help",
+                true,
+                &[&MenuItem::with_id(
+                    app,
+                    "help_website",
+                    "CodeMantis Help",
+                    true,
+                    None::<&str>,
+                )?],
+            )?;
+
+            Menu::with_items(
+                app,
+                &[
+                    &app_submenu,
+                    &file_submenu,
+                    &edit_submenu,
+                    &view_submenu,
+                    &window_submenu,
+                    &help_submenu,
+                ],
+            )
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "help_website" {
+                let _ = app.opener().open_url("https://codementis.dev/help", None::<&str>);
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -79,6 +191,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::startup::check_claude_status,
+            commands::startup::set_claude_binary_override,
             commands::session::create_session,
             commands::session::pause_session_process,
             commands::session::resume_session_process,

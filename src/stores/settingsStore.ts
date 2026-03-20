@@ -6,7 +6,7 @@ import { showToast } from "./toastStore";
 
 function normalizeTheme(theme: string): ThemeId {
   if (THEMES.some((t) => t.id === theme)) return theme as ThemeId;
-  return "midnight"; // fallback for legacy "dark" or unknown values
+  return "sand"; // fallback for legacy "dark" or unknown values
 }
 
 function applyTheme(theme: ThemeId): void {
@@ -28,7 +28,7 @@ interface SettingsState {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  theme: "midnight",
+  theme: "sand",
   fontSize: 13,
   sendShortcut: "cmd+enter",
   terminalShell: null,
@@ -58,9 +58,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   taskBoardMaxRetries: 3,
   taskBoardAutoStartNext: true,
   taskBoardAutoOpenSlideOver: true,
-  triviaEnabled: true,
-  defaultContextWindow: 200000,
+  triviaEnabled: false,
+  defaultContextWindow: 1000000,
   autoOpenFiles: false,
+  claudeBinaryOverride: null,
   onboardingCompleted: false,
 };
 

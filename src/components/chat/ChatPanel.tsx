@@ -105,7 +105,7 @@ export default function ChatPanel() {
           <div className="max-w-[720px] mx-auto">
             {messages.length === 0 && !streaming.isStreaming && (
               <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: "calc(100vh - 240px)" }}>
-                <img src="/codemantis_app_icon.png" alt="CodeMantis" className="w-20 h-20 opacity-30" />
+                <img src="/CodeMantisIcon.png" alt="CodeMantis" className="w-20 h-20 opacity-30" />
                 <p className="text-text-dim text-ui">
                   Send a message to start the conversation
                 </p>

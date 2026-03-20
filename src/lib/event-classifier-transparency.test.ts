@@ -25,7 +25,7 @@ function resetStores(): void {
     activeSessionId: SESSION_ID,
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
-    sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+    sessionContext: new Map([[SESSION_ID, { used: 0, max: 1000000 }]]),
     sessionStats: new Map([[SESSION_ID, { totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheCreationTokens: 0, totalCacheReadTokens: 0, turnCount: 0, apiCallCount: 0 }]]),
     sessionBusy: new Map([[SESSION_ID, true]]),
     sessionActivity: new Map(),
@@ -374,7 +374,7 @@ describe("Transparency: Real-time Context Updates", () => {
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
     // 5000 + 1000 + 3000 + 500 = 9500
     expect(ctx?.used).toBe(9500);
-    expect(ctx?.max).toBe(200000);
+    expect(ctx?.max).toBe(1000000);
   });
 
   it("context grows with each successive usage_update", () => {
@@ -479,18 +479,18 @@ describe("Transparency: Dynamic Context Window from modelUsage", () => {
 
   it("turn_complete with context_window updates max from modelUsage", () => {
     // No usage_update → fallback path sets context
-    // context_window must exceed the 200K fallback to win Math.max
+    // context_window must exceed the 1M default to win Math.max
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 3000,
       usage: { input_tokens: 8000, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       cost_usd: 0.02,
-      context_window: 256000,  // Larger than 200K fallback
+      context_window: 2000000,  // Larger than 1M default
       max_output_tokens: 16000,
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    expect(ctx?.max).toBe(256000);
+    expect(ctx?.max).toBe(2000000);
     // used = (totalInput+totalOutput) / apiCalls — exact value depends on
     // module-level turnToolCallCount which can't be reset between tests,
     // so just verify it's a positive number derived from the 10000 total.
@@ -505,46 +505,46 @@ describe("Transparency: Dynamic Context Window from modelUsage", () => {
       session_id: SESSION_ID,
       usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
-    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.max).toBe(200000);
+    expect(useSessionStore.getState().sessionContext.get(SESSION_ID)?.max).toBe(1000000);
 
-    // turn_complete with context_window larger than 200K fallback
+    // turn_complete with context_window larger than 1M default
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 2000,
       usage: { input_tokens: 5000, output_tokens: 500, cache_creation_input_tokens: null, cache_read_input_tokens: null },
       cost_usd: 0.01,
-      context_window: 256000,
+      context_window: 2000000,
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    // max should be updated to 256000, used should stay at 5500 (from usage_update)
-    expect(ctx?.max).toBe(256000);
+    // max should be updated to 2000000, used should stay at 5500 (from usage_update)
+    expect(ctx?.max).toBe(2000000);
     expect(ctx?.used).toBe(5500);
   });
 
   it("usage_update preserves current max from previous turn_complete", () => {
-    // First turn sets max to 256000 (must exceed 200K fallback)
+    // First turn sets max to 2000000 (must exceed 1M default)
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
       duration_ms: 1000,
       usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       cost_usd: 0.001,
-      context_window: 256000,
+      context_window: 2000000,
     });
 
-    // Next turn: usage_update should preserve the 256000 max
+    // Next turn: usage_update should preserve the 2000000 max
     handleChatEvent(SESSION_ID, {
       type: "usage_update",
       session_id: SESSION_ID,
       usage: { input_tokens: 3000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    expect(ctx?.max).toBe(256000);
+    expect(ctx?.max).toBe(2000000);
     expect(ctx?.used).toBe(3200);
   });
 
-  it("turn_complete without context_window defaults to 200000", () => {
+  it("turn_complete without context_window defaults to 1000000", () => {
     handleChatEvent(SESSION_ID, {
       type: "turn_complete",
       session_id: SESSION_ID,
@@ -554,7 +554,7 @@ describe("Transparency: Dynamic Context Window from modelUsage", () => {
       // No context_window field
     });
     const ctx = useSessionStore.getState().sessionContext.get(SESSION_ID);
-    expect(ctx?.max).toBe(200000);
+    expect(ctx?.max).toBe(1000000);
   });
 });
 

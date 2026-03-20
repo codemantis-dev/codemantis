@@ -8,6 +8,8 @@ import {
   Plus,
   Key,
   Sparkles,
+  AlertTriangle,
+  Search,
 } from "lucide-react";
 import type { ClaudeStatus } from "../../lib/tauri-commands";
 
@@ -19,6 +21,7 @@ interface WelcomeScreenProps {
   onOpenProject: () => void;
   onNewProject: () => void;
   onOpenSettings: () => void;
+  onSelectClaudeBinary: () => void;
 }
 
 interface Prerequisite {
@@ -62,10 +65,12 @@ export default function WelcomeScreen({
   onOpenProject,
   onNewProject,
   onOpenSettings,
+  onSelectClaudeBinary,
 }: WelcomeScreenProps) {
   const [skipFuture, setSkipFuture] = useState(true);
   const prerequisites = getPrerequisites(claudeStatus);
   const prerequisitesMet = prerequisites.every((p) => p.satisfied);
+  const claudeNotFound = !(claudeStatus?.installed ?? false);
 
   return (
     <div
@@ -76,11 +81,11 @@ export default function WelcomeScreen({
       <div className="h-12 shrink-0" data-tauri-drag-region />
 
       <div className="flex-1 flex items-center justify-center overflow-hidden">
-        <div className="w-full max-w-2xl px-8 overflow-y-auto max-h-full flex flex-col">
+        <div className="w-full max-w-3xl px-8 overflow-y-auto max-h-full flex flex-col">
           {/* Logo + Title */}
           <div className="text-center mb-8">
             <img
-              src="/codemantis_app_icon.png"
+              src="/CodeMantisIcon.png"
               alt="CodeMantis"
               className="w-28 h-28 rounded-2xl mb-5 inline-block"
               style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}
@@ -98,6 +103,62 @@ export default function WelcomeScreen({
               v{__APP_VERSION__}
             </p>
           </div>
+
+          {/* Claude Code not found info box */}
+          {claudeNotFound && (
+            <div
+              className="rounded-xl border px-5 py-4 mb-6 flex items-start gap-4"
+              style={{
+                borderColor: "var(--yellow, #b8860b)",
+                background: "color-mix(in srgb, var(--yellow, #b8860b) 8%, var(--bg-subtle))",
+              }}
+            >
+              <AlertTriangle
+                size={20}
+                className="shrink-0 mt-0.5"
+                style={{ color: "var(--yellow, #b8860b)" }}
+              />
+              <div className="flex-1 min-w-0" style={{ fontSize: "13px" }}>
+                <p className="text-text-primary font-medium mb-1.5">
+                  Claude Code not found
+                </p>
+                <p className="text-text-secondary leading-relaxed mb-3">
+                  CodeMantis is a coding application built around Claude Code. It needs
+                  Claude Code installed to work. Please check your Claude Code installation.
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <a
+                    href="https://claude.com/product/claude-code"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 font-medium transition-colors"
+                    style={{
+                      color: "var(--accent)",
+                      fontSize: "13px",
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      import("@tauri-apps/plugin-opener").then((mod) =>
+                        mod.openUrl("https://claude.com/product/claude-code")
+                      );
+                    }}
+                  >
+                    Get Claude Code
+                    <ArrowRight size={13} />
+                  </a>
+                  <span className="text-text-ghost">or</span>
+                  <button
+                    onClick={onSelectClaudeBinary}
+                    className="inline-flex items-center gap-1.5 font-medium transition-colors hover:opacity-80"
+                    style={{ color: "var(--accent)", fontSize: "13px" }}
+                  >
+                    <Search size={13} />
+                    Locate Claude Code
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           <div

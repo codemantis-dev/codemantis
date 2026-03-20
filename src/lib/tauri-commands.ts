@@ -24,6 +24,10 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
   return invoke<ClaudeStatus>("check_claude_status");
 }
 
+export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatus> {
+  return invoke<ClaudeStatus>("set_claude_binary_override", { path });
+}
+
 // --- Session ---
 
 export async function createSession(

@@ -41,6 +41,7 @@ export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
     { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", defaultPricing: { input: 0.0, output: 0.0 } },
   ],
   anthropic: [
+    { id: "claude-opus-4-6", label: "Claude Opus 4.6", defaultPricing: { input: 5.0, output: 25.0 } },
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultPricing: { input: 3.0, output: 15.0 } },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", defaultPricing: { input: 0.80, output: 4.0 } },
   ],

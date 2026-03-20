@@ -35,7 +35,7 @@ function resetStores(): void {
       SESSION_ID,
       { isStreaming: true, streamingContent: "", currentMessageId: "msg-1" },
     ]]),
-    sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+    sessionContext: new Map([[SESSION_ID, { used: 0, max: 1000000 }]]),
     tabOrder: [SESSION_ID],
   });
 

@@ -119,7 +119,7 @@ async fn call_gemini(
         }],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 512,
+            "maxOutputTokens": 1024,
             "responseMimeType": "application/json"
         }
     });
@@ -174,7 +174,7 @@ async fn call_openai(
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 512,
+        "max_completion_tokens": 1024,
         "response_format": {"type": "json_object"}
     });
 
@@ -223,7 +223,7 @@ async fn call_anthropic(
 ) -> Result<(String, u32, u32), String> {
     let body = serde_json::json!({
         "model": model,
-        "max_tokens": 512,
+        "max_tokens": 1024,
         "system": system_prompt,
         "messages": [
             {"role": "user", "content": prompt}

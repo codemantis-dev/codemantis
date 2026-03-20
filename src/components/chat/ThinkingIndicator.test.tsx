@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import ThinkingIndicator from "./ThinkingIndicator";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 // Mock the trivia data module to avoid loading the full dataset in tests
 vi.mock("../../data/trivia", () => ({
@@ -123,6 +124,7 @@ describe("ThinkingIndicator", () => {
   });
 
   it("renders trivia card after 3 seconds", () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, triviaEnabled: true } }));
     setupBusySession();
     render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
 
@@ -134,6 +136,7 @@ describe("ThinkingIndicator", () => {
   });
 
   it("renders trivia card with topic badge after delay", () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, triviaEnabled: true } }));
     setupBusySession();
     render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
 

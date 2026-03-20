@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, FolderOpen } from "lucide-react";
-import { checkClaudeStatus, cleanupOldAttachments, type ClaudeStatus } from "./lib/tauri-commands";
+import { checkClaudeStatus, setClaudeBinaryOverride, cleanupOldAttachments, type ClaudeStatus } from "./lib/tauri-commands";
 import { useClaudeSession } from "./hooks/useClaudeSession";
 import { useSessionStore } from "./stores/sessionStore";
 import { useUiStore } from "./stores/uiStore";
@@ -73,6 +73,26 @@ export default function App() {
     setOnboardingDismissed(true);
   };
 
+  const handleSelectClaudeBinary = async (): Promise<void> => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      title: "Locate Claude Code binary",
+      multiple: false,
+      directory: false,
+    });
+    if (!selected) return;
+    try {
+      const status = await setClaudeBinaryOverride(selected);
+      setClaudeStatus(status);
+      if (status.binary_path) {
+        useUiStore.getState().setClaudeBinaryPath(status.binary_path);
+      }
+    } catch (e) {
+      const { showToast } = await import("./stores/toastStore");
+      showToast(String(e), "error");
+    }
+  };
+
   const handleSelectProject = async (path: string) => {
     setError(null);
     try {
@@ -88,7 +108,7 @@ export default function App() {
     }
   };
 
-  if (checking) {
+  if (checking || !settingsLoaded) {
     return (
       <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
         <div className="h-12 shrink-0" data-tauri-drag-region />
@@ -119,6 +139,7 @@ export default function App() {
           handleGetStarted(true);
           openSettingsToTab("ai-providers");
         }}
+        onSelectClaudeBinary={handleSelectClaudeBinary}
       />
     );
   }
@@ -134,7 +155,7 @@ export default function App() {
             {/* Logo and title */}
             <div className="text-center mb-8">
               <img
-                src="/codemantis_app_icon.png"
+                src="/CodeMantisIcon.png"
                 alt="CodeMantis"
                 className="w-28 h-28 rounded-2xl mb-4 inline-block"
               />

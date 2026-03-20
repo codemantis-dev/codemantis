@@ -317,6 +317,24 @@ body,
   background: var(--code-bg);
 }
 
+/* ── Compact markdown for changelog cards ── */
+.changelog-markdown p { margin: 0; }
+.changelog-markdown p + p { margin-top: 0.3em; }
+.changelog-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+.changelog-markdown ul, .changelog-markdown ol {
+  margin: 0.25em 0;
+  padding-left: 1.2em;
+}
+.changelog-markdown li { margin-bottom: 0.15em; }
+.changelog-markdown strong { color: var(--text-primary); font-weight: 600; }
+.changelog-markdown a { color: var(--accent-light); }
+
 /* Textarea */
 textarea {
   user-select: text;

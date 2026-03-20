@@ -82,12 +82,17 @@ export interface AppSettings {
   // Context window
   defaultContextWindow: number;
 
+  // Claude binary override (user-selected path)
+  claudeBinaryOverride: string | null;
+
   // Onboarding
   onboardingCompleted: boolean;
 }
 
 export { getDefaultModelPricing };
 
-export const DEFAULT_CHANGELOG_PROMPT = `Summarize this coding session turn as a changelog entry. Return JSON only, no markdown.
+export const DEFAULT_CHANGELOG_PROMPT = `Summarize this coding session turn as a changelog entry. Return JSON only, markdown ONLY in the description field (5-6 sentences).
+Make sure to briefly describe in general, what was changed, the most important topics.
+Add the most important changes done.
 
-JSON format: {"headline":"max 80 chars","description":"1-2 sentences","category":"feature|bugfix|refactor|docs|config|test"}`;
+Mandatory JSON format response format: {"headline":"max 80 chars","description":"5-6 sentences in markdown","category":"feature|bugfix|refactor|docs|config|test"}`;

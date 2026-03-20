@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ScrollText, RefreshCw, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
@@ -36,14 +38,14 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
           </div>
 
           {/* Headline */}
-          <p className="text-ui text-text-primary font-medium leading-tight mb-0.5">
-            {entry.headline}
-          </p>
+          <div className="changelog-markdown text-ui text-text-primary font-medium leading-tight mb-0.5">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.headline}</ReactMarkdown>
+          </div>
 
           {/* Description */}
-          <p className="text-label text-text-dim leading-snug">
-            {entry.description}
-          </p>
+          <div className="changelog-markdown text-label text-text-dim leading-snug">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.description}</ReactMarkdown>
+          </div>
 
           {/* Files changed */}
           {(entry.files_changed?.length ?? 0) > 0 && (
