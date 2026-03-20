@@ -3,6 +3,7 @@ use crate::claude::message_router::route_events;
 use crate::claude::session::{AppState, SessionStatus};
 use crate::claude::stream_parser::parse_stream;
 use crate::errors::AppError;
+use crate::utils::paths::login_shell_path;
 use log::{debug, error, info, warn};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -240,6 +241,10 @@ impl ClaudeProcess {
         // Pass the CodeMantis session ID so the hook script can inject it
         // into the approval request for unambiguous session routing
         cmd.env("CODEMANTIS_SESSION_ID", &session_id);
+
+        // Use the full login-shell PATH so Claude can find tools like
+        // brew, npm, pnpm, cargo, etc. that aren't in the minimal GUI PATH
+        cmd.env("PATH", login_shell_path());
 
         let mut child = cmd.spawn().map_err(|e| {
             error!("Failed to spawn Claude CLI: {}", e);

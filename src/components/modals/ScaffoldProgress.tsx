@@ -291,31 +291,34 @@ export default function ScaffoldProgress({
   }
 
   return (
-    <div className="flex flex-col items-center px-4">
-      <h3 className="text-text-primary text-base font-medium mb-1">
-        {isFinished
-          ? hasWarnings
-            ? "Project ready (with warnings)"
-            : "Project ready!"
-          : `Setting up: ${projectName}`}
-      </h3>
-      <p className="text-text-dim text-label mb-0.5">
-        Template: {template.name}
-      </p>
-      {!isFinished && !hasError && (
-        <p className="text-text-dim text-label mb-6">This may take a minute...</p>
-      )}
-      {isFinished && !hasWarnings && (
-        <p className="text-text-dim text-label mb-6">Your project has been scaffolded successfully.</p>
-      )}
-      {isFinished && hasWarnings && (
-        <p className="text-text-dim text-label mb-4">
-          Project was created but some steps had issues.
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="text-center mb-3 shrink-0">
+        <h3 className="text-text-primary text-base font-medium mb-0.5">
+          {isFinished
+            ? hasWarnings
+              ? "Project ready (with warnings)"
+              : "Project ready!"
+            : `Setting up: ${projectName}`}
+        </h3>
+        <p className="text-text-dim text-label">
+          Template: {template.name}
         </p>
-      )}
+        {!isFinished && !hasError && (
+          <p className="text-text-dim text-label mt-0.5">This may take a minute...</p>
+        )}
+        {isFinished && !hasWarnings && (
+          <p className="text-text-dim text-label mt-0.5">Your project has been scaffolded successfully.</p>
+        )}
+        {isFinished && hasWarnings && (
+          <p className="text-text-dim text-label mt-0.5">
+            Project was created but some steps had issues.
+          </p>
+        )}
+      </div>
 
       {/* Step list */}
-      <div className="w-full max-w-xs space-y-3 mb-4">
+      <div className="w-full max-w-md mx-auto space-y-2.5 mb-3 shrink-0">
         {steps.map(({ step, label }) => {
           const state = stepStates.get(step);
           return (
@@ -378,11 +381,11 @@ export default function ScaffoldProgress({
         })}
       </div>
 
-      {/* Setup Assistant mini-chat */}
+      {/* Setup Assistant mini-chat — fills remaining space */}
       {setupSessionId && (
-        <div className="w-full max-w-sm mb-4 rounded-lg border border-border bg-bg-subtle overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border bg-bg-subtle overflow-hidden mb-3">
           {/* Chat messages */}
-          <div className="max-h-64 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
             {setupMessages.map((msg, i) => (
               <div
                 key={i}
@@ -438,11 +441,24 @@ export default function ScaffoldProgress({
                 </div>
               </div>
             )}
+            {/* Thinking indicator — shows when busy but no text streamed yet */}
+            {isAssistantBusy && !streamingText && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-bg-elevated">
+                  <div className="flex items-center gap-1">
+                    <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-accent" style={{ animationDelay: "0ms" }} />
+                    <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-accent" style={{ animationDelay: "150ms" }} />
+                    <span className="thinking-dot w-1.5 h-1.5 rounded-full bg-accent" style={{ animationDelay: "300ms" }} />
+                  </div>
+                  <span className="text-label text-text-dim">Working...</span>
+                </div>
+              </div>
+            )}
             <div ref={chatEndRef} />
           </div>
 
           {/* Input row */}
-          <div className="flex items-center gap-2 px-3 py-2 border-t border-border">
+          <div className="flex items-center gap-2 px-3 py-2 border-t border-border shrink-0">
             <input
               type="text"
               value={setupInput}
@@ -479,7 +495,7 @@ export default function ScaffoldProgress({
 
           {/* Continue Setup button */}
           {assistantTurnDone && !isAssistantBusy && (
-            <div className="px-3 py-2 border-t border-border">
+            <div className="px-3 py-2 border-t border-border shrink-0">
               <button
                 onClick={handleContinueSetup}
                 className="w-full py-1.5 rounded-md bg-accent text-white text-label font-medium hover:bg-accent-light transition-colors"
@@ -493,7 +509,7 @@ export default function ScaffoldProgress({
 
       {/* Warnings summary */}
       {isFinished && hasWarnings && (
-        <div className="w-full max-w-xs mb-4 rounded-lg bg-bg-subtle border border-border overflow-hidden">
+        <div className="w-full max-w-md mx-auto mb-3 rounded-lg bg-bg-subtle border border-border overflow-hidden shrink-0">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
             <AlertTriangle size={13} className="text-accent shrink-0" />
             <span className="text-text-secondary text-ui font-medium">
@@ -510,11 +526,11 @@ export default function ScaffoldProgress({
 
       {/* Top-level error */}
       {scaffoldError && !stepStates.size && (
-        <p className="text-label text-red mb-4 text-center max-w-sm select-text">{scaffoldError}</p>
+        <p className="text-label text-red mb-3 text-center select-text shrink-0">{scaffoldError}</p>
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-center gap-3 shrink-0 pb-2">
         {isFinished ? (
           <button
             onClick={onOpenProject}

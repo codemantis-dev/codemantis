@@ -29,6 +29,7 @@ export default function TemplatePicker({ onProjectCreated, preselectedTemplateId
   const [scaffoldParentDir, setScaffoldParentDir] = useState("");
   const [scaffoldResult, setScaffoldResult] = useState<ScaffoldResult | null>(null);
   const [scaffoldError, setScaffoldError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     listTemplates()
@@ -113,6 +114,7 @@ export default function TemplatePicker({ onProjectCreated, preselectedTemplateId
 
   const handleRetry = useCallback(() => {
     if (selectedTemplate && scaffoldParentDir && scaffoldProjectName) {
+      setRetryCount((c) => c + 1);
       handleUseTemplate(selectedTemplate, scaffoldParentDir, scaffoldProjectName);
     }
   }, [selectedTemplate, scaffoldParentDir, scaffoldProjectName, handleUseTemplate]);
@@ -120,8 +122,9 @@ export default function TemplatePicker({ onProjectCreated, preselectedTemplateId
   // ── Render: Progress ──
   if (view === "progress" && selectedTemplate) {
     return (
-      <div className="flex flex-col items-center justify-center h-full py-8">
+      <div className="flex flex-col h-full pt-4">
         <ScaffoldProgress
+          key={retryCount}
           template={selectedTemplate}
           projectName={scaffoldProjectName}
           projectPath={scaffoldParentDir}

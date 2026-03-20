@@ -6,6 +6,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tempfile::TempDir;
 use tokio::process::Command;
 
+use crate::utils::paths::{login_shell_path, refresh_login_shell_path, tool_exists_in_login_shell};
+
 // ── Types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +202,7 @@ async fn run_command(
         Command::new(cmd)
             .args(args)
             .current_dir(cwd)
+            .env("PATH", &login_shell_path())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -279,6 +282,7 @@ async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<C
             .arg(flag)
             .arg(command_str)
             .current_dir(cwd)
+            .env("PATH", &login_shell_path())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -578,12 +582,14 @@ fn validate_prerequisites(
         ));
     }
 
-    // Check all required CLI tools
+    // Check all required CLI tools using the full login-shell PATH
+    // (refresh so tools installed since app launch are detected)
+    let path = refresh_login_shell_path();
     if let Some(tmpl) = template {
         let required = detect_required_tools(tmpl);
         let missing: Vec<&String> = required
             .iter()
-            .filter(|t| which::which(t).is_err())
+            .filter(|t| !tool_exists_in_login_shell(t, &path))
             .collect();
         if !missing.is_empty() {
             let names: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
@@ -596,7 +602,7 @@ fn validate_prerequisites(
         }
     } else {
         // At minimum check git
-        if which::which("git").is_err() {
+        if !tool_exists_in_login_shell("git", &path) {
             emit_progress(app, "validate", "error", Some("Git is not installed"));
             return Err("Git is not installed. Please install Git first.".to_string());
         }
@@ -612,29 +618,6 @@ fn validate_prerequisites(
 pub async fn list_templates(app_handle: AppHandle) -> Result<Vec<TemplateEntry>, String> {
     let registry = load_bundled_registry(&app_handle)?;
     Ok(registry.templates)
-}
-
-/// Resolve the full PATH from a login shell (cached).
-/// GUI apps on macOS get a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
-/// so tools installed via Homebrew, nvm, cargo, etc. won't be found
-/// unless we source the user's shell profile.
-fn login_shell_path() -> String {
-    use std::sync::OnceLock;
-    static CACHED: OnceLock<String> = OnceLock::new();
-    CACHED
-        .get_or_init(|| {
-            std::process::Command::new("/bin/zsh")
-                .args(["-l", "-c", "echo $PATH"])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .output()
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default())
-        })
-        .clone()
 }
 
 #[tauri::command]
@@ -1049,11 +1032,12 @@ pub async fn verify_template(
 
     let mut warnings: Vec<String> = vec![];
 
-    // Check required CLI tools
+    // Check required CLI tools using login-shell PATH
     let required = detect_required_tools(&template);
+    let path = login_shell_path();
     let missing: Vec<&String> = required
         .iter()
-        .filter(|t| which::which(t).is_err())
+        .filter(|t| !tool_exists_in_login_shell(t, &path))
         .collect();
     if !missing.is_empty() {
         return Ok(VerifyResult {
