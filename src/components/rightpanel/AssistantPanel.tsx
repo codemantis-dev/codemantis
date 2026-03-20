@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Plus, MessageSquare, Info } from "lucide-react";
+import { Send, Plus, MessageSquare, Info, Square } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAssistantStore } from "../../stores/assistantStore";
@@ -76,7 +76,7 @@ export default function AssistantPanel() {
   const defaultModels = useSettingsStore((s) => s.settings.assistantDefaultModel);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  const { createAssistant, sendMessage, retryLastMessage, closeAssistant } = useAssistantSession();
+  const { createAssistant, sendMessage, retryLastMessage, cancelAssistant, closeAssistant } = useAssistantSession();
 
   const { activeInstance, isClaudeCode, isApiProvider, showThinking } = useMemo(() => {
     const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
@@ -188,6 +188,24 @@ export default function AssistantPanel() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSlashCommand is defined below and uses callbacks that would create a circular dependency
   }, [input, activeAssistantId, busy, sendMessage, isClaudeCode, currentAttachments, clearAssistantAttachments]);
+
+  const handleStop = useCallback(() => {
+    if (!activeAssistantId || !busy) return;
+    cancelAssistant(activeAssistantId);
+  }, [activeAssistantId, busy, cancelAssistant]);
+
+  // Escape key to cancel assistant generation
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape" || !activeAssistantId || !busy) return;
+      const ui = useUiStore.getState();
+      if (ui.showSettingsModal || ui.showClaudeHistory) return;
+      e.preventDefault();
+      cancelAssistant(activeAssistantId);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeAssistantId, busy, cancelAssistant]);
 
   const handleSlashCommand = useCallback(async (rawInput: string) => {
     if (!activeAssistantId || !activeProjectPath) return;
@@ -726,14 +744,24 @@ export default function AssistantPanel() {
             >
               <Plus size={16} />
             </button>
-            <button
-              onClick={handleSend}
-              disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId || busy}
-              className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Send (Cmd+Enter)"
-            >
-              <Send size={16} />
-            </button>
+            {busy ? (
+              <button
+                onClick={handleStop}
+                className="p-1.5 rounded-lg text-red hover:bg-red/10 transition-colors"
+                title="Stop generation (Esc)"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId}
+                className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Send (Cmd+Enter)"
+              >
+                <Send size={16} />
+              </button>
+            )}
           </div>
         </div>
       </div>

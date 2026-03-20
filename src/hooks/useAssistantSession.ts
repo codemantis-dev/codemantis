@@ -14,6 +14,8 @@ import {
   listenActivityEvents,
   sendAssistantChat,
   listenAssistantStream,
+  interruptSession,
+  cancelAssistantChat,
 } from "../lib/tauri-commands";
 import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
@@ -31,6 +33,7 @@ interface UseAssistantSessionReturn {
   createAssistant: (projectPath: string, parentSessionId: string, provider: AIProvider, model?: string) => Promise<string>;
   sendMessage: (sessionId: string, prompt: string, attachments?: Attachment[]) => void;
   retryLastMessage: (sessionId: string) => void;
+  cancelAssistant: (sessionId: string) => void;
   closeAssistant: (projectPath: string, sessionId: string) => Promise<void>;
   closeAllAssistants: (projectPath: string) => Promise<void>;
 }
@@ -190,6 +193,22 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     });
   }, []);
 
+  const cancelAssistant = useCallback((sessionId: string) => {
+    const store = useAssistantStore.getState();
+    const instance = store.findAssistantInstance(sessionId);
+    if (!instance) return;
+
+    if (instance.provider === "claude-code") {
+      interruptSession(sessionId).catch((e) =>
+        console.error("[assistant] Failed to interrupt CLI session:", e)
+      );
+    } else {
+      cancelAssistantChat(sessionId).catch((e) =>
+        console.error("[assistant] Failed to cancel API stream:", e)
+      );
+    }
+  }, []);
+
   const closeAssistant = useCallback(async (projectPath: string, sessionId: string) => {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
@@ -241,7 +260,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     store.clearProject(projectPath);
   }, []);
 
-  return { createAssistant, sendMessage, retryLastMessage, closeAssistant, closeAllAssistants };
+  return { createAssistant, sendMessage, retryLastMessage, cancelAssistant, closeAssistant, closeAllAssistants };
 }
 
 /** Send a message to an API provider (OpenAI/Gemini/Anthropic) with streaming. */
