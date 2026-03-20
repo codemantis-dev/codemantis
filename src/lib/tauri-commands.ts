@@ -429,6 +429,10 @@ export async function renameMcpServer(
   return invoke("rename_mcp_server", { projectPath, oldName, newName, scope });
 }
 
+export async function getMcpConfigPath(scope: string, projectPath?: string): Promise<string> {
+  return invoke<string>("get_mcp_config_path", { scope, projectPath });
+}
+
 // --- Scaffold ---
 
 export async function listTemplates(): Promise<TemplateEntry[]> {

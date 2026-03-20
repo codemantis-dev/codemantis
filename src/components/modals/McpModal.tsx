@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, Wrench, Info } from "lucide-react";
+import Editor from "@monaco-editor/react";
+import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, Wrench, Info, FileCode } from "lucide-react";
 import {
   MCP_TEMPLATES,
   MCP_TEMPLATE_CATEGORIES,
@@ -9,6 +10,10 @@ import {
 import { useUiStore } from "../../stores/uiStore";
 import { useMcpStore } from "../../stores/mcpStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { getMonacoTheme } from "../../lib/editor-themes";
+import { getMcpConfigPath, readFileContent, writeFileContent } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 import type { McpServerConfig, McpServerType, McpScope } from "../../types/mcp";
 
 type ScopeFilter = "all" | "global" | "project";
@@ -285,11 +290,91 @@ function TemplatePicker({
   );
 }
 
+function ConfigFileEditor({
+  filePath,
+  content,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  filePath: string;
+  content: string;
+  onChange: (content: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const themeId = useSettingsStore((s) => s.settings.theme);
+  const fontSize = useSettingsStore((s) => s.settings.fontSize);
+  const monacoColors = useMemo(() => getMonacoTheme(themeId), [themeId]);
+  const monacoThemeName = `codemantis-${themeId}`;
+
+  return (
+    <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
+      <div className="mb-3">
+        <h3 className="text-text-primary font-medium">Edit Config File</h3>
+        <p className="text-[12px] text-text-dim font-mono mt-1 truncate" title={filePath}>
+          {filePath}
+        </p>
+      </div>
+
+      <div className="flex-1 rounded-lg border border-border overflow-hidden">
+        <Editor
+          language="json"
+          value={content}
+          onChange={(v) => onChange(v ?? "")}
+          theme={monacoThemeName}
+          options={{
+            fontSize,
+            minimap: { enabled: false },
+            lineNumbers: "on",
+            scrollBeyondLastLine: false,
+            wordWrap: "on",
+            tabSize: 2,
+            automaticLayout: true,
+          }}
+          beforeMount={(monaco) => {
+            monaco.editor.defineTheme(monacoThemeName, {
+              base: monacoColors.base,
+              inherit: true,
+              rules: [],
+              colors: {
+                "editor.background": monacoColors.editorBackground,
+                "editor.lineHighlightBackground": monacoColors.lineHighlightBackground,
+                "editorLineNumber.foreground": monacoColors.lineNumberForeground,
+                "editorLineNumber.activeForeground": monacoColors.lineNumberActiveForeground,
+                "editor.selectionBackground": monacoColors.selectionBackground,
+                "editorWidget.background": monacoColors.widgetBackground,
+                "editorWidget.border": monacoColors.widgetBorder,
+              },
+            });
+          }}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-3">
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onSave}
+          className="px-4 py-1.5 rounded-lg text-ui font-medium text-white bg-accent hover:bg-accent-light transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ServerForm({
   form,
   onChange,
   onSave,
   onCancel,
+  onShowConfigFile,
   isEdit,
   existingNames,
   hasProject,
@@ -300,6 +385,7 @@ function ServerForm({
   onChange: (form: FormState) => void;
   onSave: () => void;
   onCancel: () => void;
+  onShowConfigFile?: () => void;
   isEdit: boolean;
   existingNames: Set<string>;
   hasProject: boolean;
@@ -484,24 +570,35 @@ function ServerForm({
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          onClick={onCancel}
-          className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSave}
-          disabled={!canSave}
-          className={`px-4 py-1.5 rounded-lg text-ui font-medium transition-colors ${
-            canSave
-              ? "text-white bg-accent hover:bg-accent-light"
-              : "bg-bg-elevated text-text-ghost cursor-not-allowed"
-          }`}
-        >
-          {isEdit ? "Save Changes" : "Add Server"}
-        </button>
+      <div className="flex items-center gap-2 pt-2">
+        {onShowConfigFile && (
+          <button
+            onClick={onShowConfigFile}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors mr-auto"
+          >
+            <FileCode size={13} />
+            Show config file
+          </button>
+        )}
+        <div className="flex gap-2 ml-auto">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={!canSave}
+            className={`px-4 py-1.5 rounded-lg text-ui font-medium transition-colors ${
+              canSave
+                ? "text-white bg-accent hover:bg-accent-light"
+                : "bg-bg-elevated text-text-ghost cursor-not-allowed"
+            }`}
+          >
+            {isEdit ? "Save Changes" : "Add Server"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -521,6 +618,12 @@ export default function McpModal() {
   const [revealedEnv, setRevealedEnv] = useState<Set<string>>(new Set());
   const [setupHint, setSetupHint] = useState("");
   const [fieldHints, setFieldHints] = useState<Record<string, string>>({});
+  const [configEditor, setConfigEditor] = useState<{
+    filePath: string;
+    originalContent: string;
+    editedContent: string;
+    scope: McpScope;
+  } | null>(null);
 
   const hasProject = Boolean(activeProjectPath);
 
@@ -530,6 +633,7 @@ export default function McpModal() {
       setEditingServer(null);
       setConfirmDelete(null);
       setRevealedEnv(new Set());
+      setConfigEditor(null);
     }
   }, [showModal, activeProjectPath, loadServers]);
 
@@ -583,6 +687,40 @@ export default function McpModal() {
       // error is set in store
     }
   };
+
+  const handleShowConfigFile = useCallback(async (scope: McpScope) => {
+    try {
+      const filePath = await getMcpConfigPath(scope, activeProjectPath ?? undefined);
+      const content = await readFileContent(filePath);
+      setConfigEditor({
+        filePath,
+        originalContent: content,
+        editedContent: content,
+        scope,
+      });
+    } catch (err) {
+      showToast(`Failed to open config file: ${err}`, "error");
+    }
+  }, [activeProjectPath]);
+
+  const handleSaveConfigFile = useCallback(async () => {
+    if (!configEditor) return;
+    try {
+      JSON.parse(configEditor.editedContent);
+    } catch {
+      showToast("Invalid JSON — please fix syntax errors before saving", "error");
+      return;
+    }
+    try {
+      await writeFileContent(configEditor.filePath, configEditor.editedContent);
+      await loadServers(activeProjectPath ?? undefined);
+      setConfigEditor(null);
+      setEditingServer(null);
+      showToast("Config file saved", "success");
+    } catch (err) {
+      showToast(`Failed to save config file: ${err}`, "error");
+    }
+  }, [configEditor, activeProjectPath, loadServers]);
 
   const handleDelete = async (name: string, scope: McpScope) => {
     try {
@@ -641,7 +779,17 @@ export default function McpModal() {
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-5">
-            {editingServer === "__picking__" ? (
+            {configEditor ? (
+              <ConfigFileEditor
+                filePath={configEditor.filePath}
+                content={configEditor.editedContent}
+                onChange={(content) =>
+                  setConfigEditor((prev) => prev ? { ...prev, editedContent: content } : null)
+                }
+                onSave={handleSaveConfigFile}
+                onCancel={() => setConfigEditor(null)}
+              />
+            ) : editingServer === "__picking__" ? (
               <TemplatePicker
                 onSelect={handleSelectTemplate}
                 onManual={handleManualAdd}
@@ -656,6 +804,7 @@ export default function McpModal() {
                     editingServer === "__new__" ? "__picking__" : null
                   )
                 }
+                onShowConfigFile={() => handleShowConfigFile(form.scope)}
                 isEdit={editingServer !== "__new__"}
                 existingNames={existingNames}
                 hasProject={hasProject}

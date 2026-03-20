@@ -283,6 +283,21 @@ pub fn rename_mcp_server(
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_mcp_config_path(scope: String, project_path: Option<String>) -> Result<String, String> {
+    let path = match scope.as_str() {
+        "global" => claude_json_path(),
+        "project" => {
+            let pp = project_path.ok_or("Project path required for project-scoped config")?;
+            project_mcp_path(&pp)
+        }
+        _ => return Err(format!("Invalid scope: {}", scope)),
+    };
+    path.to_str()
+        .map(String::from)
+        .ok_or_else(|| "Config path contains invalid characters".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

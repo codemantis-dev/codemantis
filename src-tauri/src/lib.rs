@@ -239,6 +239,7 @@ pub fn run() {
             commands::mcp::save_mcp_server,
             commands::mcp::delete_mcp_server,
             commands::mcp::rename_mcp_server,
+            commands::mcp::get_mcp_config_path,
             commands::slash_commands::discover_commands,
             commands::slash_commands::expand_skill,
             commands::slash_commands::run_oneshot_command,
