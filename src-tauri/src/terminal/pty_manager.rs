@@ -34,6 +34,19 @@ struct PtyProcess {
     shutdown_tx: tokio::sync::oneshot::Sender<()>,
 }
 
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.bytes().all(|b| matches!(b,
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' |
+        b'/' | b'.' | b'-' | b'_' | b':' | b'=' | b'+' | b',' | b'@'
+    )) {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 pub struct TerminalPool {
     terminals: Mutex<HashMap<String, PtyProcess>>,
     session_terminals: Mutex<HashMap<String, Vec<String>>>,
@@ -81,18 +94,36 @@ impl TerminalPool {
             AppError::TerminalError(format!("Failed to open PTY: {}", e))
         })?;
 
-        let shell_cmd = shell
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
-            });
+        let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-        let mut cmd = CommandBuilder::new(&shell_cmd);
-        if let Some(ref extra_args) = args {
-            for arg in extra_args {
-                cmd.arg(arg);
+        let mut cmd = if let Some(ref custom_program) = shell {
+            // Custom command (claude CLI, npm, etc.) — wrap in login shell
+            // so user's profile is sourced and PATH is available
+            let mut full_cmd = shell_quote(custom_program);
+            if let Some(ref extra_args) = args {
+                for arg in extra_args {
+                    full_cmd.push(' ');
+                    full_cmd.push_str(&shell_quote(arg));
+                }
             }
-        }
+            let mut c = CommandBuilder::new(&user_shell);
+            c.arg("-l");
+            c.arg("-c");
+            c.arg(&full_cmd);
+            c
+        } else {
+            // Interactive shell — start as login shell
+            let mut c = CommandBuilder::new(&user_shell);
+            c.arg("-l");
+            if let Some(ref extra_args) = args {
+                for arg in extra_args {
+                    c.arg(arg);
+                }
+            }
+            c
+        };
+
+        cmd.env("TERM", "xterm-256color");
         cmd.cwd(cwd);
 
         let _child = pair.slave.spawn_command(cmd).map_err(|e| {
@@ -288,5 +319,49 @@ impl TerminalPool {
     pub async fn list_for_session(&self, session_id: &str) -> Vec<String> {
         let st = self.session_terminals.lock().await;
         st.get(session_id).cloned().unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shell_quote_empty() {
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn test_shell_quote_safe_path() {
+        assert_eq!(shell_quote("/usr/bin/node"), "/usr/bin/node");
+        assert_eq!(shell_quote("file.txt"), "file.txt");
+        assert_eq!(shell_quote("a-b_c.d"), "a-b_c.d");
+        assert_eq!(shell_quote("/opt/homebrew/bin/pnpm"), "/opt/homebrew/bin/pnpm");
+    }
+
+    #[test]
+    fn test_shell_quote_safe_special_chars() {
+        assert_eq!(shell_quote("key=value"), "key=value");
+        assert_eq!(shell_quote("a+b,c@d:e"), "a+b,c@d:e");
+    }
+
+    #[test]
+    fn test_shell_quote_spaces() {
+        assert_eq!(shell_quote("hello world"), "'hello world'");
+        assert_eq!(shell_quote("/path/to/my file"), "'/path/to/my file'");
+    }
+
+    #[test]
+    fn test_shell_quote_single_quotes() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+        assert_eq!(shell_quote("'quoted'"), "''\\''quoted'\\'''");
+    }
+
+    #[test]
+    fn test_shell_quote_special_characters() {
+        assert_eq!(shell_quote("hello;world"), "'hello;world'");
+        assert_eq!(shell_quote("$(whoami)"), "'$(whoami)'");
+        assert_eq!(shell_quote("foo&bar"), "'foo&bar'");
+        assert_eq!(shell_quote("a|b"), "'a|b'");
     }
 }
