@@ -1,21 +1,20 @@
 import type { AssistantShortcut } from "../../../types/settings";
 import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../../types/assistant-provider";
-import { useSettingsStore } from "../../../stores/settingsStore";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function AssistantSettingsTab({
-  defaultProvider, defaultModel, shortcuts,
+  defaultProvider, defaultModel, shortcuts, apiKeys,
   onProviderChange, onModelChange, onShortcutsChange,
 }: {
   defaultProvider: AIProvider;
   defaultModel: Record<string, string>;
   shortcuts: AssistantShortcut[];
+  apiKeys: Record<string, string>;
   onProviderChange: (p: AIProvider) => void;
   onModelChange: (provider: string, modelId: string) => void;
   onShortcutsChange: (shortcuts: AssistantShortcut[]) => void;
 }) {
-  const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
   const apiProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
 
   const handleShortcutUpdate = (index: number, field: "name" | "prompt", value: string) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
@@ -59,8 +59,10 @@ export default function SettingsModal() {
   const [testingKey, setTestingKey] = useState<string | false>(false);
   const [testResults, setTestResults] = useState<Record<string, "success" | "error">>({});
 
+  const prevShowModal = useRef(false);
+
   useEffect(() => {
-    if (showModal) {
+    if (showModal && !prevShowModal.current) {
       const initialTab = useUiStore.getState().initialSettingsTab;
       if (initialTab) {
         setActiveTab(initialTab);
@@ -98,6 +100,7 @@ export default function SettingsModal() {
       setTestingKey(false);
       setTestResults({});
     }
+    prevShowModal.current = showModal;
   }, [showModal, settings]);
 
   const handleSave = () => {
@@ -315,6 +318,7 @@ export default function SettingsModal() {
                 defaultProvider={assistantDefaultProvider}
                 defaultModel={assistantDefaultModel}
                 shortcuts={assistantShortcuts}
+                apiKeys={apiKeys}
                 onProviderChange={handleAssistantProviderChange}
                 onModelChange={handleAssistantModelChange}
                 onShortcutsChange={setAssistantShortcuts}
