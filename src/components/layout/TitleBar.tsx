@@ -76,7 +76,12 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       // Set previewOpen eagerly to prevent the dev-server-ready listener
       // from racing and opening a second window
       usePreviewStore.getState().setPreviewOpen(activeProjectPath, true);
-      await openPreviewWindow(devServer.url, projectName);
+      try {
+        await openPreviewWindow(devServer.url, projectName);
+      } catch (err) {
+        usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
+        showToast(`Failed to open preview window: ${err}`, "error");
+      }
       return;
     }
 
@@ -87,7 +92,16 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
     }
 
     // Start dev server (will auto-open preview when ready)
-    await startServer();
+    try {
+      await startServer();
+      // Check if startServer set an error state
+      const ds = usePreviewStore.getState().devServer.get(activeProjectPath);
+      if (ds?.status === "error") {
+        showToast(ds.errorMessage ?? "Failed to start dev server", "error");
+      }
+    } catch (err) {
+      showToast(`Preview failed: ${err}`, "error");
+    }
   };
 
   return (

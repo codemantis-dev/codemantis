@@ -9,6 +9,7 @@ import {
   getDevServerStatus,
   openPreviewWindow,
 } from "../lib/tauri-commands";
+import { showToast } from "../stores/toastStore";
 import type { DevServerReadyEvent, DevServerErrorEvent } from "../types/preview";
 
 export function usePreviewServer(): {
@@ -120,14 +121,16 @@ export function usePreviewServer(): {
           kind: "shell",
         });
       } catch (e) {
+        const msg = String(e);
         usePreviewStore.getState().setDevServer(projectPath, {
           terminalId: "",
           sessionId: "",
           port: null,
           url: null,
           status: "error",
-          errorMessage: String(e),
+          errorMessage: msg,
         });
+        showToast(`Dev server failed: ${msg}`, "error");
       }
     },
     [],
