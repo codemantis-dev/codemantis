@@ -181,7 +181,6 @@ function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: 
 // ── Main chat event handler ──
 
 export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
-  console.log("[chat-event]", sessionId, event.type, event);
   const store = useSessionStore.getState();
   const now = new Date().toISOString();
 

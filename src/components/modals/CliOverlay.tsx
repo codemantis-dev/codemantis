@@ -52,7 +52,6 @@ export default function CliOverlay() {
     const openOverlay = async () => {
       try {
         // Step 1: Pause the stream-json process
-        console.log("[cli-overlay] Pausing session process:", activeSessionId);
         await pauseSessionProcess(activeSessionId);
 
         if (cancelled) return;
@@ -64,7 +63,6 @@ export default function CliOverlay() {
         }
 
         // Step 3: Spawn interactive claude CLI in PTY
-        console.log("[cli-overlay] Spawning interactive CLI with args:", termArgs);
         const info = await createTerminalCmd(
           activeSessionId,
           projectPath,
@@ -140,16 +138,13 @@ export default function CliOverlay() {
     try {
       // Step 1: Close the interactive PTY terminal
       if (tid && sid) {
-        console.log("[cli-overlay] Closing PTY terminal:", tid);
         await closeTerminalCmd(tid);
         useTerminalStore.getState().removeTerminal(sid, tid);
       }
 
       // Step 2: Resume the stream-json process (backend falls back to stored CLI session ID)
       if (sid) {
-        console.log("[cli-overlay] Resuming stream-json process:", sid, "cli_session_id:", currentCliSessionId);
         await resumeSessionProcess(sid, currentCliSessionId ?? undefined);
-        console.log("[cli-overlay] Session resumed successfully");
       }
     } catch (e) {
       handleError("cli-overlay: Error during close", e);

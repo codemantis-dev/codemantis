@@ -230,7 +230,6 @@ function handleToolResult(
 }
 
 export function handleActivityEvent(sessionId: string, event: FrontendEvent): void {
-  console.log("[activity-event]", sessionId, event.type, event);
   const activityStore = useActivityStore.getState();
   const sessionStore = useSessionStore.getState();
   const now = new Date().toISOString();

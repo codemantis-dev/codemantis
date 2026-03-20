@@ -69,7 +69,6 @@ export function useToolApprovalListener(): void {
     let unlistenModeChange: (() => void) | null = null;
 
     listenSessionModeChanged(({ sessionId, mode }) => {
-      console.log("[session-mode-changed]", sessionId, mode);
       useSessionStore.getState().setSessionMode(sessionId, mode as SessionMode);
     }).then((fn) => {
       if (cancelled) { fn(); return; }
@@ -77,8 +76,6 @@ export function useToolApprovalListener(): void {
     });
 
     listenToolApprovalRequests((event: ToolApprovalRequestEvent) => {
-      console.log("[tool-approval-request]", event);
-
       const activityStore = useActivityStore.getState();
       const uiStore = useUiStore.getState();
 
@@ -94,7 +91,6 @@ export function useToolApprovalListener(): void {
 
       // Auto-approve if user previously clicked "Always allow" for this tool in this session
       if (activityStore.isToolAlwaysAllowed(forgeSessionId, toolName)) {
-        console.log("[approval] Auto-approving always-allowed tool:", toolName, "for session:", forgeSessionId);
         activityStore.addEntry(forgeSessionId, {
           id: `auto-${requestId}`,
           toolUseId: requestId,

@@ -35,7 +35,6 @@ function bufferText(sessionId: string, text: string): void {
 }
 
 export function handleAssistantChatEvent(sessionId: string, event: FrontendEvent): void {
-  console.log("[assistant-chat]", sessionId, event.type);
   const store = useAssistantStore.getState();
   const now = new Date().toISOString();
 

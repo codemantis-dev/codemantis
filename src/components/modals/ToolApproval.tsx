@@ -57,15 +57,8 @@ export default function ToolApproval() {
     async (approved: boolean) => {
       if (!currentApproval) return;
 
-      const { requestId, sessionId, toolUseId, toolName } = currentApproval;
+      const { requestId, sessionId, toolUseId } = currentApproval;
       const decision = approved ? "approved" : "denied";
-
-      console.log("[approval-response]", {
-        requestId,
-        sessionId,
-        toolName,
-        approved,
-      });
 
       useActivityStore
         .getState()
@@ -90,13 +83,7 @@ export default function ToolApproval() {
     // Copy the queue since it mutates as we dequeue
     const items = [...approvalQueue];
     for (const item of items) {
-      const { requestId, sessionId, toolUseId, toolName } = item;
-
-      console.log("[approval-response] approve-all", {
-        requestId,
-        sessionId,
-        toolName,
-      });
+      const { requestId, sessionId, toolUseId } = item;
 
       useActivityStore
         .getState()
