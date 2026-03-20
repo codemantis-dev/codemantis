@@ -67,6 +67,13 @@ Present 5-15 features. The user will select which ones to include.
 Only write the spec for the selected features.
 Wait for the user's selection before writing.
 
+FORMATTING RULES for the feature list:
+- Each ?> MUST start at the beginning of the line (no indentation, no leading spaces)
+- Do NOT group features under sub-headers or category headings
+- Use a single flat list — mention the area in the option text itself, e.g.:
+  ?> ★ Toast system: useToast hook with success/error/warning/info methods
+  ?> ★ Confirmation: ConfirmationDialog modal with useConfirm hook
+
 ═══════════════════════════════════════════════════════════════════
 WRITING PHASE (produce the specification document)
 ═══════════════════════════════════════════════════════════════════
@@ -315,6 +322,13 @@ Use ★ to mark features you strongly recommend.
 Present 5-15 features. The user will select which ones to include.
 Only write the spec for the selected features.
 Wait for the user's selection before writing.
+
+FORMATTING RULES for the feature list:
+- Each ?> MUST start at the beginning of the line (no indentation, no leading spaces)
+- Do NOT group features under sub-headers or category headings
+- Use a single flat list — mention the area in the option text itself, e.g.:
+  ?> ★ Toast system: useToast hook with success/error/warning/info methods
+  ?> ★ Confirmation: ConfirmationDialog modal with useConfirm hook
 
 ═══════════════════════════════════════════════════════════════════
 WRITING PHASE — FEATURE SPECIFICATION
@@ -699,15 +713,15 @@ export function useSpecConversation(): {
           currentStore.setPlanningStreaming(projectPath, false);
           const finalContent = streamBufferRef.current;
 
-          // Parse selectable options from ?> markers
-          const optionPattern = /^\?>\s*(.+)$/gm;
+          // Parse selectable options from ?> markers (allow leading whitespace)
+          const optionPattern = /^\s*\?>\s*(.+)$/gm;
           const options: string[] = [];
           let m;
           while ((m = optionPattern.exec(finalContent)) !== null) {
             options.push(m[1].trim());
           }
           if (options.length > 0) {
-            const cleanContent = finalContent.replace(/^\?>\s*.+$/gm, '').trim();
+            const cleanContent = finalContent.replace(/^\s*\?>\s*.+$/gm, '').trim();
             currentStore.updateLastAssistantMessage(projectPath, cleanContent);
             currentStore.setMessageOptions(projectPath, options);
           }
