@@ -37,6 +37,9 @@
       "signingIdentity": null,
       "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
+      "files": {
+        "Resources/Credits.rtf": "resources/Credits.rtf"
+      },
       "dmg": {
         "appPosition": { "x": 180, "y": 170 },
         "applicationFolderPosition": { "x": 480, "y": 170 }

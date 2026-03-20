@@ -282,7 +282,8 @@ function SpecWriterSettingsContent({
     { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite (free)" },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
     { id: "gpt-4.1", label: "GPT-4.1" },
-    { id: "gpt-5-mini", label: "GPT-5 Mini" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   ];
 

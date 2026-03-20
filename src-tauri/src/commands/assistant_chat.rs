@@ -230,6 +230,10 @@ async fn stream_openai(
     if let Some(mt) = max_tokens {
         body["max_completion_tokens"] = serde_json::json!(mt);
     }
+    // Enable medium reasoning effort for gpt-5.x models (Chat Completions API)
+    if model.starts_with("gpt-5") {
+        body["reasoning_effort"] = serde_json::json!("medium");
+    }
 
     let resp = client
         .post("https://api.openai.com/v1/chat/completions")

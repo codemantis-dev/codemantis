@@ -28,9 +28,9 @@ export const AI_PROVIDERS: ProviderOption[] = [
 export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
   openai: [
     { id: "gpt-4.1", label: "GPT-4.1", defaultPricing: { input: 2.0, output: 8.0 } },
-    { id: "gpt-5-nano", label: "GPT-5 Nano", defaultPricing: { input: 0.5, output: 2.0 } },
-    { id: "gpt-5-mini", label: "GPT-5 Mini", defaultPricing: { input: 1.0, output: 4.0 } },
-    { id: "gpt-5.4", label: "GPT-5.4", defaultPricing: { input: 2.0, output: 8.0 } },
+    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano", defaultPricing: { input: 0.20, output: 1.25 } },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", defaultPricing: { input: 0.75, output: 4.50 } },
+    { id: "gpt-5.4", label: "GPT-5.4", defaultPricing: { input: 2.50, output: 15.0 } },
   ],
   gemini: [
     { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", defaultPricing: { input: 0.0, output: 0.0 } },

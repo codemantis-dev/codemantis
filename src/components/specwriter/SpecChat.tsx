@@ -30,7 +30,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError }: 
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
-      const planningModel = settings.taskBoardPlanningModel || 'gemini-2.5-flash';
+      const planningModel = settings.taskBoardPlanningModel || 'gemini-3.1-flash-lite-preview';
       const provider = getProviderForModel(planningModel) ?? 'gemini';
       useSpecWriterStore.getState().initConversation(projectPath, provider, planningModel, 'feature');
     }

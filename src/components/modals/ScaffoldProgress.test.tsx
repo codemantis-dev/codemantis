@@ -820,8 +820,8 @@ describe("ScaffoldProgress", () => {
     expect(screen.getByText("Template: Next.js Full-Stack")).toBeInTheDocument();
   });
 
-  it("hides template name when finished", () => {
+  it("shows template name when finished", () => {
     render(<ScaffoldProgress {...defaultProps} resultPath="/tmp/my-project" />);
-    expect(screen.queryByText("Template: Next.js Full-Stack")).not.toBeInTheDocument();
+    expect(screen.getByText("Template: Next.js Full-Stack")).toBeInTheDocument();
   });
 });

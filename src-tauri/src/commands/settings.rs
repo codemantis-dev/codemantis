@@ -152,15 +152,15 @@ fn default_task_board_retries() -> u32 {
 fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
     m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
-    m.insert("gpt-5-nano".into(), ModelPricing { input: 0.5, output: 2.0 });
-    m.insert("gpt-5-mini".into(), ModelPricing { input: 1.0, output: 4.0 });
+    m.insert("gpt-5.4-nano".into(), ModelPricing { input: 0.20, output: 1.25 });
+    m.insert("gpt-5.4-mini".into(), ModelPricing { input: 0.75, output: 4.50 });
+    m.insert("gpt-5.4".into(), ModelPricing { input: 2.50, output: 15.0 });
     m.insert("gemini-2.5-flash-lite".into(), ModelPricing { input: 0.0, output: 0.0 });
     m.insert("gemini-2.5-flash".into(), ModelPricing { input: 0.15, output: 0.60 });
     m.insert("gemini-2.5-pro".into(), ModelPricing { input: 1.25, output: 10.0 });
     m.insert("gemini-3-flash-preview".into(), ModelPricing { input: 0.15, output: 0.60 });
     m.insert("gemini-3.1-pro-preview".into(), ModelPricing { input: 1.25, output: 10.0 });
     m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.0, output: 0.0 });
-    m.insert("gpt-5.4".into(), ModelPricing { input: 2.0, output: 8.0 });
     m.insert("claude-opus-4-6".into(), ModelPricing { input: 5.0, output: 25.0 });
     m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });

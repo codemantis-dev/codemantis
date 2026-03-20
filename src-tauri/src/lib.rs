@@ -69,15 +69,9 @@ pub fn run() {
         .manage(terminal::pty_manager::TerminalPool::new())
         .manage(preview::PreviewState::new())
         .menu(|app| {
-            let about_metadata = AboutMetadata {
-                credits: Some(
-                    "A native desktop UI for Claude Code.\n\
-                     Use your Claude subscription to code with\n\
-                     an intuitive, powerful interface."
-                        .into(),
-                ),
-                ..Default::default()
-            };
+            // Credits text is in resources/Credits.rtf (centered, bundled into .app)
+            // When present in Contents/Resources/, macOS uses it automatically in the About panel.
+            let about_metadata = AboutMetadata::default();
 
             let app_submenu = Submenu::with_items(
                 app,

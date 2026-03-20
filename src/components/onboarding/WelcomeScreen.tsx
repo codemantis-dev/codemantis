@@ -181,8 +181,8 @@ export default function WelcomeScreen({
                 – Organize your thoughts and threads effortlessly.
               </li>
               <li>
-                <strong className="text-text-primary">Native File Browsing</strong>{" "}
-                – Edit and navigate your project without the CLI friction.
+                <strong className="text-text-primary">Your Ideas to AI-powered Specifications to Claude Code</strong>{" "}
+                – Integrated to work.
               </li>
               <li>
                 <strong className="text-text-primary">Real-time Activity Tracking</strong>{" "}

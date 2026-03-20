@@ -299,11 +299,9 @@ export default function ScaffoldProgress({
             : "Project ready!"
           : `Setting up: ${projectName}`}
       </h3>
-      {!isFinished && (
-        <p className="text-text-dim text-label mb-0.5">
-          Template: {template.name}
-        </p>
-      )}
+      <p className="text-text-dim text-label mb-0.5">
+        Template: {template.name}
+      </p>
       {!isFinished && !hasError && (
         <p className="text-text-dim text-label mb-6">This may take a minute...</p>
       )}
