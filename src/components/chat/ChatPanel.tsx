@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { useChatIncrementalLoad } from "../../hooks/useChatIncrementalLoad";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
@@ -26,6 +27,13 @@ export default function ChatPanel() {
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const { startIndex, hasOlder, sentinelRef } = useChatIncrementalLoad({
+    totalCount: messages.length,
+    resetKey: activeSessionId,
+    scrollRef,
+  });
+  const visibleMessages = messages.slice(startIndex);
 
   const checkAtBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -112,7 +120,10 @@ export default function ChatPanel() {
               </div>
             )}
 
-            {messages.map((message) => (
+            {hasOlder && (
+              <div ref={sentinelRef} className="h-1" />
+            )}
+            {visibleMessages.map((message) => (
               <MessageBubble
                 key={message.id}
                 message={message}

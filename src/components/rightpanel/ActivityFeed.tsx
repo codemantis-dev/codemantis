@@ -7,6 +7,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { EMPTY_ARRAY } from "../../lib/empty-refs";
 import { getActivityType } from "../../types/activity";
 import type { ActivityEntry } from "../../types/activity";
+import { useIncrementalList } from "../../hooks/useIncrementalList";
 import ToolBadge from "../shared/ToolBadge";
 import StatusDot from "../shared/StatusDot";
 
@@ -163,6 +164,12 @@ export default function ActivityFeed() {
     </button>
   );
 
+  const { visibleCount, hasMore, sentinelRef } = useIncrementalList({
+    totalCount: sortedEntries.length,
+    resetKey: (activeSessionId ?? "") + activityFeedScope,
+  });
+  const visibleEntries = sortedEntries.slice(0, visibleCount);
+
   if (sortedEntries.length === 0) {
     return (
       <div className="h-full flex flex-col">
@@ -177,7 +184,7 @@ export default function ActivityFeed() {
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto px-3 pt-1.5 pb-8 select-text">
       <div className="flex justify-end mb-1">{scopeToggle}</div>
-      {sortedEntries.map((entry, i) => {
+      {visibleEntries.map((entry, i) => {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
         const inputStr = formatToolInput(entry.toolName, entry.toolInput);
@@ -195,7 +202,7 @@ export default function ActivityFeed() {
                 pulse={entry.status === "running"}
                 size={6}
               />
-              {i < sortedEntries.length - 1 && (
+              {i < visibleEntries.length - 1 && (
                 <div className="w-px flex-1 mt-1 bg-border-light" />
               )}
             </div>
@@ -295,6 +302,7 @@ export default function ActivityFeed() {
           </div>
         );
       })}
+      {hasMore && <div ref={sentinelRef} className="h-1" />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type { ChangelogEntry } from "../../types/changelog";
 import { deleteChangelogEntry } from "../../lib/tauri-commands";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
 import { handleError } from "../../lib/error-handler";
+import { useIncrementalList } from "../../hooks/useIncrementalList";
 
 function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId: string }) {
   const removeEntry = useChangelogStore((s) => s.removeEntry);
@@ -150,6 +151,12 @@ export default function ChangelogFeed() {
     });
   }, [sortedEntries, query]);
 
+  const { visibleCount, hasMore, sentinelRef } = useIncrementalList({
+    totalCount: filteredEntries.length,
+    resetKey: (activeSessionId ?? "") + "|" + query.trim(),
+  });
+  const visibleEntries = filteredEntries.slice(0, visibleCount);
+
   if (sortedEntries.length === 0 && !isGenerating) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-4 text-center">
@@ -213,13 +220,16 @@ export default function ChangelogFeed() {
             </button>
           </div>
         ) : (
-          filteredEntries.map((entry) => (
-            <ChangelogCard
-              key={entry.id}
-              entry={entry}
-              sessionId={activeSessionId!}
-            />
-          ))
+          <>
+            {visibleEntries.map((entry) => (
+              <ChangelogCard
+                key={entry.id}
+                entry={entry}
+                sessionId={activeSessionId!}
+              />
+            ))}
+            {hasMore && <div ref={sentinelRef} className="h-1" />}
+          </>
         )}
       </div>
     </div>
