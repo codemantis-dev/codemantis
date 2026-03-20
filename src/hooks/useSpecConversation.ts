@@ -47,10 +47,25 @@ IMAGE ANALYSIS. If the user pastes screenshots or mockups, reference specific el
 
 DOCUMENT ANALYSIS. If the user attaches a PDF or doc, read it and confirm key points: "From your brief, the core requirements are: [1, 2, 3]. There are a few gaps I want to fill: [X, Y]."
 
-KNOW WHEN TO STOP. After 3-8 exchanges (depending on complexity), say:
-"I have enough information to write the specification. Shall I proceed?"
+KNOW WHEN TO STOP. After 3-8 exchanges (depending on complexity), move to feature selection.
 
-Wait for confirmation. Do NOT write the spec without confirmation.
+FEATURE SELECTION — Before writing the spec, present a comprehensive feature list.
+
+Based on the conversation, compile ALL discussed features and present them:
+
+"Here are the features I'll include in the specification. Select which to include:"
+
+?> ★ User authentication (email + OAuth) — recommended
+?> ★ Dashboard with metric cards — recommended
+?> Project management CRUD
+?> Team member invitations
+?> Real-time notifications
+?> Settings page with profile editing
+
+Use ★ to mark features you strongly recommend.
+Present 5-15 features. The user will select which ones to include.
+Only write the spec for the selected features.
+Wait for the user's selection before writing.
 
 ═══════════════════════════════════════════════════════════════════
 WRITING PHASE (produce the specification document)
@@ -283,9 +298,23 @@ CONVERSATION PHASE
 5. BEFORE writing, do a final file read for any component you'll reference:
    📂 REQUEST_FILES: src/components/ui/toast.tsx
 
-6. THEN say: "I have enough to write the spec. Shall I proceed?"
+6. FEATURE SELECTION — Before writing the spec, present a comprehensive feature list.
 
-Wait for confirmation. Do NOT write the spec without confirmation.
+Based on the conversation, compile ALL discussed features and present them:
+
+"Here are the features I'll include in the specification. Select which to include:"
+
+?> ★ User authentication (email + OAuth) — recommended
+?> ★ Dashboard with metric cards — recommended
+?> Project management CRUD
+?> Team member invitations
+?> Real-time notifications
+?> Settings page with profile editing
+
+Use ★ to mark features you strongly recommend.
+Present 5-15 features. The user will select which ones to include.
+Only write the spec for the selected features.
+Wait for the user's selection before writing.
 
 ═══════════════════════════════════════════════════════════════════
 WRITING PHASE — FEATURE SPECIFICATION
@@ -482,9 +511,9 @@ export function useSpecConversation(): {
    * After streaming completes, detect 📂 REQUEST_FILES markers, read files,
    * and inject contents as a system message into the conversation.
    */
-  const handleFileRequests = useCallback(async (projectPath: string, responseText: string) => {
+  const handleFileRequests = useCallback(async (projectPath: string, responseText: string): Promise<boolean> => {
     const requestedFiles = extractFileRequests(responseText);
-    if (requestedFiles.length === 0) return;
+    if (requestedFiles.length === 0) return false;
 
     const store = useSpecWriterStore.getState();
     store.setFileRequestsPending(projectPath, true);
@@ -508,17 +537,11 @@ export function useSpecConversation(): {
         timestamp: new Date().toISOString(),
       });
 
-      // Store the display content as a separate property on the message
-      // Actually, we encode it: the message content has the full data for the AI,
-      // and SpecChatMessage will render file_context messages in abbreviated form.
-      // The displayContent is embedded via a separator.
-      // Re-approach: just use the full content. The SpecChatMessage component
-      // will parse file_context messages and show abbreviated view.
-
       // Also store the display text for UI rendering
       void displayContent; // used by SpecChatMessage via parsing
 
       store.persistState(projectPath);
+      return true;
     } catch (e) {
       console.warn("[useSpecConversation] File request failed:", e);
       store.addMessage(projectPath, {
@@ -528,6 +551,7 @@ export function useSpecConversation(): {
         message_type: "conversation",
         timestamp: new Date().toISOString(),
       });
+      return false;
     } finally {
       store.setFileRequestsPending(projectPath, false);
     }
@@ -705,7 +729,6 @@ export function useSpecConversation(): {
               if (messages[lastIdx].role === 'assistant') {
                 messages[lastIdx] = { ...messages[lastIdx], message_type: 'spec_document' };
               }
-              // Directly update via set
               useSpecWriterStore.setState((state) => {
                 const conversations = new Map(state.conversations);
                 const c = conversations.get(projectPath);
@@ -717,15 +740,26 @@ export function useSpecConversation(): {
             }
           }
 
-          // Detect file request markers and load files
-          handleFileRequests(projectPath, finalContent);
-
+          // Cleanup FIRST (synchronous) — clear buffer, persist, unlisten
           streamBufferRef.current = "";
           currentStore.persistState(projectPath);
           if (unlistenRef.current) {
             unlistenRef.current();
             unlistenRef.current = null;
           }
+
+          // THEN handle file requests + auto-continue (async, fire-and-forget)
+          // Safe because sendMessage creates a new stream listener,
+          // and the auto-continue text contains no REQUEST_FILES markers.
+          void (async () => {
+            const filesLoaded = await handleFileRequests(projectPath, finalContent);
+            if (filesLoaded) {
+              await sendMessage(
+                projectPath,
+                "Files loaded. Continue your analysis using the file contents above."
+              );
+            }
+          })();
         }
 
         if (event.type === "error") {
@@ -774,6 +808,7 @@ export function useSpecConversation(): {
         });
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [handleFileRequests]
   );
 

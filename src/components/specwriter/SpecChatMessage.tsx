@@ -108,52 +108,65 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
         )}
 
         {/* Selectable options */}
-        {isLastAssistant && message.parsedOptions && message.parsedOptions.length > 0 && (
-          <div className="flex flex-col gap-1.5 mt-2">
-            {message.parsedOptions.map((opt, i) => {
-              const isSelected = selectedOptions.has(i);
-              return (
-                <button
-                  key={i}
-                  onClick={() => {
-                    if (selectedOptions.size === 0) {
-                      onSelectOption?.(opt);
-                    } else {
+        {isLastAssistant && message.parsedOptions && message.parsedOptions.length > 0 && (() => {
+          const isMultiSelectDefault = (message.parsedOptions?.length ?? 0) >= 4;
+          return (
+            <div className="flex flex-col gap-1.5 mt-2">
+              {message.parsedOptions!.map((opt, i) => {
+                const isSelected = selectedOptions.has(i);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (isMultiSelectDefault) {
+                        // 4+ options: click always toggles
+                        toggleOption(i);
+                      } else if (selectedOptions.size === 0) {
+                        // Few options, no multi-select active: instant send
+                        onSelectOption?.(opt);
+                      } else {
+                        // Few options, multi-select active (via right-click): toggle
+                        toggleOption(i);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
                       toggleOption(i);
-                    }
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    toggleOption(i);
-                  }}
-                  className="text-left px-3 py-2 rounded-md border text-xs transition-colors"
-                  style={{
-                    borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
-                    color: 'var(--text-primary)',
-                    background: isSelected ? 'var(--accent-bg)' : 'var(--bg-primary)',
-                  }}
+                    }}
+                    className="text-left px-3 py-2 rounded-md border text-xs transition-colors"
+                    style={{
+                      borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                      color: 'var(--text-primary)',
+                      background: isSelected ? 'var(--accent-bg)' : 'var(--bg-primary)',
+                    }}
+                  >
+                    {isMultiSelectDefault && (
+                      <span className="mr-1.5">{isSelected ? '\u2611' : '\u2610'}</span>
+                    )}
+                    {opt}
+                  </button>
+                );
+              })}
+              {selectedOptions.size > 0 && (
+                <button
+                  onClick={sendSelected}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+                  style={{ background: "var(--accent)", color: "white" }}
                 >
-                  {opt}
+                  <Send size={11} />
+                  Send {selectedOptions.size} selected
                 </button>
-              );
-            })}
-            {selectedOptions.size > 0 && (
-              <button
-                onClick={sendSelected}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-                style={{ background: "var(--accent)", color: "white" }}
-              >
-                <Send size={11} />
-                Send {selectedOptions.size} selected
-              </button>
-            )}
-            <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-ghost)' }}>
-              {selectedOptions.size > 0
-                ? "Click more options to add, or press Send"
-                : "Click to answer \u00b7 Right-click to multi-select"}
+              )}
+              <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-ghost)' }}>
+                {selectedOptions.size > 0
+                  ? "Click more options to add, or press Send"
+                  : isMultiSelectDefault
+                    ? "Select the features to include, then press Send"
+                    : "Click to answer \u00b7 Right-click to multi-select"}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div
           className="text-[10px] mt-1 opacity-60"
