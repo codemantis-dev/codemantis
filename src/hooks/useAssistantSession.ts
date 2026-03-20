@@ -20,7 +20,7 @@ import {
 import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
 import { fileToBase64 } from "../lib/file-utils";
-import { showToast } from "../stores/toastStore";
+import { handleError } from "../lib/error-handler";
 
 // Module-level listener map for assistant sessions
 const assistantListeners = new Map<string, UnlistenFn[]>();
@@ -133,15 +133,13 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     if (instance.provider === "claude-code") {
       // Send via CLI
       sendMessageCmd(sessionId, finalPrompt).catch((e) => {
-        console.error("Failed to send assistant message:", e);
-        showToast("Failed to send assistant message", "error");
+        handleError("Failed to send assistant message", e);
         store.setBusy(sessionId, false);
       });
     } else {
       // Send via API (pass attachments for multimodal)
       sendApiMessage(sessionId, instance.provider as APIProvider, instance.model, attachments).catch((e) => {
-        console.error("Failed to send API assistant message:", e);
-        showToast("Failed to send message to API", "error");
+        handleError("Failed to send API assistant message", e);
         store.setBusy(sessionId, false);
         store.addMessage(sessionId, {
           id: `asst-err-${Date.now()}`,
@@ -178,8 +176,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     // Retry the API call
     store.setBusy(sessionId, true);
     sendApiMessage(sessionId, instance.provider as APIProvider, instance.model).catch((e) => {
-      console.error("Retry failed:", e);
-      showToast("Retry failed", "error");
+      handleError("Retry failed", e);
       store.setBusy(sessionId, false);
       store.addMessage(sessionId, {
         id: `asst-err-${Date.now()}`,
@@ -225,8 +222,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       try {
         await closeSessionCmd(sessionId);
       } catch (e) {
-        console.error("Failed to close assistant session:", e);
-        showToast("Failed to close assistant session", "error");
+        handleError("Failed to close assistant session", e);
       }
     }
 

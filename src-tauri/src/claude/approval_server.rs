@@ -480,9 +480,21 @@ async fn handle_preview_open_browser(
     headers: axum::http::HeaderMap,
     Json(body): Json<OpenBrowserRequest>,
 ) -> (StatusCode, [(&'static str, &'static str); 1]) {
+    let cors = cors_header(&headers);
+    // Only allow http:// and https:// schemes to prevent file://, ssh://, etc.
+    let url_lower = body.url.to_lowercase();
+    if !url_lower.starts_with("http://") && !url_lower.starts_with("https://") {
+        warn!(
+            "[preview-callback] Rejected open request with disallowed scheme: {}",
+            body.url
+        );
+        return (StatusCode::BAD_REQUEST, cors);
+    }
     info!("[preview-callback] Opening in browser: {}", body.url);
-    let _ = std::process::Command::new("open").arg(&body.url).spawn();
-    (StatusCode::OK, cors_header(&headers))
+    if let Err(e) = std::process::Command::new("open").arg(&body.url).spawn() {
+        warn!("[preview-callback] Failed to open URL: {}", e);
+    }
+    (StatusCode::OK, cors)
 }
 
 async fn handle_preview_console_to_chat(

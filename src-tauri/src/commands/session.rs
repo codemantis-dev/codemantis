@@ -7,6 +7,7 @@ use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
 use log::{info, warn};
 use serde::Serialize;
+use std::path::Path;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
@@ -39,10 +40,7 @@ pub async fn create_session(
     let session_name = if let Some(n) = name {
         n
     } else {
-        let base = std::path::Path::new(&project_path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "New Session".to_string());
+        let base = derive_session_base_name(&project_path);
         // Count existing sessions for this project to auto-number
         let sessions = state.sessions.lock().await;
         let existing_count = sessions
@@ -50,11 +48,7 @@ pub async fn create_session(
             .filter(|s| s.project_path == project_path)
             .count();
         drop(sessions);
-        if existing_count == 0 {
-            base
-        } else {
-            format!("{} {}", base, existing_count + 1)
-        }
+        format_session_name(&base, existing_count)
     };
 
     let icon_index = state.database.get_next_icon_index().unwrap_or(0);
@@ -247,11 +241,7 @@ pub async fn set_session_mode(
     }
 
     // Map CodeMantis mode to CLI permission_mode string
-    let cli_mode = match &mode {
-        SessionMode::Normal => "default",
-        SessionMode::AutoAccept => "acceptEdits",
-        SessionMode::Plan => "plan",
-    };
+    let cli_mode = session_mode_to_cli(&mode);
 
     // Best-effort: send control request to CLI to sync permission mode
     let processes = state.processes.lock().await;
@@ -561,4 +551,159 @@ pub async fn initialize_session(
     );
 
     Ok(())
+}
+
+// ── Pure helper functions (extracted for testability) ──
+
+/// Derives the base session name from a project path.
+/// Uses the last path component, or "New Session" as fallback.
+pub(crate) fn derive_session_base_name(project_path: &str) -> String {
+    Path::new(project_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "New Session".to_string())
+}
+
+/// Formats the final session name, appending a number if there are existing sessions.
+pub(crate) fn format_session_name(base: &str, existing_count: usize) -> String {
+    if existing_count == 0 {
+        base.to_string()
+    } else {
+        format!("{} {}", base, existing_count + 1)
+    }
+}
+
+/// Maps a `SessionMode` to the CLI permission_mode string.
+pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
+    match mode {
+        SessionMode::Normal => "default",
+        SessionMode::AutoAccept => "acceptEdits",
+        SessionMode::Plan => "plan",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── derive_session_base_name ──
+
+    #[test]
+    fn base_name_from_simple_path() {
+        assert_eq!(derive_session_base_name("/Users/hr/projects/my-app"), "my-app");
+    }
+
+    #[test]
+    fn base_name_from_nested_path() {
+        assert_eq!(
+            derive_session_base_name("/Users/hr/Dev/CodeMantis/src-tauri"),
+            "src-tauri"
+        );
+    }
+
+    #[test]
+    fn base_name_trailing_slash() {
+        // Path::file_name returns None for paths ending in "/" on some platforms
+        let result = derive_session_base_name("/Users/hr/projects/my-app/");
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn base_name_root_path() {
+        assert_eq!(derive_session_base_name("/"), "New Session");
+    }
+
+    #[test]
+    fn base_name_single_component() {
+        assert_eq!(derive_session_base_name("my-project"), "my-project");
+    }
+
+    #[test]
+    fn base_name_empty_string() {
+        assert_eq!(derive_session_base_name(""), "New Session");
+    }
+
+    #[test]
+    fn base_name_with_spaces() {
+        assert_eq!(
+            derive_session_base_name("/Users/hr/My Projects/Cool App"),
+            "Cool App"
+        );
+    }
+
+    // ── format_session_name ──
+
+    #[test]
+    fn format_name_first_session() {
+        assert_eq!(format_session_name("my-app", 0), "my-app");
+    }
+
+    #[test]
+    fn format_name_second_session() {
+        assert_eq!(format_session_name("my-app", 1), "my-app 2");
+    }
+
+    #[test]
+    fn format_name_tenth_session() {
+        assert_eq!(format_session_name("my-app", 9), "my-app 10");
+    }
+
+    #[test]
+    fn format_name_preserves_base_with_spaces() {
+        assert_eq!(format_session_name("Cool App", 2), "Cool App 3");
+    }
+
+    // ── session_mode_to_cli ──
+
+    #[test]
+    fn mode_normal_maps_to_default() {
+        assert_eq!(session_mode_to_cli(&SessionMode::Normal), "default");
+    }
+
+    #[test]
+    fn mode_auto_accept_maps_to_accept_edits() {
+        assert_eq!(session_mode_to_cli(&SessionMode::AutoAccept), "acceptEdits");
+    }
+
+    #[test]
+    fn mode_plan_maps_to_plan() {
+        assert_eq!(session_mode_to_cli(&SessionMode::Plan), "plan");
+    }
+
+    // ── SessionHistoryEntry serialization ──
+
+    #[test]
+    fn session_history_entry_serializes_correctly() {
+        let entry = SessionHistoryEntry {
+            session_id: "abc-123".to_string(),
+            name: "Test Session".to_string(),
+            model: Some("claude-sonnet-4-6".to_string()),
+            closed_at: "2026-03-20T10:00:00Z".to_string(),
+            cli_session_id: "cli-456".to_string(),
+            icon_index: 3,
+            recent_headlines: vec!["Added login".to_string(), "Fixed bug".to_string()],
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["session_id"], "abc-123");
+        assert_eq!(json["name"], "Test Session");
+        assert_eq!(json["model"], "claude-sonnet-4-6");
+        assert_eq!(json["icon_index"], 3);
+        assert_eq!(json["recent_headlines"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn session_history_entry_with_no_model() {
+        let entry = SessionHistoryEntry {
+            session_id: "abc".to_string(),
+            name: "S".to_string(),
+            model: None,
+            closed_at: "2026-01-01T00:00:00Z".to_string(),
+            cli_session_id: "cli".to_string(),
+            icon_index: 0,
+            recent_headlines: vec![],
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert!(json["model"].is_null());
+        assert!(json["recent_headlines"].as_array().unwrap().is_empty());
+    }
 }

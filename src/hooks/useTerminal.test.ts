@@ -20,14 +20,17 @@ vi.mock("../lib/tauri-commands", () => ({
     mockResizeTerminalCmd(...(args as [string, number, number])),
 }));
 
-vi.mock("../stores/toastStore", () => ({
-  showToast: vi.fn(),
+const mockShowToast = vi.fn();
+vi.mock("../lib/error-handler", () => ({
+  handleError: (_context: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    mockShowToast(message, "error");
+  },
 }));
 
 import { useTerminal } from "./useTerminal";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useSessionStore } from "../stores/sessionStore";
-import { showToast } from "../stores/toastStore";
 
 describe("useTerminal", () => {
   beforeEach(() => {
@@ -167,7 +170,7 @@ describe("useTerminal", () => {
       await result.current.closeTerminal("s1", "term-1");
     });
 
-    expect(showToast).toHaveBeenCalledWith("Failed to close terminal", "error");
+    expect(mockShowToast).toHaveBeenCalledWith("PTY error", "error");
     // Still removed from store even after error
     expect(useTerminalStore.getState().getTerminals("s1")).toHaveLength(0);
   });

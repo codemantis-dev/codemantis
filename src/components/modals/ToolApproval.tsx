@@ -6,7 +6,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 import ToolBadge from "../shared/ToolBadge";
 
 export default function ToolApproval() {
@@ -78,10 +78,7 @@ export default function ToolApproval() {
           approved ? undefined : "Denied by user"
         );
       } catch (e) {
-        console.error("[approval-response] Failed:", e, {
-          requestId,
-        });
-        showToast("Failed to send tool approval response", "error");
+        handleError("approval-response: Failed", e);
       }
 
       useActivityStore.getState().dequeueApproval(toolUseId);
@@ -108,10 +105,7 @@ export default function ToolApproval() {
       try {
         await resolveToolApproval(requestId, true);
       } catch (e) {
-        console.error("[approval-response] Failed in approve-all:", e, {
-          requestId,
-        });
-        showToast("Failed to approve tool", "error");
+        handleError("approval-response: Failed in approve-all", e);
       }
 
       useActivityStore.getState().dequeueApproval(toolUseId);

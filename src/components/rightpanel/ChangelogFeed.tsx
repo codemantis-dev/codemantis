@@ -7,7 +7,7 @@ import { useChangelogStore } from "../../stores/changelogStore";
 import type { ChangelogEntry } from "../../types/changelog";
 import { deleteChangelogEntry } from "../../lib/tauri-commands";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 
 function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId: string }) {
   const removeEntry = useChangelogStore((s) => s.removeEntry);
@@ -23,8 +23,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
       await deleteChangelogEntry(entry.id);
       removeEntry(sessionId, entry.id);
     } catch (e) {
-      console.error("Failed to delete changelog entry:", e);
-      showToast("Failed to delete changelog entry", "error");
+      handleError("Failed to delete changelog entry", e);
     }
   };
 

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { handleError } from "../lib/error-handler";
 import { AI_MODELS } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
 
@@ -57,7 +58,7 @@ export function useProviderMenu({
     try {
       await createAssistant(activeProjectPath, activeSessionId, provider, resolvedModel);
     } catch (e) {
-      console.error("Failed to create assistant:", e);
+      handleError("Failed to create assistant", e);
     } finally {
       setCreating(false);
     }

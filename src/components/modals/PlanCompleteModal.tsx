@@ -5,6 +5,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { sendMessage, setSessionMode } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 
 export default function PlanCompleteModal() {
   const showModal = useUiStore((s) => s.showPlanCompleteModal);
@@ -39,8 +40,7 @@ export default function PlanCompleteModal() {
       try {
         await setSessionMode(sessionId, "auto-accept");
       } catch (e) {
-        console.error("Failed to set auto-accept mode:", e);
-        showToast("Failed to enable auto-accept mode", "error");
+        handleError("Failed to set auto-accept mode", e);
       }
     }
 
@@ -61,9 +61,8 @@ export default function PlanCompleteModal() {
     try {
       await sendMessage(sessionId, prompt);
     } catch (e) {
-      console.error("Failed to send implementation message:", e);
       store.setSessionBusy(sessionId, false);
-      showToast("Failed to start implementation — session may have ended", "error");
+      handleError("Failed to send implementation message", e);
     }
 
     setShowModal(false);

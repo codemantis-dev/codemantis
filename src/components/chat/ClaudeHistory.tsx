@@ -63,7 +63,7 @@ function HistoryCard({
           {entry.recent_headlines.length > 0 && (
             <ul className="mt-1 space-y-0.5">
               {entry.recent_headlines.map((headline, i) => (
-                <li key={i} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
+                <li key={`${headline}-${i}`} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
                   <span className="text-text-ghost mt-[3px] shrink-0">&#x2022;</span>
                   <span className="truncate">{headline}</span>
                 </li>

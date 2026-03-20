@@ -18,9 +18,9 @@ export default function QuickCommands({ terminalId }: QuickCommandsProps) {
 
   return (
     <div className="flex flex-wrap gap-1 px-2 py-2 border-t shrink-0" style={{ borderColor: "var(--border-light)" }}>
-      {quickCommands.map((cmd, i) => (
+      {quickCommands.map((cmd) => (
         <button
-          key={i}
+          key={`${cmd.label}-${cmd.command}`}
           onClick={() => handleClick(cmd.command)}
           className="px-2 py-0.5 rounded-full text-label text-text-dim hover:text-text-primary bg-bg-elevated hover:bg-accent/10 border border-border-light hover:border-accent/30 transition-colors"
           title={cmd.command}

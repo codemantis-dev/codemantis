@@ -12,7 +12,7 @@ import {
   pauseSessionProcess,
   resumeSessionProcess,
 } from "../../lib/tauri-commands";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 import TerminalView from "../rightpanel/TerminalView";
 
 export default function CliOverlay() {
@@ -152,8 +152,7 @@ export default function CliOverlay() {
         console.log("[cli-overlay] Session resumed successfully");
       }
     } catch (e) {
-      console.error("[cli-overlay] Error during close:", e);
-      showToast(`Failed to resume session: ${String(e)}`, "error");
+      handleError("cli-overlay: Error during close", e);
     } finally {
       closingRef.current = false;
       setError(null);

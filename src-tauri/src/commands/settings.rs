@@ -244,3 +244,298 @@ pub fn update_settings(settings: AppSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Default values ──
+
+    #[test]
+    fn default_theme_is_sand() {
+        assert_eq!(default_theme(), "sand");
+    }
+
+    #[test]
+    fn default_font_size_is_13() {
+        assert_eq!(default_font_size(), 13);
+    }
+
+    #[test]
+    fn default_send_shortcut_is_cmd_enter() {
+        assert_eq!(default_send_shortcut(), "cmd+enter");
+    }
+
+    #[test]
+    fn default_terminal_font_size_is_13() {
+        assert_eq!(default_terminal_font_size(), 13);
+    }
+
+    #[test]
+    fn default_changelog_provider_is_gemini() {
+        assert_eq!(default_changelog_provider(), "gemini");
+    }
+
+    #[test]
+    fn default_assistant_provider_is_claude_code() {
+        assert_eq!(default_assistant_provider(), "claude-code");
+    }
+
+    #[test]
+    fn default_context_window_is_1m() {
+        assert_eq!(default_context_window(), 1_000_000);
+    }
+
+    #[test]
+    fn default_preview_dimensions() {
+        assert_eq!(default_preview_width(), 1024);
+        assert_eq!(default_preview_height(), 768);
+    }
+
+    #[test]
+    fn default_task_board_settings() {
+        assert_eq!(default_task_board_model(), "gemini-2.5-flash");
+        assert_eq!(default_task_board_max_tokens(), 32768);
+        assert_eq!(default_task_board_retries(), 3);
+    }
+
+    // ── Default model pricing ──
+
+    #[test]
+    fn default_model_pricing_contains_expected_models() {
+        let pricing = default_model_pricing();
+        assert!(pricing.contains_key("gemini-2.5-flash-lite"));
+        assert!(pricing.contains_key("claude-opus-4-6"));
+        assert!(pricing.contains_key("claude-sonnet-4-6"));
+        assert!(pricing.contains_key("gpt-4.1"));
+    }
+
+    #[test]
+    fn default_model_pricing_flash_lite_is_free() {
+        let pricing = default_model_pricing();
+        let flash_lite = pricing.get("gemini-2.5-flash-lite").unwrap();
+        assert_eq!(flash_lite.input, 0.0);
+        assert_eq!(flash_lite.output, 0.0);
+    }
+
+    #[test]
+    fn default_model_pricing_opus_is_most_expensive() {
+        let pricing = default_model_pricing();
+        let opus = pricing.get("claude-opus-4-6").unwrap();
+        // Opus should be the most expensive by output price
+        for (name, p) in &pricing {
+            assert!(
+                opus.output >= p.output,
+                "Expected opus output ({}) >= {} output ({})",
+                opus.output,
+                name,
+                p.output
+            );
+        }
+    }
+
+    // ── Default quick commands ──
+
+    #[test]
+    fn default_quick_commands_has_four_entries() {
+        let cmds = default_quick_commands();
+        assert_eq!(cmds.len(), 4);
+    }
+
+    #[test]
+    fn default_quick_commands_labels() {
+        let cmds = default_quick_commands();
+        let labels: Vec<&str> = cmds.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["Build", "Test", "Lint", "Dev"]);
+    }
+
+    // ── AppSettings::default() ──
+
+    #[test]
+    fn app_settings_default_has_correct_theme() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.theme, "sand");
+        assert_eq!(settings.font_size, 13);
+        assert_eq!(settings.send_shortcut, "cmd+enter");
+    }
+
+    #[test]
+    fn app_settings_default_booleans() {
+        let settings = AppSettings::default();
+        assert!(!settings.changelog_enabled);
+        assert!(!settings.preview_auto_start);
+        assert!(settings.preview_console_auto_open);
+        assert!(settings.task_board_auto_start_next);
+        assert!(settings.task_board_auto_open_slide_over);
+        assert!(!settings.trivia_enabled);
+        assert!(!settings.auto_open_files);
+        assert!(!settings.onboarding_completed);
+    }
+
+    #[test]
+    fn app_settings_default_optional_fields_are_none() {
+        let settings = AppSettings::default();
+        assert!(settings.terminal_shell.is_none());
+        assert!(settings.preview_custom_dev_command.is_none());
+        assert!(settings.claude_binary_override.is_none());
+    }
+
+    #[test]
+    fn app_settings_default_collections_empty_where_expected() {
+        let settings = AppSettings::default();
+        assert!(settings.api_keys.is_empty());
+        assert!(settings.assistant_shortcuts.is_empty());
+        assert!(settings.assistant_default_model.is_empty());
+        assert!(!settings.model_pricing.is_empty()); // pricing has defaults
+        assert!(!settings.quick_commands.is_empty()); // quick commands have defaults
+    }
+
+    // ── Serialization roundtrip ──
+
+    #[test]
+    fn settings_serialize_deserialize_roundtrip() {
+        let original = AppSettings::default();
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.theme, restored.theme);
+        assert_eq!(original.font_size, restored.font_size);
+        assert_eq!(original.send_shortcut, restored.send_shortcut);
+        assert_eq!(original.changelog_enabled, restored.changelog_enabled);
+        assert_eq!(original.changelog_provider, restored.changelog_provider);
+        assert_eq!(original.changelog_model, restored.changelog_model);
+        assert_eq!(original.preview_default_width, restored.preview_default_width);
+        assert_eq!(original.default_context_window, restored.default_context_window);
+    }
+
+    #[test]
+    fn settings_camel_case_serialization() {
+        let settings = AppSettings::default();
+        let json = serde_json::to_value(&settings).unwrap();
+        // Verify camelCase field names
+        assert!(json.get("fontSize").is_some());
+        assert!(json.get("sendShortcut").is_some());
+        assert!(json.get("terminalShell").is_some());
+        assert!(json.get("terminalFontSize").is_some());
+        assert!(json.get("changelogEnabled").is_some());
+        assert!(json.get("changelogProvider").is_some());
+        assert!(json.get("previewDefaultWidth").is_some());
+        assert!(json.get("defaultContextWindow").is_some());
+        assert!(json.get("claudeBinaryOverride").is_some());
+        assert!(json.get("onboardingCompleted").is_some());
+    }
+
+    // ── Deserialization with missing fields (uses serde defaults) ──
+
+    #[test]
+    fn deserialize_empty_json_uses_all_defaults() {
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.theme, "sand");
+        assert_eq!(settings.font_size, 13);
+        assert_eq!(settings.send_shortcut, "cmd+enter");
+        assert!(!settings.changelog_enabled);
+        assert_eq!(settings.default_context_window, 1_000_000);
+    }
+
+    #[test]
+    fn deserialize_partial_json_fills_defaults() {
+        let json = r#"{"theme": "dark", "fontSize": 16}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.font_size, 16);
+        // Everything else should be default
+        assert_eq!(settings.send_shortcut, "cmd+enter");
+        assert_eq!(settings.terminal_font_size, 13);
+        assert!(!settings.changelog_enabled);
+    }
+
+    #[test]
+    fn deserialize_with_api_keys() {
+        let json = r#"{"apiKeys": {"gemini": "key-123", "openai": "sk-abc"}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.api_keys.len(), 2);
+        assert_eq!(settings.api_keys.get("gemini").unwrap(), "key-123");
+        assert_eq!(settings.api_keys.get("openai").unwrap(), "sk-abc");
+    }
+
+    #[test]
+    fn deserialize_with_changelog_api_keys_alias() {
+        // The field has alias "changelogApiKeys" for backward compat
+        let json = r#"{"changelogApiKeys": {"gemini": "key-old"}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.api_keys.get("gemini").unwrap(), "key-old");
+    }
+
+    // ── QuickCommand and AssistantShortcut types ──
+
+    #[test]
+    fn quick_command_roundtrip() {
+        let cmd = QuickCommand {
+            label: "Deploy".to_string(),
+            command: "pnpm deploy".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let restored: QuickCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.label, "Deploy");
+        assert_eq!(restored.command, "pnpm deploy");
+    }
+
+    #[test]
+    fn assistant_shortcut_roundtrip() {
+        let shortcut = AssistantShortcut {
+            id: "s1".to_string(),
+            name: "Explain".to_string(),
+            prompt: "Explain this code".to_string(),
+        };
+        let json = serde_json::to_string(&shortcut).unwrap();
+        let restored: AssistantShortcut = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.id, "s1");
+        assert_eq!(restored.name, "Explain");
+        assert_eq!(restored.prompt, "Explain this code");
+    }
+
+    #[test]
+    fn model_pricing_roundtrip() {
+        let pricing = ModelPricing {
+            input: 2.5,
+            output: 10.0,
+        };
+        let json = serde_json::to_string(&pricing).unwrap();
+        let restored: ModelPricing = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.input, 2.5);
+        assert_eq!(restored.output, 10.0);
+    }
+
+    // ── File-based settings (using temp dirs) ──
+
+    #[test]
+    fn settings_write_and_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.theme = "midnight".to_string();
+        settings.font_size = 18;
+        settings.changelog_enabled = true;
+
+        let json = serde_json::to_string_pretty(&settings).unwrap();
+        fs::write(&path, &json).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let restored: AppSettings = serde_json::from_str(&content).unwrap();
+        assert_eq!(restored.theme, "midnight");
+        assert_eq!(restored.font_size, 18);
+        assert!(restored.changelog_enabled);
+    }
+
+    // ── Changelog prompt ──
+
+    #[test]
+    fn default_changelog_prompt_contains_json_format() {
+        let prompt = default_changelog_prompt();
+        assert!(prompt.contains("headline"));
+        assert!(prompt.contains("description"));
+        assert!(prompt.contains("category"));
+        assert!(prompt.contains("JSON"));
+    }
+}

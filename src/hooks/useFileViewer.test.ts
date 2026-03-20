@@ -44,13 +44,16 @@ vi.mock("../stores/uiStore", () => ({
   },
 }));
 
-vi.mock("../stores/toastStore", () => ({
-  showToast: vi.fn(),
+const mockShowToast = vi.fn();
+vi.mock("../lib/error-handler", () => ({
+  handleError: (_context: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    mockShowToast(message, "error");
+  },
 }));
 
 import { useFileViewer } from "./useFileViewer";
 import { useSessionStore } from "../stores/sessionStore";
-import { showToast } from "../stores/toastStore";
 
 describe("useFileViewer", () => {
   beforeEach(() => {
@@ -102,7 +105,7 @@ describe("useFileViewer", () => {
       await result.current.openFile("/test/project/missing.ts");
     });
 
-    expect(showToast).toHaveBeenCalledWith("Failed to open file", "error");
+    expect(mockShowToast).toHaveBeenCalledWith("File not found", "error");
     expect(mockOpenFile).not.toHaveBeenCalled();
   });
 

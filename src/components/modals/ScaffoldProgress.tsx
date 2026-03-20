@@ -190,7 +190,7 @@ export default function ScaffoldProgress({
           </div>
           <ul className="px-3 py-2 space-y-1">
             {warnings.map((w, i) => (
-              <li key={i} className="text-text-dim text-label break-words select-text">{w}</li>
+              <li key={`${w}-${i}`} className="text-text-dim text-label break-words select-text">{w}</li>
             ))}
           </ul>
         </div>

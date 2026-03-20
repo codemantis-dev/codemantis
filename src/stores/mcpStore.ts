@@ -6,7 +6,7 @@ import {
   deleteMcpServer as deleteMcpServerCmd,
   renameMcpServer as renameMcpServerCmd,
 } from "../lib/tauri-commands";
-import { showToast } from "./toastStore";
+import { handleError } from "../lib/error-handler";
 
 interface McpState {
   servers: McpServerConfig[];
@@ -38,8 +38,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       const servers = await getMcpServers(projectPath);
       set({ servers, loading: false });
     } catch (e) {
-      console.error("Failed to load MCP servers:", e);
-      showToast("Failed to load MCP servers", "error");
+      handleError("Failed to load MCP servers", e);
       set({ error: String(e), loading: false });
     }
   },
@@ -50,8 +49,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       await saveMcpServer(projectPath, server);
       await get().loadServers(projectPath ?? undefined);
     } catch (e) {
-      console.error("Failed to add MCP server:", e);
-      showToast("Failed to add MCP server", "error");
+      handleError("Failed to add MCP server", e);
       set({ error: String(e) });
       throw e;
     }
@@ -66,8 +64,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       await saveMcpServer(projectPath, server);
       await get().loadServers(projectPath ?? undefined);
     } catch (e) {
-      console.error("Failed to update MCP server:", e);
-      showToast("Failed to update MCP server", "error");
+      handleError("Failed to update MCP server", e);
       set({ error: String(e) });
       throw e;
     }
@@ -79,8 +76,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       await deleteMcpServerCmd(projectPath, name, scope);
       await get().loadServers(projectPath ?? undefined);
     } catch (e) {
-      console.error("Failed to delete MCP server:", e);
-      showToast("Failed to delete MCP server", "error");
+      handleError("Failed to delete MCP server", e);
       set({ error: String(e) });
       throw e;
     }

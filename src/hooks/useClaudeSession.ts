@@ -25,6 +25,7 @@ import {
   cleanupSession,
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
+import { handleError } from "../lib/error-handler";
 import { inputDrafts } from "../lib/input-drafts";
 
 const MAX_SESSIONS = 10;
@@ -93,8 +94,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       await startSession(targetPath);
     } catch (e) {
-      console.error("Failed to add session to project:", e);
-      showToast(`Failed to create session: ${String(e)}`, "error");
+      handleError("Failed to add session to project", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [startSession]);
@@ -117,8 +117,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       await sendMessageCmd(sessionId, prompt);
     } catch (e) {
-      console.error("Failed to send message:", e);
-      showToast("Failed to send message", "error");
+      handleError("Failed to send message", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
@@ -149,8 +148,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       await closeSessionCmd(sessionId);
     } catch (e) {
-      console.error("Failed to close session:", e);
-      showToast("Failed to close session", "error");
+      handleError("Failed to close session", e);
     }
 
     sessionStore.getState().removeSession(sessionId);
@@ -202,8 +200,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       await renameSessionCmd(sessionId, name);
     } catch (e) {
-      console.error("Failed to rename session:", e);
-      showToast("Failed to rename session", "error");
+      handleError("Failed to rename session", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);

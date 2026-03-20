@@ -4,7 +4,7 @@ import { MessageCircleQuestion, Check, X } from "lucide-react";
 import { useActivityStore, type QuestionItem } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
-import { showToast } from "../../stores/toastStore";
+import { handleError } from "../../lib/error-handler";
 
 function TextQuestion({
   question,
@@ -283,8 +283,7 @@ export default function QuestionModal() {
           const formatted = formatAnswerForClaude([answer]);
           await resolveToolApproval(pendingQuestion.requestId, false, formatted);
         } catch (e) {
-          console.error("Failed to send answer:", e);
-          showToast("Failed to send answer", "error");
+          handleError("Failed to send answer", e);
         }
         useActivityStore.getState().setPendingQuestion(questionSessionId, null);
         setShowModal(false);
@@ -303,8 +302,7 @@ export default function QuestionModal() {
           const formatted = formatAnswerForClaude(newAnswers);
           await resolveToolApproval(pendingQuestion.requestId, false, formatted);
         } catch (e) {
-          console.error("Failed to send answers:", e);
-          showToast("Failed to send answers", "error");
+          handleError("Failed to send answers", e);
         }
         useActivityStore.getState().setPendingQuestion(questionSessionId, null);
         setShowModal(false);

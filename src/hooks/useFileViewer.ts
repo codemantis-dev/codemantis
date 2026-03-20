@@ -3,7 +3,7 @@ import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerSto
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { readFileContent } from "../lib/tauri-commands";
-import { showToast } from "../stores/toastStore";
+import { handleError } from "../lib/error-handler";
 
 function getExtension(filePath: string): string {
   const parts = filePath.split(".");
@@ -36,8 +36,7 @@ export function useFileViewer(): UseFileViewerReturn {
       });
       useUiStore.getState().setRightTab("files");
     } catch (e) {
-      console.error("Failed to open file:", e);
-      showToast("Failed to open file", "error");
+      handleError("Failed to open file", e);
     }
   }, []);
 

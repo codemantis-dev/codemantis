@@ -11,6 +11,7 @@ import {
   sendMessage as sendMessageCmd,
 } from "../lib/tauri-commands";
 import { showToast } from "../stores/toastStore";
+import { handleError } from "../lib/error-handler";
 
 export function useCommandExecution(): {
   executeCommand: (command: SlashCommand, args: string) => Promise<void>;
@@ -56,8 +57,7 @@ export function useCommandExecution(): {
             break;
         }
       } catch (e) {
-        console.error(`[command] Failed to execute /${command.name}:`, e);
-        showToast(`Command failed: ${String(e)}`, "error");
+        handleError(`command: Failed to execute /${command.name}`, e);
       } finally {
         setIsExecuting(false);
       }
@@ -105,8 +105,7 @@ export function useCommandExecution(): {
           await pauseSessionProcess(sessionId);
           await resumeSessionProcess(sessionId);
         } catch (e) {
-          console.error("[command] Failed to restart session:", e);
-          showToast("Failed to restart session process", "error");
+          handleError("command: Failed to restart session", e);
         }
         showToast("Session cleared", "success");
         break;
@@ -157,8 +156,7 @@ export function useCommandExecution(): {
         try {
           await sendMessageCmd(sessionId, "/compact");
         } catch (e) {
-          console.error("[command] Failed to compact:", e);
-          showToast("Failed to compact conversation", "error");
+          handleError("command: Failed to compact conversation", e);
         }
         break;
       }
