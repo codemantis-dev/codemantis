@@ -231,7 +231,10 @@
       "verified": true,
       "last_verified": "2026-03-14",
       "scaffold_type": "cli",
-      "cli_command": "CI=true pnpm create fumadocs-app {{PROJECT_NAME}} --template +next+fuma-docs-mdx --pm pnpm --no-git --src --linter biome --search orama --og-image next-og --install"
+      "cli_command": "CI=true pnpm create fumadocs-app {{PROJECT_NAME}} --template +next+fuma-docs-mdx --pm pnpm --no-git --src --linter biome --search orama --og-image next-og --install",
+      "prerequisite_checks": [
+        { "command": "pnpm", "label": "pnpm", "required": true, "install_command": "npm install -g pnpm" }
+      ]
     }
   ]
 }

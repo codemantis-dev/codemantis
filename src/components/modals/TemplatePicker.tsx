@@ -124,6 +124,7 @@ export default function TemplatePicker({ onProjectCreated, preselectedTemplateId
         <ScaffoldProgress
           template={selectedTemplate}
           projectName={scaffoldProjectName}
+          projectPath={scaffoldParentDir}
           resultPath={scaffoldResult?.project_path ?? null}
           warnings={scaffoldResult?.warnings ?? []}
           scaffoldError={scaffoldError}

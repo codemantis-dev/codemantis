@@ -323,7 +323,9 @@ fn detect_required_tools(template: &TemplateEntry) -> HashSet<String> {
     let mut tools = HashSet::new();
 
     fn first_word(cmd: &str) -> Option<String> {
-        cmd.split_whitespace().next().map(|s| s.to_string())
+        cmd.split_whitespace()
+            .find(|s| !s.contains('='))
+            .map(|s| s.to_string())
     }
 
     if let Some(tool) = first_word(&template.install_command) {
@@ -584,13 +586,10 @@ fn validate_prerequisites(
             .filter(|t| which::which(t).is_err())
             .collect();
         if !missing.is_empty() {
+            let names: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
             let msg = format!(
                 "Required tools not found: {}. Please install them first.",
-                missing
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                names.join(", ")
             );
             emit_progress(app, "validate", "error", Some(&msg));
             return Err(msg);
@@ -1347,6 +1346,35 @@ mod tests {
         let tools = detect_required_tools(&tmpl);
         assert!(tools.contains("corepack"));
         assert!(tools.contains("yarn"));
+    }
+
+    #[test]
+    fn detect_tools_skips_env_var_prefix() {
+        let tmpl = make_template(
+            "pnpm install",
+            Some("CI=true pnpm create fumadocs-app my-app"),
+            None,
+        );
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("pnpm"));
+        assert!(
+            !tools.contains("CI=true"),
+            "detect_required_tools should skip env var tokens, got: {:?}",
+            tools
+        );
+    }
+
+    #[test]
+    fn detect_tools_skips_multiple_env_vars() {
+        let tmpl = make_template(
+            "npm install",
+            Some("NODE_ENV=production CI=true npx create-app"),
+            None,
+        );
+        let tools = detect_required_tools(&tmpl);
+        assert!(tools.contains("npx"));
+        assert!(!tools.contains("NODE_ENV=production"));
+        assert!(!tools.contains("CI=true"));
     }
 
     #[test]
