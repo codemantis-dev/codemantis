@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import ScaffoldProgress from "./ScaffoldProgress";
 import type { TemplateEntry, ScaffoldProgressEvent } from "../../types/project-templates";
 import type { FrontendEvent } from "../../types/claude-events";
@@ -16,14 +16,14 @@ const {
   mockInitializeSession,
   mockListenChatEvents,
 } = vi.hoisted(() => ({
-  mockListenScaffoldProgress: vi.fn(() => Promise.resolve(() => {})),
-  mockCreateSession: vi.fn(() => Promise.resolve({ id: "setup-1", name: "setup" })),
-  mockSendMessage: vi.fn(() => Promise.resolve()),
-  mockInterruptSession: vi.fn(() => Promise.resolve()),
-  mockCloseSession: vi.fn(() => Promise.resolve()),
-  mockSetSessionMode: vi.fn(() => Promise.resolve()),
-  mockInitializeSession: vi.fn(() => Promise.resolve()),
-  mockListenChatEvents: vi.fn(() => Promise.resolve(() => {})),
+  mockListenScaffoldProgress: vi.fn<(cb: (event: ScaffoldProgressEvent) => void) => Promise<() => void>>(() => Promise.resolve(() => {})),
+  mockCreateSession: vi.fn<(path: string) => Promise<{ id: string; name: string }>>(() => Promise.resolve({ id: "setup-1", name: "setup" })),
+  mockSendMessage: vi.fn<(sessionId: string, prompt: string) => Promise<void>>(() => Promise.resolve()),
+  mockInterruptSession: vi.fn<(sessionId: string) => Promise<void>>(() => Promise.resolve()),
+  mockCloseSession: vi.fn<(sessionId: string) => Promise<void>>(() => Promise.resolve()),
+  mockSetSessionMode: vi.fn<(sessionId: string, mode: string) => Promise<void>>(() => Promise.resolve()),
+  mockInitializeSession: vi.fn<(sessionId: string) => Promise<void>>(() => Promise.resolve()),
+  mockListenChatEvents: vi.fn<(sessionId: string, cb: (event: FrontendEvent) => void) => Promise<() => void>>(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("../../lib/tauri-commands", () => ({
@@ -583,7 +583,9 @@ describe("ScaffoldProgress", () => {
         emitChat({
           type: "process_exited",
           session_id: "setup-1",
-          code: 1,
+          exit_code: 1,
+          stderr_tail: null,
+          elapsed_ms: 0,
         } as FrontendEvent);
       });
 
