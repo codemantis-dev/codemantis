@@ -221,8 +221,8 @@
   var cmStyle = document.createElement('style');
   cmStyle.id = '__cm_toolbar_style';
   cmStyle.textContent =
-    'body { margin-top: ' + TOOLBAR_HEIGHT + 'px !important; }' +
-    ' html { scroll-padding-top: ' + TOOLBAR_HEIGHT + 'px; }';
+    'body { margin-top: ' + TOOLBAR_HEIGHT + 'px !important; padding-bottom: ' + TOOLBAR_HEIGHT + 'px !important; }' +
+    ' html { scroll-padding-top: ' + TOOLBAR_HEIGHT + 'px; scroll-padding-bottom: ' + TOOLBAR_HEIGHT + 'px; }';
 
   function insertStyle() {
     var target = document.head || document.documentElement;
@@ -329,6 +329,9 @@
       if (newH < DRAWER_MIN_HEIGHT) newH = DRAWER_MIN_HEIGHT;
       if (newH > window.innerHeight - TOOLBAR_HEIGHT - 40) newH = window.innerHeight - TOOLBAR_HEIGHT - 40;
       drawer.style.height = newH + 'px';
+      if (window.__CM_DRAWER_OPEN) {
+        document.body.style.setProperty('padding-bottom', newH + 'px', 'important');
+      }
     }
     function onUp() {
       resizing = false;
@@ -477,9 +480,12 @@
     window.__CM_DRAWER_OPEN = !window.__CM_DRAWER_OPEN;
     if (window.__CM_DRAWER_OPEN) {
       drawer.style.display = 'flex';
+      var h = parseInt(drawer.style.height, 10) || DRAWER_DEFAULT_HEIGHT;
+      document.body.style.setProperty('padding-bottom', h + 'px', 'important');
       renderConsoleEntries();
     } else {
       drawer.style.display = 'none';
+      document.body.style.setProperty('padding-bottom', TOOLBAR_HEIGHT + 'px', 'important');
     }
   }
 
