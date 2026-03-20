@@ -35,8 +35,9 @@ export function usePreviewServer(): {
         status: "running",
       });
 
-      // Auto-open preview window if this project is active
-      if (activeProjectPathRef.current === projectPath) {
+      // Auto-open preview window if this project is active and not already open
+      const alreadyOpen = usePreviewStore.getState().previewOpen.get(projectPath);
+      if (activeProjectPathRef.current === projectPath && !alreadyOpen) {
         const projectName =
           projectPath.split("/").filter(Boolean).pop() ?? "Preview";
         openPreviewWindow(url, projectName)

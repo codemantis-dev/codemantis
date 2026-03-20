@@ -38,6 +38,9 @@ pub struct ConsoleLogEntry {
 pub struct PreviewState {
     pub dev_servers: Arc<Mutex<HashMap<String, DevServerInfo>>>,
     pub console_logs: Arc<Mutex<Vec<ConsoleLogEntry>>>,
+    /// Serializes preview window creation to prevent race conditions
+    /// where two concurrent calls both find no existing window and both create one.
+    pub window_lock: Arc<Mutex<()>>,
 }
 
 impl PreviewState {
@@ -45,6 +48,7 @@ impl PreviewState {
         Self {
             dev_servers: Arc::new(Mutex::new(HashMap::new())),
             console_logs: Arc::new(Mutex::new(Vec::new())),
+            window_lock: Arc::new(Mutex::new(())),
         }
     }
 }

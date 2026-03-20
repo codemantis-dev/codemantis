@@ -73,8 +73,16 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
     // If dev server is running, open/focus the preview
     if (devServer?.status === "running" && devServer.url) {
       const projectName = activeProjectPath.split("/").filter(Boolean).pop() ?? "Preview";
-      await openPreviewWindow(devServer.url, projectName);
+      // Set previewOpen eagerly to prevent the dev-server-ready listener
+      // from racing and opening a second window
       usePreviewStore.getState().setPreviewOpen(activeProjectPath, true);
+      await openPreviewWindow(devServer.url, projectName);
+      return;
+    }
+
+    // Dev server is starting/scanning — just wait, it will auto-open when ready
+    if (devServer?.status === "starting" || devServer?.status === "scanning") {
+      showToast("Dev server is starting…", "info");
       return;
     }
 

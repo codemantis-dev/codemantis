@@ -1,4 +1,4 @@
-import { RotateCcw, PenTool, Lightbulb } from "lucide-react";
+import { RotateCcw, PenTool } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
 
@@ -12,23 +12,15 @@ export default function SpecToolbar({ projectPath, onReset, onSave }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const currentSpec = useSpecWriterStore((s) => s.currentSpecContent.get(projectPath));
-  const { writeSpec, sendMessage } = useSpecConversation();
+  const { writeSpec } = useSpecConversation();
 
   const status = conversation?.status;
-  const mode = conversation?.mode;
   const canWrite = status === 'ready_to_write' && !isStreaming;
   const canSave = !!currentSpec && !isStreaming;
   const hasMessages = (conversation?.messages.length ?? 0) > 0;
 
   const handleWriteSpec = (): void => {
     writeSpec(projectPath);
-  };
-
-  const handleSuggestFeatures = (): void => {
-    sendMessage(
-      projectPath,
-      "Based on what you see in this project, what features or improvements would you suggest?"
-    );
   };
 
   return (
@@ -79,22 +71,6 @@ export default function SpecToolbar({ projectPath, onReset, onSave }: Props) {
         </button>
       )}
 
-      {mode === 'feature' && (
-        <button
-          onClick={handleSuggestFeatures}
-          disabled={isStreaming}
-          title="Ask the AI to suggest features for this project"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40 ml-auto"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <Lightbulb size={13} />
-          Suggest Features
-        </button>
-      )}
     </div>
   );
 }

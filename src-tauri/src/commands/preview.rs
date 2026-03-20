@@ -117,6 +117,10 @@ pub async fn open_preview_window(
     let w = width.unwrap_or(1024.0);
     let h = height.unwrap_or(768.0);
 
+    // Serialize window creation to prevent race conditions where two concurrent
+    // calls both find no existing window and both try to create one.
+    let _lock = preview_state.window_lock.lock().await;
+
     // Destroy existing preview window if any.
     // Use destroy() instead of close() to avoid firing the CloseRequested event,
     // which would incorrectly signal the JS side that the preview was closed

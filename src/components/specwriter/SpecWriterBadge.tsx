@@ -9,9 +9,11 @@ export default function SpecWriterBadge({ projectPath }: Props) {
 
   if (!conversation) return null;
 
+  const hasMessages = conversation.messages.length > 0;
+
   const statusLabel = (() => {
     switch (conversation.status) {
-      case 'gathering': return 'Gathering...';
+      case 'gathering': return hasMessages ? 'In progress' : '';
       case 'ready_to_write': return 'Spec ready';
       case 'writing': return 'Writing...';
       case 'done': return 'Done';

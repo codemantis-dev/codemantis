@@ -1,10 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { X, Copy, Check, Pencil, Eye, Send, Play } from "lucide-react";
+import { X, Copy, Check, Pencil, Eye, Send, Play, Lightbulb } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
 import { listSpecDocuments, gatherSpecContext, saveTaskBoardState } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { useSpecConversation } from "../../hooks/useSpecConversation";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -43,10 +44,12 @@ export default function SpecWriterSlideOver() {
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
+  const { sendMessage: sendSpecMessage } = useSpecConversation();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isStreaming = useSpecWriterStore((s) =>
     activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false
   );
+  const conversationMode = conversation?.mode;
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
   const [contextLoading, setContextLoading] = useState(false);
@@ -203,6 +206,15 @@ export default function SpecWriterSlideOver() {
     }
   }, [lastSavedFile]);
 
+  const handleSuggestFeatures = useCallback(() => {
+    if (activeProjectPath) {
+      sendSpecMessage(
+        activeProjectPath,
+        "Based on what you see in this project, what features or improvements would you suggest?"
+      );
+    }
+  }, [activeProjectPath, sendSpecMessage]);
+
   const handleSendToChat = useCallback(async () => {
     if (!lastSavedFile || !activeSessionId) {
       showToast("No active chat session", "error");
@@ -272,14 +284,32 @@ export default function SpecWriterSlideOver() {
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
             SpecWriter
           </span>
-          <button
-            onClick={handleClose}
-            title="Close SpecWriter"
-            className="p-1 rounded hover:bg-bg-elevated transition-colors"
-            style={{ color: "var(--text-ghost)" }}
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            {conversationMode === 'feature' && (
+              <button
+                onClick={handleSuggestFeatures}
+                disabled={isStreaming}
+                title="Ask the AI to suggest features for this project"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <Lightbulb size={12} />
+                Suggest Features
+              </button>
+            )}
+            <button
+              onClick={handleClose}
+              title="Close SpecWriter"
+              className="p-1 rounded hover:bg-bg-elevated transition-colors"
+              style={{ color: "var(--text-ghost)" }}
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Two-column content — only mount children when open */}
