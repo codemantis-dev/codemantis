@@ -2,6 +2,7 @@ use crate::claude::session::AppState;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::watch;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -107,6 +108,9 @@ pub enum StreamEvent {
     Error {
         message: String,
     },
+    Cancelled {
+        content: String,
+    },
 }
 
 #[tauri::command]
@@ -124,18 +128,31 @@ pub async fn send_assistant_chat(
     let event_name = format!("assistant-stream-{}", assistant_id);
     let client = reqwest::Client::new();
 
+    // Create cancellation channel for this stream
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    {
+        let mut cancellers = state.assistant_cancellation.lock().await;
+        cancellers.insert(assistant_id.clone(), cancel_tx);
+    }
+
     let result = match provider.as_str() {
         "openai" => {
-            stream_openai(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
+            stream_openai(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens, cancel_rx).await
         }
         "gemini" => {
-            stream_gemini(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
+            stream_gemini(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens, cancel_rx).await
         }
         "anthropic" => {
-            stream_anthropic(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens).await
+            stream_anthropic(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens, cancel_rx).await
         }
         _ => Err(format!("Unknown provider: {}", provider)),
     };
+
+    // Clean up cancellation sender
+    {
+        let mut cancellers = state.assistant_cancellation.lock().await;
+        cancellers.remove(&assistant_id);
+    }
 
     // Log the API call regardless of success/failure
     log::info!(
@@ -197,6 +214,7 @@ async fn stream_openai(
     system_prompt: &str,
     messages: &[ChatMessage],
     max_tokens: Option<u32>,
+    mut cancel_rx: watch::Receiver<bool>,
 ) -> Result<(u32, u32), String> {
     let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for msg in messages {
@@ -233,42 +251,53 @@ async fn stream_openai(
     let mut line_buffer = String::new();
     let mut stream = resp.bytes_stream();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e))?;
-        let text = String::from_utf8_lossy(&chunk);
-        line_buffer.push_str(&text);
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        line_buffer.push_str(&text);
 
-        while let Some(pos) = line_buffer.find('\n') {
-            let line = line_buffer[..pos].trim().to_string();
-            line_buffer = line_buffer[pos + 1..].to_string();
+                        while let Some(pos) = line_buffer.find('\n') {
+                            let line = line_buffer[..pos].trim().to_string();
+                            line_buffer = line_buffer[pos + 1..].to_string();
 
-            if line.is_empty() || !line.starts_with("data: ") {
-                continue;
-            }
-            let data = &line[6..];
-            if data == "[DONE]" {
-                continue;
-            }
+                            if line.is_empty() || !line.starts_with("data: ") {
+                                continue;
+                            }
+                            let data = &line[6..];
+                            if data == "[DONE]" {
+                                continue;
+                            }
 
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                // Extract content delta
-                if let Some(delta_text) = json["choices"][0]["delta"]["content"].as_str() {
-                    if !delta_text.is_empty() {
-                        full_text.push_str(delta_text);
-                        let _ = app.emit(event_name, StreamEvent::Delta {
-                            text: delta_text.to_string(),
-                        });
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(delta_text) = json["choices"][0]["delta"]["content"].as_str() {
+                                    if !delta_text.is_empty() {
+                                        full_text.push_str(delta_text);
+                                        let _ = app.emit(event_name, StreamEvent::Delta {
+                                            text: delta_text.to_string(),
+                                        });
+                                    }
+                                }
+                                if let Some(usage) = json.get("usage") {
+                                    if let Some(pt) = usage["prompt_tokens"].as_u64() {
+                                        input_tokens = pt as u32;
+                                    }
+                                    if let Some(ct) = usage["completion_tokens"].as_u64() {
+                                        output_tokens = ct as u32;
+                                    }
+                                }
+                            }
+                        }
                     }
+                    Some(Err(e)) => return Err(format!("Stream read error: {}", e)),
+                    None => break,
                 }
-                // Extract usage from final chunk (stream_options.include_usage)
-                if let Some(usage) = json.get("usage") {
-                    if let Some(pt) = usage["prompt_tokens"].as_u64() {
-                        input_tokens = pt as u32;
-                    }
-                    if let Some(ct) = usage["completion_tokens"].as_u64() {
-                        output_tokens = ct as u32;
-                    }
-                }
+            }
+            _ = cancel_rx.changed() => {
+                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                return Ok((input_tokens, output_tokens));
             }
         }
     }
@@ -293,6 +322,7 @@ async fn stream_gemini(
     system_prompt: &str,
     messages: &[ChatMessage],
     max_tokens: Option<u32>,
+    mut cancel_rx: watch::Receiver<bool>,
 ) -> Result<(u32, u32), String> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
@@ -338,38 +368,50 @@ async fn stream_gemini(
     let mut line_buffer = String::new();
     let mut stream = resp.bytes_stream();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e))?;
-        let text = String::from_utf8_lossy(&chunk);
-        line_buffer.push_str(&text);
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        line_buffer.push_str(&text);
 
-        while let Some(pos) = line_buffer.find('\n') {
-            let line = line_buffer[..pos].trim().to_string();
-            line_buffer = line_buffer[pos + 1..].to_string();
+                        while let Some(pos) = line_buffer.find('\n') {
+                            let line = line_buffer[..pos].trim().to_string();
+                            line_buffer = line_buffer[pos + 1..].to_string();
 
-            if line.is_empty() || !line.starts_with("data: ") {
-                continue;
+                            if line.is_empty() || !line.starts_with("data: ") {
+                                continue;
+                            }
+                            let data = &line[6..];
+
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(part_text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                    if !part_text.is_empty() {
+                                        full_text.push_str(part_text);
+                                        let _ = app.emit(event_name, StreamEvent::Delta {
+                                            text: part_text.to_string(),
+                                        });
+                                    }
+                                }
+                                if let Some(usage) = json.get("usageMetadata") {
+                                    if let Some(pt) = usage["promptTokenCount"].as_u64() {
+                                        input_tokens = pt as u32;
+                                    }
+                                    if let Some(ct) = usage["candidatesTokenCount"].as_u64() {
+                                        output_tokens = ct as u32;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(Err(e)) => return Err(format!("Stream read error: {}", e)),
+                    None => break,
+                }
             }
-            let data = &line[6..];
-
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(part_text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                    if !part_text.is_empty() {
-                        full_text.push_str(part_text);
-                        let _ = app.emit(event_name, StreamEvent::Delta {
-                            text: part_text.to_string(),
-                        });
-                    }
-                }
-                // Token usage
-                if let Some(usage) = json.get("usageMetadata") {
-                    if let Some(pt) = usage["promptTokenCount"].as_u64() {
-                        input_tokens = pt as u32;
-                    }
-                    if let Some(ct) = usage["candidatesTokenCount"].as_u64() {
-                        output_tokens = ct as u32;
-                    }
-                }
+            _ = cancel_rx.changed() => {
+                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                return Ok((input_tokens, output_tokens));
             }
         }
     }
@@ -394,6 +436,7 @@ async fn stream_anthropic(
     system_prompt: &str,
     messages: &[ChatMessage],
     max_tokens: Option<u32>,
+    mut cancel_rx: watch::Receiver<bool>,
 ) -> Result<(u32, u32), String> {
     let api_messages: Vec<serde_json::Value> = messages
         .iter()
@@ -431,55 +474,68 @@ async fn stream_anthropic(
     let mut current_event_type = String::new();
     let mut stream = resp.bytes_stream();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e))?;
-        let text = String::from_utf8_lossy(&chunk);
-        line_buffer.push_str(&text);
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        line_buffer.push_str(&text);
 
-        while let Some(pos) = line_buffer.find('\n') {
-            let line = line_buffer[..pos].trim().to_string();
-            line_buffer = line_buffer[pos + 1..].to_string();
+                        while let Some(pos) = line_buffer.find('\n') {
+                            let line = line_buffer[..pos].trim().to_string();
+                            line_buffer = line_buffer[pos + 1..].to_string();
 
-            if line.starts_with("event: ") {
-                current_event_type = line[7..].to_string();
-                continue;
-            }
-
-            if !line.starts_with("data: ") {
-                continue;
-            }
-            let data = &line[6..];
-
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                match current_event_type.as_str() {
-                    "content_block_delta" => {
-                        if let Some(delta_text) = json["delta"]["text"].as_str() {
-                            if !delta_text.is_empty() {
-                                full_text.push_str(delta_text);
-                                let _ = app.emit(event_name, StreamEvent::Delta {
-                                    text: delta_text.to_string(),
-                                });
+                            if line.starts_with("event: ") {
+                                current_event_type = line[7..].to_string();
+                                continue;
                             }
+
+                            if !line.starts_with("data: ") {
+                                continue;
+                            }
+                            let data = &line[6..];
+
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                match current_event_type.as_str() {
+                                    "content_block_delta" => {
+                                        if let Some(delta_text) = json["delta"]["text"].as_str() {
+                                            if !delta_text.is_empty() {
+                                                full_text.push_str(delta_text);
+                                                let _ = app.emit(event_name, StreamEvent::Delta {
+                                                    text: delta_text.to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                    "message_start" => {
+                                        if let Some(usage) = json["message"]["usage"].as_object() {
+                                            if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                                                input_tokens = it as u32;
+                                            }
+                                        }
+                                    }
+                                    "message_delta" => {
+                                        if let Some(usage) = json.get("usage") {
+                                            if let Some(ot) = usage["output_tokens"].as_u64() {
+                                                output_tokens = ot as u32;
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            current_event_type.clear();
                         }
                     }
-                    "message_start" => {
-                        if let Some(usage) = json["message"]["usage"].as_object() {
-                            if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                                input_tokens = it as u32;
-                            }
-                        }
-                    }
-                    "message_delta" => {
-                        if let Some(usage) = json.get("usage") {
-                            if let Some(ot) = usage["output_tokens"].as_u64() {
-                                output_tokens = ot as u32;
-                            }
-                        }
-                    }
-                    _ => {}
+                    Some(Err(e)) => return Err(format!("Stream read error: {}", e)),
+                    None => break,
                 }
             }
-            current_event_type.clear();
+            _ = cancel_rx.changed() => {
+                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                return Ok((input_tokens, output_tokens));
+            }
         }
     }
 
@@ -490,6 +546,18 @@ async fn stream_anthropic(
     });
 
     Ok((input_tokens, output_tokens))
+}
+
+#[tauri::command]
+pub async fn cancel_assistant_chat(
+    state: State<'_, AppState>,
+    assistant_id: String,
+) -> Result<(), String> {
+    let cancellers = state.assistant_cancellation.lock().await;
+    if let Some(tx) = cancellers.get(&assistant_id) {
+        let _ = tx.send(true);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -696,6 +764,16 @@ mod tests {
             ChatContent::Text(s) => assert_eq!(s, "round trip"),
             _ => panic!("Expected Text variant after round trip"),
         }
+    }
+
+    // ── StreamEvent serialization ──
+
+    #[test]
+    fn stream_event_cancelled_serializes_correctly() {
+        let event = StreamEvent::Cancelled { content: "partial".to_string() };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "cancelled");
+        assert_eq!(json["content"], "partial");
     }
 
     #[test]

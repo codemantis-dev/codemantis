@@ -62,6 +62,8 @@ pub struct AppState {
     pub session_modes: Mutex<HashMap<String, SessionMode>>,
     /// Pending control_request tracking: request_id → (session_id, kind).
     pub pending_control_requests: Mutex<HashMap<String, (String, ControlRequestKind)>>,
+    /// Cancellation senders for in-flight assistant chat streams.
+    pub assistant_cancellation: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
 }
 
 impl AppState {
@@ -76,6 +78,7 @@ impl AppState {
             approval_server_port: Mutex::new(None),
             session_modes: Mutex::new(HashMap::new()),
             pending_control_requests: Mutex::new(HashMap::new()),
+            assistant_cancellation: Mutex::new(HashMap::new()),
         }
     }
 }

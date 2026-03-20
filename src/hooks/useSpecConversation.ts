@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useSpecWriterStore } from "../stores/specWriterStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { sendAssistantChat, listenAssistantStream, listTemplates, gatherSpecContext, readProjectFiles } from "../lib/tauri-commands";
+import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemplates, gatherSpecContext, readProjectFiles } from "../lib/tauri-commands";
 import { getProviderForModel } from "../types/assistant-provider";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
@@ -505,6 +505,7 @@ export function useSpecConversation(): {
   ) => Promise<void>;
   writeSpec: (projectPath: string) => void;
   loadContext: (projectPath: string) => Promise<void>;
+  cancelStream: (projectPath: string) => void;
 } {
   const unlistenRef = useRef<(() => void) | null>(null);
   const streamBufferRef = useRef("");
@@ -776,6 +777,16 @@ export function useSpecConversation(): {
           })();
         }
 
+        if (event.type === "cancelled") {
+          currentStore.setPlanningStreaming(projectPath, false);
+          streamBufferRef.current = "";
+          currentStore.persistState(projectPath);
+          if (unlistenRef.current) {
+            unlistenRef.current();
+            unlistenRef.current = null;
+          }
+        }
+
         if (event.type === "error") {
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {
@@ -835,9 +846,17 @@ export function useSpecConversation(): {
     [sendMessage]
   );
 
+  const cancelStream = useCallback((projectPath: string) => {
+    const assistantId = `spec-${projectPath.replace(/[^a-zA-Z0-9]/g, "_")}`;
+    cancelAssistantChat(assistantId).catch((e) => {
+      console.warn("[useSpecConversation] cancel failed:", e);
+    });
+  }, []);
+
   return {
     sendMessage,
     writeSpec,
     loadContext,
+    cancelStream,
   };
 }

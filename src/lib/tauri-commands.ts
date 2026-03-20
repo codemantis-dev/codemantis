@@ -331,7 +331,7 @@ export async function cleanupApiLogs(maxAgeDays: number): Promise<number> {
 // --- Assistant Chat (API providers) ---
 
 export interface AssistantStreamEvent {
-  type: "delta" | "done" | "error";
+  type: "delta" | "done" | "error" | "cancelled";
   text?: string;
   content?: string;
   inputTokens?: number;
@@ -360,6 +360,10 @@ export async function listenAssistantStream(
   handler: (event: AssistantStreamEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<AssistantStreamEvent>(`assistant-stream-${assistantId}`, (e) => handler(e.payload));
+}
+
+export async function cancelAssistantChat(assistantId: string): Promise<void> {
+  return invoke("cancel_assistant_chat", { assistantId });
 }
 
 // --- Git ---

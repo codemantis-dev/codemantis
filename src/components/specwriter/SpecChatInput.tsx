@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { Send, Paperclip } from "lucide-react";
+import { Send, Square, Paperclip } from "lucide-react";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
@@ -49,7 +49,7 @@ export default function SpecChatInput({ projectPath }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { sendMessage } = useSpecConversation();
+  const { sendMessage, cancelStream } = useSpecConversation();
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -276,15 +276,26 @@ export default function SpecChatInput({ projectPath }: Props) {
           disabled={isStreaming}
         />
 
-        <button
-          onClick={handleSend}
-          disabled={isStreaming || (!text.trim() && attachments.length === 0)}
-          title="Send (Cmd+Enter)"
-          className="p-1.5 rounded transition-colors shrink-0 disabled:opacity-30"
-          style={{ color: "var(--accent)" }}
-        >
-          <Send size={16} />
-        </button>
+        {isStreaming ? (
+          <button
+            onClick={() => cancelStream(projectPath)}
+            title="Stop generation"
+            className="p-1.5 rounded transition-colors shrink-0"
+            style={{ color: "var(--error, #ef4444)" }}
+          >
+            <Square size={16} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!text.trim() && attachments.length === 0}
+            title="Send (Cmd+Enter)"
+            className="p-1.5 rounded transition-colors shrink-0 disabled:opacity-30"
+            style={{ color: "var(--accent)" }}
+          >
+            <Send size={16} />
+          </button>
+        )}
       </div>
 
       <div className="text-[10px] mt-1 text-center select-none" style={{ color: "var(--text-ghost)" }}>

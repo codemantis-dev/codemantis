@@ -326,6 +326,11 @@ async function sendApiMessage(
         }
         unlisten();
         break;
+      case "cancelled":
+        s.finalizeStreaming(sessionId, event.content);
+        s.setBusy(sessionId, false);
+        unlisten();
+        break;
       case "error":
         s.finalizeStreaming(sessionId);
         s.setBusy(sessionId, false);
