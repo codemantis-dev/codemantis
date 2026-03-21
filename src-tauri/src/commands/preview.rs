@@ -152,6 +152,8 @@ pub async fn open_preview_window(
     .build()
     .map_err(|e| format!("Failed to create preview window: {}", e))?;
 
+    let _ = window.set_focus();
+
     // Emit close event only for genuine user-initiated closes
     let ah = app_handle.clone();
     window.on_window_event(move |event| {
