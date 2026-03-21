@@ -508,7 +508,7 @@ export default function SpecWriterSlideOver() {
                   />
                 </div>
 
-                {/* Action buttons */}
+                {/* Action buttons — Edit + Copy only (Save is in bottom toolbar) */}
                 {currentSpecContent && (
                   <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
                     <button
@@ -529,13 +529,6 @@ export default function SpecWriterSlideOver() {
                       {isEditing ? "Preview" : "Edit"}
                     </button>
                     <button
-                      onClick={openSaveSpecDialog}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-                      style={{ background: "var(--accent)", color: "white" }}
-                    >
-                      Save to Project
-                    </button>
-                    <button
                       onClick={handleCopySpec}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
                       style={{
@@ -549,7 +542,7 @@ export default function SpecWriterSlideOver() {
                   </div>
                 )}
 
-                {/* CLAUDE.md integration tip + Send to Chat / Implement */}
+                {/* Implementation prompt + Send to Chat / Implement — always references the SPEC file */}
                 {lastSavedFile && (
                   <div className="border-t" style={{ borderColor: "var(--border)" }}>
                     <div
@@ -557,11 +550,11 @@ export default function SpecWriterSlideOver() {
                       style={{ background: "var(--accent-bg)", color: "var(--accent)" }}
                     >
                       <span className="flex-1">
-                        Add to CLAUDE.md: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
+                        Copy this for your Chat to implement: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
                       </span>
                       <button
                         onClick={handleCopyClaudemdSnippet}
-                        title="Copy snippet"
+                        title="Copy to clipboard"
                         className="p-1 rounded hover:bg-bg-elevated transition-colors"
                       >
                         {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
