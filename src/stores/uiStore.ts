@@ -44,6 +44,7 @@ interface UiState {
   helpPanelOpen: boolean;
   helpSessionReady: boolean;
   helpError: string | null;
+  helpShowWelcome: boolean;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -77,6 +78,7 @@ interface UiState {
   setHelpSessionReady: (ready: boolean) => void;
   setHelpError: (error: string | null) => void;
   toggleHelpPanel: () => void;
+  setHelpShowWelcome: (show: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -110,6 +112,7 @@ export const useUiStore = create<UiState>((set) => ({
   helpPanelOpen: false,
   helpSessionReady: false,
   helpError: null,
+  helpShowWelcome: true,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -153,4 +156,5 @@ export const useUiStore = create<UiState>((set) => ({
   setHelpSessionReady: (ready) => set({ helpSessionReady: ready }),
   setHelpError: (error) => set({ helpError: error }),
   toggleHelpPanel: () => set((s) => ({ helpPanelOpen: !s.helpPanelOpen })),
+  setHelpShowWelcome: (show) => set({ helpShowWelcome: show }),
 }));

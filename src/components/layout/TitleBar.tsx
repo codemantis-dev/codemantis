@@ -57,6 +57,12 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       useAttachmentStore.getState().addAttachment(sessionId, attachment);
       showToast("Screenshot added to chat", "success");
     } catch (err) {
+      // If the preview window was destroyed without a close event (e.g.
+      // WKWebView crash), sync the frontend state so the camera icon
+      // hides and the user can reopen the preview.
+      if (activeProjectPath && String(err).includes("not open")) {
+        usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
+      }
       handleError("TitleBar.screenshot", err);
     }
   };

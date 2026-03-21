@@ -117,7 +117,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
             {renderedMarkdown}
           </div>
         ) : (
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          <div className="whitespace-pre-wrap break-words select-text">{message.content}</div>
         )}
 
         {/* Attachment chips */}

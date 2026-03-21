@@ -228,6 +228,7 @@ body,
   line-height: 1.65;
   overflow-wrap: anywhere;
   word-break: break-word;
+  user-select: text;
 }
 
 .markdown-content p {

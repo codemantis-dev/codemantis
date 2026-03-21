@@ -113,6 +113,9 @@ export function useHelpSession(): UseHelpSessionReturn {
       return;
     }
 
+    // Switch to chat view (away from welcome screen)
+    useUiStore.getState().setHelpShowWelcome(false);
+
     // Add user message to store immediately for instant UI feedback
     const msgId = `help-user-${Date.now()}`;
     useSessionStore.getState().addMessage(helpSessionId, {

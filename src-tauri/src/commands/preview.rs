@@ -158,6 +158,7 @@ pub async fn open_preview_window(
     let ah = app_handle.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { .. } = event {
+            info!("[preview] CloseRequested — emitting preview-window-closed");
             if let Err(e) = ah.emit("preview-window-closed", ()) {
                 warn!("[preview] Failed to emit preview-window-closed: {}", e);
             }
@@ -198,7 +199,13 @@ pub async fn open_preview_window(
             let preview_win = match poll_ah.get_webview_window("preview") {
                 Some(w) => w,
                 None => {
-                    debug!("Preview window closed, stopping console polling");
+                    warn!("Preview window gone (possibly WKWebView crash), emitting close event");
+                    // Failsafe: emit close event so frontend syncs state.
+                    // The on_window_event(CloseRequested) handler may not fire if
+                    // the window was destroyed without a normal close (e.g. content
+                    // process crash). Duplicate events are safe — the frontend
+                    // handler is idempotent.
+                    let _ = poll_ah.emit("preview-window-closed", ());
                     break;
                 }
             };

@@ -1,35 +1,27 @@
 import { useState, useRef, useCallback, type KeyboardEvent } from "react";
-import { Send } from "lucide-react";
+import { Send, Square } from "lucide-react";
 
 interface HelpChatInputProps {
   onSend: (message: string) => void;
+  onStop: () => void;
   disabled: boolean;
+  isBusy: boolean;
 }
 
-export default function HelpChatInput({ onSend, disabled }: HelpChatInputProps) {
+export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: HelpChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 3 * 24)}px`;
-  }, []);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setValue("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
   }, [value, disabled, onSend]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && e.metaKey) {
         e.preventDefault();
         handleSend();
       }
@@ -37,33 +29,54 @@ export default function HelpChatInput({ onSend, disabled }: HelpChatInputProps) 
     [handleSend]
   );
 
+  const isActive = value.trim().length > 0 && !disabled;
+
   return (
-    <div
-      className="flex items-end gap-2 px-3 py-2 border-t shrink-0"
-      style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
-    >
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          adjustHeight();
-        }}
-        onKeyDown={handleKeyDown}
-        placeholder="Ask a question about CodeMantis..."
-        disabled={disabled}
-        rows={1}
-        className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-text-dim"
-        style={{ color: "var(--text-primary)", maxHeight: 72 }}
-      />
-      <button
-        onClick={handleSend}
-        disabled={disabled || !value.trim()}
-        className="p-1.5 rounded-md transition-colors shrink-0 disabled:opacity-30"
-        style={{ color: "var(--accent)" }}
+    <div className="border-t border-border px-3 py-3 shrink-0">
+      <div
+        className="rounded-xl border border-border focus-within:border-accent/40 transition-colors"
+        style={{ background: "var(--bg-elevated)" }}
       >
-        <Send size={16} />
-      </button>
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask a question about CodeMantis... (⌘Enter to send)"
+          disabled={disabled}
+          rows={6}
+          className="w-full resize-none bg-transparent px-4 py-3 text-chat text-text-primary placeholder:text-text-ghost outline-none"
+        />
+
+        {/* Action bar */}
+        <div className="flex items-center justify-end px-3 pb-2">
+          {isBusy ? (
+            <button
+              onClick={onStop}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all text-red hover:brightness-90"
+              style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)" }}
+            >
+              <Square size={12} />
+              <span>Stop</span>
+              <span className="text-label opacity-60">Esc</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!isActive}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
+                isActive
+                  ? "bg-accent text-white hover:bg-accent-light"
+                  : "bg-bg-subtle text-text-ghost cursor-not-allowed"
+              }`}
+            >
+              <Send size={13} />
+              <span>Send</span>
+              <span className="text-label opacity-60">⌘↵</span>
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

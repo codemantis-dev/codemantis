@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -12,9 +12,10 @@ const HIDDEN_PREFIX = 2;
 
 interface HelpChatProps {
   sessionId: string;
+  isBusy: boolean;
 }
 
-export default function HelpChat({ sessionId }: HelpChatProps) {
+export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
   const allMessages = useSessionStore(
     (s) => s.sessionMessages.get(sessionId) ?? EMPTY_ARRAY
   );
@@ -119,6 +120,16 @@ export default function HelpChat({ sessionId }: HelpChatProps) {
               </div>
             );
           })}
+
+          {/* Thinking indicator — shown when busy but not yet streaming */}
+          {isBusy && !streaming.isStreaming && (
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 size={14} className="animate-spin" style={{ color: "var(--accent)" }} />
+              <span className="text-sm" style={{ color: "var(--text-dim)" }}>
+                Thinking...
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

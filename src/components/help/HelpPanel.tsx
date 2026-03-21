@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useRef } from "react";
-import { HelpCircle, X, Loader2, RotateCcw } from "lucide-react";
+import { HelpCircle, X, Loader2, RotateCcw, Home } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useHelpSession } from "../../hooks/useHelpSession";
+import { interruptSession } from "../../lib/tauri-commands";
 import HelpWelcome from "./HelpWelcome";
 import HelpChat from "./HelpChat";
 import HelpChatInput from "./HelpChatInput";
@@ -16,7 +17,9 @@ export default function HelpPanel() {
   const helpSessionId = useUiStore((s) => s.helpSessionId);
   const helpSessionReady = useUiStore((s) => s.helpSessionReady);
   const helpError = useUiStore((s) => s.helpError);
+  const helpShowWelcome = useUiStore((s) => s.helpShowWelcome);
   const setHelpPanelOpen = useUiStore((s) => s.setHelpPanelOpen);
+  const setHelpShowWelcome = useUiStore((s) => s.setHelpShowWelcome);
 
   const { initHelpSession, sendHelpMessage } = useHelpSession();
   const initCalledRef = useRef(false);
@@ -29,11 +32,24 @@ export default function HelpPanel() {
     }
   }, [helpPanelOpen, helpSessionId, initHelpSession]);
 
-  // Escape key to close
+  // Escape key to close panel OR stop generation
   useEffect(() => {
     if (!helpPanelOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // If busy, stop generation first instead of closing
+        const id = useUiStore.getState().helpSessionId;
+        if (id) {
+          const busy = useSessionStore.getState().sessionBusy.get(id);
+          if (busy) {
+            e.preventDefault();
+            e.stopPropagation();
+            interruptSession(id).catch((err) =>
+              console.error("Failed to interrupt help session:", err)
+            );
+            return;
+          }
+        }
         setHelpPanelOpen(false);
       }
     };
@@ -53,24 +69,43 @@ export default function HelpPanel() {
     initHelpSession();
   }, [initHelpSession]);
 
+  const handleBackToHome = useCallback(() => {
+    setHelpShowWelcome(true);
+  }, [setHelpShowWelcome]);
+
+  const handleStop = useCallback(() => {
+    const id = useUiStore.getState().helpSessionId;
+    if (!id) return;
+    interruptSession(id).catch((err) =>
+      console.error("Failed to interrupt help session:", err)
+    );
+  }, []);
+
   const handleSuggestionClick = useCallback(
     (text: string) => {
       sendHelpMessage(text);
+      // sendHelpMessage already sets helpShowWelcome = false
     },
     [sendHelpMessage]
   );
 
-  // Read messages to determine if we should show welcome or chat
+  // Read messages to determine if conversation exists
   const allMessages = useSessionStore(
     (s) => helpSessionId ? s.sessionMessages.get(helpSessionId) ?? EMPTY_ARRAY : EMPTY_ARRAY
   );
   const isStreaming = useSessionStore(
     (s) => helpSessionId ? s.sessionStreaming.get(helpSessionId)?.isStreaming ?? false : false
   );
+  const isBusy = useSessionStore(
+    (s) => helpSessionId ? s.sessionBusy.get(helpSessionId) ?? false : false
+  );
   const visibleMessages = allMessages.slice(HIDDEN_PREFIX);
   const hasConversation = visibleMessages.length > 0;
 
   const isLoading = helpPanelOpen && !helpSessionReady && !helpError;
+
+  // Show welcome if: no messages yet, OR user explicitly toggled back to home
+  const showWelcomeView = !hasConversation || helpShowWelcome;
 
   return (
     <div
@@ -94,13 +129,26 @@ export default function HelpPanel() {
             CodeMantis Help
           </span>
         </div>
-        <button
-          onClick={handleClose}
-          className="p-1 rounded hover:bg-bg-elevated transition-colors"
-          style={{ color: "var(--text-ghost)" }}
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Home button — visible when viewing chat (not welcome) and conversation exists */}
+          {helpSessionReady && hasConversation && !helpShowWelcome && (
+            <button
+              onClick={handleBackToHome}
+              title="Back to Help home"
+              className="p-1 rounded hover:bg-bg-elevated transition-colors"
+              style={{ color: "var(--text-ghost)" }}
+            >
+              <Home size={15} />
+            </button>
+          )}
+          <button
+            onClick={handleClose}
+            className="p-1 rounded hover:bg-bg-elevated transition-colors"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
@@ -132,21 +180,23 @@ export default function HelpPanel() {
         </div>
       )}
 
-      {helpSessionReady && !hasConversation && (
+      {helpSessionReady && showWelcomeView && (
         <div className="flex-1 overflow-y-auto">
           <HelpWelcome onSuggestionClick={handleSuggestionClick} />
         </div>
       )}
 
-      {helpSessionReady && hasConversation && helpSessionId && (
-        <HelpChat sessionId={helpSessionId} />
+      {helpSessionReady && !showWelcomeView && helpSessionId && (
+        <HelpChat sessionId={helpSessionId} isBusy={isBusy} />
       )}
 
       {/* Input — shown when ready */}
       {helpSessionReady && helpSessionId && (
         <HelpChatInput
           onSend={sendHelpMessage}
+          onStop={handleStop}
           disabled={isStreaming}
+          isBusy={isBusy}
         />
       )}
     </div>
