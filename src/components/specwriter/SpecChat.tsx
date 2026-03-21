@@ -2,9 +2,16 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useUiStore } from "../../stores/uiStore";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
-import { AI_PROVIDERS, AI_MODELS, getProviderForModel } from "../../types/assistant-provider";
-import type { APIProvider } from "../../types/assistant-provider";
+import {
+  getProviderForModel,
+  SPEC_WRITING_MODELS,
+  DEFAULT_SPEC_MODEL,
+  isSpecModelAvailable,
+  autoSelectSpecModel,
+  getSpecModelLabel,
+} from "../../types/assistant-provider";
 import SpecChatMessage from "./SpecChatMessage";
 import SpecChatInput from "./SpecChatInput";
 
@@ -21,6 +28,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
   const updateConversationProvider = useSpecWriterStore((s) => s.updateConversationProvider);
   const setConversationMode = useSpecWriterStore((s) => s.setConversationMode);
+  const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
@@ -28,12 +36,16 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const { writeSpec, sendMessage } = useSpecConversation();
 
   // Init a fresh conversation if none exists — default to 'feature' mode
+  // Auto-select a model with an available API key if the default/saved one has no key
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
-      const planningModel = settings.taskBoardPlanningModel || 'gemini-3.1-flash-lite-preview';
-      const provider = getProviderForModel(planningModel) ?? 'gemini';
-      useSpecWriterStore.getState().initConversation(projectPath, provider, planningModel, 'feature');
+      const rawModel = settings.taskBoardPlanningModel || DEFAULT_SPEC_MODEL;
+      const effectiveModel = isSpecModelAvailable(rawModel, settings.apiKeys)
+        ? rawModel
+        : autoSelectSpecModel(settings.apiKeys);
+      const provider = getProviderForModel(effectiveModel) ?? 'gemini';
+      useSpecWriterStore.getState().initConversation(projectPath, provider, effectiveModel, 'feature');
     }
   }, [projectPath, conversation]);
 
@@ -103,25 +115,14 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const messages = conversation?.messages ?? [];
   const hasUserMessages = messages.some((m) => m.role === "user");
 
-  // Filter providers: exclude claude-code for spec writing
-  const availableProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
-  const currentProvider = conversation?.ai_provider ?? "gemini";
   const currentModel = conversation?.ai_model ?? "";
 
-  const handleProviderChange = useCallback(
-    (newProvider: string) => {
-      const models = AI_MODELS[newProvider as APIProvider];
-      const newModel = models?.[0]?.id ?? "";
-      updateConversationProvider(projectPath, newProvider, newModel);
+  const handleSpecModelChange = useCallback(
+    (newModelId: string) => {
+      const provider = getProviderForModel(newModelId) ?? "gemini";
+      updateConversationProvider(projectPath, provider, newModelId);
     },
     [projectPath, updateConversationProvider]
-  );
-
-  const handleModelChange = useCallback(
-    (newModel: string) => {
-      updateConversationProvider(projectPath, currentProvider, newModel);
-    },
-    [projectPath, currentProvider, updateConversationProvider]
   );
 
   const handleModeChange = useCallback(
@@ -130,6 +131,9 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
     },
     [projectPath, setConversationMode]
   );
+
+  // Check if current model has an API key
+  const currentModelHasKey = isSpecModelAvailable(currentModel, apiKeys);
 
   return (
     <div className="flex flex-col h-full">
@@ -151,24 +155,8 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
         {conversation && !hasUserMessages ? (
           <div className="flex items-center gap-1.5 ml-auto">
             <select
-              value={currentProvider}
-              onChange={(e) => handleProviderChange(e.target.value)}
-              className="px-1.5 py-0.5 rounded-md border text-xs"
-              style={{
-                background: "var(--bg-primary)",
-                borderColor: "var(--border)",
-                color: "var(--text-primary)",
-              }}
-            >
-              {availableProviders.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            <select
               value={currentModel}
-              onChange={(e) => handleModelChange(e.target.value)}
+              onChange={(e) => handleSpecModelChange(e.target.value)}
               className="px-1.5 py-0.5 rounded-md border text-xs"
               style={{
                 background: "var(--bg-primary)",
@@ -176,19 +164,43 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
                 color: "var(--text-primary)",
               }}
             >
-              {(AI_MODELS[currentProvider as APIProvider] ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
+              {SPEC_WRITING_MODELS.map((m) => {
+                const hasKey = isSpecModelAvailable(m.id, apiKeys);
+                return (
+                  <option key={m.id} value={m.id} disabled={!hasKey}>
+                    {m.label}{!hasKey ? " (no key)" : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
         ) : conversation ? (
-          <span className="ml-auto opacity-60">
-            ({conversation.ai_provider}/{conversation.ai_model})
+          <span className="ml-auto opacity-60 text-[10px]">
+            {getSpecModelLabel(conversation.ai_model)}
           </span>
         ) : null}
       </div>
+
+      {/* API key warning banner */}
+      {conversation && !currentModelHasKey && (
+        <div
+          className="px-3 py-2 text-xs flex items-center gap-2 border-b shrink-0"
+          style={{
+            background: "rgba(245,158,11,0.1)",
+            borderColor: "var(--border)",
+            color: "#f59e0b",
+          }}
+        >
+          <span>No API key set for this model&apos;s provider.</span>
+          <button
+            onClick={() => useUiStore.getState().openSettingsToTab("ai-providers")}
+            className="underline font-medium hover:opacity-80"
+            style={{ color: "var(--accent)" }}
+          >
+            Settings &rarr; AI Providers
+          </button>
+        </div>
+      )}
 
       <div className="relative flex-1 overflow-hidden">
       <div ref={scrollRef} onScroll={checkAtBottom} className="h-full overflow-y-auto px-3 py-2 space-y-3">
@@ -272,7 +284,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
             </select>
             {conversation.mode === 'feature' && (
               <span>
-                Context: {contextLoading ? '⏳ scanning...' : contextError ? '❌ error' : conversation.context_loaded ? '✅ loaded' : '—'}
+                Context: {contextLoading ? '\u23F3 scanning...' : contextError ? '\u274C error' : conversation.context_loaded ? '\u2705 loaded' : '\u2014'}
               </span>
             )}
           </>
@@ -281,7 +293,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
             <span>Mode: {conversation?.mode === 'feature' ? 'Feature' : 'New Application'}</span>
             {conversation?.mode === 'feature' && (
               <span>
-                Context: {contextLoading ? '⏳ scanning...' : contextError ? '❌ error' : conversation?.context_loaded ? '✅ loaded' : '—'}
+                Context: {contextLoading ? '\u23F3 scanning...' : contextError ? '\u274C error' : conversation?.context_loaded ? '\u2705 loaded' : '\u2014'}
               </span>
             )}
           </>

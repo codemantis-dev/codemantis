@@ -5,6 +5,11 @@ import {
   getDefaultModelPricing,
   getModelLabel,
   calculateCost,
+  SPEC_WRITING_MODELS,
+  DEFAULT_SPEC_MODEL,
+  autoSelectSpecModel,
+  isSpecModelAvailable,
+  getSpecModelLabel,
 } from "./assistant-provider";
 
 describe("assistant-provider types", () => {
@@ -91,5 +96,103 @@ describe("assistant-provider types", () => {
     const pricing = getDefaultModelPricing();
     expect(pricing["gemini-2.5-flash-lite"].input).toBe(0);
     expect(pricing["gemini-2.5-flash-lite"].output).toBe(0);
+  });
+});
+
+// ── SpecWriter model selection ──────────────────────────────────
+
+describe("SPEC_WRITING_MODELS", () => {
+  it("has exactly 6 models", () => {
+    expect(SPEC_WRITING_MODELS).toHaveLength(6);
+  });
+
+  it("first model is the default (cheapest)", () => {
+    expect(SPEC_WRITING_MODELS[0].id).toBe(DEFAULT_SPEC_MODEL);
+    expect(SPEC_WRITING_MODELS[0].id).toBe("gemini-3.1-flash-lite-preview");
+  });
+
+  it("includes all required models", () => {
+    const ids = SPEC_WRITING_MODELS.map((m) => m.id);
+    expect(ids).toContain("gemini-3.1-flash-lite-preview");
+    expect(ids).toContain("gemini-3.1-pro-preview");
+    expect(ids).toContain("gpt-5.4-mini");
+    expect(ids).toContain("gpt-5.4");
+    expect(ids).toContain("claude-opus-4-6");
+    expect(ids).toContain("claude-sonnet-4-6");
+  });
+
+  it("all models have valid providers", () => {
+    for (const m of SPEC_WRITING_MODELS) {
+      expect(["openai", "gemini", "anthropic"]).toContain(m.provider);
+    }
+  });
+
+  it("all model IDs exist in AI_MODELS", () => {
+    for (const m of SPEC_WRITING_MODELS) {
+      const providerModels = AI_MODELS[m.provider];
+      expect(providerModels.some((pm) => pm.id === m.id)).toBe(true);
+    }
+  });
+});
+
+describe("autoSelectSpecModel", () => {
+  it("returns DEFAULT_SPEC_MODEL when no API keys are set", () => {
+    expect(autoSelectSpecModel({})).toBe(DEFAULT_SPEC_MODEL);
+  });
+
+  it("returns gemini model when only gemini key is set", () => {
+    expect(autoSelectSpecModel({ gemini: "gm-key" })).toBe("gemini-3.1-flash-lite-preview");
+  });
+
+  it("returns gpt-5.4-mini when only openai key is set (cheapest openai)", () => {
+    expect(autoSelectSpecModel({ openai: "sk-key" })).toBe("gpt-5.4-mini");
+  });
+
+  it("returns claude-sonnet when only anthropic key is set (cheaper than opus)", () => {
+    expect(autoSelectSpecModel({ anthropic: "ant-key" })).toBe("claude-sonnet-4-6");
+  });
+
+  it("returns first match in priority order when all keys set", () => {
+    expect(autoSelectSpecModel({ gemini: "g", openai: "o", anthropic: "a" })).toBe("gemini-3.1-flash-lite-preview");
+  });
+
+  it("skips gemini when only openai and anthropic keys set", () => {
+    expect(autoSelectSpecModel({ openai: "o", anthropic: "a" })).toBe("gpt-5.4-mini");
+  });
+
+  it("ignores empty/whitespace API keys", () => {
+    expect(autoSelectSpecModel({ gemini: "", openai: "  ", anthropic: "ant-key" })).toBe("claude-sonnet-4-6");
+  });
+});
+
+describe("isSpecModelAvailable", () => {
+  it("returns true when provider has API key", () => {
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", { gemini: "key" })).toBe(true);
+    expect(isSpecModelAvailable("gpt-5.4-mini", { openai: "key" })).toBe(true);
+    expect(isSpecModelAvailable("claude-sonnet-4-6", { anthropic: "key" })).toBe(true);
+  });
+
+  it("returns false when provider has no API key", () => {
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", {})).toBe(false);
+    expect(isSpecModelAvailable("gpt-5.4-mini", { gemini: "key" })).toBe(false);
+  });
+
+  it("returns false for unknown model", () => {
+    expect(isSpecModelAvailable("unknown-model", { openai: "key", gemini: "key" })).toBe(false);
+  });
+
+  it("returns false for empty/whitespace API key", () => {
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", { gemini: "  " })).toBe(false);
+  });
+});
+
+describe("getSpecModelLabel", () => {
+  it("returns label for known spec model", () => {
+    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite (free)");
+    expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
+  });
+
+  it("returns model ID for unknown model", () => {
+    expect(getSpecModelLabel("unknown-model")).toBe("unknown-model");
   });
 });

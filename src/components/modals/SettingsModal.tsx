@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useSettingsFormState } from "../../hooks/useSettingsFormState";
+import { SPEC_WRITING_MODELS } from "../../types/assistant-provider";
 
 import { NAV_ITEMS } from "./settings/SettingsShared";
 import GeneralTab from "./settings/GeneralTab";
@@ -176,6 +177,7 @@ export default function SettingsModal() {
               <SpecWriterSettingsContent
                 planningModel={state.taskBoardPlanningModel}
                 maxTokens={state.taskBoardMaxTokens}
+                apiKeys={state.apiKeys}
                 onPlanningModelChange={state.setTaskBoardPlanningModel}
                 onMaxTokensChange={state.setTaskBoardMaxTokens}
               />
@@ -269,24 +271,16 @@ function PreviewSettingsContent({
 function SpecWriterSettingsContent({
   planningModel,
   maxTokens,
+  apiKeys,
   onPlanningModelChange,
   onMaxTokensChange,
 }: {
   planningModel: string;
   maxTokens: number;
+  apiKeys: Record<string, string>;
   onPlanningModelChange: (v: string) => void;
   onMaxTokensChange: (v: number) => void;
 }) {
-  const PLANNING_MODELS = [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (recommended)" },
-    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite (free)" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-    { id: "gpt-4.1", label: "GPT-4.1" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-    { id: "gpt-5.4", label: "GPT-5.4" },
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  ];
-
   return (
     <div>
       <SectionTitle>SpecWriter</SectionTitle>
@@ -294,11 +288,16 @@ function SpecWriterSettingsContent({
         <select
           value={planningModel}
           onChange={(e) => onPlanningModelChange(e.target.value)}
-          className="w-56 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border"
+          className="w-64 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border"
         >
-          {PLANNING_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
-          ))}
+          {SPEC_WRITING_MODELS.map((m) => {
+            const hasKey = !!apiKeys[m.provider]?.trim();
+            return (
+              <option key={m.id} value={m.id} disabled={!hasKey}>
+                {m.label}{!hasKey ? " (no API key)" : ""}
+              </option>
+            );
+          })}
         </select>
       </FieldRow>
       <FieldRow label="Max output tokens">

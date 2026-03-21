@@ -74,6 +74,52 @@ export function getModelLabel(provider: APIProvider, modelId: string): string {
   return model?.label ?? modelId;
 }
 
+// ── SpecWriter model selection ──────────────────────────────────
+
+export interface SpecModelOption {
+  id: string;
+  provider: APIProvider;
+  label: string;
+}
+
+/** Models available for SpecWriter, ordered by auto-select priority (lower cost first). */
+export const SPEC_WRITING_MODELS: SpecModelOption[] = [
+  { id: "gemini-3.1-flash-lite-preview", provider: "gemini",    label: "Gemini 3.1 Flash Lite (free)" },
+  { id: "gpt-5.4-mini",                  provider: "openai",    label: "GPT-5.4 Mini" },
+  { id: "claude-sonnet-4-6",             provider: "anthropic", label: "Claude Sonnet 4.6" },
+  { id: "gemini-3.1-pro-preview",        provider: "gemini",    label: "Gemini 3.1 Pro" },
+  { id: "gpt-5.4",                       provider: "openai",    label: "GPT-5.4" },
+  { id: "claude-opus-4-6",               provider: "anthropic", label: "Claude Opus 4.6" },
+];
+
+export const DEFAULT_SPEC_MODEL = "gemini-3.1-flash-lite-preview";
+
+/**
+ * Auto-select the best available spec-writing model given the user's API keys.
+ * Walks SPEC_WRITING_MODELS in priority order, returns first model whose
+ * provider has an API key. Falls back to DEFAULT_SPEC_MODEL if none have keys.
+ */
+export function autoSelectSpecModel(apiKeys: Record<string, string>): string {
+  for (const m of SPEC_WRITING_MODELS) {
+    if (apiKeys[m.provider]?.trim()) {
+      return m.id;
+    }
+  }
+  return DEFAULT_SPEC_MODEL;
+}
+
+/** Check whether the given model's provider has an API key set. */
+export function isSpecModelAvailable(modelId: string, apiKeys: Record<string, string>): boolean {
+  const provider = getProviderForModel(modelId);
+  if (!provider) return false;
+  return !!apiKeys[provider]?.trim();
+}
+
+/** Get the display label for a spec-writing model. Falls back to modelId. */
+export function getSpecModelLabel(modelId: string): string {
+  return SPEC_WRITING_MODELS.find((m) => m.id === modelId)?.label ?? modelId;
+}
+
 /** Calculate cost in USD from token counts and pricing. */
 export function calculateCost(
   modelId: string,
