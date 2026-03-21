@@ -10,6 +10,7 @@ interface Props {
   aiModel: string;
   mode: string;
   documentType: 'spec' | 'audit';
+  lastSavedFile?: string | null;
   onClose: () => void;
   onSaved: (filename: string) => void;
 }
@@ -22,7 +23,7 @@ function slugify(text: string): string {
     .slice(0, 60);
 }
 
-export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, onClose, onSaved }: Props) {
+export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
   const [filename, setFilename] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -32,18 +33,23 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
   const isAudit = documentType === 'audit';
   const dialogTitle = isAudit ? "Save Verification Audit" : "Save Specification";
 
-  // Pre-fill filename from spec title or derive audit filename from latest spec
+  // Pre-fill filename from spec title or derive audit filename from current spec
   useEffect(() => {
     if (isAudit) {
-      // For audits: derive from the most recently saved spec filename
-      const specs = savedSpecs.filter((s) => !s.filename.endsWith('.audit.md'));
-      const latestSpec = specs.length > 0 ? specs[specs.length - 1] : null;
-      if (latestSpec) {
-        setFilename(latestSpec.filename.replace(/\.md$/, '.audit.md'));
+      // Prefer the just-saved spec filename for correct pairing
+      if (lastSavedFile) {
+        setFilename(lastSavedFile.replace(/\.md$/, '.audit.md'));
       } else {
-        // Fallback: extract title from audit content
-        const titleMatch = specContent.match(/^#\s+(.+?)(?:\s*[—-]\s*.+)?$/m);
-        setFilename(titleMatch ? slugify(titleMatch[1]) + '.audit.md' : `audit-${Date.now()}.md`);
+        // Fallback: derive from most recently saved spec on disk
+        const specs = savedSpecs.filter((s) => !s.filename.endsWith('.audit.md'));
+        const latestSpec = specs.length > 0 ? specs[specs.length - 1] : null;
+        if (latestSpec) {
+          setFilename(latestSpec.filename.replace(/\.md$/, '.audit.md'));
+        } else {
+          // Last resort: extract title from audit content
+          const titleMatch = specContent.match(/^#\s+(.+?)(?:\s*[—-]\s*.+)?$/m);
+          setFilename(titleMatch ? slugify(titleMatch[1]) + '.audit.md' : `audit-${Date.now()}.md`);
+        }
       }
     } else {
       const titleMatch = specContent.match(/^#\s+(.+?)(?:\s*[—-]\s*.+)?$/m);
@@ -53,7 +59,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
         setFilename(`spec-${Date.now()}.md`);
       }
     }
-  }, [specContent, isAudit, savedSpecs]);
+  }, [specContent, isAudit, savedSpecs, lastSavedFile]);
 
   // Check if file exists
   useEffect(() => {

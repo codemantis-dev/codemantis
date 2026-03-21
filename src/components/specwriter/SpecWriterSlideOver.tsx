@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { X, Copy, Check, Pencil, Eye, Send, Play, Lightbulb } from "lucide-react";
+import { X, Pencil, Eye, Send, Play, Lightbulb, RotateCcw, PenTool, ClipboardCheck } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -10,7 +10,6 @@ import { useSpecConversation } from "../../hooks/useSpecConversation";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
-import SpecToolbar from "./SpecToolbar";
 import SaveSpecDialog from "./SaveSpecDialog";
 
 export default function SpecWriterSlideOver() {
@@ -48,14 +47,18 @@ export default function SpecWriterSlideOver() {
   const [isDragging, setIsDragging] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogType, setSaveDialogType] = useState<'spec' | 'audit'>('spec');
-  const [copiedClaudemd, setCopiedClaudemd] = useState(false);
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage, generateAudit } = useSpecConversation();
+  const { sendMessage: sendSpecMessage, writeSpec, generateAudit } = useSpecConversation();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const conversationMode = conversation?.mode;
+  const hasMessages = (conversation?.messages.length ?? 0) > 0;
+  const canWrite = conversation?.status === 'ready_to_write' && !isStreaming;
+  const canSave = !!currentSpecContent && !isStreaming;
+  const canGenerateAudit = !!currentSpecContent && !currentAuditContent && !isStreaming;
+  const canSaveAudit = !!currentAuditContent && !isStreaming;
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
   const [contextLoading, setContextLoading] = useState(false);
@@ -200,6 +203,14 @@ export default function SpecWriterSlideOver() {
     }
   }, [currentSpecContent]);
 
+  const handleWriteSpec = useCallback(() => {
+    if (activeProjectPath) writeSpec(activeProjectPath);
+  }, [activeProjectPath, writeSpec]);
+
+  const handleGenerateAudit = useCallback(() => {
+    if (activeProjectPath) generateAudit(activeProjectPath);
+  }, [activeProjectPath, generateAudit]);
+
   const refreshSavedSpecs = useCallback(() => {
     if (activeProjectPath) {
       listSpecDocuments(activeProjectPath).then((specs) => {
@@ -208,28 +219,12 @@ export default function SpecWriterSlideOver() {
     }
   }, [activeProjectPath, setSavedSpecs]);
 
-  // ── Spec save handler — after save, offer audit generation ───────
+  // ── Spec save handler ───────
   const handleSpecSaved = useCallback((filename: string) => {
     setShowSaveDialog(false);
     setLastSavedFile(filename);
     refreshSavedSpecs();
-
-    // Auto-offer audit generation if no audit exists yet
-    if (activeProjectPath && !currentAuditContent) {
-      const store = useSpecWriterStore.getState();
-      store.addMessage(activeProjectPath, {
-        id: `msg-audit-offer-${Date.now()}`,
-        role: "system",
-        content: `**Spec saved to** \`docs/specs/${filename}\`\n\n**Generate a Verification Audit?** This is a companion document that Claude Code uses to self-check its implementation — it opens every file, reads the actual code, and verifies it matches the spec.\n\nThis is the single most important step for implementation quality.`,
-        message_type: "conversation",
-        timestamp: new Date().toISOString(),
-        parsedOptions: [
-          "\u{1F4CB} Yes, generate the Verification Audit",
-          "Not now \u2014 I'll generate it later",
-        ],
-      });
-    }
-  }, [activeProjectPath, currentAuditContent, refreshSavedSpecs]);
+  }, [refreshSavedSpecs]);
 
   // ── Audit save handler — after save, show usage hint + CLAUDE.md offer ─
   const handleAuditSaved = useCallback((filename: string) => {
@@ -322,15 +317,6 @@ export default function SpecWriterSlideOver() {
     setShowSaveDialog(true);
   }, []);
 
-  const handleCopyClaudemdSnippet = useCallback(() => {
-    if (lastSavedFile) {
-      const snippet = `Read docs/specs/${lastSavedFile} for implementation`;
-      navigator.clipboard.writeText(snippet);
-      setCopiedClaudemd(true);
-      setTimeout(() => setCopiedClaudemd(false), 2000);
-    }
-  }, [lastSavedFile]);
-
   const handleSuggestFeatures = useCallback(() => {
     if (activeProjectPath) {
       sendSpecMessage(
@@ -406,38 +392,107 @@ export default function SpecWriterSlideOver() {
       >
         {/* Header */}
         <div
-          className="h-10 flex items-center justify-between px-4 border-b shrink-0"
+          className="h-10 flex items-center gap-2 px-4 border-b shrink-0"
           style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
         >
-          <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          <span className="text-sm font-medium mr-1" style={{ color: "var(--text-primary)" }}>
             SpecWriter
           </span>
-          <div className="flex items-center gap-2">
-            {conversationMode === 'feature' && (
+
+          {/* Send to Chat + Implement — visible after spec is saved */}
+          {lastSavedFile && (
+            <>
               <button
-                onClick={handleSuggestFeatures}
-                disabled={isStreaming}
-                title="Ask the AI to suggest features for this project"
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+                onClick={handleSendToChat}
+                disabled={!activeSessionId}
+                title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
                 style={{
                   background: "var(--bg-elevated)",
                   color: "var(--text-secondary)",
                   border: "1px solid var(--border)",
                 }}
               >
-                <Lightbulb size={12} />
-                Suggest Features
+                <Send size={11} />
+                Send to Chat
               </button>
-            )}
+              <button
+                onClick={handleImplement}
+                disabled={!activeSessionId}
+                title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "white" }}
+              >
+                <Play size={11} />
+                Implement
+              </button>
+            </>
+          )}
+
+          {/* Generate Spec */}
+          <button
+            onClick={handleWriteSpec}
+            disabled={!canWrite}
+            title="Tell the AI to generate the specification document"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+            style={{
+              background: canWrite ? "var(--accent)" : "var(--bg-elevated)",
+              color: canWrite ? "white" : "var(--text-dim)",
+              border: canWrite ? "none" : "1px solid var(--border)",
+            }}
+          >
+            <PenTool size={11} />
+            Generate Spec
+          </button>
+
+          {/* Reset */}
+          {hasMessages && (
             <button
-              onClick={handleClose}
-              title="Close SpecWriter"
-              className="p-1 rounded hover:bg-bg-elevated transition-colors"
-              style={{ color: "var(--text-ghost)" }}
+              onClick={handleReset}
+              disabled={isStreaming}
+              title="Reset — clear conversation and start fresh"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
             >
-              <X size={16} />
+              <RotateCcw size={11} />
+              Reset
             </button>
-          </div>
+          )}
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Suggest Features */}
+          {conversationMode === 'feature' && (
+            <button
+              onClick={handleSuggestFeatures}
+              disabled={isStreaming}
+              title="Ask the AI to suggest features for this project"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <Lightbulb size={12} />
+              Suggest Features
+            </button>
+          )}
+
+          {/* Close */}
+          <button
+            onClick={handleClose}
+            title="Close SpecWriter"
+            className="p-1 rounded hover:bg-bg-elevated transition-colors"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Two-column content — only mount children when open */}
@@ -508,7 +563,7 @@ export default function SpecWriterSlideOver() {
                   />
                 </div>
 
-                {/* Action buttons — Edit + Copy only (Save is in bottom toolbar) */}
+                {/* Action buttons — Edit + Copy left, Audit/Save right */}
                 {currentSpecContent && (
                   <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
                     <button
@@ -539,32 +594,16 @@ export default function SpecWriterSlideOver() {
                     >
                       Copy to Clipboard
                     </button>
-                  </div>
-                )}
 
-                {/* Implementation prompt + Send to Chat / Implement — always references the SPEC file */}
-                {lastSavedFile && (
-                  <div className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <div
-                      className="flex items-center gap-2 px-3 py-2 text-xs"
-                      style={{ background: "var(--accent-bg)", color: "var(--accent)" }}
-                    >
-                      <span className="flex-1">
-                        Copy this for your Chat to implement: <code className="font-mono text-[10px]">Read docs/specs/{lastSavedFile} for implementation</code>
-                      </span>
+                    {/* Spacer pushes audit + save buttons right */}
+                    <div className="flex-1" />
+
+                    {/* Generate Audit / Save Audit */}
+                    {canGenerateAudit && (
                       <button
-                        onClick={handleCopyClaudemdSnippet}
-                        title="Copy to clipboard"
-                        className="p-1 rounded hover:bg-bg-elevated transition-colors"
-                      >
-                        {copiedClaudemd ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <button
-                        onClick={handleSendToChat}
-                        disabled={!activeSessionId}
-                        title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
+                        onClick={handleGenerateAudit}
+                        disabled={isStreaming}
+                        title="Generate a Verification Audit companion document for the spec"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
                         style={{
                           background: "var(--bg-elevated)",
@@ -572,20 +611,33 @@ export default function SpecWriterSlideOver() {
                           border: "1px solid var(--border)",
                         }}
                       >
-                        <Send size={13} />
-                        Send to Chat
+                        <ClipboardCheck size={13} />
+                        Generate Audit
                       </button>
+                    )}
+                    {canSaveAudit && (
                       <button
-                        onClick={handleImplement}
-                        disabled={!activeSessionId}
-                        title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+                        onClick={openSaveAuditDialog}
+                        title="Save verification audit to project"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
                         style={{ background: "var(--accent)", color: "white" }}
                       >
-                        <Play size={13} />
-                        Implement
+                        <ClipboardCheck size={13} />
+                        Save Audit
                       </button>
-                    </div>
+                    )}
+
+                    {/* Save to Project */}
+                    {canSave && (
+                      <button
+                        onClick={openSaveSpecDialog}
+                        title="Save specification to project"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+                        style={{ background: "var(--accent)", color: "white" }}
+                      >
+                        Save to Project
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -596,14 +648,6 @@ export default function SpecWriterSlideOver() {
                 />
               </div>
             </div>
-
-            {/* Bottom toolbar */}
-            <SpecToolbar
-              projectPath={activeProjectPath}
-              onReset={handleReset}
-              onSave={openSaveSpecDialog}
-              onSaveAudit={openSaveAuditDialog}
-            />
           </>
         )}
       </div>
@@ -616,6 +660,7 @@ export default function SpecWriterSlideOver() {
           aiModel={conversation.ai_model}
           mode={conversation.mode === 'feature' ? 'Feature (existing project)' : 'New Application'}
           documentType={saveDialogType}
+          lastSavedFile={lastSavedFile}
           onClose={() => setShowSaveDialog(false)}
           onSaved={handleSaved}
         />

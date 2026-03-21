@@ -45,6 +45,21 @@ describe("MCP Templates data integrity", () => {
     expect(MCP_TEMPLATES.length).toBe(12);
   });
 
+  it("all templates have a docsUrl", () => {
+    for (const t of MCP_TEMPLATES) {
+      expect(t.docsUrl, `Template "${t.id}" missing docsUrl`).toBeTruthy();
+    }
+  });
+
+  it("docsUrl values are valid https URLs", () => {
+    for (const t of MCP_TEMPLATES) {
+      expect(
+        t.docsUrl?.startsWith("https://"),
+        `Template "${t.id}" docsUrl must start with https://`,
+      ).toBe(true);
+    }
+  });
+
   it("npx-based stdio args contain a valid npm scope (@org/pkg pattern)", () => {
     const npxTemplates = MCP_TEMPLATES.filter(
       (t) => t.serverType === "stdio" && t.command === "npx",

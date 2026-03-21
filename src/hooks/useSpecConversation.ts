@@ -289,6 +289,22 @@ export function useSpecConversation(): {
                 return { conversations };
               });
             }
+
+            // Auto-offer audit generation immediately after spec completes
+            const existingAudit = useSpecWriterStore.getState().currentAuditContent.get(projectPath);
+            if (!existingAudit) {
+              currentStore.addMessage(projectPath, {
+                id: `msg-audit-offer-${Date.now()}`,
+                role: "system",
+                content: `Spec complete! **Generate a Verification Audit?** This is a companion document that Claude Code uses to self-check its implementation — it opens every file, reads the actual code, and verifies it matches the spec.\n\nThis is the single most important step for implementation quality.`,
+                message_type: "conversation",
+                timestamp: new Date().toISOString(),
+                parsedOptions: [
+                  "\u{1F4CB} Yes, generate the Verification Audit",
+                  "Not now \u2014 I'll generate it later",
+                ],
+              });
+            }
           }
 
           // Check for verification audit document output

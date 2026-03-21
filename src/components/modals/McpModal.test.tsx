@@ -9,11 +9,21 @@ import type { McpServerConfig } from "../../types/mcp";
 // Keep reference to mock for per-test configuration
 const mockGetMcpServers = vi.fn<(projectPath?: string) => Promise<McpServerConfig[]>>(() => Promise.resolve([]));
 
+const mockGetMcpConfigPath = vi.fn<() => Promise<string>>(() => Promise.resolve("/project/.mcp.json"));
+const mockReadFileContent = vi.fn<() => Promise<string>>(() => Promise.resolve('{"mcpServers":{}}'));
+
 vi.mock("../../lib/tauri-commands", () => ({
   getMcpServers: (...args: [string?]) => mockGetMcpServers(...args),
   saveMcpServer: vi.fn(() => Promise.resolve()),
   deleteMcpServer: vi.fn(() => Promise.resolve()),
   renameMcpServer: vi.fn(() => Promise.resolve()),
+  getMcpConfigPath: () => mockGetMcpConfigPath(),
+  readFileContent: () => mockReadFileContent(),
+  writeFileContent: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(),
 }));
 
 const STDIO_SERVER: McpServerConfig = {
@@ -705,5 +715,80 @@ describe("McpModal", () => {
     const keyInputs = screen.getAllByPlaceholderText("Key");
     expect(keyInputs.length).toBeGreaterThanOrEqual(1);
     expect((keyInputs[0] as HTMLInputElement).value).toBe("Authorization");
+  });
+
+  // ────── Bug 1: Template displayName in title ──────
+
+  it("shows template displayName in form title when template selected", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Fetch"));
+
+    expect(screen.getByText(/Add MCP Server — Fetch/)).toBeInTheDocument();
+  });
+
+  it("shows generic title for manual configuration", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
+    expect(screen.queryByText(/—/)).not.toBeInTheDocument();
+  });
+
+  // ────── Bug 2: Show config file with missing file ──────
+
+  it("does not show error toast when config file does not exist", async () => {
+    mockReadFileContent.mockRejectedValueOnce(new Error("File not found"));
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    fireEvent.click(screen.getByText("Show config file"));
+
+    // Wait for async handling to complete
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // Should NOT show the error toast — gracefully falls back to empty template
+    expect(screen.queryByText(/Failed to open config file/)).not.toBeInTheDocument();
+  });
+
+  // ────── Bug 3: Text selection in modal ──────
+
+  it("modal body has select-text class for text selection", async () => {
+    openModal([]);
+    await act(async () => {
+      render(<McpModal />);
+    });
+
+    const body = document.querySelector(".select-text");
+    expect(body).not.toBeNull();
+  });
+
+  // ────── Bug 4: Docs link ──────
+
+  it("shows docs link when template with docsUrl selected", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+    fireEvent.click(screen.getByText("Context7"));
+
+    expect(screen.getByText("Docs")).toBeInTheDocument();
+  });
+
+  it("does not show docs link for manual configuration", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.queryByText("Docs")).not.toBeInTheDocument();
   });
 });
