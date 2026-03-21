@@ -2855,3 +2855,293 @@ No user-configurable error handling settings. Error behavior is built into the a
 1. **Don't panic on crashes.** Your project files are always safe. Just click "Restart Session" and continue where you left off — or resume from History.
 2. **If a session feels stuck** (solid yellow dot for 30+ seconds), close it and start a new one. You can resume the previous conversation from the History tab.
 3. **Rate limiting is normal** on heavy usage. The app handles it automatically with retries — just wait a moment and it will resume.
+---
+
+## Appendices
+
+---
+
+### Appendix A: All Keyboard Shortcuts
+
+Every keyboard shortcut registered in CodeMantis, grouped by category.
+
+#### Global
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ N | New project from template |
+| ⌘ O | Open existing project |
+| ⌘ , | Settings |
+| ⌘ ⇧ M | MCP Servers |
+| ⌘ / | CLI Overlay |
+| ⌘ . | Toggle mode (Normal / Auto-Accept / Plan) |
+| ⌘ = | Zoom in (increase font size) |
+| ⌘ - | Zoom out (decrease font size) |
+| ⌘ 0 | Reset zoom (13px) |
+
+#### Sessions
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ N | New session in current project |
+| ⌘ W | Close current session |
+| ⌘ ⇧ [ | Previous session |
+| ⌘ ⇧ ] | Next session |
+| ⌘ 1-9 | Switch to session by number |
+
+#### Panels
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ B | Toggle sidebar |
+| ⌘ ⇧ A | Focus activity feed |
+| ⌘ ⇧ F | Focus file viewer |
+| ⌘ ⇧ T | Focus terminal |
+| ⌘ ⇧ L | Focus changelog |
+
+#### Preview
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ P | Toggle Preview Window |
+| ⌘ R | Refresh preview (when focused) |
+| ⌘ ⇧ C | Toggle Console Drawer (when focused) |
+
+#### SpecWriter
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ B | Toggle SpecWriter slide-over |
+
+#### Editor
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ S | Save file |
+
+#### Additional Context Shortcuts (not in shortcuts registry)
+
+| Shortcut | Context | Action |
+|----------|---------|--------|
+| Escape | Chat (when busy) | Interrupt / stop Claude's generation |
+| Escape | Tool Approval modal | Deny the current tool call |
+| Enter | Tool Approval modal | Approve the current tool call |
+| ⌘ A | Tool Approval modal | Approve all queued tool calls |
+| ← / → | Tool Approval modal | Navigate between queued approvals |
+| ⌘ Enter | Chat input | Send message (default shortcut) |
+| Shift+Tab | Chat input | Cycle through session modes |
+| / | Chat input (at start of line) | Open Command Palette |
+| ⌘ V | Chat input | Paste image from clipboard as attachment |
+| Escape | Activity Detail Panel | Close and return to feed |
+| Escape | CLI Overlay | Close overlay and resume session |
+| Escape | SpecWriter | Close the slide-over |
+| ⌘ Enter | SpecWriter chat | Send message |
+| ⌘ Enter | Assistant input | Send message |
+| Escape | Assistant (when busy) | Stop assistant generation |
+| Enter | Confirm Close modal | Confirm close |
+| Escape | Confirm Close modal | Cancel close |
+| Enter | Plan Complete modal | Implement now |
+
+---
+
+### Appendix B: All Settings Options
+
+Every configurable setting in CodeMantis with its location, type, and default value.
+
+#### General Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Theme | Select (6 options) | Sand | Color scheme: Midnight, Ocean, Ember (dark); Dawn, Sand, Arctic (light) |
+| Font Size | Number (10-20) | 13 | Text size throughout the app in pixels |
+| Send Shortcut | Select | Cmd + Enter | Key to send messages: "Cmd + Enter" or "Enter" |
+| Show trivia while waiting | Toggle | Off | Display fun facts while Claude is working |
+| Auto-open edited files | Toggle | Off | Open files in the File Viewer when Claude edits them |
+| Default context window | Button group | 1M (1,000,000) | Fallback context size: 200K or 1M tokens |
+| Show welcome screen on launch | Toggle | Off | Display the Welcome Screen when the app opens |
+
+#### AI Providers Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| OpenAI API Key | Password input | (empty) | API key for OpenAI models |
+| Google Gemini API Key | Password input | (empty) | API key for Gemini models |
+| Anthropic API Key | Password input | (empty) | API key for Anthropic models |
+| Model Pricing (per model) | Number inputs (In/Out) | See below | Cost per 1M tokens in USD for cost calculations |
+
+**Default Model Pricing (per 1M tokens, USD):**
+
+| Model | Input | Output |
+|-------|-------|--------|
+| GPT-4.1 | $2.00 | $8.00 |
+| GPT-5.4 Nano | $0.20 | $1.25 |
+| GPT-5.4 Mini | $0.75 | $4.50 |
+| GPT-5.4 | $2.50 | $15.00 |
+| Gemini 2.5 Flash Lite | $0.00 | $0.00 |
+| Gemini 2.5 Flash | $0.15 | $0.60 |
+| Gemini 2.5 Pro | $1.25 | $10.00 |
+| Gemini 3.0 Flash | $0.15 | $0.60 |
+| Gemini 3.1 Pro | $1.25 | $10.00 |
+| Gemini 3.1 Flash Lite | $0.00 | $0.00 |
+| Claude Opus 4.6 | $5.00 | $25.00 |
+| Claude Sonnet 4.6 | $3.00 | $15.00 |
+| Claude Haiku 4.5 | $0.80 | $4.00 |
+
+#### Assistant Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Default Provider | Select | Claude Code (local) | Provider used when creating new assistant tabs |
+| Default Model (per provider) | Select (per provider) | First model in list | Model used for each provider |
+| Shortcuts | List (name + prompt) | (empty) | Saved prompts shown as quick-access chips in the assistant panel |
+
+#### Changelog Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Enable auto-changelog | Toggle | Off | Auto-generate changelog entries after each coding turn |
+| Provider | Select | Gemini | Which AI generates summaries: Gemini, OpenAI, or Anthropic |
+| Model | Select | Gemini 2.5 Flash Lite | Specific model within the provider |
+| System Prompt | Textarea | (built-in default) | Custom prompt for changelog generation. Reset button available. |
+
+#### Terminal Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Shell | Text input | (system default, $SHELL) | Custom shell path (e.g., /bin/zsh, /opt/homebrew/bin/fish) |
+| Font Size | Number (10-20) | 13 | Terminal text size in pixels (independent from app font size) |
+
+#### Quick Commands Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Quick Commands | List (label + command) | Build, Test, Lint, Dev | Commands shown in the terminal Quick Commands bar |
+
+**Default Quick Commands:**
+
+| Label | Command |
+|-------|---------|
+| Build | pnpm build |
+| Test | pnpm test |
+| Lint | pnpm lint |
+| Dev | pnpm dev |
+
+#### Internal Settings (not in UI)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Claude binary override | null | Custom path to the claude binary (set via Welcome Screen "Locate Claude Code") |
+| Onboarding completed | false | Whether the Welcome Screen has been dismissed |
+| Preview default width | 1024 | Default preview window width in pixels |
+| Preview default height | 768 | Default preview window height in pixels |
+| Preview auto-start | false | Whether to auto-start the dev server |
+| Preview custom dev command | null | Override the detected dev command |
+| Preview console auto-open | true | Auto-open the console drawer in preview |
+| Task board planning model | gemini-3.1-flash-lite-preview | Model used for task board planning |
+| Task board max tokens | 32768 | Max tokens for task board planning |
+| Task board max retries | 3 | Max retries for task board operations |
+| Task board auto-start next | true | Auto-start next task after completion |
+| Task board auto-open slide-over | true | Auto-open slide-over when task starts |
+
+---
+
+### Appendix C: All Project Templates
+
+Every project template bundled with CodeMantis.
+
+| Name | ID | Category | Scaffold Type | Key Technologies | Stars | License | Prerequisites |
+|------|----|----------|---------------|------------------|-------|---------|---------------|
+| React + Vite (Batteries Included) | vite-react-boilerplate | Frontend | git-clone | React 19, Vite, TanStack Router, Zustand, Vitest, Playwright, Tailwind | 700 | MIT | — |
+| React + Vite + shadcn/ui | vite-react-shadcn | Frontend | cli | React, Vite, TypeScript, Tailwind, shadcn/ui, Radix | — | MIT | — |
+| Next.js Full-Stack | nextjs-boilerplate | Full-Stack | git-clone | Next.js 16, TypeScript, Tailwind CSS 4, Drizzle ORM, Clerk, Vitest, Playwright | 12,700 | MIT | — |
+| Next.js SaaS Boilerplate | nextjs-saas | Full-Stack | git-clone | Next.js, Stripe, Clerk, Drizzle, shadcn/ui, multi-tenancy, roles | 3,000 | MIT | — |
+| next-forge (Monorepo) | next-forge | Full-Stack | cli | Next.js, Turborepo, Prisma, Clerk, Stripe, Biome | 5,000 | MIT | Mintlify CLI (optional), Stripe CLI (optional) |
+| FastAPI Full-Stack (Official) | fastapi-fullstack | Backend | git-clone | FastAPI, Python, React, PostgreSQL, Docker, SQLModel | 30,000 | MIT | Docker (required), Docker Compose (required) |
+| FastAPI Boilerplate | fastapi-boilerplate | Backend | git-clone | FastAPI, Python, SQLAlchemy, Redis, PostgreSQL, uv | 10,000 | MIT | uv package manager (required) |
+| Astro (Static Site) | astro-starter | Static | cli | Astro, TypeScript, Tailwind | — | MIT | — |
+| Expo (React Native) | expo-starter | Mobile | cli | Expo, React Native, TypeScript | — | MIT | — |
+| Nextplate (Website + Blog) | nextplate | Static | git-clone | Next.js, Tailwind, MDX, blog, dark mode, SEO | 438 | MIT | Corepack (required) |
+| Fumadocs (Docs + Blog) | fumadocs | Static | cli | Next.js, MDX, Fumadocs, Tailwind, Orama search | — | MIT | pnpm (required) |
+
+---
+
+### Appendix D: All MCP Server Templates
+
+Every MCP server template available in the MCP Servers modal.
+
+#### No Setup Required
+
+| Name | ID | Type | Command | Description | Setup Hint |
+|------|----|------|---------|-------------|------------|
+| Context7 | context7 | stdio | npx -y @upstash/context7-mcp | Documentation lookup for any library | Ready to use — no configuration needed. |
+| Playwright | playwright | stdio | npx -y @playwright/mcp@latest | Browser automation and testing | Ready to use — launches a browser for automation tasks. |
+| BrowserMCP | browsermcp | stdio | npx -y @browsermcp/mcp@latest | Browser control via Chrome extension | Requires the BrowserMCP Chrome extension installed in your browser. |
+| Fetch | fetch | stdio | uvx mcp-server-fetch | Fetch web content as markdown | Requires uv installed. Fetches any URL and converts it to readable markdown. |
+| Filesystem | filesystem | stdio | npx -y @modelcontextprotocol/server-filesystem | Read/write files in allowed directories | Add allowed directory paths to Arguments after the package name. Only absolute paths. |
+| Memory | memory | stdio | npx -y @modelcontextprotocol/server-memory | Persistent memory via knowledge graph | Ready to use — stores and recalls information across conversations. |
+
+#### Requires API Key
+
+| Name | ID | Type | Command | Environment Variable | Description | Setup Hint |
+|------|----|------|---------|---------------------|-------------|------------|
+| Brave Search | brave-search | stdio | npx -y @brave/brave-search-mcp-server | BRAVE_API_KEY | Web search via Brave Search API | Get a free API key at brave.com/search/api — free tier includes 2,000 queries/month. |
+| Stripe | stripe | stdio | npx -y @stripe/mcp --tools=all | STRIPE_SECRET_KEY | Stripe payments and billing | Get your key at dashboard.stripe.com/apikeys. Use a restricted key (rk_*) for better security. |
+
+#### Cloud Services (HTTP)
+
+| Name | ID | Type | URL | Auth Method | Description | Setup Hint |
+|------|----|------|-----|-------------|-------------|------------|
+| Supabase | supabase | http | https://mcp.supabase.com/mcp | Bearer token (header) | Supabase database, auth, and storage | Enter Supabase Personal Access Token in Authorization header (Bearer sbp_…). |
+| Sentry | sentry | http | https://mcp.sentry.dev/mcp | Browser OAuth | Error tracking and monitoring | No API key needed — authenticates via browser OAuth on first connect. |
+| Neon | neon | http | https://mcp.neon.tech/mcp | Browser OAuth or Bearer token | Serverless Postgres by Neon | Authenticates via browser OAuth, or add Authorization header with Bearer token. |
+| Cloudflare | cloudflare | http | https://mcp.cloudflare.com/mcp | Browser OAuth | Cloudflare Workers and edge services | No API key needed — authenticates via browser OAuth on first connect. |
+
+---
+
+### Appendix E: All Slash Commands
+
+Slash commands available by typing "/" in the chat input area. Skill commands are discovered dynamically from `.claude/commands/` directories.
+
+#### Built-in Commands (instant, no process restart)
+
+| Command | Description | Argument | Chapter |
+|---------|-------------|----------|---------|
+| /clear | Clear conversation and restart the session | — | Ch 18 |
+| /compact | Compact conversation context (reduce token usage) | — | Ch 18 |
+| /context | Show context window usage (tokens used / max) | — | Ch 18 |
+| /cost | Show session cost and token stats | — | Ch 18 |
+| /exit | Close the current session | — | Ch 18 |
+| /help | Show available commands | — | Ch 18 |
+| /rename | Rename the current session | `<new name>` | Ch 18 |
+
+#### CLI-only Commands (opens the CLI Overlay)
+
+| Command | Description | Chapter |
+|---------|-------------|---------|
+| /config | View and edit Claude configuration | Ch 18 |
+| /doctor | Run diagnostics on Claude installation | Ch 18 |
+| /model | Change the Claude model | Ch 18 |
+| /mcp | Manage MCP servers via CLI | Ch 18 |
+| /hooks | View and manage hooks | Ch 18 |
+| /theme | Change the Claude CLI theme | Ch 18 |
+
+#### Skill Commands (from .claude/commands/)
+
+| Source | Description | How It Works |
+|--------|-------------|--------------|
+| `.claude/commands/*.md` in project | Project-specific custom commands | The file name becomes the command name. The file content is expanded as a prompt template and sent to Claude. |
+| `.claude/commands/*.md` in home directory | Global custom commands (available in all projects) | Same as project commands, but available everywhere. |
+
+**Creating a skill command:**
+1. Create a `.md` file in your project's `.claude/commands/` directory (e.g., `review.md`).
+2. Write a prompt template in the file (e.g., "Review the code I just wrote for bugs, security issues, and performance problems.").
+3. Type `/review` in the chat input → The prompt is expanded and sent to Claude.
+
+Skill commands may also specify:
+- A `model` override (different model for this command)
+- `allowed_tools` restrictions
+- `context_fork` to run in a separate context
+
+---
+
+*End of CodeMantis Complete User Guide*

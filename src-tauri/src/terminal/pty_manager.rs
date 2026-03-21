@@ -316,6 +316,20 @@ impl TerminalPool {
         st.remove(session_id);
     }
 
+    pub async fn close_all_terminals(&self) {
+        let terminal_ids: Vec<String> = {
+            let terminals = self.terminals.lock().await;
+            terminals.keys().cloned().collect()
+        };
+
+        for tid in terminal_ids {
+            let _ = self.close_terminal(&tid).await;
+        }
+
+        let mut st = self.session_terminals.lock().await;
+        st.clear();
+    }
+
     pub async fn list_for_session(&self, session_id: &str) -> Vec<String> {
         let st = self.session_terminals.lock().await;
         st.get(session_id).cloned().unwrap_or_default()

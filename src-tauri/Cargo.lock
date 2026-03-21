@@ -572,6 +572,7 @@ dependencies = [
  "dirs",
  "env_logger",
  "futures",
+ "libc",
  "log",
  "portable-pty",
  "regex",

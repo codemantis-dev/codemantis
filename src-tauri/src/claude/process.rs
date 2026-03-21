@@ -175,6 +175,7 @@ pub struct ClaudeProcess {
     child: Arc<tokio::sync::Mutex<Option<Child>>>,
     stdin_tx: mpsc::UnboundedSender<Vec<u8>>,
     session_id: String,
+    pid: Option<u32>,
 }
 
 impl ClaudeProcess {
@@ -250,6 +251,12 @@ impl ClaudeProcess {
             error!("Failed to spawn Claude CLI: {}", e);
             AppError::ClaudeCliError(format!("Failed to spawn: {}", e))
         })?;
+
+        // Track the child PID for cleanup on exit/crash
+        let child_pid = child.id();
+        if let Some(pid) = child_pid {
+            crate::utils::pid_tracker::register_pid(pid);
+        }
 
         let stdout = child
             .stdout
@@ -328,6 +335,7 @@ impl ClaudeProcess {
         let monitor_stderr = Arc::clone(&stderr_buf);
         let monitor_sid = session_id.clone();
         let monitor_app = app_handle.clone();
+        let monitor_pid = child_pid;
         let spawn_instant = std::time::Instant::now();
         tokio::spawn(async move {
             // Poll the child process status without holding the lock across awaits
@@ -362,6 +370,11 @@ impl ClaudeProcess {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             };
 
+            // Unregister PID now that the process has exited
+            if let Some(pid) = monitor_pid {
+                crate::utils::pid_tracker::unregister_pid(pid);
+            }
+
             let elapsed_ms = spawn_instant.elapsed().as_millis() as u64;
 
             // Wait for the message router to finish processing all buffered events.
@@ -386,7 +399,7 @@ impl ClaudeProcess {
             );
 
             // Update session status in AppState (if not already Closed)
-            if let Some(state) = monitor_app.try_state::<Arc<AppState>>() {
+            if let Some(state) = monitor_app.try_state::<AppState>() {
                 let mut sessions = state.sessions.lock().await;
                 if let Some(session_info) = sessions.get_mut(&monitor_sid) {
                     if session_info.status != SessionStatus::Closed {
@@ -416,6 +429,7 @@ impl ClaudeProcess {
             child: child_arc,
             stdin_tx,
             session_id,
+            pid: child_pid,
         })
     }
 
@@ -451,6 +465,9 @@ impl ClaudeProcess {
             if let Err(e) = child.kill().await {
                 warn!("[process] Failed to kill child process for session {}: {}", self.session_id, e);
             }
+            if let Some(pid) = self.pid {
+                crate::utils::pid_tracker::unregister_pid(pid);
+            }
         }
     }
 
@@ -460,6 +477,27 @@ impl ClaudeProcess {
         match self.child.try_lock() {
             Ok(guard) => guard.is_some(),
             Err(_) => true,
+        }
+    }
+}
+
+impl Drop for ClaudeProcess {
+    fn drop(&mut self) {
+        // Last-resort safety net: if the child is still alive when we're dropped,
+        // send SIGKILL synchronously. Uses try_lock to avoid deadlocking.
+        if let Some(pid) = self.pid {
+            if let Ok(guard) = self.child.try_lock() {
+                if guard.is_some() {
+                    warn!(
+                        "[process] Drop safety net: killing PID {} for session {}",
+                        pid, self.session_id
+                    );
+                    unsafe {
+                        libc::kill(pid as libc::pid_t, libc::SIGKILL);
+                    }
+                    crate::utils::pid_tracker::unregister_pid(pid);
+                }
+            }
         }
     }
 }

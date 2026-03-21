@@ -34,5 +34,6 @@ axum = "0.8"
 regex = "1"
 url = "2"
 tempfile = "3"
+libc = "0.2"
 
 [dev-dependencies]

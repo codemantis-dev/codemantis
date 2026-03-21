@@ -9,10 +9,10 @@ mod utils;
 
 use claude::approval_server::start_approval_server;
 use claude::session::AppState;
-use log::{error, info};
+use log::{error, info, warn};
 use storage::Database;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -61,6 +61,9 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+
+    // Kill any orphan claude/node processes left behind by a previous crash
+    utils::pid_tracker::kill_stale_orphans();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -271,6 +274,46 @@ pub fn run() {
             commands::specwriter::add_verification_workflow_to_claude_md,
             commands::snapshot::gather_project_snapshot,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| match event {
+            RunEvent::ExitRequested { .. } => {
+                // Async cleanup while the tokio runtime is still alive.
+                // Shut down all active Claude CLI processes and terminals gracefully.
+                let handle = app_handle.clone();
+                let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+                tauri::async_runtime::spawn(async move {
+                    // Shut down all Claude CLI processes
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        let mut processes = state.processes.lock().await;
+                        for (sid, proc) in processes.iter_mut() {
+                            info!("[exit] Shutting down CLI process for session {}", sid);
+                            proc.shutdown().await;
+                        }
+                        processes.clear();
+                    }
+
+                    // Close all PTY terminals
+                    if let Some(pool) = handle.try_state::<terminal::pty_manager::TerminalPool>() {
+                        pool.close_all_terminals().await;
+                    }
+
+                    let _ = done_tx.send(());
+                });
+
+                // Wait up to 5 seconds for async cleanup to finish
+                match done_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                    Ok(()) => info!("[exit] Graceful cleanup completed"),
+                    Err(_) => warn!("[exit] Graceful cleanup timed out after 5s"),
+                }
+            }
+            RunEvent::Exit => {
+                // Synchronous last-resort fallback: SIGKILL anything still tracked
+                utils::pid_tracker::kill_all_registered_sync();
+                utils::pid_tracker::clear_pid_file();
+                info!("[exit] Final cleanup done");
+            }
+            _ => {}
+        });
 }
