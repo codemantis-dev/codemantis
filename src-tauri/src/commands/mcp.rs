@@ -104,6 +104,11 @@ fn build_server_json(server: &McpServerConfig) -> serde_json::Value {
             if let Some(url) = &server.url {
                 obj.insert("url".to_string(), serde_json::json!(url));
             }
+            if let Some(headers) = &server.headers {
+                if !headers.is_empty() {
+                    obj.insert("headers".to_string(), serde_json::json!(headers));
+                }
+            }
         }
         _ => {
             // stdio — no type field
@@ -777,6 +782,84 @@ mod tests {
         assert!(s.env.is_none());
         assert!(s.url.is_none());
         assert!(s.headers.is_none());
+    }
+
+    #[test]
+    fn build_sse_json_includes_headers() {
+        let server = McpServerConfig {
+            name: "sse-auth".to_string(),
+            scope: "global".to_string(),
+            server_type: "sse".to_string(),
+            command: None,
+            args: None,
+            env: None,
+            url: Some("https://sse.example.com".to_string()),
+            headers: Some(HashMap::from([
+                ("Authorization".to_string(), "Bearer tok".to_string()),
+            ])),
+        };
+        let json = build_server_json(&server);
+        assert_eq!(json["type"], "sse");
+        assert_eq!(json["url"], "https://sse.example.com");
+        assert_eq!(json["headers"]["Authorization"], "Bearer tok");
+    }
+
+    #[test]
+    fn build_sse_json_omits_empty_headers() {
+        let server = McpServerConfig {
+            name: "sse-no-headers".to_string(),
+            scope: "global".to_string(),
+            server_type: "sse".to_string(),
+            command: None,
+            args: None,
+            env: None,
+            url: Some("https://sse.example.com".to_string()),
+            headers: Some(HashMap::new()),
+        };
+        let json = build_server_json(&server);
+        assert!(json.get("headers").is_none(), "empty headers should be omitted for SSE");
+    }
+
+    #[test]
+    fn sse_headers_round_trip() {
+        let val = serde_json::json!({
+            "sse-auth": {
+                "type": "sse",
+                "url": "https://sse.example.com",
+                "headers": {
+                    "Authorization": "Bearer secret",
+                    "X-Custom": "value"
+                }
+            }
+        });
+        let servers = parse_servers(&val, "global");
+        assert_eq!(servers.len(), 1);
+        let s = &servers[0];
+        assert_eq!(s.server_type, "sse");
+        assert_eq!(s.headers.as_ref().unwrap().get("Authorization").unwrap(), "Bearer secret");
+        assert_eq!(s.headers.as_ref().unwrap().get("X-Custom").unwrap(), "value");
+
+        let rebuilt = build_server_json(s);
+        assert_eq!(rebuilt["type"], "sse");
+        assert_eq!(rebuilt["url"], "https://sse.example.com");
+        assert_eq!(rebuilt["headers"]["Authorization"], "Bearer secret");
+        assert_eq!(rebuilt["headers"]["X-Custom"], "value");
+    }
+
+    #[test]
+    fn sse_without_headers_round_trip() {
+        let val = serde_json::json!({
+            "sse-plain": {
+                "type": "sse",
+                "url": "https://sse.example.com"
+            }
+        });
+        let servers = parse_servers(&val, "global");
+        let s = &servers[0];
+        assert!(s.headers.is_none());
+
+        let rebuilt = build_server_json(s);
+        assert!(rebuilt.get("headers").is_none());
     }
 
     #[test]

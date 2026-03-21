@@ -112,19 +112,6 @@ export const MCP_TEMPLATES: readonly McpTemplate[] = [
 
   // ── Requires API Key ──
   {
-    id: "github",
-    displayName: "GitHub",
-    description: "GitHub repos, issues, and pull requests",
-    icon: "\u{1F419}",
-    category: "api-key",
-    serverType: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-github"],
-    env: { GITHUB_PERSONAL_ACCESS_TOKEN: "" },
-    fieldHints: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_xxxxxxxxxxxxxxxxxxxx" },
-    setupHint: "Create a Personal Access Token at github.com/settings/tokens with the scopes you need (repo, issues, pull requests).",
-  },
-  {
     id: "brave-search",
     displayName: "Brave Search",
     description: "Web search via Brave Search API",
@@ -136,33 +123,6 @@ export const MCP_TEMPLATES: readonly McpTemplate[] = [
     env: { BRAVE_API_KEY: "" },
     fieldHints: { BRAVE_API_KEY: "BSAxxxxxxxxxxxxxxxxxxxxxxxx" },
     setupHint: "Get a free API key at brave.com/search/api — the free tier includes 2,000 queries/month.",
-  },
-  {
-    id: "slack",
-    displayName: "Slack",
-    description: "Send and read Slack messages",
-    icon: "\u{1F4AC}",
-    category: "api-key",
-    serverType: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-slack"],
-    env: { SLACK_BOT_TOKEN: "", SLACK_TEAM_ID: "" },
-    fieldHints: {
-      SLACK_BOT_TOKEN: "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx",
-      SLACK_TEAM_ID: "T01234567",
-    },
-    setupHint: "Create a Slack app at api.slack.com/apps. Bot token (xoxb-) is under OAuth & Permissions. Team ID (T…) is in your workspace settings.",
-  },
-  {
-    id: "postgresql",
-    displayName: "PostgreSQL",
-    description: "Query PostgreSQL databases",
-    icon: "\u{1F418}",
-    category: "api-key",
-    serverType: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-postgres"],
-    setupHint: "Add your database connection string to Arguments after the package name: …server-postgres, postgresql://user:password@host:5432/dbname",
   },
   {
     id: "stripe",

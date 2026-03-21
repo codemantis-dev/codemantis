@@ -202,16 +202,26 @@ export default function ServerForm({
       )}
 
       {form.serverType === "sse" && (
-        <div className="border-t border-border-light pt-3">
-          <label className="text-ui text-text-secondary mb-1 block">URL</label>
-          <input
-            type="text"
-            value={form.url}
-            onChange={(e) => onChange({ ...form, url: e.target.value })}
-            placeholder="https://mcp.example.com/sse"
-            className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
+        <div className="space-y-3 border-t border-border-light pt-3">
+          <div>
+            <label className="text-ui text-text-secondary mb-1 block">URL</label>
+            <input
+              type="text"
+              value={form.url}
+              onChange={(e) => onChange({ ...form, url: e.target.value })}
+              placeholder="https://mcp.example.com/sse"
+              className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
+            />
+            <p className="text-[11px] text-text-ghost mt-0.5">The SSE endpoint of the remote MCP server (legacy protocol)</p>
+          </div>
+          <KeyValueRow
+            label="Headers"
+            helpText="HTTP headers sent with each request to the server"
+            pairs={form.headers}
+            onChange={handleHeadersChange}
+            maskValues
+            valuePlaceholders={fieldHints}
           />
-          <p className="text-[11px] text-text-ghost mt-0.5">The SSE endpoint of the remote MCP server (legacy protocol)</p>
         </div>
       )}
 

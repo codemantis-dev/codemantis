@@ -244,7 +244,7 @@ describe("McpModal", () => {
     expect(screen.getByText("Context7")).toBeInTheDocument();
     expect(screen.getByText("Playwright")).toBeInTheDocument();
     // API key
-    expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.getByText("Brave Search")).toBeInTheDocument();
     expect(screen.getByText("Stripe")).toBeInTheDocument();
     // Cloud
     expect(screen.getByText("Sentry")).toBeInTheDocument();
@@ -283,15 +283,15 @@ describe("McpModal", () => {
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
     fireEvent.click(screen.getByText("Add Server"));
-    fireEvent.click(screen.getByText("GitHub"));
+    fireEvent.click(screen.getByText("Brave Search"));
 
     // Should show an env var row with the key pre-filled
     const keyInputs = screen.getAllByPlaceholderText("Key");
     expect(keyInputs.length).toBeGreaterThanOrEqual(1);
-    expect((keyInputs[0] as HTMLInputElement).value).toBe("GITHUB_PERSONAL_ACCESS_TOKEN");
+    expect((keyInputs[0] as HTMLInputElement).value).toBe("BRAVE_API_KEY");
 
     // Value field should have the fieldHint as placeholder, not generic "Value"
-    expect(screen.getByPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("BSAxxxxxxxxxxxxxxxxxxxxxxxx")).toBeInTheDocument();
   });
 
   it("selecting HTTP template shows URL field pre-filled", async () => {
@@ -327,9 +327,9 @@ describe("McpModal", () => {
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
     fireEvent.click(screen.getByText("Add Server"));
-    fireEvent.click(screen.getByText("GitHub"));
+    fireEvent.click(screen.getByText("Brave Search"));
 
-    expect(screen.getByText(/Personal Access Token at github\.com/)).toBeInTheDocument();
+    expect(screen.getByText(/free API key at brave\.com/)).toBeInTheDocument();
   });
 
   it("does not show setup hint for manual config", async () => {
@@ -672,5 +672,38 @@ describe("McpModal", () => {
     fireEvent.change(typeSelect, { target: { value: "http" } });
 
     expect(screen.getByText("+ Add header")).toBeInTheDocument();
+  });
+
+  // ────── Headers for sse type ──────
+
+  it("shows add header button for sse type", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    const typeSelect = screen.getByDisplayValue("stdio");
+    fireEvent.change(typeSelect, { target: { value: "sse" } });
+
+    expect(screen.getByText("+ Add header")).toBeInTheDocument();
+  });
+
+  it("edit form shows headers for SSE server with existing headers", async () => {
+    const sseWithHeaders: McpServerConfig = {
+      name: "sse-auth",
+      scope: "global",
+      serverType: "sse",
+      url: "https://sse.example.com",
+      headers: { Authorization: "Bearer tok" },
+    };
+    openModal([sseWithHeaders]);
+    render(<McpModal />);
+    await screen.findByText("sse-auth");
+
+    fireEvent.click(screen.getByTitle("Edit"));
+
+    const keyInputs = screen.getAllByPlaceholderText("Key");
+    expect(keyInputs.length).toBeGreaterThanOrEqual(1);
+    expect((keyInputs[0] as HTMLInputElement).value).toBe("Authorization");
   });
 });

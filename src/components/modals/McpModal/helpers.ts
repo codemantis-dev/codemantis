@@ -55,7 +55,13 @@ export function formToServer(form: FormState): McpServerConfig {
     }
     if (Object.keys(headers).length > 0) server.headers = headers;
   } else {
+    // SSE
     server.url = form.url.trim();
+    const headers: Record<string, string> = {};
+    for (const { key, value } of form.headers) {
+      if (key.trim()) headers[key.trim()] = value;
+    }
+    if (Object.keys(headers).length > 0) server.headers = headers;
   }
 
   return server;

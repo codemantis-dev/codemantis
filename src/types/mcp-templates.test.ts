@@ -41,8 +41,8 @@ describe("MCP Templates data integrity", () => {
     }
   });
 
-  it("has exactly 15 templates", () => {
-    expect(MCP_TEMPLATES.length).toBe(15);
+  it("has exactly 12 templates", () => {
+    expect(MCP_TEMPLATES.length).toBe(12);
   });
 
   it("npx-based stdio args contain a valid npm scope (@org/pkg pattern)", () => {
