@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { SpecMessage } from "../../types/spec-writer";
@@ -10,12 +10,20 @@ interface Props {
   onSelectOption?: (option: string) => void;
 }
 
-export default function SpecChatMessage({ message, isLastAssistant, onSelectOption }: Props) {
+const REMARK_PLUGINS = [remarkGfm];
+
+export default React.memo(function SpecChatMessage({ message, isLastAssistant, onSelectOption }: Props) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isAssistant = message.role === "assistant";
   const [copied, setCopied] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
+
+  // Memoize markdown rendering — only re-parse when content changes
+  const renderedMarkdown = useMemo(
+    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{message.content}</ReactMarkdown>,
+    [message.content]
+  );
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
@@ -59,7 +67,7 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
         <div className="flex items-start gap-2">
           <Info size={14} className="shrink-0 mt-0.5" />
           <div className="whitespace-pre-wrap break-words min-w-0">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            {renderedMarkdown}
           </div>
         </div>
         {/* Option buttons on system messages */}
@@ -106,7 +114,7 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
         )}
         {isAssistant ? (
           <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            {renderedMarkdown}
           </div>
         ) : (
           <div className="whitespace-pre-wrap break-words">{message.content}</div>
@@ -200,7 +208,7 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
       </div>
     </div>
   );
-}
+}); // React.memo
 
 // ── File Context Message (collapsible) ──────────────────────────
 
@@ -239,7 +247,7 @@ function parseFileContextContent(raw: string): FileEntry[] {
 function FileContextMessage({ content, timestamp }: { content: string; timestamp: string }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const entries = parseFileContextContent(content);
+  const entries = useMemo(() => parseFileContextContent(content), [content]);
 
   const toggleFile = useCallback((path: string) => {
     setExpandedFiles(prev => {

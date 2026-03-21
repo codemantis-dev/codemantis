@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { X, Copy, Check, Pencil, Eye, Send, Play, Lightbulb } from "lucide-react";
+import { useShallow } from "zustand/shallow";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
@@ -14,24 +15,26 @@ import SaveSpecDialog from "./SaveSpecDialog";
 
 export default function SpecWriterSlideOver() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
-  const uiState = useSpecWriterStore((s) =>
-    activeProjectPath ? s.uiState.get(activeProjectPath) ?? null : null
-  );
+
+  // Grouped data selectors — single subscription with shallow comparison
+  const { uiState, currentSpecContent, currentAuditContent, conversation, isStreaming } =
+    useSpecWriterStore(
+      useShallow((s) => ({
+        uiState: activeProjectPath ? s.uiState.get(activeProjectPath) ?? null : null,
+        currentSpecContent: activeProjectPath ? s.currentSpecContent.get(activeProjectPath) ?? null : null,
+        currentAuditContent: activeProjectPath ? s.currentAuditContent.get(activeProjectPath) ?? null : null,
+        conversation: activeProjectPath ? s.conversations.get(activeProjectPath) : undefined,
+        isStreaming: activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false,
+      }))
+    );
+
+  // Action selectors — stable function refs, no re-render cost
   const setSlideOverOpen = useSpecWriterStore((s) => s.setSlideOverOpen);
   const setChatWidth = useSpecWriterStore((s) => s.setChatWidth);
   const clearConversation = useSpecWriterStore((s) => s.clearConversation);
   const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
   const setCurrentAuditContent = useSpecWriterStore((s) => s.setCurrentAuditContent);
   const persistState = useSpecWriterStore((s) => s.persistState);
-  const currentSpecContent = useSpecWriterStore((s) =>
-    activeProjectPath ? s.currentSpecContent.get(activeProjectPath) ?? null : null
-  );
-  const currentAuditContent = useSpecWriterStore((s) =>
-    activeProjectPath ? s.currentAuditContent.get(activeProjectPath) ?? null : null
-  );
-  const conversation = useSpecWriterStore((s) =>
-    activeProjectPath ? s.conversations.get(activeProjectPath) : undefined
-  );
   const loadState = useSpecWriterStore((s) => s.loadState);
   const setSavedSpecs = useSpecWriterStore((s) => s.setSavedSpecs);
   const setContextLoaded = useSpecWriterStore((s) => s.setContextLoaded);
@@ -52,9 +55,6 @@ export default function SpecWriterSlideOver() {
   const { sendMessage: sendChatMessage } = useClaudeSession();
   const { sendMessage: sendSpecMessage, generateAudit } = useSpecConversation();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const isStreaming = useSpecWriterStore((s) =>
-    activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false
-  );
   const conversationMode = conversation?.mode;
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
@@ -127,7 +127,7 @@ export default function SpecWriterSlideOver() {
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, handleClose]);
 
-  // Divider drag
+  // Divider drag (RAF-throttled to ~16 updates/sec)
   const handleDividerMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -137,18 +137,24 @@ export default function SpecWriterSlideOver() {
       if (!containerEl) return;
       const containerWidth = containerEl.getBoundingClientRect().width;
       const startPct = chatWidth;
+      let rafId: number | null = null;
 
       const onMouseMove = (ev: MouseEvent) => {
-        const dx = ev.clientX - startX;
-        const dPct = (dx / containerWidth) * 100;
-        const newPct = Math.max(25, Math.min(65, startPct + dPct));
-        if (activeProjectPath) {
-          setChatWidth(activeProjectPath, newPct);
-        }
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const dx = ev.clientX - startX;
+          const dPct = (dx / containerWidth) * 100;
+          const newPct = Math.max(25, Math.min(65, startPct + dPct));
+          if (activeProjectPath) {
+            setChatWidth(activeProjectPath, newPct);
+          }
+        });
       };
 
       const onMouseUp = () => {
         setIsDragging(false);
+        if (rafId !== null) cancelAnimationFrame(rafId);
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
         document.body.style.cursor = "";

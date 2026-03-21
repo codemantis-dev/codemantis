@@ -76,7 +76,11 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     isAtBottomRef.current = atBottom;
-    setShowScrollButton(!atBottom);
+    // Only trigger re-render if value actually changed
+    setShowScrollButton((prev) => {
+      const next = !atBottom;
+      return prev === next ? prev : next;
+    });
   }, []);
 
   const scrollToBottom = useCallback(() => {

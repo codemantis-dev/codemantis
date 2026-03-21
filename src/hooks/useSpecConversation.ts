@@ -21,6 +21,9 @@ export function useSpecConversation(): {
 } {
   const unlistenRef = useRef<(() => void) | null>(null);
   const streamBufferRef = useRef("");
+  const flushScheduledRef = useRef<number | null>(null);
+  const specDetectedRef = useRef(false);
+  const auditDetectedRef = useRef(false);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -201,29 +204,49 @@ export function useSpecConversation(): {
       // Setup stream listener
       const assistantId = `spec-${projectPath.replace(/[^a-zA-Z0-9]/g, "_")}`;
       streamBufferRef.current = "";
+      specDetectedRef.current = false;
+      auditDetectedRef.current = false;
 
       if (unlistenRef.current) {
         unlistenRef.current();
       }
+
+      // Flush accumulated stream buffer to store (batched via RAF)
+      const flushStreamBuffer = (): void => {
+        flushScheduledRef.current = null;
+        const buf = streamBufferRef.current;
+        if (!buf) return;
+        const store = useSpecWriterStore.getState();
+        store.updateLastAssistantMessage(projectPath, buf);
+        if (specDetectedRef.current || SPEC_START_PATTERN.test(buf)) {
+          specDetectedRef.current = true;
+          store.setCurrentSpecContent(projectPath, buf);
+        }
+        if (auditDetectedRef.current || AUDIT_START_PATTERN.test(buf)) {
+          auditDetectedRef.current = true;
+          store.setCurrentAuditContent(projectPath, buf);
+        }
+      };
 
       unlistenRef.current = await listenAssistantStream(assistantId, (event) => {
         const currentStore = useSpecWriterStore.getState();
 
         if (event.type === "delta" && event.text) {
           streamBufferRef.current += event.text;
-          currentStore.updateLastAssistantMessage(projectPath, streamBufferRef.current);
-
-          // Check for spec content during streaming
-          if (SPEC_START_PATTERN.test(streamBufferRef.current)) {
-            currentStore.setCurrentSpecContent(projectPath, streamBufferRef.current);
-          }
-          // Check for audit content during streaming
-          if (AUDIT_START_PATTERN.test(streamBufferRef.current)) {
-            currentStore.setCurrentAuditContent(projectPath, streamBufferRef.current);
+          // Batch store updates to one per animation frame (~16/sec instead of 50-100/sec)
+          if (flushScheduledRef.current === null) {
+            flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
           }
         }
 
         if (event.type === "done") {
+          // Cancel pending RAF and flush immediately so final content is complete
+          if (flushScheduledRef.current !== null) {
+            cancelAnimationFrame(flushScheduledRef.current);
+            flushScheduledRef.current = null;
+          }
+          flushStreamBuffer();
+
           currentStore.setPlanningStreaming(projectPath, false);
           const finalContent = streamBufferRef.current;
 
@@ -296,6 +319,12 @@ export function useSpecConversation(): {
         }
 
         if (event.type === "cancelled") {
+          // Cancel pending RAF
+          if (flushScheduledRef.current !== null) {
+            cancelAnimationFrame(flushScheduledRef.current);
+            flushScheduledRef.current = null;
+          }
+
           currentStore.setPlanningStreaming(projectPath, false);
 
           // If the last assistant message is empty (no deltas arrived), remove the placeholder
@@ -335,6 +364,11 @@ export function useSpecConversation(): {
         }
 
         if (event.type === "error") {
+          if (flushScheduledRef.current !== null) {
+            cancelAnimationFrame(flushScheduledRef.current);
+            flushScheduledRef.current = null;
+          }
+
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {
             id: `msg-err-${Date.now()}`,

@@ -1,6 +1,8 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+const REMARK_PLUGINS = [remarkGfm];
 
 interface Props {
   content: string | null;
@@ -22,6 +24,12 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
   }, [auditContent]);
 
   const displayContent = activeTab === 'audit' && auditContent ? auditContent : content;
+
+  // Memoize markdown rendering — only re-parse when content changes
+  const renderedMarkdown = useMemo(
+    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{displayContent ?? ""}</ReactMarkdown>,
+    [displayContent]
+  );
 
   // Auto-scroll during streaming if user was at bottom (skip in edit mode)
   useEffect(() => {
@@ -116,7 +124,7 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
           className="flex-1 overflow-y-auto px-4 py-3"
         >
           <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent ?? ""}</ReactMarkdown>
+            {renderedMarkdown}
           </div>
         </div>
       )}
