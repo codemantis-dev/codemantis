@@ -44,7 +44,7 @@
 ### Part VI: Settings & Configuration
 - [Chapter 21: Settings — General](#chapter-21-settings--general)
 - [Chapter 22: Settings — AI Providers](#chapter-22-settings--ai-providers)
-- [Chapter 23: Settings — Assistant, Changelog, Terminal, Quick Commands](#chapter-23-settings--assistant-changelog-terminal-quick-commands)
+- [Chapter 23: Settings — Assistant, Changelog, Terminal, Quick Commands, Preview, SpecWriter](#chapter-23-settings--assistant-changelog-terminal-quick-commands-preview-specwriter)
 - [Chapter 24: Settings — Shortcuts & API Logs](#chapter-24-settings--shortcuts--api-logs)
 
 ### Part VII: Context & Status
@@ -2526,6 +2526,12 @@ Click "+ Add command" → Enter a label and command → The button appears in th
 **Remove a quick command**
 Click the × button → The command is removed from the terminal toolbar.
 
+**Configure preview window defaults**
+Go to the Preview tab → Set default width and height → Toggle auto-start and console auto-open as desired.
+
+**Set the SpecWriter model**
+Go to the SpecWriter tab → Select a model from the dropdown (requires an API key for that provider) → Adjust max output tokens if needed.
+
 #### States
 
 All settings take effect immediately and persist across restarts.
@@ -2539,6 +2545,7 @@ All settings in these tabs are stored in the app's SQLite database.
 1. **Quick Commands are project-agnostic.** Set them to match your most common project setup (e.g., `pnpm dev`, `cargo test`, `python manage.py runserver`).
 2. **The changelog prompt is customizable.** If you want changelog entries in a specific format (e.g., conventional commits style), edit the system prompt.
 3. **Assistant shortcuts** save you from retyping common prompts. Create shortcuts for "Review this code", "Explain this function", or "Write tests for this" to speed up your workflow.
+4. **Increase SpecWriter max tokens** to 65,536 or higher if your spec documents are being cut off. The default (32,768) works for most features but large application specs may need more.
 
 ---
 
@@ -3051,19 +3058,29 @@ Every configurable setting in CodeMantis with its location, type, and default va
 | Lint | pnpm lint |
 | Dev | pnpm dev |
 
-#### Internal Settings (not in UI)
+#### Preview Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Default width (px) | Number | 1024 | Default preview window width |
+| Default height (px) | Number | 768 | Default preview window height |
+| Auto-start dev server on project open | Checkbox | Off | Automatically start the dev server when opening a project |
+| Custom dev command override | Text input | (empty) | Override the auto-detected dev command (e.g., "npm run dev") |
+| Auto-open console on errors | Checkbox | On | Open the console drawer when preview errors are detected |
+
+#### SpecWriter Tab
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Spec writing AI model | Select | gemini-3.1-flash-lite-preview | Which AI model generates specification documents |
+| Max output tokens | Number (1,024-200,000) | 32,768 | Maximum token length for generated specs |
+
+#### Internal Settings (not exposed in Settings UI)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Claude binary override | null | Custom path to the claude binary (set via Welcome Screen "Locate Claude Code") |
 | Onboarding completed | false | Whether the Welcome Screen has been dismissed |
-| Preview default width | 1024 | Default preview window width in pixels |
-| Preview default height | 768 | Default preview window height in pixels |
-| Preview auto-start | false | Whether to auto-start the dev server |
-| Preview custom dev command | null | Override the detected dev command |
-| Preview console auto-open | true | Auto-open the console drawer in preview |
-| Task board planning model | gemini-3.1-flash-lite-preview | Model used for task board planning |
-| Task board max tokens | 32768 | Max tokens for task board planning |
 | Task board max retries | 3 | Max retries for task board operations |
 | Task board auto-start next | true | Auto-start next task after completion |
 | Task board auto-open slide-over | true | Auto-open slide-over when task starts |
