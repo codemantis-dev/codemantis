@@ -20,7 +20,6 @@ import {
   resumeSessionProcess,
   saveClipboardImage,
   getFileInfo,
-  readFileBytes,
 } from "../../lib/tauri-commands";
 import AssistantTabs from "./AssistantTabs";
 import AssistantAttachmentBar from "./AssistantAttachmentBar";
@@ -29,6 +28,8 @@ import AssistantProviderMenu from "./AssistantProviderMenu";
 import AssistantCommandPalette from "./AssistantCommandPalette";
 import AssistantChatMessages from "./AssistantChatMessages";
 import { assistantInputDrafts } from "../../lib/input-drafts";
+import { useFileDrop } from "../../hooks/useFileDrop";
+import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
 
 export default function AssistantPanel() {
   const [input, setInput] = useState("");
@@ -38,7 +39,6 @@ export default function AssistantPanel() {
   const [commandQuery, setCommandQuery] = useState("");
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [commandIndex, setCommandIndex] = useState(0);
-  const [dragOver, setDragOver] = useState(false);
   const prevAssistantRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -128,7 +128,6 @@ export default function AssistantPanel() {
     setShowCommandPalette(false);
     setCommandQuery("");
     setCommandIndex(0);
-    setDragOver(false);
     setContextMenu(null);
     prevAssistantRef.current = activeAssistantId;
   }, [activeAssistantId, setShowProviderMenu, setExpandedProvider]);
@@ -403,16 +402,19 @@ export default function AssistantPanel() {
     [isClaudeCode]
   );
 
-  /** Read a file via Rust and create a blob: URL for previewing in the webview. */
-  const createPreviewUrl = useCallback(async (filePath: string, mimeType: string): Promise<string | undefined> => {
-    try {
-      const bytes = await readFileBytes(filePath);
-      const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
-      return URL.createObjectURL(blob);
-    } catch {
-      return undefined;
-    }
-  }, []);
+  // Tauri native file drop
+  const inputContainerRef = useRef<HTMLDivElement>(null);
+  const handleFileDrop = useCallback(async (paths: string[]) => {
+    if (!activeAssistantId) return;
+    const atts = await processDroppedPaths(paths);
+    for (const att of atts) addAssistantAttachment(activeAssistantId, att);
+  }, [activeAssistantId, addAssistantAttachment]);
+  const { isDragOver: dragOver } = useFileDrop({
+    id: "assistant-panel",
+    containerRef: inputContainerRef,
+    onDrop: handleFileDrop,
+    enabled: !!activeAssistantId,
+  });
 
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
@@ -455,60 +457,7 @@ export default function AssistantPanel() {
         }
       }
     },
-    [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      if (!activeAssistantId || !activeProjectPath) return;
-
-      const files = e.dataTransfer?.files;
-      if (!files) return;
-
-      for (const file of files) {
-        try {
-          const isImage = file.type.startsWith("image/");
-          if (isImage) {
-            const arrayBuffer = await file.arrayBuffer();
-            const imageData = Array.from(new Uint8Array(arrayBuffer));
-            const info = await saveClipboardImage(activeProjectPath, imageData, file.name);
-            const thumbUrl = await createPreviewUrl(info.file_path, info.mime_type);
-            addAssistantAttachment(activeAssistantId, {
-              id: `att-${Date.now()}-${file.name}`,
-              fileName: info.file_name,
-              filePath: info.file_path,
-              fileSize: info.file_size,
-              mimeType: info.mime_type,
-              isImage: true,
-              thumbnailUrl: thumbUrl,
-            });
-          } else {
-            addAssistantAttachment(activeAssistantId, {
-              id: `att-${Date.now()}-${file.name}`,
-              fileName: file.name,
-              filePath: file.name,
-              fileSize: file.size,
-              mimeType: file.type || "application/octet-stream",
-              isImage: false,
-            });
-          }
-        } catch (err) {
-          console.error("Failed to process dropped file:", err);
-        }
-      }
-    },
-    [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]
+    [activeAssistantId, activeProjectPath, addAssistantAttachment]
   );
 
   const handleFileDialog = useCallback(async () => {
@@ -550,7 +499,7 @@ export default function AssistantPanel() {
     } catch (err) {
       console.error("File dialog error:", err);
     }
-  }, [activeAssistantId, activeProjectPath, addAssistantAttachment, createPreviewUrl]);
+  }, [activeAssistantId, activeProjectPath, addAssistantAttachment]);
 
   const handleCommandSelect = useCallback((cmd: SlashCommand) => {
     setShowCommandPalette(false);
@@ -641,11 +590,9 @@ export default function AssistantPanel() {
 
       {/* Input area */}
       <div
+        ref={inputContainerRef}
         className={`shrink-0 border-t relative ${dragOver ? "bg-accent/5" : ""}`}
         style={{ borderColor: "var(--border-light)" }}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
       >
         {/* Slash command palette — positioned in outer container for z-index layering */}
         {showCommandPalette && isClaudeCode && filteredCommands.length > 0 && (

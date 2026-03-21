@@ -1,33 +1,24 @@
-import { useState, useRef, useCallback, useEffect, type KeyboardEvent, type DragEvent } from "react";
+import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
 import { Send, Square, Plus, AtSign } from "lucide-react";
 import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useUiStore } from "../../stores/uiStore";
-import { saveClipboardImage, getFileInfo, readFileBytes, interruptSession } from "../../lib/tauri-commands";
+import { saveClipboardImage, getFileInfo, interruptSession } from "../../lib/tauri-commands";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
 import ModelSelector from "./ModelSelector";
 import type { Attachment } from "../../types/attachment";
 import { handleError } from "../../lib/error-handler";
+import { useFileDrop } from "../../hooks/useFileDrop";
+import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
 import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
-
-/** Read a file via Rust and create a blob: URL for previewing in the webview. */
-async function createPreviewUrl(filePath: string, mimeType: string): Promise<string | undefined> {
-  try {
-    const bytes = await readFileBytes(filePath);
-    const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
-    return URL.createObjectURL(blob);
-  } catch {
-    return undefined;
-  }
-}
 
 function EffortBars({ effort }: { effort: ThinkingEffort }) {
   const count = effort === "high" ? 3 : effort === "medium" ? 2 : 1;
@@ -50,7 +41,6 @@ function EffortBars({ effort }: { effort: ThinkingEffort }) {
 
 export default function InputArea() {
   const [input, setInput] = useState("");
-  const [dragOver, setDragOver] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -79,7 +69,6 @@ export default function InputArea() {
     }
     setShowCommandPalette(false);
     setCommandQuery("");
-    setDragOver(false);
     prevSessionRef.current = activeSessionId;
   }, [activeSessionId]);
 
@@ -266,65 +255,19 @@ export default function InputArea() {
     [session, activeSessionId, addAttachment]
   );
 
-  const handleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      if (!session) return;
-
-      const files = e.dataTransfer?.files;
-      if (!files) return;
-
-      for (const file of files) {
-        try {
-          // For drag-and-drop we reference the original file path
-          // In web context, File objects don't have full paths — use name + save
-          const isImage = file.type.startsWith("image/");
-          if (isImage) {
-            const arrayBuffer = await file.arrayBuffer();
-            const imageData = Array.from(new Uint8Array(arrayBuffer));
-            const info = await saveClipboardImage(
-              session.project_path,
-              imageData,
-              file.name
-            );
-            const thumbUrl = await createPreviewUrl(info.file_path, info.mime_type);
-            addAttachment(activeSessionId!, {
-              id: `att-${Date.now()}-${file.name}`,
-              fileName: info.file_name,
-              filePath: info.file_path,
-              fileSize: info.file_size,
-              mimeType: info.mime_type,
-              isImage: true,
-              thumbnailUrl: thumbUrl,
-            });
-          } else {
-            // Non-image files: just reference by name
-            addAttachment(activeSessionId!, {
-              id: `att-${Date.now()}-${file.name}`,
-              fileName: file.name,
-              filePath: file.name, // Limited in web context
-              fileSize: file.size,
-              mimeType: file.type || "application/octet-stream",
-              isImage: false,
-            });
-          }
-        } catch (err) {
-          handleError("InputArea.drop", err);
-        }
-      }
-    },
-    [session, activeSessionId, addAttachment]
-  );
+  // Tauri native file drop
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handleFileDrop = useCallback(async (paths: string[]) => {
+    if (!activeSessionId) return;
+    const atts = await processDroppedPaths(paths);
+    for (const att of atts) addAttachment(activeSessionId, att);
+  }, [activeSessionId, addAttachment]);
+  const { isDragOver: dragOver } = useFileDrop({
+    id: "input-area",
+    containerRef,
+    onDrop: handleFileDrop,
+    enabled: !!session,
+  });
 
   const handleFileDialog = useCallback(async () => {
     if (!session) return;
@@ -375,10 +318,8 @@ export default function InputArea() {
 
   return (
     <div
+      ref={containerRef}
       className={`relative border-t border-border px-4 py-3 ${dragOver ? "bg-accent/5" : ""}`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <div className="max-w-[720px] mx-auto relative">
         {/* Command palette dropdown */}

@@ -3,6 +3,8 @@ import { Send, Square, Paperclip } from "lucide-react";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
+import { useFileDrop } from "../../hooks/useFileDrop";
+import { processDroppedPathsForSpec } from "../../lib/file-utils";
 
 interface Props {
   projectPath: string;
@@ -48,11 +50,22 @@ function resizeImage(dataUri: string, maxSize: number = 1024): Promise<string> {
 export default function SpecChatInput({ projectPath }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
-  const [isDragOver, setIsDragOver] = useState(false);
   const { sendMessage, cancelStream } = useSpecConversation();
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Tauri native file drop
+  const handleFileDrop = useCallback(async (paths: string[]) => {
+    const specAtts = await processDroppedPathsForSpec(paths);
+    setAttachments((prev) => [...prev, ...specAtts]);
+  }, []);
+  const { isDragOver } = useFileDrop({
+    id: "spec-chat-input",
+    containerRef,
+    onDrop: handleFileDrop,
+  });
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
@@ -146,72 +159,14 @@ export default function SpecChatInput({ projectPath }: Props) {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  }, []);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragOver(false);
-      const files = e.dataTransfer.files;
-      if (!files) return;
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const isImage = file.type.startsWith("image/");
-        let att: SpecAttachment;
-        if (isImage) {
-          const rawUri = await fileToBrowserBase64(file);
-          const dataUri = await resizeImage(rawUri);
-          att = {
-            id: `att-${Date.now()}-${i}`,
-            type: "image",
-            name: file.name,
-            size: file.size,
-            mime_type: file.type,
-            preview_url: dataUri,
-            file_path: "",
-          };
-        } else {
-          const textContent = await file.text();
-          att = {
-            id: `att-${Date.now()}-${i}`,
-            type: "document",
-            name: file.name,
-            size: file.size,
-            mime_type: file.type,
-            text_content: textContent.slice(0, 10000) + (textContent.length > 10000 ? "..." : ""),
-            file_path: "",
-          };
-        }
-        setAttachments((prev) => [...prev, att]);
-      }
-    },
-    []
-  );
-
   return (
     <div
+      ref={containerRef}
       className={`border-t px-3 py-2 shrink-0 transition-colors ${isDragOver ? "ring-2 ring-inset ring-[var(--accent)]" : ""}`}
       style={{
         borderColor: "var(--border)",
         background: isDragOver ? "var(--bg-elevated)" : undefined,
       }}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       {/* Attachments preview */}
       {attachments.length > 0 && (
