@@ -111,6 +111,23 @@ For every REUSABLE component (used on 2+ pages):
 - Internal state (if any)
 - Behavior description
 - Visual states: default, hover, active, disabled, loading, error
+- Responsive behavior: mobile / tablet / desktop layout
+- Keyboard behavior: Tab focus, Enter/Escape actions
+
+For components with 3+ visual states, include a STATE TRANSITION MAP:
+
+  Component Mount → Loading (immediately)
+  Loading + data received → Default (show content)
+  Loading + empty data → Empty (show empty state)
+  Loading + error → Error (show error + retry)
+  Error + "Try Again" click → Loading (retry)
+  Default + "Create" click → Modal Open (create mode)
+  Modal Open + Submit success → Default (refresh + toast)
+  Modal Open + Submit error → Modal Open (show inline error)
+
+This prevents ambiguous transitions (e.g., does the empty state show
+briefly before data arrives? It shouldn't — the loading state should
+cover the entire wait).
 
 ## 5. Authentication & Authorization
 - Auth method and provider
@@ -137,6 +154,27 @@ For EVERY page and EVERY user interaction:
 - What happens when data is empty
 - What happens when the user's session expires mid-action
 - What happens on slow connections (optimistic updates? loading indicators?)
+
+CRITICAL: For every error state, specify the RECOVERY PATH — not just
+what the error looks like, but what the user does next.
+
+WRONG (describes the error but not recovery):
+  "Show error message when API fails"
+
+RIGHT (describes error AND how the user recovers):
+  "When listService.getLists() fails:
+   → Red banner appears: 'Failed to load lists. Please try again.'
+   → 'Try Again' button below the message
+   → Click 'Try Again' → shows loading spinner → re-calls getLists()
+   → If still fails → same error banner (no infinite loop)
+   → User can also navigate away and come back (full reload)"
+
+For save/submit errors in modals:
+  "When createList() fails:
+   → Modal stays OPEN (do NOT close on error)
+   → Inline error below form shows the error message from the service
+   → Submit button re-enabled so user can fix input and retry
+   → Form field values preserved (not cleared)"
 
 ## 8. UI/UX Specifications
 - Layout: responsive breakpoints (mobile, tablet, desktop)
@@ -171,14 +209,47 @@ Organize as a hierarchical checklist that Claude Code works through:
 ### Phase 3: Features
 (each feature with sub-checkboxes for DB model, components, states)
 
-### Phase 4: Polish
-- [ ] All loading states implemented (list each one)
-- [ ] All error states implemented (list each one)
-- [ ] All empty states implemented (list each one)
-- [ ] All form validations implemented (list each one)
-- [ ] All toast messages implemented (list each one)
-- [ ] Responsive layout verified at 375px, 768px, 1024px, 1440px
-- [ ] All keyboard navigation works (Tab, Enter, Escape)
+### Phase 4: Polish & Verification
+
+CRITICAL: The items below MUST enumerate every single instance
+individually. Do NOT summarize. Do NOT use category-level items.
+
+WRONG (too vague — Claude Code skips items):
+  - [ ] All loading states: ListManager, ListMembershipModal, CampaignWizard
+
+RIGHT (every item is individually checkable):
+  - [ ] Loading states:
+    - [ ] ListManager page: centered spinner (match SegmentsPanel pattern)
+    - [ ] ListManager create modal submit: button shows spinner, form disabled
+    - [ ] ListManager delete modal: "Delete List" button shows spinner
+    - [ ] ListMembershipModal: spinner while fetching lists
+    - [ ] SubscriberList list filter dropdown: "Loading..." while lists load
+    - [ ] CampaignWizard recipients step: spinner in Lists section
+
+Apply this exhaustive enumeration to EVERY category below:
+
+- [ ] Loading states (list EVERY loading indicator — one checkbox each):
+  - [ ] {page/component}: {exact loading behavior}
+  - [ ] {page/component}: {exact loading behavior}
+
+- [ ] Error states (list EVERY error state — one checkbox each):
+  - [ ] {page/component}: {exact error display + recovery action}
+
+- [ ] Empty states (list EVERY empty state — one checkbox each):
+  - [ ] {page/component}: {exact empty state text and CTA}
+
+- [ ] Form validations (list EVERY field + EVERY rule):
+  - [ ] {field name}: {rule} → "{exact error message}" (timing: blur/submit)
+
+- [ ] Toast messages (list EVERY toast with exact text):
+  - [ ] Success: "{exact toast message}"
+  - [ ] Error: "{exact toast message}"
+
+- [ ] Responsive behavior (list EVERY component):
+  - [ ] {component}: mobile (<640px): {layout}, tablet: {layout}, desktop: {layout}
+
+- [ ] Keyboard navigation:
+  - [ ] {component}: Tab → {behavior}, Enter → {behavior}, Escape → {behavior}
 
 ## 10. Open Questions & Assumptions
 List everything you assumed or couldn't verify. The implementer should review this section before starting.
@@ -209,6 +280,32 @@ WRITING RULES
 7. The Implementation Checklist MUST be comprehensive enough that
    Claude Code can use it as a todo list. Every checkbox is one
    verifiable unit of work.
+
+8. EVERY new component must specify responsive behavior:
+   - Mobile (<640px): [layout — single column? stacked? hidden?]
+   - Tablet (640-1024px): [layout — two columns? reduced padding?]
+   - Desktop (>1024px): [layout — full grid? sidebar?]
+
+   EVERY modal must specify:
+   - Mobile: full-width with 16px body padding (no horizontal margin)
+   - Desktop: max-width constraint (typically 400-500px), centered
+
+   If the project has breakpoint conventions (check Tailwind config or
+   existing components), use those. Otherwise use Tailwind defaults:
+   sm:640px, md:768px, lg:1024px, xl:1280px.
+
+9. EVERY interactive component must specify keyboard behavior:
+   - Which elements can receive Tab focus
+   - Enter/Space: what they activate
+   - Escape: what it closes/cancels
+   - Arrow keys: any list/grid navigation (if applicable)
+
+   EVERY modal MUST have:
+   - Escape → closes modal
+   - Tab → cycles through focusable elements inside the modal
+   - Focus trap: Tab does NOT leave the modal while it's open
+   - Enter on primary button → submits
+   - Enter on cancel button → closes
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
@@ -359,7 +456,15 @@ Same level of detail as New Application Mode Section 3.
 Reference existing layout and navigation.
 
 ## 5. New & Modified Components
-New components: full props interface, behavior, states.
+New components: full props interface, behavior, states (default, loading,
+empty, error), responsive behavior (mobile/tablet/desktop), keyboard
+behavior (Tab/Enter/Escape).
+
+For components with 3+ states, include a STATE TRANSITION MAP:
+  Mount → Loading → Default | Empty | Error
+  Error + retry → Loading
+  (Map every trigger → state change)
+
 Modified components: EXACT changes needed (line-level if you've read the file).
 Reference existing components to reuse.
 
@@ -374,7 +479,16 @@ Shared state changes, navigation changes, permission changes.
 
 ## 8. Error Handling & Edge Cases
 Feature-specific error states.
-How errors surface in existing UI patterns.
+How errors surface in existing UI patterns (reuse existing toast,
+banner, inline error components).
+
+For EVERY error state, specify the RECOVERY PATH:
+- What error UI appears (banner, toast, inline message)
+- What action the user can take (retry button, close and reopen,
+  navigate away)
+- What happens on retry (loading indicator, same error on repeat failure)
+- For modals: modal stays OPEN on error, submit button re-enabled,
+  form values preserved
 
 ## 9. Implementation Checklist
 Organize as a hierarchical checklist. MUST include "Modify existing file X" as separate checklist items.
@@ -390,12 +504,47 @@ Organize as a hierarchical checklist. MUST include "Modify existing file X" as s
 - [ ] Navigation changes
 - [ ] State management updates
 
-### Phase 4: Polish
-- [ ] All loading states implemented (list each one)
-- [ ] All error states implemented (list each one)
-- [ ] All empty states implemented (list each one)
-- [ ] All form validations (list each one)
-- [ ] All toast messages (list each one)
+### Phase 4: Polish & Verification
+
+CRITICAL: The items below MUST enumerate every single instance
+individually. Do NOT summarize. Do NOT use category-level items.
+
+WRONG (too vague — Claude Code skips items):
+  - [ ] All loading states: ListManager, ListMembershipModal, CampaignWizard
+
+RIGHT (every item is individually checkable):
+  - [ ] Loading states:
+    - [ ] ListManager page: centered spinner (match SegmentsPanel pattern)
+    - [ ] ListManager create modal submit: button shows spinner, form disabled
+    - [ ] ListManager delete modal: "Delete List" button shows spinner
+    - [ ] ListMembershipModal: spinner while fetching lists
+    - [ ] SubscriberList list filter dropdown: "Loading..." while lists load
+    - [ ] CampaignWizard recipients step: spinner in Lists section
+
+Apply this exhaustive enumeration to EVERY category below:
+
+- [ ] Loading states (list EVERY loading indicator — one checkbox each):
+  - [ ] {page/component}: {exact loading behavior}
+  - [ ] {page/component}: {exact loading behavior}
+
+- [ ] Error states (list EVERY error state — one checkbox each):
+  - [ ] {page/component}: {exact error display + recovery action}
+
+- [ ] Empty states (list EVERY empty state — one checkbox each):
+  - [ ] {page/component}: {exact empty state text and CTA}
+
+- [ ] Form validations (list EVERY field + EVERY rule):
+  - [ ] {field name}: {rule} → "{exact error message}" (timing: blur/submit)
+
+- [ ] Toast messages (list EVERY toast with exact text):
+  - [ ] Success: "{exact toast message}"
+  - [ ] Error: "{exact toast message}"
+
+- [ ] Responsive behavior (list EVERY component):
+  - [ ] {component}: mobile (<640px): {layout}, tablet: {layout}, desktop: {layout}
+
+- [ ] Keyboard navigation:
+  - [ ] {component}: Tab → {behavior}, Enter → {behavior}, Escape → {behavior}
 
 ## 10. Open Questions & Assumptions
 List EVERY ⚠️ INFERRED and ❓ ASSUMED item from the spec.
@@ -418,6 +567,32 @@ WRITING RULES
   - [ ] Modify \`src/app/layout.tsx\`:
     - [ ] Import NotificationBell ✅
     - [ ] Add <NotificationBell /> in header after <UserMenu /> ✅
+
+11. EVERY new component must specify responsive behavior:
+   - Mobile (<640px): [layout — single column? stacked? hidden?]
+   - Tablet (640-1024px): [layout — two columns? reduced padding?]
+   - Desktop (>1024px): [layout — full grid? sidebar?]
+
+   EVERY modal must specify:
+   - Mobile: full-width with 16px body padding (no horizontal margin)
+   - Desktop: max-width constraint (typically 400-500px), centered
+
+   If the project has breakpoint conventions (check Tailwind config or
+   existing components), use those. Otherwise use Tailwind defaults:
+   sm:640px, md:768px, lg:1024px, xl:1280px.
+
+12. EVERY interactive component must specify keyboard behavior:
+   - Which elements can receive Tab focus
+   - Enter/Space: what they activate
+   - Escape: what it closes/cancels
+   - Arrow keys: any list/grid navigation (if applicable)
+
+   EVERY modal MUST have:
+   - Escape → closes modal
+   - Tab → cycles through focusable elements inside the modal
+   - Focus trap: Tab does NOT leave the modal while it's open
+   - Enter on primary button → submits
+   - Enter on cancel button → closes
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
