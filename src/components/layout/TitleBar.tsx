@@ -1,4 +1,4 @@
-import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera, HelpCircle } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
@@ -25,6 +25,8 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
+  const helpPanelOpen = useUiStore((s) => s.helpPanelOpen);
+  const toggleHelpPanel = useUiStore((s) => s.toggleHelpPanel);
   const toggleSlideOver = useSpecWriterStore((s) => s.toggleSlideOver);
   const previewOpen = usePreviewStore((s) => activeProjectPath ? s.previewOpen.get(activeProjectPath) : false);
   const devServer = usePreviewStore((s) => activeProjectPath ? s.devServer.get(activeProjectPath) : undefined);
@@ -208,9 +210,22 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       <button
         onClick={() => setShowSettingsModal(true)}
         title="Settings (Cmd+,)"
-        className="mr-3 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       >
         <Settings size={14} />
+      </button>
+
+      {/* Help button — always visible, even without a project */}
+      <button
+        onClick={toggleHelpPanel}
+        title="Help (⌘?)"
+        className={`mr-3 p-1.5 rounded-md transition-colors ${
+          helpPanelOpen
+            ? "text-accent bg-accent-dim"
+            : "text-text-ghost hover:text-text-secondary hover:bg-bg-elevated"
+        }`}
+      >
+        <HelpCircle size={14} />
       </button>
     </div>
   );

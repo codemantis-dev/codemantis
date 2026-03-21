@@ -273,6 +273,7 @@ pub fn run() {
             commands::specwriter::read_project_files,
             commands::specwriter::add_verification_workflow_to_claude_md,
             commands::snapshot::gather_project_snapshot,
+            commands::help::read_user_guide,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

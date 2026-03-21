@@ -133,6 +133,12 @@ export async function listSessionHistory(
   return invoke<SessionHistoryEntry[]>("list_session_history", { projectPath });
 }
 
+// --- Help ---
+
+export async function readUserGuide(): Promise<string> {
+  return invoke<string>("read_user_guide");
+}
+
 // --- Files ---
 
 export async function readFileTree(rootPath: string): Promise<FileNode[]> {

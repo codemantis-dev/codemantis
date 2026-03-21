@@ -54,7 +54,8 @@
     ],
     "resources": [
       "resources/templates.json",
-      "resources/claude-md/*"
+      "resources/claude-md/*",
+      "resources/user-guide.md"
     ]
   }
 }

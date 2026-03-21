@@ -2413,9 +2413,9 @@ None specific to this tab.
 
 ---
 
-### Chapter 23: Settings — Assistant, Changelog, Terminal, Quick Commands, Preview, SpecWriter
+### Chapter 23: Settings — Assistant, Changelog, Terminal, Quick Commands
 
-This chapter covers six settings tabs that configure specific features.
+This chapter covers four settings tabs that configure specific features.
 
 #### What You See
 
@@ -2474,34 +2474,9 @@ Description: "Commands available in the terminal toolbar for quick execution."
 
 Default commands: Build (`pnpm build`), Test (`pnpm test`), Lint (`pnpm lint`), Dev (`pnpm dev`).
 
-##### Preview Settings Tab
-
-**Default width (px):**
-A number input for the default preview window width. Default: 1024.
-
-**Default height (px):**
-A number input for the default preview window height. Default: 768.
-
-**Auto-start dev server on project open:**
-A checkbox. When enabled, the dev server starts automatically when you open a project.
-
-**Custom dev command override:**
-A text input to override the auto-detected dev command. Placeholder: "npm run dev". Leave empty to use auto-detection.
-
-**Auto-open console on errors:**
-A checkbox (default: on). When enabled, the console drawer opens automatically when preview console errors are detected.
-
-##### SpecWriter Settings Tab
-
-**Spec writing AI model:**
-A dropdown listing all available spec-writing models across providers. Models whose provider has no API key are shown disabled with "(no API key)" suffix.
-
-**Max output tokens:**
-A number input (range: 1,024 – 200,000, step: 1,024). Default: 32,768. Controls the maximum length of generated specification documents.
-
 #### How to Open / Access
 
-Settings → Select the **Assistant**, **Changelog**, **Terminal**, **Quick Commands**, **Preview**, or **SpecWriter** tab.
+Settings → Select the **Assistant**, **Changelog**, **Terminal**, or **Quick Commands** tab.
 
 #### User Actions
 

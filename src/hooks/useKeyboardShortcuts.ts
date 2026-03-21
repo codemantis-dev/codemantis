@@ -187,6 +187,13 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+? (Cmd+Shift+/) — toggle help panel
+      if (key === "?" || (key === "/" && shift)) {
+        e.preventDefault();
+        useUiStore.getState().toggleHelpPanel();
+        return;
+      }
+
       // Cmd+/ — focus input and open command palette
       if (key === "/" && !shift) {
         e.preventDefault();

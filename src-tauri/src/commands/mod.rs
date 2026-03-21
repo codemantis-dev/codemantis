@@ -4,6 +4,7 @@ pub mod attachments;
 pub mod changelog;
 pub mod files;
 pub mod git;
+pub mod help;
 pub mod mcp;
 pub mod preview;
 pub mod scaffold;

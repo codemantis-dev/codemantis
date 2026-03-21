@@ -21,6 +21,7 @@ export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
       { keys: "⌘ =", description: "Zoom in (increase font size)" },
       { keys: "⌘ -", description: "Zoom out (decrease font size)" },
       { keys: "⌘ 0", description: "Reset zoom" },
+      { keys: "⌘ ?", description: "Toggle Help panel" },
     ],
   },
   {

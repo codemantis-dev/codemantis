@@ -1,4 +1,4 @@
-use axum::{extract::State as AxumState, http::StatusCode, routing::{options, post}, Json, Router};
+use axum::{extract::State as AxumState, http::{HeaderMap, HeaderValue, StatusCode}, routing::{options, post}, Json, Router};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -401,23 +401,20 @@ async fn handle_tool_approval(
 /// Origin is restricted to localhost/127.0.0.1 to prevent external pages from calling these endpoints.
 async fn preview_cors_preflight(
     headers: axum::http::HeaderMap,
-) -> (StatusCode, [(&'static str, &'static str); 3]) {
+) -> (StatusCode, HeaderMap) {
     let origin = headers
         .get("origin")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let allowed = is_localhost_origin(origin);
-    (
-        StatusCode::NO_CONTENT,
-        [
-            (
-                "access-control-allow-origin",
-                if allowed { "http://127.0.0.1" } else { "" },
-            ),
-            ("access-control-allow-methods", "POST, OPTIONS"),
-            ("access-control-allow-headers", "content-type"),
-        ],
-    )
+    let mut resp_headers = HeaderMap::new();
+    if is_localhost_origin(origin) {
+        if let Ok(val) = HeaderValue::from_str(origin) {
+            resp_headers.insert("access-control-allow-origin", val);
+        }
+    }
+    resp_headers.insert("access-control-allow-methods", HeaderValue::from_static("POST, OPTIONS"));
+    resp_headers.insert("access-control-allow-headers", HeaderValue::from_static("content-type"));
+    (StatusCode::NO_CONTENT, resp_headers)
 }
 
 /// Returns true if the origin matches localhost or 127.0.0.1 (any port).
@@ -430,16 +427,20 @@ fn is_localhost_origin(origin: &str) -> bool {
 }
 
 /// Build CORS header restricted to localhost origins.
-fn cors_header(headers: &axum::http::HeaderMap) -> [(&'static str, &'static str); 1] {
+/// Echoes back the request's Origin so the browser accepts the response
+/// regardless of whether the preview loaded from localhost or 127.0.0.1.
+fn cors_header(headers: &axum::http::HeaderMap) -> HeaderMap {
     let origin = headers
         .get("origin")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    let mut resp_headers = HeaderMap::new();
     if is_localhost_origin(origin) {
-        [("access-control-allow-origin", "http://127.0.0.1")]
-    } else {
-        [("access-control-allow-origin", "")]
+        if let Ok(val) = HeaderValue::from_str(origin) {
+            resp_headers.insert("access-control-allow-origin", val);
+        }
     }
+    resp_headers
 }
 
 #[derive(Deserialize)]
@@ -455,7 +456,7 @@ struct ConsoleToChat {
 async fn handle_preview_screenshot(
     headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
-) -> (StatusCode, [(&'static str, &'static str); 1]) {
+) -> (StatusCode, HeaderMap) {
     let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         warn!("[preview-callback] No app handle available for screenshot");
@@ -479,7 +480,7 @@ async fn handle_preview_screenshot(
 async fn handle_preview_open_browser(
     headers: axum::http::HeaderMap,
     Json(body): Json<OpenBrowserRequest>,
-) -> (StatusCode, [(&'static str, &'static str); 1]) {
+) -> (StatusCode, HeaderMap) {
     let cors = cors_header(&headers);
     // Only allow http:// and https:// schemes to prevent file://, ssh://, etc.
     let url_lower = body.url.to_lowercase();
@@ -501,7 +502,7 @@ async fn handle_preview_console_to_chat(
     headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
     Json(body): Json<ConsoleToChat>,
-) -> (StatusCode, [(&'static str, &'static str); 1]) {
+) -> (StatusCode, HeaderMap) {
     let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         warn!("[preview-callback] No app handle available for console-to-chat");
@@ -517,7 +518,7 @@ async fn handle_preview_console_to_chat(
 async fn handle_preview_close(
     headers: axum::http::HeaderMap,
     AxumState(state): AxumState<Arc<ApprovalServerState>>,
-) -> (StatusCode, [(&'static str, &'static str); 1]) {
+) -> (StatusCode, HeaderMap) {
     let cors = cors_header(&headers);
     let Some(app_handle) = state.app_handle().await else {
         return (StatusCode::INTERNAL_SERVER_ERROR, cors);

@@ -18,6 +18,7 @@ import InputArea from "../input/InputArea";
 import ConfirmCloseModal from "../modals/ConfirmCloseModal";
 import type { PendingClose } from "../modals/ConfirmCloseModal";
 import SpecWriterSlideOver from "../specwriter/SpecWriterSlideOver";
+import HelpPanel from "../help/HelpPanel";
 import ImagePreviewModal from "../modals/ImagePreviewModal";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
@@ -274,6 +275,7 @@ export default function AppShell() {
       />
 
       <SpecWriterSlideOver />
+      <HelpPanel />
       <ImagePreviewModal />
     </div>
   );

@@ -99,6 +99,9 @@ interface SessionState {
   completeSubAgent: (sessionId: string, toolUseId: string) => void;
   incrementSubAgentToolCount: (sessionId: string, toolUseId: string) => void;
 
+  // Help session (not added to tabOrder or sessions map)
+  initHelpSessionMaps: (sessionId: string) => void;
+
   // Derived helpers (for active session)
   getActiveSession: () => Session | null;
   getActiveMessages: () => Message[];
@@ -685,6 +688,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         apiCallCount: prev.apiCallCount + 1,
       });
       return { sessionStats };
+    }),
+
+  initHelpSessionMaps: (sessionId) =>
+    set((state) => {
+      const sessionMessages = new Map(state.sessionMessages);
+      sessionMessages.set(sessionId, []);
+      const sessionStreaming = new Map(state.sessionStreaming);
+      sessionStreaming.set(sessionId, { ...DEFAULT_STREAMING });
+      const sessionContext = new Map(state.sessionContext);
+      sessionContext.set(sessionId, { ...DEFAULT_CONTEXT });
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.set(sessionId, { ...DEFAULT_STATS });
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.set(sessionId, "plan");
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.set(sessionId, false);
+      const sessionEffort = new Map(state.sessionEffort);
+      sessionEffort.set(sessionId, "high");
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort };
     }),
 
   // Derived helpers

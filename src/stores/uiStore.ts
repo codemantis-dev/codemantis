@@ -40,6 +40,10 @@ interface UiState {
   planCompleteSessionId: string | null;
   activityFeedScope: ActivityFeedScope;
   imagePreview: ImagePreview | null;
+  helpSessionId: string | null;
+  helpPanelOpen: boolean;
+  helpSessionReady: boolean;
+  helpError: string | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -68,6 +72,11 @@ interface UiState {
   setPlanCompleteSessionId: (id: string | null) => void;
   toggleActivityFeedScope: () => void;
   setImagePreview: (preview: ImagePreview | null) => void;
+  setHelpSessionId: (id: string | null) => void;
+  setHelpPanelOpen: (open: boolean) => void;
+  setHelpSessionReady: (ready: boolean) => void;
+  setHelpError: (error: string | null) => void;
+  toggleHelpPanel: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -97,6 +106,10 @@ export const useUiStore = create<UiState>((set) => ({
   planCompleteSessionId: null,
   activityFeedScope: "session",
   imagePreview: null,
+  helpSessionId: null,
+  helpPanelOpen: false,
+  helpSessionReady: false,
+  helpError: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -135,4 +148,9 @@ export const useUiStore = create<UiState>((set) => ({
     if (s.imagePreview?.blobUrl) URL.revokeObjectURL(s.imagePreview.blobUrl);
     return { imagePreview: preview };
   }),
+  setHelpSessionId: (id) => set({ helpSessionId: id }),
+  setHelpPanelOpen: (open) => set({ helpPanelOpen: open }),
+  setHelpSessionReady: (ready) => set({ helpSessionReady: ready }),
+  setHelpError: (error) => set({ helpError: error }),
+  toggleHelpPanel: () => set((s) => ({ helpPanelOpen: !s.helpPanelOpen })),
 }));
