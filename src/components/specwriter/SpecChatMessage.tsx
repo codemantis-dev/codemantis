@@ -58,7 +58,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
   if (isSystem) {
     return (
       <div
-        className="flex flex-col gap-2 px-3 py-2 rounded-md text-xs"
+        className="flex flex-col gap-2 px-3 py-2 rounded-md text-xs select-text"
         style={{
           background: "var(--bg-elevated)",
           color: "var(--text-secondary)",
