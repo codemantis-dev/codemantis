@@ -297,6 +297,35 @@ export function useSpecConversation(): {
 
         if (event.type === "cancelled") {
           currentStore.setPlanningStreaming(projectPath, false);
+
+          // If the last assistant message is empty (no deltas arrived), remove the placeholder
+          const conv = currentStore.getActiveConversation(projectPath);
+          if (conv && conv.messages.length > 0) {
+            const lastMsg = conv.messages[conv.messages.length - 1];
+            if (lastMsg.role === 'assistant' && !lastMsg.content.trim()) {
+              useSpecWriterStore.setState((state) => {
+                const conversations = new Map(state.conversations);
+                const c = conversations.get(projectPath);
+                if (c) {
+                  conversations.set(projectPath, {
+                    ...c,
+                    messages: c.messages.slice(0, -1),
+                  });
+                }
+                return { conversations };
+              });
+            }
+          }
+
+          // Confirm cancellation to the user
+          currentStore.addMessage(projectPath, {
+            id: `msg-cancel-${Date.now()}`,
+            role: "system",
+            content: "Generation stopped.",
+            message_type: "conversation",
+            timestamp: new Date().toISOString(),
+          });
+
           streamBufferRef.current = "";
           currentStore.persistState(projectPath);
           if (unlistenRef.current) {

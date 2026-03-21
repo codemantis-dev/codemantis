@@ -105,7 +105,16 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                   <FileText size={12} className="shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="truncate font-medium">{spec.title}</div>
-                    <div className="text-[10px] opacity-60">{spec.filename}</div>
+                    <div className="text-[10px] opacity-60">
+                      {spec.filename}
+                      {spec.modified_at && (
+                        <span className="ml-1.5">
+                          &middot; {new Date(spec.modified_at).toLocaleDateString(undefined, {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button

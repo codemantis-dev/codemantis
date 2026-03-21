@@ -12,6 +12,7 @@ import {
   autoSelectSpecModel,
   getSpecModelLabel,
 } from "../../types/assistant-provider";
+import { formatDuration } from "../../lib/format-utils";
 import SpecChatMessage from "./SpecChatMessage";
 import SpecChatInput from "./SpecChatInput";
 
@@ -33,6 +34,8 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const { writeSpec, sendMessage } = useSpecConversation();
 
   // Init a fresh conversation if none exists — default to 'feature' mode
@@ -48,6 +51,25 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
       useSpecWriterStore.getState().initConversation(projectPath, provider, effectiveModel, 'feature');
     }
   }, [projectPath, conversation]);
+
+  // Elapsed timer: track how long the AI has been responding
+  useEffect(() => {
+    if (isStreaming) {
+      setStreamStartTime(Date.now());
+    } else {
+      setStreamStartTime(null);
+      setElapsed(0);
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
+    if (!streamStartTime) return;
+    setElapsed(Date.now() - streamStartTime);
+    const timer = setInterval(() => {
+      setElapsed(Date.now() - streamStartTime);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [streamStartTime]);
 
   const checkAtBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -150,6 +172,9 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent)" }} />
             </span>
             AI is responding...
+            {elapsed > 5000 && (
+              <span className="font-mono opacity-70 ml-0.5">{formatDuration(elapsed, "elapsed")}</span>
+            )}
           </span>
         )}
         {conversation && !hasUserMessages ? (
@@ -226,6 +251,11 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
           <div className="flex items-center gap-2 py-1">
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--accent)" }} />
             <span className="text-xs" style={{ color: "var(--text-dim)" }}>Thinking...</span>
+            {elapsed > 0 && (
+              <span className="text-[10px] font-mono" style={{ color: "var(--text-ghost)" }}>
+                {formatDuration(elapsed, "elapsed")}
+              </span>
+            )}
           </div>
         )}
         {isLoadingFiles && (
