@@ -502,7 +502,28 @@ pub async fn start_dev_server(
                                 unlisten_ah.unlisten(listener_id);
                                 return;
                             }
-                            info!("Dev server detected on port {} for {}", port, output_pp);
+                            info!("Dev server candidate on port {} for {}, verifying...", port, output_pp);
+
+                            // Wait briefly for the process to stabilize — some frameworks
+                            // (e.g. fumadocs-mdx) start a dev server, output the URL, then
+                            // detect a conflicting instance and exit. Without this check the
+                            // preview window would open to a dead port.
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+                            // Guard: project may have been closed during the stabilization wait
+                            if project_removed().await {
+                                debug!("Project {} was closed during port verification, skipping emit", output_pp);
+                                unlisten_ah.unlisten(listener_id);
+                                return;
+                            }
+
+                            // Probe the port to confirm the server is actually responding
+                            if !port_detector::probe_port(port).await {
+                                warn!("Dev server on port {} for {} failed probe after detection, continuing scan", port, output_pp);
+                                continue;
+                            }
+
+                            info!("Dev server confirmed on port {} for {}", port, output_pp);
                             let mut servers = dev_servers.lock().await;
                             if let Some(info) = servers.get_mut(&output_pp) {
                                 info.port = Some(port);

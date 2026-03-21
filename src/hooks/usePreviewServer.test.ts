@@ -12,11 +12,15 @@ const {
   mockStopDevServer,
   mockGetDevServerStatus,
   mockOpenPreviewWindow,
+  mockClosePreviewWindow,
+  mockListenDevServerClosed,
 } = vi.hoisted(() => ({
   mockStartDevServer: vi.fn(() => Promise.resolve("term-1")),
   mockStopDevServer: vi.fn(() => Promise.resolve()),
   mockGetDevServerStatus: vi.fn<() => Promise<DevServerInfo | null>>(() => Promise.resolve(null)),
   mockOpenPreviewWindow: vi.fn(() => Promise.resolve()),
+  mockClosePreviewWindow: vi.fn(() => Promise.resolve()),
+  mockListenDevServerClosed: vi.fn<(cb: (event: { terminalId: string; sessionId: string }) => void) => Promise<() => void>>(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("../lib/tauri-commands", () => ({
@@ -24,6 +28,8 @@ vi.mock("../lib/tauri-commands", () => ({
   stopDevServer: mockStopDevServer,
   getDevServerStatus: mockGetDevServerStatus,
   openPreviewWindow: mockOpenPreviewWindow,
+  closePreviewWindow: mockClosePreviewWindow,
+  listenDevServerClosed: mockListenDevServerClosed,
 }));
 
 import { usePreviewServer } from "./usePreviewServer";
@@ -221,6 +227,47 @@ describe("usePreviewServer", () => {
 
     const devServer = usePreviewStore.getState().devServer.get(PROJECT);
     expect(devServer!.status).toBe("error");
+  });
+
+  it("dev-server-closed closes preview and sets error status", async () => {
+    // Set up a running dev server with preview open
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: 3000,
+      url: "http://localhost:3000",
+      status: "running",
+    });
+    usePreviewStore.getState().setPreviewOpen(PROJECT, true);
+
+    // Capture the listenDevServerClosed callback
+    let closedHandler: ((event: { terminalId: string; sessionId: string }) => void) | null = null;
+    mockListenDevServerClosed.mockImplementation(
+      (cb: (event: { terminalId: string; sessionId: string }) => void) => {
+        closedHandler = cb;
+        return Promise.resolve(() => {});
+      },
+    );
+
+    renderHook(() => usePreviewServer());
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(closedHandler).not.toBeNull();
+
+    // Simulate the dev server terminal closing
+    await act(async () => {
+      closedHandler!({ terminalId: "term-1", sessionId: "devserver-abc" });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const devServer = usePreviewStore.getState().devServer.get(PROJECT);
+    expect(devServer!.status).toBe("error");
+    expect(devServer!.errorMessage).toContain("exited unexpectedly");
+    expect(mockClosePreviewWindow).toHaveBeenCalled();
+    expect(usePreviewStore.getState().previewOpen.get(PROJECT)).toBe(false);
   });
 
   it("dev-server-ready event triggers auto-open preview", async () => {

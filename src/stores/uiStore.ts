@@ -6,6 +6,13 @@ export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assist
 export type ProjectPickerTab = "templates" | "open" | "recent";
 export type ActivityFeedScope = "session" | "project";
 
+export interface ImagePreview {
+  filePath: string;
+  fileName: string;
+  blobUrl: string;
+  fileSize: number;
+}
+
 interface UiState {
   sidebarWidth: number;
   rightPanelWidth: number;
@@ -32,6 +39,7 @@ interface UiState {
   showPlanCompleteModal: boolean;
   planCompleteSessionId: string | null;
   activityFeedScope: ActivityFeedScope;
+  imagePreview: ImagePreview | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -59,6 +67,7 @@ interface UiState {
   setShowPlanCompleteModal: (show: boolean) => void;
   setPlanCompleteSessionId: (id: string | null) => void;
   toggleActivityFeedScope: () => void;
+  setImagePreview: (preview: ImagePreview | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -87,6 +96,7 @@ export const useUiStore = create<UiState>((set) => ({
   showPlanCompleteModal: false,
   planCompleteSessionId: null,
   activityFeedScope: "session",
+  imagePreview: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -120,4 +130,9 @@ export const useUiStore = create<UiState>((set) => ({
   setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null } : {}) }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
   toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
+  setImagePreview: (preview) => set((s) => {
+    // Revoke previous blob URL to avoid memory leaks
+    if (s.imagePreview?.blobUrl) URL.revokeObjectURL(s.imagePreview.blobUrl);
+    return { imagePreview: preview };
+  }),
 }));

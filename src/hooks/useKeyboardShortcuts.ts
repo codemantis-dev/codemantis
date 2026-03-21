@@ -18,6 +18,39 @@ export function useKeyboardShortcuts(): void {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Home / End — move cursor to start/end of line in text inputs
+      // macOS WebView defaults Home/End to page scroll; override for text editing
+      if (e.key === "Home" || e.key === "End") {
+        const el = document.activeElement;
+        if (
+          el instanceof HTMLTextAreaElement ||
+          (el instanceof HTMLInputElement && (el.type === "text" || el.type === "search" || el.type === "url"))
+        ) {
+          e.preventDefault();
+          const value = el.value;
+
+          if (e.key === "Home") {
+            const cursorPos = el.selectionStart ?? 0;
+            const lineStart = value.lastIndexOf("\n", cursorPos - 1) + 1;
+            if (e.shiftKey) {
+              el.setSelectionRange(lineStart, el.selectionEnd!, "backward");
+            } else {
+              el.setSelectionRange(lineStart, lineStart);
+            }
+          } else {
+            const cursorPos = el.selectionEnd ?? 0;
+            const nextNewline = value.indexOf("\n", cursorPos);
+            const lineEnd = nextNewline === -1 ? value.length : nextNewline;
+            if (e.shiftKey) {
+              el.setSelectionRange(el.selectionStart!, lineEnd, "forward");
+            } else {
+              el.setSelectionRange(lineEnd, lineEnd);
+            }
+          }
+          return;
+        }
+      }
+
       // Shift+Tab — cycle working mode (no Cmd/Ctrl required)
       if (e.key === "Tab" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();

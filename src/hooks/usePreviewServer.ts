@@ -8,7 +8,10 @@ import {
   stopDevServer,
   getDevServerStatus,
   openPreviewWindow,
+  closePreviewWindow,
+  listenDevServerClosed,
 } from "../lib/tauri-commands";
+import type { DevServerClosedPayload } from "../lib/tauri-commands";
 import { showToast } from "../stores/toastStore";
 import type { DevServerReadyEvent, DevServerErrorEvent } from "../types/preview";
 
@@ -26,6 +29,7 @@ export function usePreviewServer(): {
     let cancelled = false;
     let unlistenReadyFn: (() => void) | null = null;
     let unlistenErrorFn: (() => void) | null = null;
+    let unlistenClosedFn: (() => void) | null = null;
 
     listen<DevServerReadyEvent>("dev-server-ready", (e) => {
       const { port, url, terminalId, projectPath } = e.payload;
@@ -75,10 +79,45 @@ export function usePreviewServer(): {
       }
     });
 
+    // Listen for dev server terminal process exit — if the process dies
+    // (e.g. port conflict, fumadocs-mdx detecting an existing instance),
+    // close the preview window and show an error.
+    listenDevServerClosed((event: DevServerClosedPayload) => {
+      if (cancelled) return;
+      const store = usePreviewStore.getState();
+      // Find the project whose dev server matches this terminal
+      for (const [projectPath, ds] of store.devServer.entries()) {
+        if (ds.terminalId === event.terminalId) {
+          const wasRunning = ds.status === "running";
+          store.setDevServer(projectPath, {
+            status: "error",
+            errorMessage: "Dev server process exited unexpectedly.",
+          });
+          // Close the preview window if it was open
+          if (wasRunning && store.previewOpen.get(projectPath)) {
+            closePreviewWindow().catch(() => {});
+            store.setPreviewOpen(projectPath, false);
+            showToast(
+              "Dev server exited — preview closed. Check for port conflicts.",
+              "error",
+            );
+          }
+          break;
+        }
+      }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenClosedFn = fn;
+      }
+    });
+
     return () => {
       cancelled = true;
       unlistenReadyFn?.();
       unlistenErrorFn?.();
+      unlistenClosedFn?.();
     };
   }, []);
 
