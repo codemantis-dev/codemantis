@@ -5,7 +5,7 @@ use crate::errors::AppError;
 use crate::storage::database::PersistedSession;
 use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
-use log::{info, warn};
+use log::{error, info, warn};
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, State};
@@ -116,6 +116,8 @@ pub async fn create_session(
     if let Err(e) = state.database.update_session_status(&session_id, "connected") {
         log::error!("Failed to update session status in database: {}", e);
     }
+
+    info!("Session created: id={}, project={}", session_id, project_path);
 
     let sessions = state.sessions.lock().await;
     sessions
@@ -355,8 +357,10 @@ pub async fn close_session(
         model.as_deref(),
         &closed_at,
     ) {
-        log::error!("Failed to persist session close details to database: {}", e);
+        error!("Failed to persist session close details to database: {}", e);
     }
+
+    info!("Session closed: id={}", session_id);
 
     // Clean up cli_session_ids entry
     {

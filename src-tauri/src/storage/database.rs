@@ -84,6 +84,8 @@ impl Database {
         let conn = Connection::open(db_path)
             .map_err(|e| AppError::DatabaseError(format!("Failed to open database: {}", e)))?;
 
+        log::info!("[database] Opened: {}", db_path);
+
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
             .map_err(|e| AppError::DatabaseError(format!("Failed to set pragmas: {}", e)))?;
 

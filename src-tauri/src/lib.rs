@@ -17,10 +17,6 @@ use tauri_plugin_opener::OpenerExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("warn")
-    ).init();
-
     let db_path = match utils::paths::app_data_dir() {
         Some(d) => d.join("codemantis.db"),
         None => {
@@ -66,6 +62,18 @@ pub fn run() {
     utils::pid_tracker::kill_stale_orphans();
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("codemantis".into()),
+                    },
+                ))
+                .max_file_size(5_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new(database))
@@ -167,6 +175,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            info!("CodeMantis {} starting", env!("CARGO_PKG_VERSION"));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<AppState>();

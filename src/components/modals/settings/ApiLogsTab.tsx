@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
-import { BarChart3, AlertTriangle } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Check } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
 import { formatCost, formatTimestamp } from "../../../lib/format-utils";
 import { SectionTitle } from "./SettingsShared";
+
+const LOG_FILE_PATH = "~/Library/Logs/dev.codemantis.myapp/codemantis.log";
 
 type TabId = "cost" | "errors";
 
@@ -13,6 +15,7 @@ export default function ApiLogsTab() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>("cost");
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
+  const [logPathCopied, setLogPathCopied] = useState(false);
 
   const errorLogs = useMemo(() => logs.filter((l) => !l.success), [logs]);
 
@@ -208,6 +211,27 @@ export default function ApiLogsTab() {
       <p className="text-[11px] text-text-ghost mt-3 shrink-0">
         Logs older than 5 days are automatically deleted.
       </p>
+
+      {/* Diagnostics */}
+      <div className="border-t border-border mt-4 pt-4 shrink-0">
+        <SectionTitle>Diagnostics</SectionTitle>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={async () => {
+              await navigator.clipboard.writeText(LOG_FILE_PATH);
+              setLogPathCopied(true);
+              setTimeout(() => setLogPathCopied(false), 2000);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-label text-text-secondary hover:text-text-primary hover:border-border-light transition-colors"
+            style={{ background: "var(--bg-elevated)" }}
+          >
+            {logPathCopied ? <Check size={14} className="text-green" /> : <FileText size={14} />}
+            {logPathCopied ? "Copied!" : "Copy Log Path"}
+          </button>
+          <span className="text-[11px] text-text-ghost font-mono truncate">{LOG_FILE_PATH}</span>
+        </div>
+      </div>
     </div>
   );
 }

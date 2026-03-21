@@ -1,3 +1,4 @@
+import { error as logError } from "@tauri-apps/plugin-log";
 import { showToast } from "../stores/toastStore";
 
 /**
@@ -8,4 +9,5 @@ export function handleError(context: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`[${context}]`, error);
   showToast(message, "error");
+  logError(`[${context}] ${message}`).catch(() => {});
 }

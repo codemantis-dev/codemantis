@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -208,6 +209,7 @@ pub fn save_mcp_server(
         _ => return Err(format!("Invalid scope: {}", server.scope)),
     }
 
+    info!("MCP server saved: name={}, scope={}", server.name, server.scope);
     Ok(())
 }
 
@@ -244,6 +246,7 @@ pub fn delete_mcp_server(
         _ => return Err(format!("Invalid scope: {}", scope)),
     }
 
+    info!("MCP server deleted: name={}, scope={}", name, scope);
     Ok(())
 }
 

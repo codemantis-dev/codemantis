@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockShowToast } = vi.hoisted(() => ({
+const { mockShowToast, mockLogError } = vi.hoisted(() => ({
   mockShowToast: vi.fn(),
+  mockLogError: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../stores/toastStore", () => ({
   showToast: mockShowToast,
+}));
+
+vi.mock("@tauri-apps/plugin-log", () => ({
+  error: mockLogError,
 }));
 
 import { handleError } from "./error-handler";
@@ -48,5 +53,20 @@ describe("handleError", () => {
 
     handleError("Ctx", undefined);
     expect(mockShowToast).toHaveBeenCalledWith("undefined", "error");
+  });
+
+  it("forwards error to tauri log plugin with context and message", () => {
+    handleError("Network", new Error("timeout"));
+    expect(mockLogError).toHaveBeenCalledWith("[Network] timeout");
+  });
+
+  it("forwards string errors to tauri log plugin", () => {
+    handleError("Fetch", "connection refused");
+    expect(mockLogError).toHaveBeenCalledWith("[Fetch] connection refused");
+  });
+
+  it("does not throw when log plugin rejects", () => {
+    mockLogError.mockRejectedValueOnce(new Error("IPC unavailable"));
+    expect(() => handleError("Ctx", "test")).not.toThrow();
   });
 });

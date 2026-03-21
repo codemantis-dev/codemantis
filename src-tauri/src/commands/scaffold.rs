@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -705,6 +706,8 @@ pub async fn scaffold_from_template(
     project_path: String,
     project_name: String,
 ) -> Result<ScaffoldResult, String> {
+    info!("Scaffold started: template={}, project={}", template_id, project_name);
+
     let registry = load_bundled_registry(&app_handle)?;
     let template = registry
         .templates
@@ -880,6 +883,7 @@ pub async fn scaffold_from_template(
 
     // Done
     emit_progress(&app_handle, "complete", "done", None);
+    info!("Scaffold completed: template={}, project={}", template_id, project_name);
 
     Ok(ScaffoldResult {
         project_path: target_dir.to_string_lossy().to_string(),
@@ -898,6 +902,8 @@ pub async fn scaffold_from_cli(
     project_name: String,
     post_commands: Vec<String>,
 ) -> Result<ScaffoldResult, String> {
+    info!("Scaffold (CLI) started: template={}, project={}", template_id, project_name);
+
     let parent_dir = PathBuf::from(&project_path);
     let target_dir = parent_dir.join(&project_name);
     let mut warnings: Vec<String> = vec![];
@@ -999,6 +1005,7 @@ pub async fn scaffold_from_cli(
 
     // Done
     emit_progress(&app_handle, "complete", "done", None);
+    info!("Scaffold (CLI) completed: template={}, project={}", template_id, project_name);
 
     Ok(ScaffoldResult {
         project_path: target_dir.to_string_lossy().to_string(),

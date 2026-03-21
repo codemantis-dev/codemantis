@@ -33,6 +33,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-position",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "log:default"
   ]
 }
