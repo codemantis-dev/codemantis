@@ -678,6 +678,12 @@ export async function readProjectFiles(
   return invoke("read_project_files", { projectPath, filePaths, maxLines });
 }
 
+export async function addVerificationWorkflowToClaudeMd(
+  projectPath: string,
+): Promise<string> {
+  return invoke<string>("add_verification_workflow_to_claude_md", { projectPath });
+}
+
 export async function gatherProjectSnapshot(
   projectPath: string,
 ): Promise<string> {

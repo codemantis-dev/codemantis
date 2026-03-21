@@ -1,16 +1,27 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface Props {
   content: string | null;
+  auditContent?: string | null;
   isEditing?: boolean;
   onContentChange?: (content: string) => void;
 }
 
-export default function SpecPreview({ content, isEditing, onContentChange }: Props) {
+export default function SpecPreview({ content, auditContent, isEditing, onContentChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
+  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
+
+  const hasBothDocuments = !!content && !!auditContent;
+
+  // Auto-switch to audit tab when audit content first appears
+  useEffect(() => {
+    if (auditContent) setActiveTab('audit');
+  }, [auditContent]);
+
+  const displayContent = activeTab === 'audit' && auditContent ? auditContent : content;
 
   // Auto-scroll during streaming if user was at bottom (skip in edit mode)
   useEffect(() => {
@@ -20,7 +31,7 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
     if (wasAtBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [content, isEditing]);
+  }, [displayContent, isEditing]);
 
   const handleScroll = (): void => {
     const el = scrollRef.current;
@@ -28,10 +39,10 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
     wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   };
 
-  // Extract title from first # heading
-  const title = content?.match(/^#\s+(.+)$/m)?.[1] ?? null;
+  // Extract title from first # heading of the currently displayed content
+  const title = displayContent?.match(/^#\s+(.+)$/m)?.[1] ?? null;
 
-  if (!content) {
+  if (!content && !auditContent) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">📝</div>
@@ -48,6 +59,37 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
 
   return (
     <div className="flex flex-col h-full">
+      {/* Tab bar — only when both documents exist */}
+      {hasBothDocuments && (
+        <div
+          className="flex shrink-0 border-b"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <button
+            onClick={() => setActiveTab('spec')}
+            className="px-4 py-2 text-xs font-medium transition-colors"
+            style={{
+              color: activeTab === 'spec' ? "var(--accent)" : "var(--text-secondary)",
+              borderBottom: activeTab === 'spec' ? "2px solid var(--accent)" : "2px solid transparent",
+              background: activeTab === 'spec' ? "var(--accent-bg)" : "transparent",
+            }}
+          >
+            Specification
+          </button>
+          <button
+            onClick={() => setActiveTab('audit')}
+            className="px-4 py-2 text-xs font-medium transition-colors"
+            style={{
+              color: activeTab === 'audit' ? "var(--accent)" : "var(--text-secondary)",
+              borderBottom: activeTab === 'audit' ? "2px solid var(--accent)" : "2px solid transparent",
+              background: activeTab === 'audit' ? "var(--accent-bg)" : "transparent",
+            }}
+          >
+            Verification Audit
+          </button>
+        </div>
+      )}
+
       {title && (
         <div
           className="px-4 py-2 text-xs font-medium border-b shrink-0 truncate"
@@ -56,7 +98,7 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
           {title}
         </div>
       )}
-      {isEditing ? (
+      {isEditing && activeTab === 'spec' ? (
         <textarea
           className="flex-1 w-full resize-none font-mono text-sm px-4 py-3 outline-none"
           style={{
@@ -64,7 +106,7 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
             color: "var(--text-primary)",
             border: "none",
           }}
-          value={content}
+          value={displayContent ?? ""}
           onChange={(e) => onContentChange?.(e.target.value)}
         />
       ) : (
@@ -74,7 +116,7 @@ export default function SpecPreview({ content, isEditing, onContentChange }: Pro
           className="flex-1 overflow-y-auto px-4 py-3"
         >
           <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent ?? ""}</ReactMarkdown>
           </div>
         </div>
       )}

@@ -319,7 +319,149 @@ AVAILABLE TEMPLATES (use exact ID for recommendations)
 
 {TEMPLATE_CATALOG}
 
-IMPORTANT: New projects MUST use a template. Recommend the closest match and note customizations needed.`;
+IMPORTANT: New projects MUST use a template. Recommend the closest match and note customizations needed.
+
+═══════════════════════════════════════════════════════════════════
+VERIFICATION AUDIT (after spec is saved)
+═══════════════════════════════════════════════════════════════════
+
+After the spec is saved, the user may ask you to generate a Verification
+Audit. This is a DIFFERENT document from the implementation checklist
+already in the spec. The checklist is a todo list for building. The
+audit is a guided code review for AFTER building.
+
+When asked to generate the audit, produce a document starting with:
+# {Feature/App Name} — Verification Audit
+
+The audit is designed to be read by Claude Code AFTER it has
+implemented the spec. Its job is to force Claude Code to:
+1. Open actual files (not rely on memory)
+2. Read actual code (not assume correctness)
+3. Compare against specific expectations (not vague "works")
+4. Report what passes and what fails
+5. Fix failures before moving on
+
+DOCUMENT STRUCTURE (mandatory sections in order):
+
+## Pre-Flight Checks
+- TypeScript compiles: \`pnpm tsc --noEmit\`
+- All existing tests pass: \`pnpm test\`
+- These are 🔴 CRITICAL — stop if they fail
+
+## Data Model Verification
+For each type/interface in the spec:
+- VERIFY: Open {file path}
+- Check each field exists with correct type
+- Check union types are unions (not string)
+- Check optional fields have ?
+
+## Service/API Layer Verification
+For each service method:
+- VERIFY: Open {file path}
+- Check method exists with correct signature
+- Trace key logic paths (guards, error handling, dedup)
+- Check return type matches ServiceResponse pattern
+
+## Component Verification (one sub-section per component)
+For each component:
+- VERIFY: Open {file path}
+- Check EVERY state: loading, empty, error, default
+  For each state:
+  - What triggers this state?
+  - What renders? (Be specific: component name, text, styling)
+  - What should NOT render alongside it?
+- Check every modal:
+  - Open trigger, close (×/Escape/Cancel), submit success, submit error
+  - Every form field: present, labeled, validated (each rule + message + timing)
+- Check every button/action:
+  - Click → what happens? Loading indicator? Service call? Toast? Redirect?
+
+## Integration Verification
+For each integration point from the spec:
+- Trace the data flow between components
+- Verify navigation paths (Component A click → Component B renders with correct props)
+- Check shared state (stores, URL params, props)
+
+## State Transition Verification
+For complex components (3+ states), map:
+  Mount → Loading
+  Loading + data → Default
+  Loading + empty → Empty
+  Loading + error → Error
+  Error + retry → Loading
+  Default + create click → Modal open
+  ...etc
+VERIFY each transition exists in the code.
+
+## Edge Case Verification
+For every edge case from spec Section 8:
+  - VERIFY: {exact scenario}
+  - Expected: {exact behavior}
+  - This catches the cases Claude Code most commonly drops.
+
+## Validation Verification
+For every form field with validation:
+  - Field present with correct label
+  - Valid input: no error
+  - Each invalid input: specific error message + timing (blur/submit)
+  List EVERY field and EVERY rule individually. Do not group.
+
+## UI Polish Verification
+List EVERY loading state, EVERY empty state, EVERY error state,
+EVERY toast message individually with:
+  - Where it appears
+  - What triggers it
+  - What it looks like (component, text, styling)
+
+## Full User Journey Trace
+One end-to-end scenario exercising the entire feature:
+  Step 1: {starting state} → {action} → {expected result}
+  Step 2: {from step 1 result} → {action} → {expected result}
+  ...through to completion
+  This catches integration bugs that component-level checks miss.
+
+## Final Audit Summary
+Template for tallying results:
+  Total items: ___
+  PASS: ___
+  FAIL: ___ (list numbers)
+  MISSING: ___ (list numbers)
+  🔴 CRITICAL: ___
+  🟡 IMPORTANT: ___
+  🟢 POLISH: ___
+
+FORMAT RULES:
+
+1. Every check starts with "VERIFY: Open {exact file path}"
+   This forces the reader to actually open the file.
+
+2. Every check has "Expected: {specific outcome}"
+   Not "loading state works" but "centered spinner matching SegmentsPanel,
+   no other content visible during loading."
+
+3. Every check has a severity: 🔴 CRITICAL, 🟡 IMPORTANT, or 🟢 POLISH
+
+4. Complex checks include "Trace:" instructions that walk through
+   the code logic step by step.
+
+5. Every check includes "Not expected:" for common mistakes:
+   "Not expected: spinner stays forever. Not expected: empty state
+   flashes before data arrives."
+
+6. Each section ends with a gate:
+   "IF ANY ITEM FAILS: Fix before proceeding to next section."
+
+7. Form validation checks are INDIVIDUAL — one check per field per rule.
+   Not "all validations work" but 3+ checks per field.
+
+8. Modal checks cover ALL close paths: ×, Escape, Cancel, click outside,
+   successful submit, failed submit. That's 6+ checks per modal.
+
+9. The Full User Journey at the end must be a COMPLETE flow, not a
+   summary. Every step, every expected outcome, every screen transition.
+
+10. Use the actual file paths from the spec — never invent paths
+    you haven't confirmed.`;
 
 // ═══════════════════════════════════════════════════════════════════════
 // FEATURE MODE — Complete production prompt with file requests & anti-hallucination
@@ -603,7 +745,149 @@ If the user requests changes, output the COMPLETE revised specification.
 AVAILABLE TEMPLATES (use exact ID for recommendations)
 ═══════════════════════════════════════════════════════════════════
 
-{TEMPLATE_CATALOG}`;
+{TEMPLATE_CATALOG}
+
+═══════════════════════════════════════════════════════════════════
+VERIFICATION AUDIT (after spec is saved)
+═══════════════════════════════════════════════════════════════════
+
+After the spec is saved, the user may ask you to generate a Verification
+Audit. This is a DIFFERENT document from the implementation checklist
+already in the spec. The checklist is a todo list for building. The
+audit is a guided code review for AFTER building.
+
+When asked to generate the audit, produce a document starting with:
+# {Feature/App Name} — Verification Audit
+
+The audit is designed to be read by Claude Code AFTER it has
+implemented the spec. Its job is to force Claude Code to:
+1. Open actual files (not rely on memory)
+2. Read actual code (not assume correctness)
+3. Compare against specific expectations (not vague "works")
+4. Report what passes and what fails
+5. Fix failures before moving on
+
+DOCUMENT STRUCTURE (mandatory sections in order):
+
+## Pre-Flight Checks
+- TypeScript compiles: \`pnpm tsc --noEmit\`
+- All existing tests pass: \`pnpm test\`
+- These are 🔴 CRITICAL — stop if they fail
+
+## Data Model Verification
+For each type/interface in the spec:
+- VERIFY: Open {file path}
+- Check each field exists with correct type
+- Check union types are unions (not string)
+- Check optional fields have ?
+
+## Service/API Layer Verification
+For each service method:
+- VERIFY: Open {file path}
+- Check method exists with correct signature
+- Trace key logic paths (guards, error handling, dedup)
+- Check return type matches ServiceResponse pattern
+
+## Component Verification (one sub-section per component)
+For each component:
+- VERIFY: Open {file path}
+- Check EVERY state: loading, empty, error, default
+  For each state:
+  - What triggers this state?
+  - What renders? (Be specific: component name, text, styling)
+  - What should NOT render alongside it?
+- Check every modal:
+  - Open trigger, close (×/Escape/Cancel), submit success, submit error
+  - Every form field: present, labeled, validated (each rule + message + timing)
+- Check every button/action:
+  - Click → what happens? Loading indicator? Service call? Toast? Redirect?
+
+## Integration Verification
+For each integration point from the spec:
+- Trace the data flow between components
+- Verify navigation paths (Component A click → Component B renders with correct props)
+- Check shared state (stores, URL params, props)
+
+## State Transition Verification
+For complex components (3+ states), map:
+  Mount → Loading
+  Loading + data → Default
+  Loading + empty → Empty
+  Loading + error → Error
+  Error + retry → Loading
+  Default + create click → Modal open
+  ...etc
+VERIFY each transition exists in the code.
+
+## Edge Case Verification
+For every edge case from spec Section 8:
+  - VERIFY: {exact scenario}
+  - Expected: {exact behavior}
+  - This catches the cases Claude Code most commonly drops.
+
+## Validation Verification
+For every form field with validation:
+  - Field present with correct label
+  - Valid input: no error
+  - Each invalid input: specific error message + timing (blur/submit)
+  List EVERY field and EVERY rule individually. Do not group.
+
+## UI Polish Verification
+List EVERY loading state, EVERY empty state, EVERY error state,
+EVERY toast message individually with:
+  - Where it appears
+  - What triggers it
+  - What it looks like (component, text, styling)
+
+## Full User Journey Trace
+One end-to-end scenario exercising the entire feature:
+  Step 1: {starting state} → {action} → {expected result}
+  Step 2: {from step 1 result} → {action} → {expected result}
+  ...through to completion
+  This catches integration bugs that component-level checks miss.
+
+## Final Audit Summary
+Template for tallying results:
+  Total items: ___
+  PASS: ___
+  FAIL: ___ (list numbers)
+  MISSING: ___ (list numbers)
+  🔴 CRITICAL: ___
+  🟡 IMPORTANT: ___
+  🟢 POLISH: ___
+
+FORMAT RULES:
+
+1. Every check starts with "VERIFY: Open {exact file path}"
+   This forces the reader to actually open the file.
+
+2. Every check has "Expected: {specific outcome}"
+   Not "loading state works" but "centered spinner matching SegmentsPanel,
+   no other content visible during loading."
+
+3. Every check has a severity: 🔴 CRITICAL, 🟡 IMPORTANT, or 🟢 POLISH
+
+4. Complex checks include "Trace:" instructions that walk through
+   the code logic step by step.
+
+5. Every check includes "Not expected:" for common mistakes:
+   "Not expected: spinner stays forever. Not expected: empty state
+   flashes before data arrives."
+
+6. Each section ends with a gate:
+   "IF ANY ITEM FAILS: Fix before proceeding to next section."
+
+7. Form validation checks are INDIVIDUAL — one check per field per rule.
+   Not "all validations work" but 3+ checks per field.
+
+8. Modal checks cover ALL close paths: ×, Escape, Cancel, click outside,
+   successful submit, failed submit. That's 6+ checks per modal.
+
+9. The Full User Journey at the end must be a COMPLETE flow, not a
+   summary. Every step, every expected outcome, every screen transition.
+
+10. Use the actual file paths from the spec — never invent paths
+    you haven't confirmed.`;
 
 export const SPEC_READY_PATTERNS = [
   /i have enough to write the specification/i,
@@ -615,6 +899,8 @@ export const SPEC_READY_PATTERNS = [
 ];
 
 export const SPEC_START_PATTERN = /^#\s+.+(?:—|-)\s*(?:Requirements |Feature )?Specification/m;
+
+export const AUDIT_START_PATTERN = /^#\s+.+(?:—|-)\s*Verification Audit/m;
 
 export const FILE_REQUEST_PATTERN = /📂\s*REQUEST_FILES:\s*(.+)/g;
 

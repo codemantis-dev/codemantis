@@ -50,14 +50,37 @@ export default function SpecChatMessage({ message, isLastAssistant, onSelectOpti
   if (isSystem) {
     return (
       <div
-        className="flex items-start gap-2 px-3 py-2 rounded-md text-xs"
+        className="flex flex-col gap-2 px-3 py-2 rounded-md text-xs"
         style={{
           background: "var(--bg-elevated)",
           color: "var(--text-secondary)",
         }}
       >
-        <Info size={14} className="shrink-0 mt-0.5" />
-        <div className="whitespace-pre-wrap break-words min-w-0">{message.content}</div>
+        <div className="flex items-start gap-2">
+          <Info size={14} className="shrink-0 mt-0.5" />
+          <div className="whitespace-pre-wrap break-words min-w-0">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          </div>
+        </div>
+        {/* Option buttons on system messages */}
+        {message.parsedOptions && message.parsedOptions.length > 0 && (
+          <div className="flex flex-col gap-1.5 ml-5">
+            {message.parsedOptions.map((opt, i) => (
+              <button
+                key={`sysopt-${i}`}
+                onClick={() => onSelectOption?.(opt)}
+                className="text-left px-3 py-2 rounded-md border text-xs transition-colors hover:brightness-95"
+                style={{
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-primary)',
+                }}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

@@ -3,7 +3,7 @@ import { X, Copy, Check, Pencil, Eye, Send, Play, Lightbulb } from "lucide-react
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
-import { listSpecDocuments, gatherSpecContext, saveTaskBoardState } from "../../lib/tauri-commands";
+import { listSpecDocuments, gatherSpecContext, saveTaskBoardState, addVerificationWorkflowToClaudeMd } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useSpecConversation } from "../../hooks/useSpecConversation";
 import SpecChat from "./SpecChat";
@@ -21,9 +21,13 @@ export default function SpecWriterSlideOver() {
   const setChatWidth = useSpecWriterStore((s) => s.setChatWidth);
   const clearConversation = useSpecWriterStore((s) => s.clearConversation);
   const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
+  const setCurrentAuditContent = useSpecWriterStore((s) => s.setCurrentAuditContent);
   const persistState = useSpecWriterStore((s) => s.persistState);
   const currentSpecContent = useSpecWriterStore((s) =>
     activeProjectPath ? s.currentSpecContent.get(activeProjectPath) ?? null : null
+  );
+  const currentAuditContent = useSpecWriterStore((s) =>
+    activeProjectPath ? s.currentAuditContent.get(activeProjectPath) ?? null : null
   );
   const conversation = useSpecWriterStore((s) =>
     activeProjectPath ? s.conversations.get(activeProjectPath) : undefined
@@ -40,11 +44,13 @@ export default function SpecWriterSlideOver() {
   const dividerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveDialogType, setSaveDialogType] = useState<'spec' | 'audit'>('spec');
   const [copiedClaudemd, setCopiedClaudemd] = useState(false);
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
+  const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage } = useSpecConversation();
+  const { sendMessage: sendSpecMessage, generateAudit } = useSpecConversation();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isStreaming = useSpecWriterStore((s) =>
     activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false
@@ -172,12 +178,14 @@ export default function SpecWriterSlideOver() {
     if (activeProjectPath) {
       clearConversation(activeProjectPath);
       setCurrentSpecContent(activeProjectPath, null);
+      setCurrentAuditContent(activeProjectPath, null);
       setLastSavedFile(null);
+      setLastSavedAuditFile(null);
       setIsEditing(false);
       // Clear persisted state from database so stale data doesn't reload
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
-  }, [activeProjectPath, clearConversation, setCurrentSpecContent]);
+  }, [activeProjectPath, clearConversation, setCurrentSpecContent, setCurrentAuditContent]);
 
   const handleCopySpec = useCallback(() => {
     if (currentSpecContent) {
@@ -186,16 +194,127 @@ export default function SpecWriterSlideOver() {
     }
   }, [currentSpecContent]);
 
-  const handleSaved = useCallback((filename: string) => {
-    setShowSaveDialog(false);
-    setLastSavedFile(filename);
-    // Refresh saved specs list
+  const refreshSavedSpecs = useCallback(() => {
     if (activeProjectPath) {
       listSpecDocuments(activeProjectPath).then((specs) => {
         setSavedSpecs(activeProjectPath, specs);
       }).catch(() => {});
     }
   }, [activeProjectPath, setSavedSpecs]);
+
+  // ── Spec save handler — after save, offer audit generation ───────
+  const handleSpecSaved = useCallback((filename: string) => {
+    setShowSaveDialog(false);
+    setLastSavedFile(filename);
+    refreshSavedSpecs();
+
+    // Auto-offer audit generation if no audit exists yet
+    if (activeProjectPath && !currentAuditContent) {
+      const store = useSpecWriterStore.getState();
+      store.addMessage(activeProjectPath, {
+        id: `msg-audit-offer-${Date.now()}`,
+        role: "system",
+        content: `**Spec saved to** \`docs/specs/${filename}\`\n\n**Generate a Verification Audit?** This is a companion document that Claude Code uses to self-check its implementation — it opens every file, reads the actual code, and verifies it matches the spec.\n\nThis is the single most important step for implementation quality.`,
+        message_type: "conversation",
+        timestamp: new Date().toISOString(),
+        parsedOptions: [
+          "\u{1F4CB} Yes, generate the Verification Audit",
+          "Not now \u2014 I'll generate it later",
+        ],
+      });
+    }
+  }, [activeProjectPath, currentAuditContent, refreshSavedSpecs]);
+
+  // ── Audit save handler — after save, show usage hint + CLAUDE.md offer ─
+  const handleAuditSaved = useCallback((filename: string) => {
+    setShowSaveDialog(false);
+    setLastSavedAuditFile(filename);
+    refreshSavedSpecs();
+
+    if (!activeProjectPath) return;
+    const store = useSpecWriterStore.getState();
+    const specFilename = filename.replace('.audit.md', '.md');
+
+    // Usage hint message
+    store.addMessage(activeProjectPath, {
+      id: `msg-audit-saved-${Date.now()}`,
+      role: "system",
+      content: `**Verification Audit saved to** \`docs/specs/${filename}\`\n\n**How to use it:**\n1. Tell Claude Code: "Read docs/specs/${specFilename} and implement it"\n2. After Claude Code says it's done, tell it:\n   "Read docs/specs/${filename} and verify your work. Open every file mentioned, read the actual code, and report PASS/FAIL for each item."\n3. Claude Code will find gaps and fix them.\n\n**Copy this prompt for after implementation:**\n\n\`\`\`\nRead docs/specs/${filename} and verify your implementation.\nFor every VERIFY directive, open the actual file and read the code.\nReport PASS, FAIL, or MISSING for each item. Fix all failures.\n\`\`\``,
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+
+    // CLAUDE.md integration offer
+    store.addMessage(activeProjectPath, {
+      id: `msg-claudemd-offer-${Date.now()}`,
+      role: "system",
+      content: `**Add verification workflow to CLAUDE.md?**\nThis adds an instruction to your project's CLAUDE.md so Claude Code automatically runs the verification audit after implementing a spec. Claude Code reads CLAUDE.md at the start of every session.`,
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+      parsedOptions: [
+        "\u{1F4DD} Yes, add to CLAUDE.md",
+        "No, skip this",
+      ],
+    });
+  }, [activeProjectPath, refreshSavedSpecs]);
+
+  // ── Handle the combined save flow ────────────────────────────────
+  const handleSaved = useCallback((filename: string) => {
+    if (saveDialogType === 'audit') {
+      handleAuditSaved(filename);
+    } else {
+      handleSpecSaved(filename);
+    }
+  }, [saveDialogType, handleSpecSaved, handleAuditSaved]);
+
+  // ── Handle CLAUDE.md workflow addition ──────────────────────────
+  const handleAddToClaudeMd = useCallback(async () => {
+    if (!activeProjectPath) return;
+    try {
+      const result = await addVerificationWorkflowToClaudeMd(activeProjectPath);
+      if (result === "already_exists") {
+        showToast("Verification workflow already in CLAUDE.md", "info");
+      } else {
+        showToast("Added verification workflow to CLAUDE.md", "success");
+      }
+    } catch (e) {
+      showToast(`Failed to update CLAUDE.md: ${e}`, "error");
+    }
+  }, [activeProjectPath]);
+
+  // ── Option action handler — intercept special options ────────────
+  const handleOptionAction = useCallback((option: string): boolean => {
+    if (!activeProjectPath) return false;
+
+    if (option === "\u{1F4CB} Yes, generate the Verification Audit") {
+      generateAudit(activeProjectPath);
+      return true;
+    }
+    if (option === "Not now \u2014 I'll generate it later") {
+      // No action — toolbar button remains available
+      return true;
+    }
+    if (option === "\u{1F4DD} Yes, add to CLAUDE.md") {
+      handleAddToClaudeMd();
+      return true;
+    }
+    if (option === "No, skip this") {
+      // No action
+      return true;
+    }
+    return false;
+  }, [activeProjectPath, generateAudit, handleAddToClaudeMd]);
+
+  // ── Open save dialog for spec or audit ────────────────────────────
+  const openSaveSpecDialog = useCallback(() => {
+    setSaveDialogType('spec');
+    setShowSaveDialog(true);
+  }, []);
+
+  const openSaveAuditDialog = useCallback(() => {
+    setSaveDialogType('audit');
+    setShowSaveDialog(true);
+  }, []);
 
   const handleCopyClaudemdSnippet = useCallback(() => {
     if (lastSavedFile) {
@@ -251,6 +370,9 @@ export default function SpecWriterSlideOver() {
   }, [activeProjectPath, setCurrentSpecContent, addMessage]);
 
   if (!activeProjectPath) return null;
+
+  // Determine save dialog content
+  const saveDialogContent = saveDialogType === 'audit' ? currentAuditContent : currentSpecContent;
 
   return (
     <>
@@ -350,6 +472,7 @@ export default function SpecWriterSlideOver() {
                   projectPath={activeProjectPath}
                   contextLoading={contextLoading}
                   contextError={contextError}
+                  onOptionAction={handleOptionAction}
                 />
               </div>
 
@@ -373,6 +496,7 @@ export default function SpecWriterSlideOver() {
                 <div className="flex-1 overflow-hidden">
                   <SpecPreview
                     content={currentSpecContent}
+                    auditContent={currentAuditContent}
                     isEditing={isEditing}
                     onContentChange={handleSpecEdit}
                   />
@@ -399,7 +523,7 @@ export default function SpecWriterSlideOver() {
                       {isEditing ? "Preview" : "Edit"}
                     </button>
                     <button
-                      onClick={() => setShowSaveDialog(true)}
+                      onClick={openSaveSpecDialog}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
                       style={{ background: "var(--accent)", color: "white" }}
                     >
@@ -478,19 +602,21 @@ export default function SpecWriterSlideOver() {
             <SpecToolbar
               projectPath={activeProjectPath}
               onReset={handleReset}
-              onSave={() => setShowSaveDialog(true)}
+              onSave={openSaveSpecDialog}
+              onSaveAudit={openSaveAuditDialog}
             />
           </>
         )}
       </div>
 
-      {/* Save dialog */}
-      {showSaveDialog && currentSpecContent && conversation && (
+      {/* Save dialog — handles both spec and audit saves */}
+      {showSaveDialog && saveDialogContent && conversation && (
         <SaveSpecDialog
           projectPath={activeProjectPath}
-          specContent={currentSpecContent}
+          specContent={saveDialogContent}
           aiModel={conversation.ai_model}
           mode={conversation.mode === 'feature' ? 'Feature (existing project)' : 'New Application'}
+          documentType={saveDialogType}
           onClose={() => setShowSaveDialog(false)}
           onSaved={handleSaved}
         />

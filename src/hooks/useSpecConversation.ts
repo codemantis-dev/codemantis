@@ -5,7 +5,7 @@ import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemp
 import { getProviderForModel } from "../types/assistant-provider";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
-import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
+import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
 import { handleFileRequests } from "../lib/spec-file-requests";
 
 export function useSpecConversation(): {
@@ -15,6 +15,7 @@ export function useSpecConversation(): {
     attachments?: SpecAttachment[]
   ) => Promise<void>;
   writeSpec: (projectPath: string) => void;
+  generateAudit: (projectPath: string) => void;
   loadContext: (projectPath: string) => Promise<void>;
   cancelStream: (projectPath: string) => void;
 } {
@@ -213,6 +214,10 @@ export function useSpecConversation(): {
           if (SPEC_START_PATTERN.test(streamBufferRef.current)) {
             currentStore.setCurrentSpecContent(projectPath, streamBufferRef.current);
           }
+          // Check for audit content during streaming
+          if (AUDIT_START_PATTERN.test(streamBufferRef.current)) {
+            currentStore.setCurrentAuditContent(projectPath, streamBufferRef.current);
+          }
         }
 
         if (event.type === "done") {
@@ -258,6 +263,11 @@ export function useSpecConversation(): {
                 return { conversations };
               });
             }
+          }
+
+          // Check for verification audit document output
+          if (AUDIT_START_PATTERN.test(finalContent)) {
+            currentStore.setCurrentAuditContent(projectPath, finalContent);
           }
 
           // Cleanup FIRST (synchronous) — clear buffer, persist, unlisten
@@ -350,6 +360,19 @@ export function useSpecConversation(): {
     [sendMessage]
   );
 
+  const generateAudit = useCallback(
+    (projectPath: string) => {
+      sendMessage(
+        projectPath,
+        "Generate the Verification Audit document for the spec you just wrote. " +
+        "This is a guided code review document that Claude Code will use AFTER " +
+        "implementation to verify every component, state, validation, and " +
+        "integration point. Follow the Verification Audit format from your instructions."
+      );
+    },
+    [sendMessage]
+  );
+
   const cancelStream = useCallback((projectPath: string) => {
     const assistantId = `spec-${projectPath.replace(/[^a-zA-Z0-9]/g, "_")}`;
     cancelAssistantChat(assistantId).catch((e) => {
@@ -360,6 +383,7 @@ export function useSpecConversation(): {
   return {
     sendMessage,
     writeSpec,
+    generateAudit,
     loadContext,
     cancelStream,
   };

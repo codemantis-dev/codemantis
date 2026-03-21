@@ -268,6 +268,7 @@ pub fn run() {
             commands::specwriter::delete_spec_document,
             commands::specwriter::gather_spec_context,
             commands::specwriter::read_project_files,
+            commands::specwriter::add_verification_workflow_to_claude_md,
             commands::snapshot::gather_project_snapshot,
         ])
         .run(tauri::generate_context!())

@@ -3,6 +3,7 @@ import {
   buildSystemPrompt,
   SPEC_READY_PATTERNS,
   SPEC_START_PATTERN,
+  AUDIT_START_PATTERN,
   FILE_REQUEST_PATTERN,
   NEW_APP_PROMPT,
   FEATURE_MODE_PROMPT,
@@ -94,6 +95,35 @@ describe("FILE_REQUEST_PATTERN", () => {
   });
 });
 
+describe("AUDIT_START_PATTERN", () => {
+  it("matches audit document headers with em dash", () => {
+    expect(AUDIT_START_PATTERN.test("# My App — Verification Audit")).toBe(true);
+  });
+
+  it("matches audit document headers with hyphen", () => {
+    expect(AUDIT_START_PATTERN.test("# My Feature - Verification Audit")).toBe(true);
+  });
+
+  it("matches multi-word feature names", () => {
+    expect(AUDIT_START_PATTERN.test("# Subscriber List Management — Verification Audit")).toBe(true);
+  });
+
+  it("does not match regular headings", () => {
+    expect(AUDIT_START_PATTERN.test("# Introduction")).toBe(false);
+    expect(AUDIT_START_PATTERN.test("## Verification")).toBe(false);
+  });
+
+  it("does not match specification headers", () => {
+    expect(AUDIT_START_PATTERN.test("# My App — Requirements Specification")).toBe(false);
+    expect(AUDIT_START_PATTERN.test("# My App — Feature Specification")).toBe(false);
+  });
+
+  it("matches within multi-line content", () => {
+    const content = "Some preamble text\n\n# Dashboard — Verification Audit\n\n## Pre-Flight Checks";
+    expect(AUDIT_START_PATTERN.test(content)).toBe(true);
+  });
+});
+
 describe("prompt constants", () => {
   it("NEW_APP_PROMPT contains template catalog placeholder", () => {
     expect(NEW_APP_PROMPT).toContain("{TEMPLATE_CATALOG}");
@@ -102,5 +132,50 @@ describe("prompt constants", () => {
   it("FEATURE_MODE_PROMPT contains both placeholders", () => {
     expect(FEATURE_MODE_PROMPT).toContain("{TEMPLATE_CATALOG}");
     expect(FEATURE_MODE_PROMPT).toContain("{PROJECT_CONTEXT}");
+  });
+
+  it("NEW_APP_PROMPT contains verification audit prompt section", () => {
+    expect(NEW_APP_PROMPT).toContain("VERIFICATION AUDIT");
+    expect(NEW_APP_PROMPT).toContain("Verification Audit");
+    expect(NEW_APP_PROMPT).toContain("VERIFY: Open");
+    expect(NEW_APP_PROMPT).toContain("CRITICAL");
+    expect(NEW_APP_PROMPT).toContain("IMPORTANT");
+    expect(NEW_APP_PROMPT).toContain("POLISH");
+  });
+
+  it("FEATURE_MODE_PROMPT contains verification audit prompt section", () => {
+    expect(FEATURE_MODE_PROMPT).toContain("VERIFICATION AUDIT");
+    expect(FEATURE_MODE_PROMPT).toContain("Verification Audit");
+    expect(FEATURE_MODE_PROMPT).toContain("VERIFY: Open");
+    expect(FEATURE_MODE_PROMPT).toContain("CRITICAL");
+    expect(FEATURE_MODE_PROMPT).toContain("IMPORTANT");
+    expect(FEATURE_MODE_PROMPT).toContain("POLISH");
+  });
+
+  it("verification audit prompt includes all mandatory sections", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("Pre-Flight Checks");
+      expect(prompt).toContain("Data Model Verification");
+      expect(prompt).toContain("Service/API Layer Verification");
+      expect(prompt).toContain("Component Verification");
+      expect(prompt).toContain("Integration Verification");
+      expect(prompt).toContain("State Transition Verification");
+      expect(prompt).toContain("Edge Case Verification");
+      expect(prompt).toContain("Validation Verification");
+      expect(prompt).toContain("UI Polish Verification");
+      expect(prompt).toContain("Full User Journey Trace");
+      expect(prompt).toContain("Final Audit Summary");
+    }
+  });
+
+  it("verification audit prompt includes all 10 format rules", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain('Every check starts with "VERIFY: Open');
+      expect(prompt).toContain("Expected:");
+      expect(prompt).toContain("Not expected:");
+      expect(prompt).toContain("IF ANY ITEM FAILS");
+      expect(prompt).toContain("Form validation checks are INDIVIDUAL");
+      expect(prompt).toContain("Full User Journey at the end must be a COMPLETE flow");
+    }
   });
 });

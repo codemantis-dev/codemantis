@@ -192,11 +192,12 @@ Not expected: {common mistakes to watch for}
 
 Every Verification Audit MUST have these sections:
 
+0. **Pre-Implementation Verification** *(conditional — only when the spec has ⚠️ INFERRED or ❓ ASSUMED items)* — Gated section at the very top. Every uncertain item must be confirmed or decided before implementation starts.
 1. **Pre-Flight Checks** — TypeScript compiles, tests pass, no regressions
 2. **Data Model Verification** — Types, interfaces, schema fields
-3. **Service/API Layer Verification** — Service methods, return types, error handling
-4. **Component Verification** — One sub-section per component, covering all states
-5. **Integration Verification** — How components connect, navigation, shared state
+3. **Service/API Layer Verification** — Service methods, return types, error handling, slow response behavior
+4. **Component Verification** — One sub-section per component, covering all states. Each item cross-references the spec section it came from.
+5. **Integration Verification** — How components connect, navigation (position + route + active state), shared state
 6. **State Transition Verification** — For each complex component: trigger → state change sequences
 7. **Edge Case Verification** — Every edge case from spec Section 8
 8. **Validation Verification** — Every form field, every rule, every error message
@@ -766,6 +767,37 @@ FORMAT RULES:
 
 10. Use the actual file paths from the spec — never invent paths 
     you haven't confirmed.
+
+11. If the spec has ⚠️ INFERRED or ❓ ASSUMED items, include a 
+    "Pre-Implementation Verification" section at the VERY TOP of the
+    audit (before Pre-Flight Checks):
+    
+    ### Pre-Implementation Verification
+    These must be resolved BEFORE starting implementation:
+    - [ ] Confirm: [⚠️ item — what to verify and where]
+    - [ ] Confirm: [⚠️ item — what to verify and where]
+    - [ ] Decide: [❓ item — what decision is needed and who decides]
+    
+    This is a GATE. Do not start implementing until all items are resolved.
+
+12. Every verification item should CROSS-REFERENCE the spec section it 
+    comes from. Example:
+    "Expected: centered spinner matching SegmentsPanel pattern 
+    (see spec Section 5, ListManager States table)"
+    This lets the implementer look up the original requirement immediately 
+    when something fails.
+
+13. Every API-dependent component must include a SLOW RESPONSE check:
+    "Simulate: What happens if the API call takes 5+ seconds?
+    Expected: loading indicator stays visible the entire time. No timeout
+    error. No flash of empty state. No UI freeze."
+    This catches a category of bugs that normal happy-path checks miss.
+
+14. Every NAVIGATION change must verify ALL THREE of:
+    - [ ] Nav item visible in correct position relative to siblings
+    - [ ] Click navigates to correct route (check URL changes)
+    - [ ] Active state styling applied when on that route (and removed 
+          when navigating away)
 ```
 
 ---
@@ -1124,12 +1156,16 @@ This ensures the workflow section is added exactly once, no matter how many spec
 ### System Prompt
 - [ ] Verification Audit prompt section appended to `NEW_APP_PROMPT`
 - [ ] Verification Audit prompt section appended to `FEATURE_MODE_PROMPT`
-- [ ] Prompt includes all 10 format rules
-- [ ] Prompt specifies mandatory sections (Pre-Flight through Final Summary)
+- [ ] Prompt includes all 14 format rules
+- [ ] Prompt specifies mandatory sections (Pre-Implementation through Final Summary)
 - [ ] Prompt specifies severity markers (🔴 🟡 🟢)
 - [ ] Prompt specifies "VERIFY: Open {path}" directive format
 - [ ] Prompt specifies "Expected:" and "Not expected:" format
 - [ ] Prompt specifies gate pattern: "IF ANY ITEM FAILS: Fix before proceeding"
+- [ ] Rule 11: Pre-Implementation Verification section for ⚠️/❓ items
+- [ ] Rule 12: Spec section cross-references in every item
+- [ ] Rule 13: Slow response (5+ second) check for API-dependent components
+- [ ] Rule 14: Navigation verification (position + route + active state)
 
 ### Toolbar
 - [ ] "Generate Audit" button appears when spec exists + no audit + not streaming
@@ -1189,3 +1225,7 @@ This ensures the workflow section is added exactly once, no matter how many spec
 - [ ] Document ends with Full User Journey Trace
 - [ ] Document ends with Final Audit Summary template
 - [ ] All file paths reference actual files from the spec (not invented)
+- [ ] Pre-Implementation Verification section present at the top (when spec has ⚠️/❓ items)
+- [ ] Every verification item cross-references its spec section (e.g., "see spec Section 5")
+- [ ] Every API-dependent component includes a slow response check (5+ second scenario)
+- [ ] Every navigation change verifies: position, route, and active state styling

@@ -12,9 +12,10 @@ interface Props {
   projectPath: string;
   contextLoading?: boolean;
   contextError?: string | null;
+  onOptionAction?: (option: string) => boolean;
 }
 
-export default function SpecChat({ projectPath, contextLoading, contextError }: Props) {
+export default function SpecChat({ projectPath, contextLoading, contextError, onOptionAction }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
@@ -92,9 +93,11 @@ export default function SpecChat({ projectPath, contextLoading, contextError }: 
 
   const handleSelectOption = useCallback(
     (option: string) => {
+      // Allow parent to intercept specific option actions (e.g. audit generation, CLAUDE.md)
+      if (onOptionAction?.(option)) return;
       sendMessage(projectPath, option);
     },
-    [projectPath, sendMessage]
+    [projectPath, sendMessage, onOptionAction]
   );
 
   const messages = conversation?.messages ?? [];

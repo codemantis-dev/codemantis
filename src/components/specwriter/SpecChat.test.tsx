@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 
 
+const mockSendMessage = vi.fn();
 vi.mock("../../hooks/useSpecConversation", () => ({
   useSpecConversation: () => ({
-    sendMessage: vi.fn(),
+    sendMessage: mockSendMessage,
     writeSpec: vi.fn(),
+    generateAudit: vi.fn(),
     loadContext: vi.fn(),
   }),
 }));
@@ -28,8 +30,10 @@ beforeEach(() => {
     uiState: new Map(),
     planningStreaming: new Map(),
     currentSpecContent: new Map(),
+    currentAuditContent: new Map(),
     savedSpecs: new Map(),
   });
+  vi.clearAllMocks();
 });
 
 describe("SpecChat", () => {
@@ -49,5 +53,41 @@ describe("SpecChat", () => {
     });
     render(<SpecChat projectPath={PROJECT} />);
     expect(screen.getByText("Build a dashboard")).toBeTruthy();
+  });
+
+  it("calls onOptionAction before sendMessage when option is selected", () => {
+    const onOptionAction = vi.fn().mockReturnValue(true);
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    // Add an assistant message with options
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "assistant",
+      content: "Pick one",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+      parsedOptions: ["Option A", "Option B"],
+    });
+    render(<SpecChat projectPath={PROJECT} onOptionAction={onOptionAction} />);
+    fireEvent.click(screen.getByText("Option A"));
+    expect(onOptionAction).toHaveBeenCalledWith("Option A");
+    // sendMessage should NOT have been called since onOptionAction returned true
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("falls through to sendMessage when onOptionAction returns false", () => {
+    const onOptionAction = vi.fn().mockReturnValue(false);
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "assistant",
+      content: "Pick one",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+      parsedOptions: ["Regular option"],
+    });
+    render(<SpecChat projectPath={PROJECT} onOptionAction={onOptionAction} />);
+    fireEvent.click(screen.getByText("Regular option"));
+    expect(onOptionAction).toHaveBeenCalledWith("Regular option");
+    expect(mockSendMessage).toHaveBeenCalledWith(PROJECT, "Regular option");
   });
 });

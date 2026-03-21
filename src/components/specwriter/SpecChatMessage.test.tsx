@@ -40,4 +40,54 @@ describe("SpecChatMessage", () => {
     render(<SpecChatMessage message={sysMsg} />);
     expect(screen.getByText("No API key configured")).toBeTruthy();
   });
+
+  it("renders option buttons on system messages with parsedOptions", () => {
+    const sysMsg: SpecMessage = {
+      ...baseMsg,
+      role: "system",
+      content: "Generate a Verification Audit?",
+      parsedOptions: ["Yes, generate audit", "Not now"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={sysMsg} onSelectOption={onSelect} />);
+    expect(screen.getByText("Yes, generate audit")).toBeTruthy();
+    expect(screen.getByText("Not now")).toBeTruthy();
+  });
+
+  it("calls onSelectOption when system message option is clicked", () => {
+    const sysMsg: SpecMessage = {
+      ...baseMsg,
+      role: "system",
+      content: "Add to CLAUDE.md?",
+      parsedOptions: ["Yes, add to CLAUDE.md", "No, skip this"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={sysMsg} onSelectOption={onSelect} />);
+    fireEvent.click(screen.getByText("Yes, add to CLAUDE.md"));
+    expect(onSelect).toHaveBeenCalledWith("Yes, add to CLAUDE.md");
+  });
+
+  it("does not render option buttons on system messages without parsedOptions", () => {
+    const sysMsg: SpecMessage = {
+      ...baseMsg,
+      role: "system",
+      content: "Just a regular system message",
+    };
+    render(<SpecChatMessage message={sysMsg} />);
+    expect(screen.getByText("Just a regular system message")).toBeTruthy();
+    // No buttons should be rendered
+    const buttons = screen.queryAllByRole("button");
+    expect(buttons).toHaveLength(0);
+  });
+
+  it("renders markdown in system messages", () => {
+    const sysMsg: SpecMessage = {
+      ...baseMsg,
+      role: "system",
+      content: "**Spec saved to** `docs/specs/test.md`",
+    };
+    render(<SpecChatMessage message={sysMsg} />);
+    expect(screen.getByText("Spec saved to")).toBeTruthy();
+    expect(screen.getByText("docs/specs/test.md")).toBeTruthy();
+  });
 });

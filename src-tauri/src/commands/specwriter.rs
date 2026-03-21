@@ -615,6 +615,59 @@ fn find_routes_recursive(dir: &Path, patterns: &[&str], routes: &mut Vec<String>
     }
 }
 
+// ── CLAUDE.md Verification Workflow Integration ────────────────────────
+
+#[tauri::command]
+pub async fn add_verification_workflow_to_claude_md(
+    project_path: String,
+) -> Result<String, String> {
+    let claude_md_path = Path::new(&project_path).join("CLAUDE.md");
+
+    let workflow_section = r#"
+
+## SpecWriter Verification Workflow
+
+When implementing a spec from docs/specs/:
+1. Read the spec file (e.g., docs/specs/feature-name.md)
+2. Implement all items in the Implementation Checklist (Section 9)
+3. When done, BEFORE saying you're finished:
+   - Check if a matching .audit.md file exists (e.g., docs/specs/feature-name.audit.md)
+   - If yes, read it and run the verification audit
+   - For each VERIFY directive, open the actual file and read the code
+   - Report PASS/FAIL for each item
+   - Fix all failures
+   - Only then say "Implementation complete"
+4. Never skip step 3. The verification audit catches issues that the implementation checklist misses.
+"#;
+
+    // Read existing CLAUDE.md content (or empty if doesn't exist)
+    let existing_content = if claude_md_path.exists() {
+        std::fs::read_to_string(&claude_md_path)
+            .map_err(|e| format!("Failed to read CLAUDE.md: {}", e))?
+    } else {
+        String::new()
+    };
+
+    // Dedup check: if section already exists, don't add again
+    if existing_content.contains("## SpecWriter Verification Workflow") {
+        return Ok("already_exists".to_string());
+    }
+
+    // Append the section to the end of CLAUDE.md
+    let new_content = if existing_content.is_empty() {
+        format!("# CLAUDE.md\n{}", workflow_section)
+    } else {
+        format!("{}\n{}", existing_content.trim_end(), workflow_section)
+    };
+
+    std::fs::write(&claude_md_path, new_content)
+        .map_err(|e| format!("Failed to write CLAUDE.md: {}", e))?;
+
+    info!("Added SpecWriter Verification Workflow to CLAUDE.md at {:?}", claude_md_path);
+
+    Ok("added".to_string())
+}
+
 fn list_files_shallow(dir: &Path, max_depth: usize, files: &mut Vec<String>, base: &Path) {
     if max_depth == 0 {
         return;

@@ -10,6 +10,7 @@ describe("specWriterStore", () => {
       uiState: new Map(),
       planningStreaming: new Map(),
       currentSpecContent: new Map(),
+      currentAuditContent: new Map(),
       savedSpecs: new Map(),
     });
   });
@@ -70,5 +71,40 @@ describe("specWriterStore", () => {
     useSpecWriterStore.getState().clearConversation(PROJECT);
     expect(useSpecWriterStore.getState().conversations.has(PROJECT)).toBe(false);
     expect(useSpecWriterStore.getState().currentSpecContent.has(PROJECT)).toBe(false);
+  });
+
+  // ── Audit content tests ──────────────────────────────────────
+
+  it("sets current audit content", () => {
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, "# Test — Verification Audit");
+    expect(useSpecWriterStore.getState().currentAuditContent.get(PROJECT)).toBe("# Test — Verification Audit");
+  });
+
+  it("clears audit content when set to null", () => {
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, "# Audit");
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, null);
+    expect(useSpecWriterStore.getState().currentAuditContent.has(PROJECT)).toBe(false);
+  });
+
+  it("clears audit content when conversation is cleared", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, "# Audit");
+    useSpecWriterStore.getState().clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().currentAuditContent.has(PROJECT)).toBe(false);
+  });
+
+  it("clears audit content on discardAndStartNew", async () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, "# Audit content");
+    await useSpecWriterStore.getState().discardAndStartNew(PROJECT);
+    expect(useSpecWriterStore.getState().currentAuditContent.has(PROJECT)).toBe(false);
+  });
+
+  it("isolates audit content between projects", () => {
+    const PROJECT_2 = "/tmp/other-project";
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT, "# Audit 1");
+    useSpecWriterStore.getState().setCurrentAuditContent(PROJECT_2, "# Audit 2");
+    expect(useSpecWriterStore.getState().currentAuditContent.get(PROJECT)).toBe("# Audit 1");
+    expect(useSpecWriterStore.getState().currentAuditContent.get(PROJECT_2)).toBe("# Audit 2");
   });
 });

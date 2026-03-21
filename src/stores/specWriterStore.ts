@@ -10,6 +10,7 @@ import type {
 /** Shape persisted to the database (reuses existing task_plans table) */
 interface PersistedSpecWriterState {
   conversation: SpecConversation | null;
+  auditContent?: string | null;
 }
 
 interface SpecWriterState {
@@ -34,6 +35,9 @@ interface SpecWriterState {
   // Gathered project context for feature mode (per project)
   projectContext: Map<string, string>;
 
+  // Current audit content being previewed (per project)
+  currentAuditContent: Map<string, string>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -54,6 +58,9 @@ interface SpecWriterState {
 
   // Actions - Spec content
   setCurrentSpecContent: (projectPath: string, content: string | null) => void;
+
+  // Actions - Audit content
+  setCurrentAuditContent: (projectPath: string, content: string | null) => void;
 
   // Actions - Saved specs
   setSavedSpecs: (projectPath: string, specs: SpecDocumentInfo[]) => void;
@@ -88,6 +95,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   uiState: new Map(),
   planningStreaming: new Map(),
   currentSpecContent: new Map(),
+  currentAuditContent: new Map(),
   savedSpecs: new Map(),
   fileRequestsPending: new Map(),
   projectContext: new Map(),
@@ -204,9 +212,11 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     set((state) => {
       const conversations = new Map(state.conversations);
       const currentSpecContent = new Map(state.currentSpecContent);
+      const currentAuditContent = new Map(state.currentAuditContent);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
-      return { conversations, currentSpecContent };
+      currentAuditContent.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent };
     }),
 
   // File requests
@@ -235,6 +245,18 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         currentSpecContent.set(projectPath, content);
       }
       return { currentSpecContent };
+    }),
+
+  // Audit content
+  setCurrentAuditContent: (projectPath, content) =>
+    set((state) => {
+      const currentAuditContent = new Map(state.currentAuditContent);
+      if (content === null) {
+        currentAuditContent.delete(projectPath);
+      } else {
+        currentAuditContent.set(projectPath, content);
+      }
+      return { currentAuditContent };
     }),
 
   // Saved specs
@@ -283,9 +305,11 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     set((s) => {
       const conversations = new Map(s.conversations);
       const currentSpecContent = new Map(s.currentSpecContent);
+      const currentAuditContent = new Map(s.currentAuditContent);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
-      return { conversations, currentSpecContent };
+      currentAuditContent.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent };
     });
   },
 
@@ -294,7 +318,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     const state = get();
     const conversation = state.conversations.get(projectPath) ?? null;
     if (!conversation) return;
-    const persisted: PersistedSpecWriterState = { conversation };
+    const auditContent = state.currentAuditContent.get(projectPath) ?? null;
+    const persisted: PersistedSpecWriterState = { conversation, auditContent };
     saveTaskBoardState(projectPath, JSON.stringify(persisted)).catch((e) =>
       console.error("[specWriterStore] Failed to persist state:", e)
     );
@@ -321,7 +346,12 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       set((state) => {
         const conversations = new Map(state.conversations);
         conversations.set(projectPath, conversation);
-        return { conversations };
+        // Restore audit content if persisted
+        const currentAuditContent = new Map(state.currentAuditContent);
+        if (persisted.auditContent) {
+          currentAuditContent.set(projectPath, persisted.auditContent);
+        }
+        return { conversations, currentAuditContent };
       });
       return true;
     } catch (e) {
