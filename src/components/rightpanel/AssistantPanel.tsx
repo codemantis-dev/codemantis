@@ -692,7 +692,7 @@ export default function AssistantPanel() {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={isClaudeCode ? "Ask the assistant... (/ for commands)" : "Ask the assistant..."}
-            disabled={!activeAssistantId || busy}
+            disabled={!activeAssistantId}
             rows={4}
             className="flex-1 resize-none rounded-lg px-3 py-2 text-chat text-text-primary placeholder-text-faint focus:outline-none focus:ring-1 focus:ring-accent"
             style={{
