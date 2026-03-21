@@ -3038,7 +3038,7 @@ Every configurable setting in CodeMantis with its location, type, and default va
 | Preview custom dev command | null | Override the detected dev command |
 | Preview console auto-open | true | Auto-open the console drawer in preview |
 | Task board planning model | gemini-3.1-flash-lite-preview | Model used for task board planning |
-| Task board max tokens | 32768 | Max tokens for task board planning |
+| Task board max tokens | 64000 | Max tokens for task board planning |
 | Task board max retries | 3 | Max retries for task board operations |
 | Task board auto-start next | true | Auto-start next task after completion |
 | Task board auto-open slide-over | true | Auto-open slide-over when task starts |

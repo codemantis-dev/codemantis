@@ -417,7 +417,7 @@ export function useSpecConversation(): {
           model: conv.ai_model,
           systemPrompt,
           messages: apiMessages,
-          maxTokens: settings.taskBoardMaxTokens || 65536,
+          maxTokens: settings.taskBoardMaxTokens || 64000,
         });
       } catch (err) {
         store.setPlanningStreaming(projectPath, false);

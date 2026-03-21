@@ -66,7 +66,7 @@ export function useSettingsFormState() {
 
   // --- Task Board ---
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
-  const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 65536);
+  const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 64000);
   const [taskBoardMaxRetries] = useState(settings.taskBoardMaxRetries ?? 3);
   const [taskBoardAutoStartNext] = useState(settings.taskBoardAutoStartNext ?? true);
   const [taskBoardAutoOpenSlideOver] = useState(settings.taskBoardAutoOpenSlideOver ?? true);
@@ -108,7 +108,7 @@ export function useSettingsFormState() {
       setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
-      setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 65536);
+      setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
       setTestingKey(false);
       setTestResults({});

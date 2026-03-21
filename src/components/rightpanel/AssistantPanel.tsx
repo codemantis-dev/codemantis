@@ -413,6 +413,7 @@ export default function AssistantPanel() {
     id: "assistant-panel",
     containerRef: inputContainerRef,
     onDrop: handleFileDrop,
+    priority: 5,
     enabled: !!activeAssistantId,
   });
 

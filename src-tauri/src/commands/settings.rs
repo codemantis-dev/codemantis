@@ -148,7 +148,7 @@ fn default_task_board_model() -> String {
     "gemini-2.5-flash".to_string()
 }
 fn default_task_board_max_tokens() -> u32 {
-    32768
+    64000
 }
 fn default_task_board_retries() -> u32 {
     3
@@ -159,12 +159,12 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
     m.insert("gpt-5.4-nano".into(), ModelPricing { input: 0.20, output: 1.25 });
     m.insert("gpt-5.4-mini".into(), ModelPricing { input: 0.75, output: 4.50 });
     m.insert("gpt-5.4".into(), ModelPricing { input: 2.50, output: 15.0 });
-    m.insert("gemini-2.5-flash-lite".into(), ModelPricing { input: 0.0, output: 0.0 });
+    m.insert("gemini-2.5-flash-lite".into(), ModelPricing { input: 0.10, output: 0.40 });
     m.insert("gemini-2.5-flash".into(), ModelPricing { input: 0.15, output: 0.60 });
     m.insert("gemini-2.5-pro".into(), ModelPricing { input: 1.25, output: 10.0 });
     m.insert("gemini-3-flash-preview".into(), ModelPricing { input: 0.15, output: 0.60 });
     m.insert("gemini-3.1-pro-preview".into(), ModelPricing { input: 1.25, output: 10.0 });
-    m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.0, output: 0.0 });
+    m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.25, output: 1.50 });
     m.insert("claude-opus-4-6".into(), ModelPricing { input: 5.0, output: 25.0 });
     m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn default_task_board_settings() {
         assert_eq!(default_task_board_model(), "gemini-2.5-flash");
-        assert_eq!(default_task_board_max_tokens(), 32768);
+        assert_eq!(default_task_board_max_tokens(), 64000);
         assert_eq!(default_task_board_retries(), 3);
     }
 
@@ -316,11 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn default_model_pricing_flash_lite_is_free() {
+    fn default_model_pricing_flash_lite_has_cost() {
         let pricing = default_model_pricing();
         let flash_lite = pricing.get("gemini-2.5-flash-lite").unwrap();
-        assert_eq!(flash_lite.input, 0.0);
-        assert_eq!(flash_lite.output, 0.0);
+        assert!(flash_lite.input > 0.0);
+        assert!(flash_lite.output > 0.0);
     }
 
     #[test]

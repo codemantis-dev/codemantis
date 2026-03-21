@@ -65,6 +65,7 @@ export default function SpecChatInput({ projectPath }: Props) {
     id: "spec-chat-input",
     containerRef,
     onDrop: handleFileDrop,
+    priority: 10,
   });
 
   const handleSend = useCallback(async () => {

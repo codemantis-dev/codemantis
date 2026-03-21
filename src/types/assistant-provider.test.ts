@@ -92,10 +92,10 @@ describe("assistant-provider types", () => {
     expect(cost).toBeCloseTo(0.0026, 5);
   });
 
-  it("gemini-2.5-flash-lite has zero pricing (free tier)", () => {
+  it("gemini-2.5-flash-lite has non-zero pricing", () => {
     const pricing = getDefaultModelPricing();
-    expect(pricing["gemini-2.5-flash-lite"].input).toBe(0);
-    expect(pricing["gemini-2.5-flash-lite"].output).toBe(0);
+    expect(pricing["gemini-2.5-flash-lite"].input).toBeGreaterThan(0);
+    expect(pricing["gemini-2.5-flash-lite"].output).toBeGreaterThan(0);
   });
 });
 
@@ -188,7 +188,7 @@ describe("isSpecModelAvailable", () => {
 
 describe("getSpecModelLabel", () => {
   it("returns label for known spec model", () => {
-    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite (free)");
+    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite");
     expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
   });
 

@@ -304,7 +304,7 @@ function SpecWriterSettingsContent({
         <input
           type="number"
           value={maxTokens}
-          onChange={(e) => onMaxTokensChange(Math.max(1024, Math.min(200000, Number(e.target.value) || 32768)))}
+          onChange={(e) => onMaxTokensChange(Math.max(1024, Math.min(200000, Number(e.target.value) || 64000)))}
           min={1024}
           max={200000}
           step={1024}

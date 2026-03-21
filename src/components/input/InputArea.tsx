@@ -266,6 +266,7 @@ export default function InputArea() {
     id: "input-area",
     containerRef,
     onDrop: handleFileDrop,
+    priority: 1,
     enabled: !!session,
   });
 

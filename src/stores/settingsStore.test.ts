@@ -37,7 +37,7 @@ function resetStore(): void {
       apiKeyBannerDismissed: false,
       previewConsoleAutoOpen: true,
       taskBoardPlanningModel: "gemini-2.5-flash",
-      taskBoardMaxTokens: 65536,
+      taskBoardMaxTokens: 64000,
       taskBoardMaxRetries: 3,
       taskBoardAutoStartNext: true,
       taskBoardAutoOpenSlideOver: true,
