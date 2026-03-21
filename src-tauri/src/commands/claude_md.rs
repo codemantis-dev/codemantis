@@ -27,6 +27,8 @@ pub struct ProjectAnalysis {
     pub architecture_notes: Vec<String>,
     pub has_monorepo: bool,
     pub package_manager: Option<String>,
+    pub ui_library: Option<String>,
+    pub key_files: Vec<(String, String)>,
 }
 
 // ── Helpers ──
@@ -171,9 +173,60 @@ fn has_dep(pkg: &serde_json::Value, dep_name: &str) -> bool {
 
 /// Infer a description for a script command
 fn infer_script_description(name: &str, cmd: &str) -> String {
-    // Common patterns
     let lower_name = name.to_lowercase();
     let lower_cmd = cmd.to_lowercase();
+
+    // ── Compound names with colons (most specific — check first) ──
+
+    if lower_name.starts_with("build:") {
+        let variant = name.split(':').nth(1).unwrap_or("");
+        return match variant.to_lowercase().as_str() {
+            "dev" => "Development build (unminified, source maps)".to_string(),
+            "prod" | "production" => "Production build (optimized)".to_string(),
+            "watch" => "Build in watch mode".to_string(),
+            "analyze" => "Build with bundle analysis".to_string(),
+            "css" => "Build CSS".to_string(),
+            _ => format!("Build ({})", variant),
+        };
+    }
+
+    if lower_name.starts_with("test:") {
+        let variant = name.split(':').nth(1).unwrap_or("");
+        return match variant.to_lowercase().as_str() {
+            "unit" => "Run unit tests".to_string(),
+            "e2e" | "integration" => "Run end-to-end tests".to_string(),
+            "watch" => "Run tests in watch mode".to_string(),
+            "coverage" | "cov" => "Run tests with coverage".to_string(),
+            "ci" => "Run tests in CI mode".to_string(),
+            _ => format!("Run tests ({})", variant),
+        };
+    }
+
+    if lower_name.starts_with("lint:") {
+        let variant = name.split(':').nth(1).unwrap_or("");
+        return match variant.to_lowercase().as_str() {
+            "fix" => "Run linter with auto-fix".to_string(),
+            "css" | "styles" => "Lint stylesheets".to_string(),
+            _ => format!("Lint ({})", variant),
+        };
+    }
+
+    if lower_name.starts_with("dev:") {
+        let variant = name.split(':').nth(1).unwrap_or("");
+        return format!("Start dev server ({})", variant);
+    }
+
+    if lower_name.starts_with("generate:") || lower_name.starts_with("gen:") {
+        let variant = name.split(':').last().unwrap_or("");
+        return format!("Generate {}", variant);
+    }
+
+    if lower_name.starts_with("docker:") {
+        let variant = name.split(':').nth(1).unwrap_or("");
+        return format!("Docker: {}", variant);
+    }
+
+    // ── Simple names ──
 
     if lower_name == "dev" || lower_name == "start:dev" {
         return "Start development server".to_string();
@@ -184,13 +237,10 @@ fn infer_script_description(name: &str, cmd: &str) -> String {
     if lower_name == "start" || lower_name == "serve" {
         return "Start the application".to_string();
     }
-    if lower_name == "test" || lower_name == "test:unit" {
+    if lower_name == "test" {
         return "Run tests".to_string();
     }
-    if lower_name == "test:e2e" || lower_name == "test:integration" {
-        return "Run end-to-end tests".to_string();
-    }
-    if lower_name == "lint" || lower_name.starts_with("lint:") {
+    if lower_name == "lint" {
         return "Run linter".to_string();
     }
     if lower_name == "format" || lower_name == "prettier" {
@@ -224,7 +274,12 @@ fn infer_script_description(name: &str, cmd: &str) -> String {
         return "Deploy the application".to_string();
     }
 
-    // Infer from command content
+    // ── Infer from command content ──
+
+    // Multi-command runners checked first (contain other tool names as args)
+    if lower_cmd.contains("concurrently") || lower_cmd.contains("&&") {
+        return "Run multiple tasks".to_string();
+    }
     if lower_cmd.contains("vitest") || lower_cmd.contains("jest") {
         return "Run tests".to_string();
     }
@@ -236,6 +291,19 @@ fn infer_script_description(name: &str, cmd: &str) -> String {
     }
     if lower_cmd.contains("tsc") {
         return "TypeScript type check".to_string();
+    }
+    if lower_cmd.starts_with("vite build") {
+        return "Vite build".to_string();
+    }
+    if lower_cmd.starts_with("vite") {
+        return "Start Vite dev server".to_string();
+    }
+    if lower_cmd.starts_with("next ") {
+        let next_cmd = cmd.split_whitespace().nth(1).unwrap_or("");
+        return format!("Next.js: {}", next_cmd);
+    }
+    if lower_cmd.starts_with("node ") || lower_cmd.starts_with("tsx ") {
+        return "Run script".to_string();
     }
 
     // Truncate long commands
@@ -252,6 +320,131 @@ fn count_dir_entries(path: &Path) -> usize {
     std::fs::read_dir(path)
         .map(|entries| entries.filter_map(|e| e.ok()).count())
         .unwrap_or(0)
+}
+
+/// List top-level items in a directory (files without extension, dirs with count)
+/// Returns "ComponentA, ComponentB, ui/ (14 items)" style description
+fn describe_directory_contents(path: &Path, max_items: usize) -> String {
+    let mut items: Vec<String> = vec![];
+    let entries = match std::fs::read_dir(path) {
+        Ok(e) => e,
+        Err(_) => return String::new(),
+    };
+
+    let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    sorted.sort_by_key(|e| e.file_name());
+
+    for entry in &sorted {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            let count = count_dir_entries(&entry.path());
+            items.push(format!("{} ({} items)", name, count));
+        } else {
+            // Strip common extensions for display
+            let display = name
+                .strip_suffix(".tsx")
+                .or_else(|| name.strip_suffix(".ts"))
+                .or_else(|| name.strip_suffix(".jsx"))
+                .or_else(|| name.strip_suffix(".js"))
+                .or_else(|| name.strip_suffix(".vue"))
+                .or_else(|| name.strip_suffix(".svelte"))
+                .unwrap_or(&name);
+            items.push(display.to_string());
+        }
+    }
+
+    let total = items.len();
+    if total == 0 {
+        String::new()
+    } else if total <= max_items {
+        items.join(", ")
+    } else {
+        let shown: Vec<_> = items[..max_items].to_vec();
+        format!("{}, and {} more", shown.join(", "), total - max_items)
+    }
+}
+
+/// Detect important individual files and infer their purpose
+fn detect_key_files(project_path: &Path) -> Vec<(String, String)> {
+    let mut files: Vec<(String, String)> = vec![];
+
+    let candidates: &[(&str, &str)] = &[
+        ("src/lib/ai-providers.ts", "AI provider configuration"),
+        ("src/lib/ai-provider.ts", "AI provider configuration"),
+        ("src/config/ai.ts", "AI configuration"),
+        ("src/lib/api.ts", "API client"),
+        ("src/lib/api-client.ts", "API client"),
+        ("src/lib/auth.ts", "Authentication utilities"),
+        ("src/lib/db.ts", "Database client"),
+        ("src/lib/prisma.ts", "Prisma client instance"),
+        ("src/lib/drizzle.ts", "Drizzle client instance"),
+        ("src/lib/supabase.ts", "Supabase client"),
+        ("src/lib/firebase.ts", "Firebase configuration"),
+        ("src/lib/stripe.ts", "Stripe integration"),
+        ("src/lib/utils.ts", "Shared utility functions"),
+        ("src/lib/constants.ts", "Application constants"),
+        ("src/lib/schema.ts", "Validation schemas"),
+        ("src/lib/validators.ts", "Input validators"),
+        ("src/lib/i18n.ts", "Internationalization setup"),
+        ("src/middleware.ts", "Next.js middleware"),
+        ("src/instrumentation.ts", "Instrumentation/monitoring setup"),
+        ("src/env.ts", "Environment variable validation"),
+        ("src/env.mjs", "Environment variable validation"),
+    ];
+
+    for (path_str, desc) in candidates {
+        if project_path.join(path_str).exists() {
+            files.push((path_str.to_string(), desc.to_string()));
+        }
+    }
+
+    // Also scan src/lib/ for files with distinctive names
+    let lib_dir = project_path.join("src/lib");
+    if lib_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let path_str = format!("src/lib/{}", name);
+
+                // Skip if already detected above
+                if files.iter().any(|(p, _)| p == &path_str) {
+                    continue;
+                }
+
+                // Infer purpose from filename patterns
+                let lower = name.to_lowercase();
+                let desc = if lower.contains("schema") || lower.contains("detect") {
+                    Some("Schema/format detection")
+                } else if lower.contains("provider") {
+                    Some("Service provider configuration")
+                } else if lower.contains("client") {
+                    Some("API/service client")
+                } else if lower.contains("config") {
+                    Some("Configuration")
+                } else if lower.contains("hook") {
+                    Some("Custom hook utilities")
+                } else if lower.contains("store") {
+                    Some("State management")
+                } else if lower.contains("middleware") {
+                    Some("Middleware")
+                } else if lower.contains("context") {
+                    Some("React context provider")
+                } else {
+                    None
+                };
+
+                if let Some(d) = desc {
+                    files.push((path_str, d.to_string()));
+                }
+            }
+        }
+    }
+
+    files
 }
 
 /// Directories to skip when scanning
@@ -392,14 +585,30 @@ fn detect_key_directories(project_path: &Path) -> Vec<(String, String)> {
         ("src/controllers", "Request controllers"),
     ];
 
+    // Directories that get detailed content listing instead of just counts
+    let detail_dirs: &[&str] = &[
+        "src/components", "src/hooks", "src/stores", "src/store",
+        "src/lib", "src/utils", "src/services", "src/pages", "src/routes",
+        "src/types", "src/api", "src/middleware", "src/models",
+    ];
+
     for (path_str, desc) in candidates {
         let full_path = project_path.join(path_str);
         if full_path.is_dir() {
-            let count = count_dir_entries(&full_path);
-            let description = if count > 0 {
-                format!("{} ({} items)", desc, count)
+            let description = if detail_dirs.contains(path_str) {
+                let contents = describe_directory_contents(&full_path, 8);
+                if contents.is_empty() {
+                    desc.to_string()
+                } else {
+                    format!("{}: {}", desc, contents)
+                }
             } else {
-                desc.to_string()
+                let count = count_dir_entries(&full_path);
+                if count > 0 {
+                    format!("{} ({} items)", desc, count)
+                } else {
+                    desc.to_string()
+                }
             };
             dirs.push((path_str.to_string(), description));
         }
@@ -680,6 +889,8 @@ pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
         architecture_notes: vec![],
         has_monorepo: false,
         package_manager: None,
+        ui_library: None,
+        key_files: vec![],
     };
 
     // ── package.json analysis ──
@@ -919,6 +1130,55 @@ pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
             analysis.state_management = Some("MobX".to_string());
         }
 
+        // ── Router (for non-Next.js/SvelteKit projects) ──
+        if analysis.router_type.is_none() {
+            if has_dep(pkg, "@tanstack/react-router") {
+                analysis.router_type = Some("TanStack Router (file-based)".to_string());
+            } else if has_dep(pkg, "react-router-dom") || has_dep(pkg, "react-router") {
+                let ver = pkg_dep_version(pkg, "react-router-dom")
+                    .or_else(|| pkg_dep_version(pkg, "react-router"))
+                    .unwrap_or_default();
+                analysis.router_type = if ver.starts_with('7') || ver.starts_with('6') {
+                    Some(format!("React Router {}", ver))
+                } else {
+                    Some("React Router".to_string())
+                };
+            } else if has_dep(pkg, "wouter") {
+                analysis.router_type = Some("Wouter".to_string());
+            }
+        }
+
+        // ── TanStack Query ──
+        if has_dep(pkg, "@tanstack/react-query") {
+            analysis.architecture_notes.push("Data fetching: TanStack Query".to_string());
+        }
+
+        // ── UI Component Library ──
+        if project_path.join("components.json").exists() {
+            analysis.ui_library = Some("shadcn/ui".to_string());
+            analysis.architecture_notes.push(
+                "UI: shadcn/ui — add components with `npx shadcn@latest add {name}`".to_string(),
+            );
+        }
+
+        if analysis.ui_library.is_none() {
+            if has_dep(pkg, "@radix-ui/react-dialog") || has_dep(pkg, "@radix-ui/themes") {
+                analysis.ui_library = Some("Radix UI".to_string());
+            } else if has_dep(pkg, "antd") {
+                analysis.ui_library = Some("Ant Design".to_string());
+            } else if has_dep(pkg, "@headlessui/react") {
+                analysis.ui_library = Some("Headless UI".to_string());
+            } else if has_dep(pkg, "@mantine/core") {
+                analysis.ui_library = Some("Mantine".to_string());
+            } else if has_dep(pkg, "daisyui") {
+                analysis.ui_library = Some("daisyUI".to_string());
+            } else if has_dep(pkg, "@nextui-org/react") {
+                analysis.ui_library = Some("NextUI".to_string());
+            } else if has_dep(pkg, "flowbite-react") || has_dep(pkg, "flowbite") {
+                analysis.ui_library = Some("Flowbite".to_string());
+            }
+        }
+
         // ── Monorepo ──
         if pkg.get("workspaces").is_some() {
             analysis.has_monorepo = true;
@@ -1070,6 +1330,9 @@ pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
     // ── Key directories ──
     analysis.key_directories = detect_key_directories(project_path);
 
+    // ── Key files ──
+    analysis.key_files = detect_key_files(project_path);
+
     // ── Conventions ──
     analysis
         .conventions
@@ -1129,14 +1392,17 @@ pub fn generate_claude_md(analysis: &ProjectAnalysis) -> String {
     // Header
     md.push_str(&format!("# CLAUDE.md — {}\n\n", analysis.name));
 
-    // What This Is
+    // What This Is — enriched with framework context
     md.push_str("## What This Is\n");
-    if let Some(ref desc) = analysis.description {
-        md.push_str(desc);
-    } else if let Some(ref fw) = analysis.framework {
-        md.push_str(&format!("A {} project.", fw));
+    let base_desc = analysis.description.as_deref().unwrap_or("");
+    let framework_label = analysis.framework.as_deref().unwrap_or(&analysis.language);
+
+    if base_desc.is_empty() {
+        md.push_str(&format!("A {} project.", framework_label));
+    } else if base_desc.len() < 80 && analysis.framework.is_some() {
+        md.push_str(&format!("{} Built with {}.", base_desc, framework_label));
     } else {
-        md.push_str(&format!("A {} project.", analysis.language));
+        md.push_str(base_desc);
     }
     md.push_str("\n\n");
 
@@ -1171,6 +1437,9 @@ pub fn generate_claude_md(analysis: &ProjectAnalysis) -> String {
     if let Some(ref state) = analysis.state_management {
         md.push_str(&format!("- **State Management:** {}\n", state));
     }
+    if let Some(ref ui_lib) = analysis.ui_library {
+        md.push_str(&format!("- **UI Components:** {}\n", ui_lib));
+    }
     if let Some(ref deploy) = analysis.deployment {
         md.push_str(&format!("- **Deployment:** {}\n", deploy));
     }
@@ -1189,6 +1458,14 @@ pub fn generate_claude_md(analysis: &ProjectAnalysis) -> String {
             md.push_str("Key directories:\n");
             for (path, desc) in &analysis.key_directories {
                 md.push_str(&format!("- `{}/` — {}\n", path, desc));
+            }
+            md.push('\n');
+        }
+
+        if !analysis.key_files.is_empty() {
+            md.push_str("Key files:\n");
+            for (path, desc) in &analysis.key_files {
+                md.push_str(&format!("- `{}` — {}\n", path, desc));
             }
             md.push('\n');
         }
@@ -1217,9 +1494,19 @@ pub fn generate_claude_md(analysis: &ProjectAnalysis) -> String {
         } else {
             format!("{} ", pm)
         };
+        // Calculate max name length for alignment
+        let max_name_len = npm_scripts
+            .iter()
+            .map(|(name, _)| name.len() + run_prefix.len())
+            .max()
+            .unwrap_or(20)
+            .min(30); // cap alignment at 30 chars
+
         for (name, cmd) in &npm_scripts {
             let desc = infer_script_description(name, cmd);
-            md.push_str(&format!("{}{:<20} # {}\n", run_prefix, name, desc));
+            let full_name = format!("{}{}", run_prefix, name);
+            let padding = " ".repeat((max_name_len + 2).saturating_sub(full_name.len()));
+            md.push_str(&format!("{}{}# {}\n", full_name, padding, desc));
         }
         md.push_str("```\n");
 
@@ -1538,8 +1825,8 @@ mod tests {
 
     #[test]
     fn infer_unknown_script_shows_command() {
-        let result = infer_script_description("custom", "node scripts/custom.js");
-        assert!(result.contains("node scripts/custom.js"));
+        let result = infer_script_description("custom", "some-obscure-tool --flag");
+        assert!(result.contains("some-obscure-tool"));
     }
 
     #[test]
@@ -1719,7 +2006,10 @@ mod tests {
         let dirs = detect_key_directories(dir.path());
         let found = dirs.iter().find(|(p, _)| p == "src/components");
         assert!(found.is_some());
-        assert!(found.unwrap().1.contains("2"));
+        let desc = &found.unwrap().1;
+        // Now shows component names instead of just counts
+        assert!(desc.contains("Bar"), "Should list Bar by name");
+        assert!(desc.contains("Foo"), "Should list Foo by name");
     }
 
     #[test]
@@ -2153,6 +2443,8 @@ dependencies = ["fastapi", "sqlalchemy", "pytest"]
             architecture_notes: vec![],
             has_monorepo: false,
             package_manager: None,
+            ui_library: None,
+            key_files: vec![],
         };
 
         let md = generate_claude_md(&analysis);
@@ -2188,6 +2480,8 @@ dependencies = ["fastapi", "sqlalchemy", "pytest"]
             architecture_notes: vec!["Next.js App Router with server components".to_string()],
             has_monorepo: false,
             package_manager: Some("pnpm".to_string()),
+            ui_library: None,
+            key_files: vec![],
         };
 
         let md = generate_claude_md(&analysis);
@@ -2228,6 +2522,8 @@ dependencies = ["fastapi", "sqlalchemy", "pytest"]
             architecture_notes: vec![],
             has_monorepo: false,
             package_manager: None,
+            ui_library: None,
+            key_files: vec![],
         };
 
         let md = generate_claude_md(&analysis);
@@ -2262,6 +2558,8 @@ dependencies = ["fastapi", "sqlalchemy", "pytest"]
             architecture_notes: vec![],
             has_monorepo: false,
             package_manager: None,
+            ui_library: None,
+            key_files: vec![],
         };
 
         let md = generate_claude_md(&analysis);
@@ -2374,5 +2672,707 @@ dependencies = ["fastapi", "sqlalchemy", "pytest"]
 
         let analysis = analyze_project(dir.path());
         assert_eq!(analysis.css_framework, Some("Material UI".to_string()));
+    }
+
+    // ── shadcn/ui detection ──
+
+    #[test]
+    fn detect_shadcn_ui() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": { "react": "19.0.0" },
+            "devDependencies": { "tailwindcss": "4.0.0" }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("components.json"), "{}").unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("shadcn/ui".to_string()));
+        assert!(analysis.architecture_notes.iter().any(|n| n.contains("shadcn/ui")));
+    }
+
+    // ── Component name listing ──
+
+    #[test]
+    fn describe_directory_lists_names() {
+        let dir = temp_dir();
+        let comps = dir.path().join("src/components");
+        std::fs::create_dir_all(&comps).unwrap();
+        std::fs::write(comps.join("Button.tsx"), "").unwrap();
+        std::fs::write(comps.join("Modal.tsx"), "").unwrap();
+        std::fs::create_dir(comps.join("ui")).unwrap();
+        std::fs::write(comps.join("ui/dialog.tsx"), "").unwrap();
+
+        let desc = describe_directory_contents(&comps, 10);
+        assert!(desc.contains("Button"), "Should list Button component");
+        assert!(desc.contains("Modal"), "Should list Modal component");
+        assert!(desc.contains("ui"), "Should list ui subdirectory");
+    }
+
+    #[test]
+    fn describe_directory_truncates_long_lists() {
+        let dir = temp_dir();
+        let comps = dir.path().join("src/components");
+        std::fs::create_dir_all(&comps).unwrap();
+        for i in 0..15 {
+            std::fs::write(comps.join(format!("Component{}.tsx", i)), "").unwrap();
+        }
+
+        let desc = describe_directory_contents(&comps, 5);
+        assert!(desc.contains("and 10 more"), "Should truncate and show 'and N more'");
+    }
+
+    #[test]
+    fn describe_directory_empty() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.path().join("empty")).unwrap();
+
+        let desc = describe_directory_contents(&dir.path().join("empty"), 10);
+        assert!(desc.is_empty());
+    }
+
+    #[test]
+    fn describe_directory_strips_extensions() {
+        let dir = temp_dir();
+        let d = dir.path().join("hooks");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("use-mobile.tsx"), "").unwrap();
+        std::fs::write(d.join("use-toast.ts"), "").unwrap();
+
+        let desc = describe_directory_contents(&d, 10);
+        assert!(desc.contains("use-mobile"));
+        assert!(desc.contains("use-toast"));
+        assert!(!desc.contains(".tsx"), "Should strip .tsx extension");
+        assert!(!desc.contains(".ts"), "Should strip .ts extension");
+    }
+
+    // ── Compound script names ──
+
+    #[test]
+    fn infer_build_dev_script() {
+        let desc = infer_script_description("build:dev", "vite build --mode development");
+        assert!(desc.contains("Development build"));
+    }
+
+    #[test]
+    fn infer_build_prod_script() {
+        assert!(infer_script_description("build:prod", "vite build").contains("Production build"));
+    }
+
+    #[test]
+    fn infer_build_watch_script() {
+        assert!(infer_script_description("build:watch", "tsc -w").contains("watch mode"));
+    }
+
+    #[test]
+    fn infer_build_analyze_script() {
+        assert!(
+            infer_script_description("build:analyze", "webpack --analyze")
+                .contains("bundle analysis")
+        );
+    }
+
+    #[test]
+    fn infer_test_coverage_script() {
+        let desc = infer_script_description("test:coverage", "vitest --coverage");
+        assert!(desc.contains("coverage"));
+    }
+
+    #[test]
+    fn infer_test_watch_script() {
+        assert!(
+            infer_script_description("test:watch", "vitest --watch").contains("watch mode")
+        );
+    }
+
+    #[test]
+    fn infer_test_ci_script() {
+        assert!(infer_script_description("test:ci", "vitest run").contains("CI mode"));
+    }
+
+    #[test]
+    fn infer_lint_fix_script() {
+        let desc = infer_script_description("lint:fix", "eslint --fix .");
+        assert!(desc.contains("auto-fix"));
+    }
+
+    #[test]
+    fn infer_lint_css_script() {
+        assert!(
+            infer_script_description("lint:css", "stylelint **/*.css").contains("stylesheets")
+        );
+    }
+
+    #[test]
+    fn infer_dev_variant_script() {
+        let desc = infer_script_description("dev:debug", "node --inspect");
+        assert!(desc.contains("dev server"));
+        assert!(desc.contains("debug"));
+    }
+
+    #[test]
+    fn infer_generate_variant_script() {
+        let desc = infer_script_description("generate:types", "openapi-typescript");
+        assert!(desc.contains("Generate"));
+        assert!(desc.contains("types"));
+    }
+
+    #[test]
+    fn infer_docker_variant_script() {
+        let desc = infer_script_description("docker:build", "docker build .");
+        assert!(desc.contains("Docker"));
+        assert!(desc.contains("build"));
+    }
+
+    #[test]
+    fn infer_vite_command() {
+        assert!(infer_script_description("x", "vite").contains("Vite dev server"));
+    }
+
+    #[test]
+    fn infer_vite_build_command() {
+        assert!(infer_script_description("x", "vite build").contains("Vite build"));
+    }
+
+    #[test]
+    fn infer_next_command() {
+        assert!(infer_script_description("x", "next dev").contains("Next.js"));
+    }
+
+    #[test]
+    fn infer_node_command() {
+        assert_eq!(infer_script_description("x", "node server.js"), "Run script");
+    }
+
+    #[test]
+    fn infer_concurrently_command() {
+        assert!(
+            infer_script_description("x", "concurrently 'vite' 'tsc -w'")
+                .contains("multiple tasks")
+        );
+    }
+
+    // ── Key file detection ──
+
+    #[test]
+    fn detect_key_files_ai_provider() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("src/lib/ai-providers.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/lib/utils.ts"), "").unwrap();
+
+        let files = detect_key_files(dir.path());
+        assert!(files.iter().any(|(p, d)| p.contains("ai-providers") && d.contains("AI")));
+        assert!(files.iter().any(|(p, _)| p.contains("utils")));
+    }
+
+    #[test]
+    fn detect_key_files_schema_detector() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("src/lib/schema-detector.ts"), "").unwrap();
+
+        let files = detect_key_files(dir.path());
+        assert!(files.iter().any(|(p, d)| p.contains("schema-detector") && d.contains("Schema")));
+    }
+
+    #[test]
+    fn detect_key_files_known_candidates() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("src/lib/prisma.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/lib/auth.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/lib/stripe.ts"), "").unwrap();
+
+        let files = detect_key_files(dir.path());
+        assert!(files.iter().any(|(p, _)| p.contains("prisma")));
+        assert!(files.iter().any(|(p, _)| p.contains("auth")));
+        assert!(files.iter().any(|(p, _)| p.contains("stripe")));
+    }
+
+    #[test]
+    fn detect_key_files_no_duplicates() {
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::write(dir.path().join("src/lib/utils.ts"), "").unwrap();
+
+        let files = detect_key_files(dir.path());
+        let utils_count = files.iter().filter(|(p, _)| p.contains("utils")).count();
+        assert_eq!(utils_count, 1, "utils.ts should appear exactly once");
+    }
+
+    // ── Router detection ──
+
+    #[test]
+    fn detect_tanstack_router() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "@tanstack/react-router": "^1.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert!(analysis.router_type.as_ref().unwrap().contains("TanStack"));
+    }
+
+    #[test]
+    fn detect_react_router_v7() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "react-router-dom": "^7.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        let router = analysis.router_type.as_ref().unwrap();
+        assert!(router.contains("React Router"));
+        assert!(router.contains("7"));
+    }
+
+    #[test]
+    fn detect_react_router_plain() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "react-router-dom": "^5.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.router_type, Some("React Router".to_string()));
+    }
+
+    #[test]
+    fn detect_wouter() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "wouter": "^3.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.router_type, Some("Wouter".to_string()));
+    }
+
+    #[test]
+    fn nextjs_router_takes_priority() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "next": "15.0.0",
+                "react-router-dom": "7.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+
+        let analysis = analyze_project(dir.path());
+        // Next.js App Router should take priority, not React Router
+        assert_eq!(analysis.router_type, Some("App Router".to_string()));
+    }
+
+    // ── UI library detection ──
+
+    #[test]
+    fn detect_radix_ui() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "@radix-ui/react-dialog": "^1.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("Radix UI".to_string()));
+    }
+
+    #[test]
+    fn detect_mantine() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "@mantine/core": "^7.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("Mantine".to_string()));
+    }
+
+    #[test]
+    fn detect_ant_design() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": { "react": "19.0.0", "antd": "^5.0.0" }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("Ant Design".to_string()));
+    }
+
+    #[test]
+    fn detect_headless_ui() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": { "react": "19.0.0", "@headlessui/react": "^2.0.0" }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("Headless UI".to_string()));
+    }
+
+    #[test]
+    fn detect_daisyui() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "devDependencies": { "daisyui": "^4.0.0", "tailwindcss": "^3.0.0" }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("daisyUI".to_string()));
+    }
+
+    #[test]
+    fn shadcn_takes_priority_over_radix() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "@radix-ui/react-dialog": "^1.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+        // shadcn/ui projects have components.json AND radix primitives
+        std::fs::write(dir.path().join("components.json"), "{}").unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert_eq!(analysis.ui_library, Some("shadcn/ui".to_string()));
+    }
+
+    // ── TanStack Query detection ──
+
+    #[test]
+    fn detect_tanstack_query() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "dependencies": {
+                "react": "19.0.0",
+                "@tanstack/react-query": "^5.0.0"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+
+        let analysis = analyze_project(dir.path());
+        assert!(analysis.architecture_notes.iter().any(|n| n.contains("TanStack Query")));
+    }
+
+    // ── Enriched description ──
+
+    #[test]
+    fn generate_enriches_short_description() {
+        let analysis = ProjectAnalysis {
+            name: "app".to_string(),
+            description: Some("A translation tool".to_string()),
+            framework: Some("React + Vite".to_string()),
+            framework_version: None,
+            language: "TypeScript/JavaScript".to_string(),
+            router_type: None,
+            css_framework: None,
+            database: None,
+            orm: None,
+            auth: None,
+            test_framework: None,
+            state_management: None,
+            deployment: None,
+            scripts: vec![],
+            env_vars: vec![],
+            directory_tree: String::new(),
+            key_directories: vec![],
+            conventions: vec![],
+            architecture_notes: vec![],
+            has_monorepo: false,
+            package_manager: None,
+            ui_library: None,
+            key_files: vec![],
+        };
+
+        let md = generate_claude_md(&analysis);
+        assert!(md.contains("A translation tool"));
+        assert!(md.contains("Built with React + Vite"));
+    }
+
+    #[test]
+    fn generate_does_not_enrich_long_description() {
+        let long_desc = "This is a very detailed description of the project that is longer than 80 characters and provides enough context already.";
+        let analysis = ProjectAnalysis {
+            name: "app".to_string(),
+            description: Some(long_desc.to_string()),
+            framework: Some("Next.js".to_string()),
+            framework_version: None,
+            language: "TypeScript/JavaScript".to_string(),
+            router_type: None,
+            css_framework: None,
+            database: None,
+            orm: None,
+            auth: None,
+            test_framework: None,
+            state_management: None,
+            deployment: None,
+            scripts: vec![],
+            env_vars: vec![],
+            directory_tree: String::new(),
+            key_directories: vec![],
+            conventions: vec![],
+            architecture_notes: vec![],
+            has_monorepo: false,
+            package_manager: None,
+            ui_library: None,
+            key_files: vec![],
+        };
+
+        let md = generate_claude_md(&analysis);
+        assert!(md.contains(long_desc));
+        assert!(!md.contains("Built with"));
+    }
+
+    // ── UI library in output ──
+
+    #[test]
+    fn generate_includes_ui_library() {
+        let analysis = ProjectAnalysis {
+            name: "app".to_string(),
+            description: None,
+            framework: None,
+            framework_version: None,
+            language: "TypeScript/JavaScript".to_string(),
+            router_type: None,
+            css_framework: None,
+            database: None,
+            orm: None,
+            auth: None,
+            test_framework: None,
+            state_management: None,
+            deployment: None,
+            scripts: vec![],
+            env_vars: vec![],
+            directory_tree: String::new(),
+            key_directories: vec![],
+            conventions: vec![],
+            architecture_notes: vec![],
+            has_monorepo: false,
+            package_manager: None,
+            ui_library: Some("shadcn/ui".to_string()),
+            key_files: vec![],
+        };
+
+        let md = generate_claude_md(&analysis);
+        assert!(md.contains("**UI Components:** shadcn/ui"));
+    }
+
+    // ── Key files in output ──
+
+    #[test]
+    fn generate_includes_key_files() {
+        let analysis = ProjectAnalysis {
+            name: "app".to_string(),
+            description: None,
+            framework: None,
+            framework_version: None,
+            language: "TypeScript/JavaScript".to_string(),
+            router_type: None,
+            css_framework: None,
+            database: None,
+            orm: None,
+            auth: None,
+            test_framework: None,
+            state_management: None,
+            deployment: None,
+            scripts: vec![],
+            env_vars: vec![],
+            directory_tree: "src/".to_string(),
+            key_directories: vec![],
+            conventions: vec![],
+            architecture_notes: vec![],
+            has_monorepo: false,
+            package_manager: None,
+            ui_library: None,
+            key_files: vec![
+                ("src/lib/utils.ts".to_string(), "Shared utility functions".to_string()),
+                ("src/lib/api.ts".to_string(), "API client".to_string()),
+            ],
+        };
+
+        let md = generate_claude_md(&analysis);
+        assert!(md.contains("Key files:"));
+        assert!(md.contains("`src/lib/utils.ts` — Shared utility functions"));
+        assert!(md.contains("`src/lib/api.ts` — API client"));
+    }
+
+    // ── Full A+ quality test ──
+
+    #[test]
+    fn generate_a_plus_quality_vite_react() {
+        let dir = temp_dir();
+        let pkg = serde_json::json!({
+            "name": "lang-flux-translate",
+            "description": "Batch translate language files using AI",
+            "scripts": {
+                "dev": "vite",
+                "build": "vite build",
+                "build:dev": "vite build --mode development",
+                "lint": "eslint .",
+                "preview": "vite preview"
+            },
+            "dependencies": {
+                "react": "^18.3.1",
+                "react-dom": "^18.3.1"
+            },
+            "devDependencies": {
+                "vite": "^5.4.19",
+                "tailwindcss": "^3.4.17"
+            }
+        });
+        std::fs::write(
+            dir.path().join("package.json"),
+            serde_json::to_string_pretty(&pkg).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("bun.lockb"), "").unwrap();
+        std::fs::write(dir.path().join("components.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("eslint.config.js"), "").unwrap();
+        std::fs::write(
+            dir.path().join("tsconfig.json"),
+            r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("vite.config.ts"), "").unwrap();
+
+        // Create realistic directory structure
+        std::fs::create_dir_all(dir.path().join("src/components")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/hooks")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/lib")).unwrap();
+        std::fs::create_dir_all(dir.path().join("src/pages")).unwrap();
+        std::fs::write(dir.path().join("src/lib/ai-providers.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/lib/schema-detector.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/lib/utils.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/hooks/use-mobile.tsx"), "").unwrap();
+        std::fs::write(dir.path().join("src/hooks/use-toast.ts"), "").unwrap();
+        std::fs::write(dir.path().join("src/pages/Index.tsx"), "").unwrap();
+
+        let analysis = analyze_project(dir.path());
+        let md = generate_claude_md(&analysis);
+
+        // A+ quality checks
+        assert!(md.contains("shadcn/ui"), "Must detect shadcn/ui from components.json");
+        assert!(md.contains("bun"), "Must detect bun as package manager");
+        assert!(md.contains("React 18.3.1"), "Must include React version");
+        assert!(md.contains("Vite 5.4.19"), "Must include Vite version");
+        assert!(md.contains("Tailwind CSS 3.4.17"), "Must include Tailwind version");
+        assert!(md.contains("ai-providers"), "Must list key lib files by name");
+        assert!(md.contains("schema-detector"), "Must list key lib files by name");
+        assert!(md.contains("use-mobile"), "Must list hooks by name");
+        assert!(md.contains("use-toast"), "Must list hooks by name");
+        assert!(md.contains("Development build"), "build:dev must have good description");
+        assert!(md.contains("@/*"), "Must detect import aliases");
+        // Check for empty inline backtick pairs (`` ` `` ` ``) but not triple backtick fences
+        let has_empty_backtick = md
+            .lines()
+            .any(|line| line.contains("``") && !line.trim().starts_with("```"));
+        assert!(!has_empty_backtick, "Must not have empty backtick pairs");
+    }
+
+    // ── Key directories show detailed contents ──
+
+    #[test]
+    fn key_directories_show_component_names() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        let comps = dir.path().join("src/components");
+        std::fs::create_dir_all(&comps).unwrap();
+        std::fs::write(comps.join("Header.tsx"), "").unwrap();
+        std::fs::write(comps.join("Footer.tsx"), "").unwrap();
+        std::fs::create_dir(comps.join("ui")).unwrap();
+        std::fs::write(comps.join("ui/button.tsx"), "").unwrap();
+
+        let analysis = analyze_project(dir.path());
+        let comp_dir = analysis
+            .key_directories
+            .iter()
+            .find(|(p, _)| p == "src/components");
+        assert!(comp_dir.is_some());
+        let desc = &comp_dir.unwrap().1;
+        assert!(desc.contains("Header"), "Should list Header by name");
+        assert!(desc.contains("Footer"), "Should list Footer by name");
+        assert!(desc.contains("ui"), "Should list ui subdirectory");
     }
 }

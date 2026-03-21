@@ -88,6 +88,8 @@ describe("ProjectAnalysis type", () => {
       architecture_notes: ["App Router"],
       has_monorepo: false,
       package_manager: "pnpm",
+      ui_library: "shadcn/ui",
+      key_files: [["src/lib/utils.ts", "Shared utilities"]],
     };
     expect(analysis.name).toBe("test");
     expect(analysis.scripts).toHaveLength(1);
@@ -116,6 +118,8 @@ describe("ProjectAnalysis type", () => {
       architecture_notes: [],
       has_monorepo: false,
       package_manager: null,
+      ui_library: null,
+      key_files: [],
     };
     expect(analysis.framework).toBeNull();
     expect(analysis.scripts).toHaveLength(0);

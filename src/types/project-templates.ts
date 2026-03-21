@@ -20,6 +20,8 @@ export interface ProjectAnalysis {
   architecture_notes: string[];
   has_monorepo: boolean;
   package_manager: string | null;
+  ui_library: string | null;
+  key_files: [string, string][];
 }
 
 export type TemplateCategory = "frontend" | "full-stack" | "backend" | "mobile" | "static" | "ai";
