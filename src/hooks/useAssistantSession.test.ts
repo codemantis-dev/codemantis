@@ -33,6 +33,7 @@ const {
 
 vi.mock("../lib/assistant-event-handler", () => ({
   handleAssistantChatEvent: mockHandleAssistantChatEvent,
+  cleanupAssistantBuffers: vi.fn(),
 }));
 
 vi.mock("../lib/event-classifier", () => ({

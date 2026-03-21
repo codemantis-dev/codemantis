@@ -116,5 +116,49 @@ export function handleAssistantChatEvent(sessionId: string, event: FrontendEvent
       });
       break;
     }
+
+    case "process_exited": {
+      // Safety net: if turn_complete already cleared busy/streaming, this is a no-op.
+      // Only act if the session is still stuck (e.g., process crashed before emitting result).
+      const wasBusy = store.busy.get(sessionId) ?? false;
+      const wasStreaming = store.streaming.get(sessionId)?.isStreaming ?? false;
+
+      if (wasBusy || wasStreaming) {
+        console.warn("[assistant:process_exited] Session still busy/streaming — recovering:", sessionId);
+        store.setBusy(sessionId, false);
+        const exitFrame = pendingFrames.get(sessionId);
+        if (exitFrame) cancelAnimationFrame(exitFrame);
+        flushBuffer(sessionId);
+        if (wasStreaming) {
+          store.finalizeStreaming(sessionId);
+        }
+      }
+
+      // Non-zero exit: add an informational error so the user knows what happened
+      if (event.exit_code !== 0) {
+        const stderrInfo = event.stderr_tail
+          ? `\n\n\`\`\`\n${event.stderr_tail}\n\`\`\``
+          : "";
+        store.addMessage(sessionId, {
+          id: nextAssistantMessageId(),
+          role: "assistant",
+          content:
+            `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
+            `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
+          timestamp: now,
+          activityIds: [],
+          isStreaming: false,
+        });
+      }
+      break;
+    }
   }
+}
+
+/** Clean up streaming buffers for an assistant session (cancel pending RAF frames, delete entries). */
+export function cleanupAssistantBuffers(sessionId: string): void {
+  const frame = pendingFrames.get(sessionId);
+  if (frame) cancelAnimationFrame(frame);
+  pendingFrames.delete(sessionId);
+  streamingBuffers.delete(sessionId);
 }

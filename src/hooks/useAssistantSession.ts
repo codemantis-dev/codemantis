@@ -17,7 +17,7 @@ import {
   interruptSession,
   cancelAssistantChat,
 } from "../lib/tauri-commands";
-import { handleAssistantChatEvent } from "../lib/assistant-event-handler";
+import { handleAssistantChatEvent, cleanupAssistantBuffers } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
 import { fileToBase64 } from "../lib/file-utils";
 import { handleError } from "../lib/error-handler";
@@ -111,6 +111,9 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
     if (!instance) return;
+
+    // Guard against concurrent sends (UI checks busy, but retryLastMessage and other paths may not)
+    if (store.busy.get(sessionId)) return;
 
     // For Claude Code with attachments, prepend file references
     let finalPrompt = prompt;
@@ -210,6 +213,18 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
 
+    // Cancel in-flight API stream if busy (prevents orphaned backend streams)
+    if (instance && instance.provider !== "claude-code" && store.busy.get(sessionId)) {
+      cancelAssistantChat(sessionId).catch((e) =>
+        console.error("[assistant] Failed to cancel API stream on close:", e)
+      );
+      store.setBusy(sessionId, false);
+      const streaming = store.streaming.get(sessionId);
+      if (streaming?.isStreaming) {
+        store.finalizeStreaming(sessionId);
+      }
+    }
+
     const listeners = assistantListeners.get(sessionId);
     if (listeners) {
       for (const unlisten of listeners) {
@@ -226,6 +241,9 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       }
     }
 
+    // Clean up streaming buffers
+    cleanupAssistantBuffers(sessionId);
+
     store.removeAssistant(projectPath, sessionId);
     // Clean up assistant input draft
     const { assistantInputDrafts } = await import("../lib/input-drafts");
@@ -237,6 +255,13 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const assistants = store.getAssistants(projectPath);
 
     for (const asst of assistants) {
+      // Cancel in-flight API streams
+      if (asst.provider !== "claude-code" && store.busy.get(asst.id)) {
+        cancelAssistantChat(asst.id).catch((e) =>
+          console.error("[assistant] Failed to cancel API stream on close:", e)
+        );
+      }
+
       const listeners = assistantListeners.get(asst.id);
       if (listeners) {
         for (const unlisten of listeners) {
@@ -251,6 +276,9 @@ export function useAssistantSession(): UseAssistantSessionReturn {
           console.error("Failed to close assistant session:", e);
         }
       }
+
+      // Clean up streaming buffers
+      cleanupAssistantBuffers(asst.id);
     }
 
     store.clearProject(projectPath);
@@ -326,6 +354,17 @@ async function sendApiMessage(
   });
   store.startStreaming(sessionId, assistantMsgId);
 
+  // Safety-net timeout: if no terminal event arrives within 120s, force-clear busy
+  const API_STREAM_TIMEOUT_MS = 120_000;
+  let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  function clearStreamTimeout(): void {
+    if (streamTimeoutId !== undefined) {
+      clearTimeout(streamTimeoutId);
+      streamTimeoutId = undefined;
+    }
+  }
+
   // Set up stream listener before invoking
   const unlisten = await listenAssistantStream(sessionId, (event) => {
     const s = useAssistantStore.getState();
@@ -334,6 +373,7 @@ async function sendApiMessage(
         s.appendStreamingContent(sessionId, event.text ?? "");
         break;
       case "done":
+        clearStreamTimeout();
         s.finalizeStreaming(sessionId, event.content);
         s.setBusy(sessionId, false);
         if (event.inputTokens != null && event.outputTokens != null) {
@@ -342,11 +382,13 @@ async function sendApiMessage(
         unlisten();
         break;
       case "cancelled":
+        clearStreamTimeout();
         s.finalizeStreaming(sessionId, event.content);
         s.setBusy(sessionId, false);
         unlisten();
         break;
       case "error":
+        clearStreamTimeout();
         s.finalizeStreaming(sessionId);
         s.setBusy(sessionId, false);
         s.addMessage(sessionId, {
@@ -362,6 +404,25 @@ async function sendApiMessage(
         break;
     }
   });
+
+  streamTimeoutId = setTimeout(() => {
+    const s = useAssistantStore.getState();
+    if (s.busy.get(sessionId)) {
+      console.warn("[assistant:api-timeout] Stream timed out after 120s:", sessionId);
+      s.finalizeStreaming(sessionId);
+      s.setBusy(sessionId, false);
+      s.addMessage(sessionId, {
+        id: `asst-timeout-${Date.now()}`,
+        role: "assistant",
+        content: "**Error:** Response timed out after 120 seconds. Please try again.",
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+        retryable: true,
+      });
+      unlisten();
+    }
+  }, API_STREAM_TIMEOUT_MS);
 
   // Invoke the backend streaming command
   await sendAssistantChat({
