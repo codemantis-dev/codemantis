@@ -65,6 +65,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   claudeBinaryOverride: null,
   onboardingCompleted: false,
   apiKeyBannerDismissed: false,
+  lastCloneDirectory: null,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

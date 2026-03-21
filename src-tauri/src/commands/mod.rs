@@ -2,6 +2,8 @@ pub mod api_logs;
 pub mod assistant_chat;
 pub mod attachments;
 pub mod changelog;
+pub mod claude_md;
+pub mod clone;
 pub mod files;
 pub mod git;
 pub mod help;

@@ -90,6 +90,9 @@ export interface AppSettings {
 
   // API key banner
   apiKeyBannerDismissed: boolean;
+
+  // Clone from GitHub
+  lastCloneDirectory: string | null;
 }
 
 export { getDefaultModelPricing };

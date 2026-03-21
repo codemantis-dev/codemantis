@@ -90,6 +90,10 @@ pub struct AppSettings {
     // --- API key banner ---
     #[serde(default)]
     pub api_key_banner_dismissed: bool,
+
+    // --- Clone from GitHub ---
+    #[serde(default)]
+    pub last_clone_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +224,7 @@ impl Default for AppSettings {
             claude_binary_override: None,
             onboarding_completed: false,
             api_key_banner_dismissed: false,
+            last_clone_directory: None,
         }
     }
 }

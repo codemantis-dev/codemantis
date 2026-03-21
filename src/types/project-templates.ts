@@ -1,3 +1,27 @@
+export interface ProjectAnalysis {
+  name: string;
+  description: string | null;
+  framework: string | null;
+  framework_version: string | null;
+  language: string;
+  router_type: string | null;
+  css_framework: string | null;
+  database: string | null;
+  orm: string | null;
+  auth: string | null;
+  test_framework: string | null;
+  state_management: string | null;
+  deployment: string | null;
+  scripts: [string, string][];
+  env_vars: string[];
+  directory_tree: string;
+  key_directories: [string, string][];
+  conventions: string[];
+  architecture_notes: string[];
+  has_monorepo: boolean;
+  package_manager: string | null;
+}
+
 export type TemplateCategory = "frontend" | "full-stack" | "backend" | "mobile" | "static" | "ai";
 export type ScaffoldType = "git-clone" | "cli";
 
@@ -116,4 +140,13 @@ export const CLI_SCAFFOLD_STEPS: readonly { step: ScaffoldStepName; label: strin
   { step: "verify", label: "Verifying project" },
   { step: "claude_md", label: "Setting up CLAUDE.md" },
   { step: "commit", label: "Finalizing project" },
+] as const;
+
+/** Steps displayed in the progress UI for clone-from-git operations */
+export const GIT_CLONE_FROM_URL_STEPS: readonly { step: ScaffoldStepName; label: string }[] = [
+  { step: "validate", label: "Validating environment" },
+  { step: "clone", label: "Cloning repository" },
+  { step: "install", label: "Installing dependencies" },
+  { step: "claude_md", label: "Generating CLAUDE.md" },
+  { step: "verify", label: "Verifying project" },
 ] as const;

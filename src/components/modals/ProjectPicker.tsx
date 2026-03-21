@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { LayoutGrid, FolderOpen, Clock, X } from "lucide-react";
+import { LayoutGrid, FolderOpen, Clock, GitBranch, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useUiStore, type ProjectPickerTab } from "../../stores/uiStore";
 import TemplatePicker from "./TemplatePicker";
+import CloneForm from "./CloneForm";
 import { getRecentProjects, addRecentProject } from "../../lib/recent-projects";
 
 const TAB_ITEMS: { id: ProjectPickerTab; label: string; icon: typeof LayoutGrid }[] = [
   { id: "templates", label: "Templates", icon: LayoutGrid },
   { id: "open", label: "Open Folder", icon: FolderOpen },
+  { id: "clone", label: "Clone", icon: GitBranch },
   { id: "recent", label: "Recent", icon: Clock },
 ];
 
@@ -72,6 +74,12 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
     setShowProjectPicker(false);
   };
 
+  const handleCloneComplete = (projectPath: string) => {
+    addRecentProject(projectPath);
+    onSelectProject(projectPath);
+    setShowProjectPicker(false);
+  };
+
   const folderName = projectPath
     ? projectPath.split("/").filter(Boolean).pop()
     : "";
@@ -91,7 +99,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           {/* Header with tabs */}
           <div className="flex items-center justify-between px-5 pt-5 pb-0">
             <Dialog.Title className="text-lg text-text-primary font-medium">
-              {activeTab === "templates" ? "New Project" : activeTab === "open" ? "Open Project" : "Recent Projects"}
+              {activeTab === "templates" ? "New Project" : activeTab === "open" ? "Open Project" : activeTab === "clone" ? "Clone from Git" : "Recent Projects"}
             </Dialog.Title>
             <Dialog.Close asChild>
               <button className="p-1 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors">
@@ -101,7 +109,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           </div>
 
           <Dialog.Description className="sr-only">
-            Create a new project from a template or open an existing folder
+            Create a new project from a template, open an existing folder, or clone from Git
           </Dialog.Description>
 
           {/* Tab bar */}
@@ -177,6 +185,15 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                 {error && (
                   <p className="mt-2 text-red text-label">{error}</p>
                 )}
+              </div>
+            )}
+
+            {activeTab === "clone" && (
+              <div>
+                <CloneForm
+                  onBack={() => setActiveTab("templates")}
+                  onCloned={handleCloneComplete}
+                />
               </div>
             )}
 

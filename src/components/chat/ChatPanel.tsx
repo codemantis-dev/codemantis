@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, Sparkles, X } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useChatIncrementalLoad } from "../../hooks/useChatIncrementalLoad";
+import { readFileContent, generateClaudeMd } from "../../lib/tauri-commands";
+import { showToast } from "../../stores/toastStore";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
@@ -22,6 +24,48 @@ export default function ChatPanel() {
       console.error("Failed to restart session:", e)
     );
   }, [session, startSession]);
+
+  // CLAUDE.md suggestion banner
+  const [showClaudeMdBanner, setShowClaudeMdBanner] = useState(false);
+  const [generatingClaudeMd, setGeneratingClaudeMd] = useState(false);
+  const claudeMdCheckedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const projectPath = session?.project_path;
+    if (!projectPath) {
+      setShowClaudeMdBanner(false);
+      claudeMdCheckedRef.current = null;
+      return;
+    }
+    // Only check once per project path
+    if (claudeMdCheckedRef.current === projectPath) return;
+    claudeMdCheckedRef.current = projectPath;
+
+    const claudeMdPath = `${projectPath}/CLAUDE.md`;
+    readFileContent(claudeMdPath)
+      .then(() => setShowClaudeMdBanner(false))
+      .catch(() => setShowClaudeMdBanner(true));
+  }, [session?.project_path]);
+
+  const handleGenerateClaudeMd = useCallback(async () => {
+    if (!session) return;
+    setGeneratingClaudeMd(true);
+    try {
+      await generateClaudeMd(session.project_path);
+      showToast("CLAUDE.md generated — Claude Code will use it in your next session", "success");
+      setShowClaudeMdBanner(false);
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("already exists")) {
+        showToast("CLAUDE.md already exists", "info");
+        setShowClaudeMdBanner(false);
+      } else {
+        showToast("Failed to generate CLAUDE.md", "error");
+      }
+    } finally {
+      setGeneratingClaudeMd(false);
+    }
+  }, [session]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -117,6 +161,37 @@ export default function ChatPanel() {
                 <p className="text-text-dim text-ui">
                   Send a message to start the conversation
                 </p>
+              </div>
+            )}
+
+            {/* CLAUDE.md suggestion banner */}
+            {showClaudeMdBanner && (
+              <div className="mb-4 px-4 py-3 rounded-lg border border-accent/20 bg-accent/5 flex items-center gap-3">
+                <Sparkles size={16} className="text-accent shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-text-secondary text-ui">
+                    This project doesn&apos;t have a CLAUDE.md file.
+                  </p>
+                  <p className="text-text-dim text-label">
+                    Claude Code works better with one.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleGenerateClaudeMd}
+                    disabled={generatingClaudeMd}
+                    className="px-3 py-1.5 rounded-md bg-accent text-white text-label font-medium hover:bg-accent-light disabled:opacity-60 transition-colors"
+                  >
+                    {generatingClaudeMd ? "Generating..." : "Generate CLAUDE.md"}
+                  </button>
+                  <button
+                    onClick={() => setShowClaudeMdBanner(false)}
+                    className="p-1 rounded-md text-text-ghost hover:text-text-dim transition-colors"
+                    title="Dismiss"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
             )}
 

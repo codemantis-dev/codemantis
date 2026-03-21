@@ -3,7 +3,7 @@ import type { ActivityEntry } from "../types/activity";
 import type { SettingsTab } from "../components/modals/settings/constants";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
-export type ProjectPickerTab = "templates" | "open" | "recent";
+export type ProjectPickerTab = "templates" | "open" | "recent" | "clone";
 export type ActivityFeedScope = "session" | "project";
 
 export interface ImagePreview {

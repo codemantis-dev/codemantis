@@ -103,16 +103,16 @@ struct ScaffoldProgress {
 }
 
 /// Captured output from running a command
-struct CmdOutput {
-    success: bool,
-    stdout: String,
-    stderr: String,
-    exit_code: Option<i32>,
+pub(crate) struct CmdOutput {
+    pub(crate) success: bool,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) exit_code: Option<i32>,
 }
 
 impl CmdOutput {
     /// Combined stderr + stdout, truncated to last N lines
-    fn summary(&self, max_lines: usize) -> String {
+    pub(crate) fn summary(&self, max_lines: usize) -> String {
         let mut parts = vec![];
         let stderr = self.stderr.trim();
         let stdout = self.stdout.trim();
@@ -135,7 +135,7 @@ impl CmdOutput {
         }
     }
 
-    fn error_msg(&self, context: &str) -> String {
+    pub(crate) fn error_msg(&self, context: &str) -> String {
         format!(
             "{} (exit code {})",
             context,
@@ -146,11 +146,11 @@ impl CmdOutput {
 
 // ── Helpers ──
 
-fn emit_progress(app: &AppHandle, step: &str, status: &str, error: Option<&str>) {
+pub(crate) fn emit_progress(app: &AppHandle, step: &str, status: &str, error: Option<&str>) {
     emit_progress_detail(app, step, status, error, None);
 }
 
-fn emit_progress_detail(
+pub(crate) fn emit_progress_detail(
     app: &AppHandle,
     step: &str,
     status: &str,
@@ -192,7 +192,7 @@ fn load_claude_md_template(app: &AppHandle, template_id: &str) -> Result<String,
         .map_err(|e| format!("Failed to read CLAUDE.md template for {}: {}", template_id, e))
 }
 
-async fn run_command(
+pub(crate) async fn run_command(
     cmd: &str,
     args: &[&str],
     cwd: &Path,
@@ -263,7 +263,7 @@ fn validate_shell_command(command_str: &str) -> Result<(), String> {
     ))
 }
 
-async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<CmdOutput, String> {
+pub(crate) async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<CmdOutput, String> {
     validate_shell_command(command_str)?;
 
     let shell = if cfg!(target_os = "windows") {
@@ -301,7 +301,7 @@ async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) -> Result<C
     })
 }
 
-fn validate_project_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_project_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Project name cannot be empty".to_string());
     }
@@ -545,7 +545,7 @@ fn write_claude_md(
 }
 
 /// Validate prerequisites: project name, paths, required CLI tools
-fn validate_prerequisites(
+pub(crate) fn validate_prerequisites(
     app: &AppHandle,
     project_name: &str,
     parent_dir: &Path,

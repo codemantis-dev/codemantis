@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, FolderOpen } from "lucide-react";
+import { Plus, FolderOpen, GitBranch } from "lucide-react";
 import { checkClaudeStatus, setClaudeBinaryOverride, cleanupOldAttachments, type ClaudeStatus } from "./lib/tauri-commands";
 import { useClaudeSession } from "./hooks/useClaudeSession";
 import { useSessionStore } from "./stores/sessionStore";
@@ -131,6 +131,10 @@ export default function App() {
           handleGetStarted(true);
           openProjectPicker("open");
         }}
+        onCloneRepo={() => {
+          handleGetStarted(true);
+          openProjectPicker("clone");
+        }}
         onNewProject={() => {
           handleGetStarted(true);
           openProjectPicker("templates");
@@ -172,8 +176,8 @@ export default function App() {
               <p className="text-text-ghost text-label mt-1">v{__APP_VERSION__}</p>
             </div>
 
-            {/* Two action cards */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
+            {/* Three action cards */}
+            <div className="grid grid-cols-3 gap-3 mb-6">
               <button
                 onClick={() => openProjectPicker("templates")}
                 className="px-4 py-5 rounded-xl border border-dashed border-border hover:border-accent/50 bg-bg-subtle hover:bg-bg-elevated transition-all text-center group"
@@ -184,6 +188,19 @@ export default function App() {
                 </span>
                 <span className="text-text-dim text-label">
                   Start from a template
+                </span>
+              </button>
+
+              <button
+                onClick={() => openProjectPicker("clone")}
+                className="px-4 py-5 rounded-xl border border-dashed border-border hover:border-accent/50 bg-bg-subtle hover:bg-bg-elevated transition-all text-center group"
+              >
+                <GitBranch size={22} className="mx-auto mb-2 text-text-ghost group-hover:text-accent transition-colors" />
+                <span className="text-text-primary text-ui font-medium block mb-0.5">
+                  Clone Repo
+                </span>
+                <span className="text-text-dim text-label">
+                  Clone from GitHub
                 </span>
               </button>
 

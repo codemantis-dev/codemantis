@@ -9,7 +9,7 @@ import type { GitStatusInfo } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
-import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult } from "../types/project-templates";
+import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult, ProjectAnalysis } from "../types/project-templates";
 
 // --- Startup ---
 
@@ -497,6 +497,38 @@ export function listenScaffoldProgress(
   return listen<ScaffoldProgressEvent>("scaffold-progress", (e) =>
     callback(e.payload)
   );
+}
+
+// --- Clone from Git ---
+
+export async function cloneFromGit(
+  repoUrl: string,
+  projectPath: string,
+  projectName: string,
+  installDeps: boolean,
+  generateClaudeMd: boolean,
+): Promise<ScaffoldResult> {
+  return invoke<ScaffoldResult>("clone_from_git", {
+    repoUrl,
+    projectPath,
+    projectName,
+    installDeps,
+    generateClaudeMd,
+  });
+}
+
+// --- CLAUDE.md Generation ---
+
+export async function analyzeProject(
+  projectPath: string,
+): Promise<ProjectAnalysis> {
+  return invoke<ProjectAnalysis>("analyze_project_cmd", { projectPath });
+}
+
+export async function generateClaudeMd(
+  projectPath: string,
+): Promise<string> {
+  return invoke<string>("generate_claude_md_cmd", { projectPath });
 }
 
 // --- Preview ---

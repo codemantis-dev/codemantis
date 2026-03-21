@@ -10,6 +10,7 @@ import {
   Sparkles,
   AlertTriangle,
   Search,
+  GitBranch,
 } from "lucide-react";
 import type { ClaudeStatus } from "../../lib/tauri-commands";
 
@@ -20,6 +21,7 @@ interface WelcomeScreenProps {
   onGetStarted: (skipFuture: boolean) => void;
   onOpenProject: () => void;
   onNewProject: () => void;
+  onCloneRepo: () => void;
   onOpenSettings: () => void;
   onSelectClaudeBinary: () => void;
 }
@@ -64,6 +66,7 @@ export default function WelcomeScreen({
   onGetStarted,
   onOpenProject,
   onNewProject,
+  onCloneRepo,
   onOpenSettings,
   onSelectClaudeBinary,
 }: WelcomeScreenProps) {
@@ -365,6 +368,41 @@ export default function WelcomeScreen({
                     </span>
                     <p className="text-text-dim" style={{ fontSize: "11px" }}>
                       Open an existing folder
+                    </p>
+                  </div>
+                  <ArrowRight
+                    size={14}
+                    className="text-text-ghost shrink-0 group-hover:text-text-dim transition-colors"
+                  />
+                </button>
+
+                {/* Clone from GitHub */}
+                <button
+                  onClick={onCloneRepo}
+                  disabled={!prerequisitesMet}
+                  className="flex items-center gap-3 px-4 py-3 transition-all text-left group"
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    opacity: prerequisitesMet ? 1 : 0.5,
+                    cursor: prerequisitesMet ? "pointer" : "not-allowed",
+                  }}
+                  title="Clone a Git repository"
+                >
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: "var(--accent-dim)" }}
+                  >
+                    <GitBranch size={14} className="text-accent" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span
+                      className="text-text-primary font-medium block"
+                      style={{ fontSize: "13px" }}
+                    >
+                      Clone from GitHub
+                    </span>
+                    <p className="text-text-dim" style={{ fontSize: "11px" }}>
+                      Clone a Git repository
                     </p>
                   </div>
                   <ArrowRight
