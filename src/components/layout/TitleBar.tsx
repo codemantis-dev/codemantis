@@ -9,6 +9,7 @@ import { focusPreviewWindow, openPreviewWindow, capturePreviewScreenshot, readFi
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
 import ProjectTab from "./ProjectTab";
+import ApiKeyBanner from "./ApiKeyBanner";
 import SpecWriterBadge from "../specwriter/SpecWriterBadge";
 import type { Attachment } from "../../types/attachment";
 
@@ -154,6 +155,9 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
           </span>
         )}
       </div>
+
+      {/* API key info banner */}
+      <ApiKeyBanner />
 
       {/* New project button (templates) */}
       <button

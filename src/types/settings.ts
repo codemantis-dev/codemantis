@@ -87,6 +87,9 @@ export interface AppSettings {
 
   // Onboarding
   onboardingCompleted: boolean;
+
+  // API key banner
+  apiKeyBannerDismissed: boolean;
 }
 
 export { getDefaultModelPricing };

@@ -86,6 +86,10 @@ pub struct AppSettings {
     // --- Onboarding ---
     #[serde(default)]
     pub onboarding_completed: bool,
+
+    // --- API key banner ---
+    #[serde(default)]
+    pub api_key_banner_dismissed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +219,7 @@ impl Default for AppSettings {
             auto_open_files: false,
             claude_binary_override: None,
             onboarding_completed: false,
+            api_key_banner_dismissed: false,
         }
     }
 }
@@ -370,6 +375,7 @@ mod tests {
         assert!(!settings.trivia_enabled);
         assert!(!settings.auto_open_files);
         assert!(!settings.onboarding_completed);
+        assert!(!settings.api_key_banner_dismissed);
     }
 
     #[test]

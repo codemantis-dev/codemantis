@@ -34,6 +34,7 @@ function resetStore(): void {
       autoOpenFiles: false,
       claudeBinaryOverride: null,
       onboardingCompleted: false,
+      apiKeyBannerDismissed: false,
       previewConsoleAutoOpen: true,
       taskBoardPlanningModel: "gemini-2.5-flash",
       taskBoardMaxTokens: 65536,

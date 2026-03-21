@@ -64,6 +64,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoOpenFiles: false,
   claudeBinaryOverride: null,
   onboardingCompleted: false,
+  apiKeyBannerDismissed: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
