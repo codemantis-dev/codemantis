@@ -27,6 +27,8 @@ export default function McpModal(): React.JSX.Element {
     revealedEnv,
     setupHint,
     fieldHints,
+    templateDisplayName,
+    templateDocsUrl,
     configEditor,
     setConfigEditor,
     hasProject,
@@ -91,7 +93,7 @@ export default function McpModal(): React.JSX.Element {
           </Dialog.Description>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto p-5 select-text">
             {configEditor ? (
               <ConfigFileEditor
                 filePath={configEditor.filePath}
@@ -117,6 +119,8 @@ export default function McpModal(): React.JSX.Element {
                 hasProject={hasProject}
                 setupHint={setupHint}
                 fieldHints={fieldHints}
+                templateDisplayName={templateDisplayName}
+                docsUrl={templateDocsUrl}
               />
             ) : (
               <>

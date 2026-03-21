@@ -35,6 +35,8 @@ interface UseMcpServerFormReturn {
   revealedEnv: Set<string>;
   setupHint: string;
   fieldHints: Record<string, string>;
+  templateDisplayName: string;
+  templateDocsUrl: string;
   configEditor: ConfigEditorState | null;
   setConfigEditor: (state: ConfigEditorState | null) => void;
   hasProject: boolean;
@@ -67,6 +69,8 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
   const [setupHint, setSetupHint] = useState("");
   const [fieldHints, setFieldHints] = useState<Record<string, string>>({});
   const [configEditor, setConfigEditor] = useState<ConfigEditorState | null>(null);
+  const [templateDisplayName, setTemplateDisplayName] = useState("");
+  const [templateDocsUrl, setTemplateDocsUrl] = useState("");
 
   const hasProject = Boolean(activeProjectPath);
 
@@ -100,6 +104,8 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
     setForm(templateToForm(template, scope));
     setSetupHint(template.setupHint ?? "");
     setFieldHints(template.fieldHints ? { ...template.fieldHints } : {});
+    setTemplateDisplayName(template.displayName);
+    setTemplateDocsUrl(template.docsUrl ?? "");
     setEditingServer("__new__");
   };
 
@@ -107,6 +113,8 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
     setForm({ ...EMPTY_FORM, scope: hasProject ? "project" : "global" });
     setSetupHint("");
     setFieldHints({});
+    setTemplateDisplayName("");
+    setTemplateDocsUrl("");
     setEditingServer("__new__");
   };
 
@@ -114,6 +122,8 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
     setForm(serverToForm(server));
     setSetupHint("");
     setFieldHints({});
+    setTemplateDisplayName("");
+    setTemplateDocsUrl("");
     setEditingServer(server.name);
   };
 
@@ -140,7 +150,13 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
   const handleShowConfigFile = useCallback(async (scope: McpScope): Promise<void> => {
     try {
       const filePath = await getMcpConfigPath(scope, activeProjectPath ?? undefined);
-      const content = await readFileContent(filePath);
+      let content: string;
+      try {
+        content = await readFileContent(filePath);
+      } catch {
+        // File doesn't exist yet — show empty template
+        content = JSON.stringify({ mcpServers: {} }, null, 2);
+      }
       setConfigEditor({
         filePath,
         originalContent: content,
@@ -215,6 +231,8 @@ export function useMcpServerForm(): UseMcpServerFormReturn {
     revealedEnv,
     setupHint,
     fieldHints,
+    templateDisplayName,
+    templateDocsUrl,
     configEditor,
     setConfigEditor,
     hasProject,

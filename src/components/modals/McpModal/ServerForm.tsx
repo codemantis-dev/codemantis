@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { Info, FileCode } from "lucide-react";
+import { Info, FileCode, ExternalLink } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { McpServerType } from "../../../types/mcp";
 import type { FormState } from "./types";
 import { NAME_PATTERN } from "./types";
@@ -16,6 +17,8 @@ export default function ServerForm({
   hasProject,
   setupHint,
   fieldHints,
+  templateDisplayName,
+  docsUrl,
 }: {
   form: FormState;
   onChange: (form: FormState) => void;
@@ -27,6 +30,8 @@ export default function ServerForm({
   hasProject: boolean;
   setupHint?: string;
   fieldHints?: Record<string, string>;
+  templateDisplayName?: string;
+  docsUrl?: string;
 }): React.JSX.Element {
   const nameValid = form.name.trim().length > 0 && NAME_PATTERN.test(form.name.trim());
   const nameUnique = isEdit || !existingNames.has(form.name.trim());
@@ -54,9 +59,20 @@ export default function ServerForm({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-text-primary font-medium">
-        {isEdit ? "Edit MCP Server" : "Add MCP Server"}
-      </h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-text-primary font-medium">
+          {isEdit ? "Edit MCP Server" : templateDisplayName ? `Add MCP Server — ${templateDisplayName}` : "Add MCP Server"}
+        </h3>
+        {docsUrl && (
+          <button
+            onClick={() => openUrl(docsUrl)}
+            className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-light transition-colors"
+          >
+            <ExternalLink size={11} />
+            Docs
+          </button>
+        )}
+      </div>
 
       {/* Setup hint from template */}
       {setupHint && (
