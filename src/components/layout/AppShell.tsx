@@ -222,7 +222,7 @@ export default function AppShell() {
   );
 
   return (
-    <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+    <div className="flex-1 min-h-0 w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       <TitleBar onCloseProject={handleCloseProject} />
       <SessionSubTabs
         onAddSession={addSessionToProject}

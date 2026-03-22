@@ -277,7 +277,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       <UpdateNotification />
       <AppShell />
       <ToolApproval />
@@ -289,6 +289,6 @@ export default function App() {
       <McpModal />
       <UpdateModal />
       <Toast />
-    </>
+    </div>
   );
 }

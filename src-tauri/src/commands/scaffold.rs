@@ -365,9 +365,10 @@ fn verify_project(target_dir: &Path, template: &TemplateEntry) -> Vec<String> {
         return warnings;
     }
 
-    // Check node_modules for JS/TS projects
+    // Check node_modules for JS/TS projects (skip for Docker-based installs
+    // where dependencies live inside the container, not on the host)
     let has_package_json = target_dir.join("package.json").exists();
-    if has_package_json {
+    if has_package_json && !template.install_command.contains("docker") {
         let node_modules = target_dir.join("node_modules");
         if !node_modules.exists() {
             warnings.push(format!(
@@ -1413,6 +1414,21 @@ mod tests {
         assert!(
             !warnings.iter().any(|w| w.contains("Dependencies")),
             "Expected no dependency warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn verify_project_skips_node_modules_for_docker() {
+        let dir = temp_dir();
+        // Docker template with a package.json (e.g. FastAPI Full-Stack with React frontend)
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("docker-compose.yml"), "").unwrap();
+        let tmpl = make_template("docker compose build", None, None);
+        let warnings = verify_project(dir.path(), &tmpl);
+        assert!(
+            !warnings.iter().any(|w| w.contains("Dependencies not installed")),
+            "Docker template should not warn about missing node_modules, got: {:?}",
             warnings
         );
     }

@@ -31,7 +31,7 @@ export default function UpdateNotification() {
 
   return (
     <div
-      className="flex items-center justify-between px-4 py-2 text-ui shrink-0"
+      className="flex items-center justify-end px-4 py-2 text-ui shrink-0 gap-3"
       style={{
         background: "var(--accent-dim)",
         borderBottom: "1px solid var(--border)",
@@ -43,23 +43,21 @@ export default function UpdateNotification() {
           CodeMantis <strong>v{version}</strong> is available
         </span>
       </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => openUpdateModal(version, null)}
-          className="px-3 py-1 rounded-md text-label font-medium transition-colors"
-          style={{ background: "var(--accent)", color: "white" }}
-        >
-          Update Now
-        </button>
-        <button
-          onClick={() => setDismissed(true)}
-          className="p-1 rounded transition-colors"
-          style={{ color: "var(--text-ghost)" }}
-          aria-label="Dismiss update notification"
-        >
-          <X size={14} />
-        </button>
-      </div>
+      <button
+        onClick={() => openUpdateModal(version, null)}
+        className="px-3 py-1 rounded-md text-label font-medium transition-colors"
+        style={{ background: "var(--accent)", color: "white" }}
+      >
+        Update Now
+      </button>
+      <button
+        onClick={() => setDismissed(true)}
+        className="p-1 rounded transition-colors"
+        style={{ color: "var(--text-ghost)" }}
+        aria-label="Dismiss update notification"
+      >
+        <X size={14} />
+      </button>
     </div>
   );
 }
