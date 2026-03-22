@@ -5,7 +5,7 @@ import type { FileNode } from "../types/file-tree";
 import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-events";
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
-import type { GitStatusInfo } from "../types/git";
+import type { GitStatusInfo, GitCommit } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
@@ -377,6 +377,10 @@ export async function cancelAssistantChat(assistantId: string): Promise<void> {
 
 export async function getGitStatus(projectPath: string): Promise<GitStatusInfo> {
   return invoke<GitStatusInfo>("get_git_status", { projectPath });
+}
+
+export async function getGitLog(projectPath: string, maxCommits: number): Promise<GitCommit[]> {
+  return invoke<GitCommit[]>("get_git_log", { projectPath, maxCommits });
 }
 
 // --- Slash Commands ---

@@ -5,3 +5,10 @@ export interface GitStatusInfo {
   last_commit_time: string | null;
   last_push_time: string | null;
 }
+
+export interface GitCommit {
+  hash: string;
+  message: string;
+  author: string;
+  timestamp: string;
+}

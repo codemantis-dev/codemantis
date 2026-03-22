@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { GitBranch, FileEdit, Clock, Upload } from "lucide-react";
+import { FileEdit, Clock, Upload } from "lucide-react";
 import type { GitStatusInfo } from "../../types/git";
+import GitCommitsPopover from "./GitCommitsPopover";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "never";
@@ -21,9 +22,10 @@ function relativeTime(iso: string | null): string {
 
 interface Props {
   gitStatus: GitStatusInfo;
+  projectPath: string;
 }
 
-export default function GitStatusCard({ gitStatus }: Props) {
+export default function GitStatusCard({ gitStatus, projectPath }: Props) {
   // Force re-render every 30s so relativeTime() re-evaluates
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -35,13 +37,13 @@ export default function GitStatusCard({ gitStatus }: Props) {
 
   return (
     <div className="px-3 py-2 space-y-1">
-      {/* Row 1: Branch + uncommitted changes */}
+      {/* Row 1: Branch (clickable → commits popover) + uncommitted changes */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0" title="Branch">
-          <GitBranch size={13} style={{ color: "var(--accent)" }} className="shrink-0" />
-          <span className="text-label font-medium truncate text-text-primary">
-            {gitStatus.branch ?? "detached"}
-          </span>
+        <div className="min-w-0">
+          <GitCommitsPopover
+            projectPath={projectPath}
+            branch={gitStatus.branch ?? "detached"}
+          />
         </div>
         {gitStatus.uncommitted_changes > 0 && (
           <div className="flex items-center gap-1 shrink-0 text-yellow" title="Uncommitted changes">
