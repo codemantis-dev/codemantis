@@ -12,41 +12,50 @@ export function useGitStatus(projectPath: string | null): {
   const [gitStatus, setGitStatus] = useState<GitStatusInfo | null>(null);
   const pathRef = useRef(projectPath);
   pathRef.current = projectPath;
-  const statusRef = useRef(gitStatus);
-  statusRef.current = gitStatus;
+  const fetchIdRef = useRef(0);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (): Promise<GitStatusInfo | null> => {
     const path = pathRef.current;
     if (!path) {
       setGitStatus(null);
-      return;
+      return null;
     }
+    const id = ++fetchIdRef.current;
     try {
       const status = await getGitStatus(path);
-      // Only update if path hasn't changed during the fetch
-      if (pathRef.current === path) {
+      // Only update if this is still the latest fetch and path hasn't changed
+      if (fetchIdRef.current === id && pathRef.current === path) {
         setGitStatus(status);
+        return status;
       }
+      return null; // Stale fetch, discarded
     } catch {
-      setGitStatus(null);
+      if (fetchIdRef.current === id) {
+        setGitStatus(null);
+      }
+      return null;
     }
   }, []);
 
   useEffect(() => {
     pathRef.current = projectPath;
-    fetchStatus();
 
-    if (!projectPath) return;
+    if (!projectPath) {
+      setGitStatus(null);
+      return;
+    }
 
-    // setTimeout chain so interval adapts based on current status
     let timeoutId: ReturnType<typeof setTimeout>;
-    const schedule = (): void => {
-      const hasChanges = (statusRef.current?.uncommitted_changes ?? 0) > 0;
-      timeoutId = setTimeout(() => {
-        fetchStatus().then(schedule);
-      }, hasChanges ? POLL_ACTIVE : POLL_CLEAN);
+    let cancelled = false;
+
+    // Async poll loop: fetch, then schedule based on the actual result
+    const poll = async (): Promise<void> => {
+      const result = await fetchStatus();
+      if (cancelled) return;
+      const hasChanges = (result?.uncommitted_changes ?? 0) > 0;
+      timeoutId = setTimeout(poll, hasChanges ? POLL_ACTIVE : POLL_CLEAN);
     };
-    schedule();
+    poll();
 
     // Refresh immediately when window regains focus
     const onVisibility = (): void => {
@@ -55,6 +64,7 @@ export function useGitStatus(projectPath: string | null): {
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
+      cancelled = true;
       clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", onVisibility);
     };
