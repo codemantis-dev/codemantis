@@ -1980,37 +1980,96 @@ A centered modal window (up to 900px wide × 600px tall) containing a full xterm
 Type "/" in the input area → The palette appears. Start typing to filter commands by name or description.
 
 **Execute a built-in command**
-Type "/" → Select a built-in command → It executes immediately:
+Type "/" → Select a built-in command → It executes immediately. These commands never leave CodeMantis — they're instant operations on the UI and session state:
 
-| Command | Description |
-|---------|-------------|
-| `/clear` | Clear conversation and restart the session |
-| `/compact` | Compact conversation context (reduce token usage) |
-| `/context` | Show context window usage (tokens used / max) |
-| `/cost` | Show session cost and token stats |
-| `/exit` | Close the current session |
-| `/help` | Show available commands |
-| `/rename <name>` | Rename the current session |
+| Command | Description | What It Does |
+|---------|-------------|-------------|
+| `/clear` | Clear conversation and restart session | Removes all messages from the chat panel, clears the Activity Feed for this session, restarts the Claude Code process. The project stays open. |
+| `/compact` | Compact conversation context | Sends a `/compact` directive to Claude Code, which summarizes the conversation history to free up context window space. Useful when the context meter is getting full. |
+| `/context` | Show context window usage | Displays how many tokens are used out of the maximum context window. Shows as a formatted message in the chat panel. |
+| `/cost` | Show session cost and token stats | Shows total session cost (USD), turn count, input tokens, output tokens, cache read tokens, and cache creation tokens. |
+| `/exit` | Close current session | Closes the current Claude Code session. Same as clicking × on the session tab. |
+| `/help` | Show help information | Displays a formatted help message in the chat listing all command categories and key commands. |
+| `/rename <name>` | Rename current session | Usage: `/rename My New Name`. Changes the session tab label. |
 
 **Execute a skill command**
-Type "/" → Select a skill command → The skill's template is expanded with project context and sent as a message to Claude. Skills come from `.claude/commands/` in your project or home directory.
+Type "/" → Select a skill command → The skill's template is expanded with project context and sent as a message to Claude. Skills come from `.claude/commands/` and `.claude/skills/` in your project or home directory. See "Custom Skills" below for details.
 
 **Open the CLI Overlay**
-Type "/" → Select a CLI-only command (yellow "Opens CLI" badge) → The CLI Overlay opens. Available CLI commands include `/model`, `/config`, `/doctor`, `/mcp`, `/hooks`, `/theme`, and others.
+Type "/" → Select a CLI-only command (yellow "Opens CLI" badge) → The CLI Overlay opens. The most commonly used CLI commands are:
 
-**Use the CLI Overlay**
-The overlay pauses the normal stream-json session and opens an interactive Claude CLI terminal. You can:
-- Change models with `/model`
-- View and edit configuration with `/config`
-- Run diagnostics with `/doctor`
-- Manage MCP servers with `/mcp`
-- View and manage hooks with `/hooks`
+| Command | Description | When You Need This |
+|---------|-------------|-------------------|
+| `/init` | Initialize CLAUDE.md in project | **First thing after cloning a repo.** Claude Code walks you through creating a CLAUDE.md interactively — asks questions about the project and generates a tailored configuration file. |
+| `/config` | Configure Claude Code preferences | Change global Claude Code settings: default model, allowed tools, editor, theme, custom instructions. These settings persist across all projects and sessions. |
+| `/model` | Change model | Switch between Claude models (e.g., Sonnet, Opus, Haiku). Shows available models and lets you pick. |
+| `/doctor` | Run Claude doctor diagnostics | Checks the Claude Code installation for issues: binary version, authentication status, configuration validity, MCP server connectivity. **The go-to command when something isn't working.** |
+| `/mcp` | Manage MCP servers | Add, remove, and configure MCP servers from the CLI. Alternative to CodeMantis's MCP modal (⌘⇧M). |
+| `/permissions` | Manage permissions | Configure which tools Claude Code can use without asking permission. Fine-grained control over auto-approval for specific tool operations. |
+| `/hooks` | Manage hooks | Configure event hooks that run before/after Claude Code operations. For example: run linting after every file edit, or send a notification after every task completion. |
+| `/memory` | Edit CLAUDE.md memory | Open CLAUDE.md in an interactive editor. Quick way to view and modify the AI instruction file without leaving the conversation. |
+| `/diff` | Show session diff | Display a git-style diff of all changes Claude Code made in the current session. Useful for reviewing what was changed before committing. |
+| `/export` | Export conversation | Export the current conversation history to a file (JSON or Markdown). Useful for sharing sessions or creating documentation. |
+| `/fork` | Fork current session | Create a branch of the current conversation. The new fork starts with the same context but diverges from this point. Useful for trying different approaches. |
+| `/resume` | Resume a session | Resume a previously saved Claude Code session by ID. Shows a list of available sessions. |
+| `/rewind` | Rewind conversation | Go back to a previous point in the conversation, discarding subsequent messages and changes. |
+| `/fast` | Toggle fast mode | Switches between detailed and fast response modes. Fast mode uses shorter, more concise responses. |
+| `/plan` | Toggle plan mode | Switch between plan-only mode (no code changes) and normal mode. Same as the mode selector in the input area but accessible via command. |
+
+For the complete list of all 35 CLI commands, see Appendix E.
+
+**Important:** Selecting a CLI-only command in CodeMantis opens the Claude Code CLI overlay, but it does **not** automatically send the command to Claude Code. You need to **re-enter the slash command** (e.g., `/model`, `/doctor`) inside the Claude Code terminal that appears. When you're done, press **Escape** to close the overlay and return to CodeMantis — your session resumes right where you left off.
+
+**CLI Overlay Lifecycle**
+The CLI Overlay works as follows:
+1. You select a CLI-only command (or press ⌘/).
+2. CodeMantis **pauses** the current stream-json session.
+3. A PTY terminal opens with `claude --resume {session_id}` in interactive mode.
+4. **You re-enter the slash command** inside the Claude Code CLI (the command is not forwarded automatically).
+5. You interact directly with Claude Code's interactive CLI (the same interface you'd get by running `claude` in a terminal).
+6. When you're done, press **Escape** or click the × button — the overlay closes, the PTY is killed.
+7. The stream-json session **resumes automatically** — no work is lost.
 
 **Close the CLI Overlay**
 Press Escape or click the × button → The overlay closes, the interactive CLI exits, and the normal stream-json session resumes.
 
 **Use slash commands in assistant tabs**
 Claude Code assistant tabs also support slash commands. Type "/" in the assistant input to open the command palette. Supported commands include `/help`, `/clear`, `/context`, `/cost`, `/exit`, and `/rename`.
+
+**Custom Skills (User-Defined Commands)**
+
+Skills are custom commands created by you or the project. They live in `.md` files inside specific directories:
+
+| Location | Scope | Priority |
+|----------|-------|----------|
+| `{project}/.claude/commands/` | Project-level | Highest (overrides user-level) |
+| `{project}/.claude/skills/` | Project-level (skill format) | High |
+| `~/.claude/commands/` | User-level (all projects) | Normal |
+| `~/.claude/skills/` | User-level (skill format) | Lower |
+
+**Commands** (`.claude/commands/`) are simple `.md` files. The filename becomes the command name. Example: `.claude/commands/review.md` becomes `/review`.
+
+**Skills** (`.claude/skills/`) are folders containing a `SKILL.md` file with frontmatter. Example: `.claude/skills/deploy/SKILL.md` becomes `/deploy`.
+
+**Frontmatter options** (optional YAML block at the top of the file):
+```yaml
+---
+name: custom-name          # Override the filename-derived name
+description: My command    # Shown in the command palette
+argument-hint: <file>      # Placeholder text for arguments
+model: claude-sonnet-4     # Force a specific model
+user-invocable: false      # Hide from the command palette
+allowed-tools: Read, Write # Restrict which tools can be used
+context: fork              # Fork the conversation context
+---
+```
+
+**Template variables available in the command body:**
+- `$ARGUMENTS` / `${ARGUMENTS}` — All arguments after the command name
+- `$0` through `$9` — Individual positional arguments
+- `${CLAUDE_SESSION_ID}` — Current CLI session ID
+- `${CLAUDE_SKILL_DIR}` — Directory containing the skill file
+- `` !`command` `` — Shell command expansion (executed during skill loading)
 
 #### States
 
@@ -2023,10 +2082,12 @@ Claude Code assistant tabs also support slash commands. Type "/" in the assistan
 #### Configuration
 
 Skill commands are discovered automatically from:
-- `.claude/commands/` in your project directory
-- `.claude/commands/` in your home directory
+- `.claude/commands/` in your project directory (project-level, highest priority)
+- `.claude/skills/` in your project directory (project-level skill format)
+- `~/.claude/commands/` in your home directory (user-level, all projects)
+- `~/.claude/skills/` in your home directory (user-level skill format)
 
-Each `.md` file in these directories becomes a slash command. The file name becomes the command name, and the file content becomes the prompt template.
+Each `.md` file in these directories becomes a slash command. The file name becomes the command name, and the file content becomes the prompt template. Project-level commands override user-level commands with the same name.
 
 #### Keyboard Shortcuts
 
@@ -2044,6 +2105,10 @@ Each `.md` file in these directories becomes a slash command. The file name beco
 1. **Create custom skill commands** by adding `.md` files to `.claude/commands/` in your project. For example, `review.md` with a code review prompt becomes the `/review` command.
 2. **Use `/compact` when context is running high** — it reduces token usage by compacting the conversation history, letting you continue longer without starting a new session.
 3. **The CLI Overlay is temporary** — it pauses your normal session, lets you use interactive CLI features, then resumes exactly where you left off. No work is lost.
+4. **Use `/doctor` as your first troubleshooting step** — it checks binary version, authentication, configuration, and MCP connectivity all at once.
+5. **Use `/init` when you open a new project** — it creates a tailored CLAUDE.md that helps Claude Code understand your codebase, improving response quality.
+6. **Use `/diff` before committing** — it shows all changes Claude Code made in the session, so you can review before committing.
+7. **Skills support template variables** — use `$ARGUMENTS` to pass user input into your custom commands (e.g., `/review $ARGUMENTS` lets users type `/review src/utils.ts`).
 
 ## Part V: Sidebar
 
@@ -3100,47 +3165,129 @@ Every MCP server template available in the MCP Servers modal.
 
 ### Appendix E: All Slash Commands
 
-Slash commands available by typing "/" in the chat input area. Skill commands are discovered dynamically from `.claude/commands/` directories.
+Slash commands available by typing "/" in the chat input area. Commands are color-coded by type in the Command Palette: **Skill** (accent color), **Built-in** (dim), **Opens CLI** (yellow, "Opens CLI" badge).
 
-#### Built-in Commands (instant, no process restart)
+#### Built-in Commands (7) — instant, no process restart
 
-| Command | Description | Argument | Chapter |
-|---------|-------------|----------|---------|
-| /clear | Clear conversation and restart the session | — | Ch 18 |
-| /compact | Compact conversation context (reduce token usage) | — | Ch 18 |
-| /context | Show context window usage (tokens used / max) | — | Ch 18 |
-| /cost | Show session cost and token stats | — | Ch 18 |
-| /exit | Close the current session | — | Ch 18 |
-| /help | Show available commands | — | Ch 18 |
-| /rename | Rename the current session | `<new name>` | Ch 18 |
+These are handled directly by CodeMantis. They execute instantly — no CLI terminal opens.
 
-#### CLI-only Commands (opens the CLI Overlay)
+| Command | Description | What It Does | Argument |
+|---------|-------------|-------------|----------|
+| /clear | Clear conversation and restart session | Removes all messages from the chat panel, clears the Activity Feed, restarts the Claude Code process. The project stays open. | — |
+| /compact | Compact conversation context | Summarizes conversation history to free up context window space. Useful when the context meter is getting full. | — |
+| /context | Show context window usage | Displays tokens used out of the maximum context window as a formatted message. | — |
+| /cost | Show session cost and token stats | Shows total session cost (USD), turn count, input/output tokens, cache read/creation tokens. | — |
+| /exit | Close current session | Closes the current Claude Code session. Same as clicking × on the session tab. | — |
+| /help | Show help information | Displays a formatted help message listing all command categories and key commands. | — |
+| /rename | Rename current session | Changes the session tab label. | `<new name>` |
 
-| Command | Description | Chapter |
-|---------|-------------|---------|
-| /config | View and edit Claude configuration | Ch 18 |
-| /doctor | Run diagnostics on Claude installation | Ch 18 |
-| /model | Change the Claude model | Ch 18 |
-| /mcp | Manage MCP servers via CLI | Ch 18 |
-| /hooks | View and manage hooks | Ch 18 |
-| /theme | Change the Claude CLI theme | Ch 18 |
+#### CLI-only Commands (35) — opens the CLI Overlay
 
-#### Skill Commands (from .claude/commands/)
+These commands open the CLI Overlay — a full-screen terminal that pauses the current stream-json session and launches an interactive Claude Code process. When you close the overlay (Escape or ×), the interactive session ends and the stream-json session resumes automatically.
 
-| Source | Description | How It Works |
-|--------|-------------|--------------|
-| `.claude/commands/*.md` in project | Project-specific custom commands | The file name becomes the command name. The file content is expanded as a prompt template and sent to Claude. |
-| `.claude/commands/*.md` in home directory | Global custom commands (available in all projects) | Same as project commands, but available everywhere. |
+| Command | Description | When You Need This |
+|---------|-------------|-------------------|
+| /init | Initialize CLAUDE.md in project | **First thing after cloning a repo.** Claude Code walks you through creating a CLAUDE.md interactively. |
+| /config | Configure Claude Code preferences | Change global settings: default model, allowed tools, editor, theme, custom instructions. |
+| /model | Change model | Switch between Claude models (Sonnet, Opus, Haiku). |
+| /doctor | Run Claude doctor diagnostics | Checks binary version, authentication, configuration, MCP connectivity. **Go-to when something isn't working.** |
+| /mcp | Manage MCP servers | Add, remove, configure MCP servers. Alternative to the MCP modal (⌘⇧M). |
+| /permissions | Manage permissions | Configure which tools Claude Code can use without asking. Fine-grained auto-approval control. |
+| /hooks | Manage hooks | Configure event hooks that run before/after Claude Code operations. |
+| /memory | Edit CLAUDE.md memory | Open CLAUDE.md in an interactive editor without leaving the conversation. |
+| /diff | Show session diff | Git-style diff of all changes Claude Code made in the current session. |
+| /add-dir | Add a directory to context | Adds a directory's contents to conversation context. |
+| /export | Export conversation | Export conversation history to a file (JSON or Markdown). |
+| /fork | Fork current session | Branch the current conversation. New fork starts with same context but diverges. |
+| /resume | Resume a session | Resume a previously saved Claude Code session. Shows available sessions. |
+| /rewind | Rewind conversation | Go back to a previous point, discarding subsequent messages and changes. |
+| /copy | Copy last response to clipboard | Copies Claude Code's most recent response to the system clipboard. |
+| /fast | Toggle fast mode | Switch between detailed and fast (concise) response modes. |
+| /plan | Toggle plan mode | Switch between plan-only mode (no code changes) and normal mode. |
+| /stats | Show usage stats | Display detailed usage statistics for the current Claude Code installation. |
+| /status | Show status | Show current state of the Claude Code process, connection, and session. |
+| /login | Log in to Claude | Authenticate with Anthropic. Usually not needed — CodeMantis handles this automatically. |
+| /logout | Log out of Claude | Sign out of the current Claude account. |
+| /skills | List available skills | Show all available custom skills from `.claude/commands/` and `.claude/skills/`. |
+| /agents | Manage agent configurations | Configure agent behavior and settings. |
+| /plugin | Manage plugins | Install, remove, and configure Claude Code plugins. |
+| /release-notes | Show release notes | Display release notes for the current Claude Code version. |
+| /theme | Change theme | Change the Claude Code CLI terminal theme (separate from CodeMantis themes). |
+| /vim | Toggle vim mode | Enable or disable vim-style keybindings in the CLI. |
+| /keybindings | Configure keybindings | Customize keyboard shortcuts for the CLI. |
+| /statusline | Configure status line | Customize what information appears in the Claude Code status bar. |
+| /terminal-setup | Set up terminal | Configure terminal integration settings. |
+| /sandbox | Sandbox settings | Configure sandboxing behavior for Claude Code's tool execution. |
+| /remote-control | Remote control settings | Configure remote control and API access settings. |
+| /chrome | Open Chrome DevTools | Open Chrome DevTools integration for web debugging. |
+| /desktop | Open desktop integration | Open desktop application integration settings. |
+| /ide | Open IDE integration | Configure IDE integration settings. |
+
+#### Skill Commands (from .claude/commands/ and .claude/skills/)
+
+Skills are custom commands created by you or the project. They live in `.md` files:
+
+| Location | Scope | Priority |
+|----------|-------|----------|
+| `{project}/.claude/commands/*.md` | Project-level | Highest (overrides user-level) |
+| `{project}/.claude/skills/*/SKILL.md` | Project-level (skill format) | High |
+| `~/.claude/commands/*.md` | User-level (all projects) | Normal |
+| `~/.claude/skills/*/SKILL.md` | User-level (skill format) | Lower |
 
 **Creating a skill command:**
 1. Create a `.md` file in your project's `.claude/commands/` directory (e.g., `review.md`).
 2. Write a prompt template in the file (e.g., "Review the code I just wrote for bugs, security issues, and performance problems.").
 3. Type `/review` in the chat input → The prompt is expanded and sent to Claude.
 
-Skill commands may also specify:
-- A `model` override (different model for this command)
-- `allowed_tools` restrictions
-- `context_fork` to run in a separate context
+**Frontmatter options** (optional YAML block at the top of the `.md` file):
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `name` | Override the filename-derived command name | `name: custom-name` |
+| `description` | Shown in the command palette | `description: My command` |
+| `argument-hint` | Placeholder text for arguments | `argument-hint: <file>` |
+| `model` | Force a specific model for this command | `model: claude-sonnet-4` |
+| `user-invocable` | Hide from the command palette when `false` | `user-invocable: false` |
+| `allowed-tools` | Restrict which tools can be used | `allowed-tools: Read, Write` |
+| `context` | Fork the conversation context | `context: fork` |
+
+**Template variables available in the command body:**
+
+| Variable | Description |
+|----------|-------------|
+| `$ARGUMENTS` / `${ARGUMENTS}` | All arguments after the command name |
+| `$0` through `$9` | Individual positional arguments |
+| `${CLAUDE_SESSION_ID}` | Current CLI session ID |
+| `${CLAUDE_SKILL_DIR}` | Directory containing the skill file |
+| `` !`command` `` | Shell command expansion (executed during skill loading) |
+
+#### Quick Reference Card
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║  CodeMantis Slash Commands — Quick Reference                  ║
+╠════════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  INSTANT (Built-in):                                          ║
+║  /help     Show help           /clear   Clear & restart       ║
+║  /context  Context usage       /cost    Session cost           ║
+║  /compact  Free up context     /exit    Close session          ║
+║  /rename   Rename session                                     ║
+║                                                               ║
+║  OPENS CLI (Interactive Terminal):                             ║
+║  /init     Create CLAUDE.md    /config  Global settings       ║
+║  /model    Switch model        /doctor  Diagnose issues       ║
+║  /mcp      MCP servers         /memory  Edit CLAUDE.md        ║
+║  /diff     Session changes     /hooks   Event hooks           ║
+║  /permissions  Tool permissions                                ║
+║                                                               ║
+║  CUSTOM:                                                      ║
+║  Project: .claude/commands/*.md  .claude/skills/*/SKILL.md    ║
+║  User:    ~/.claude/commands/    ~/.claude/skills/             ║
+║                                                               ║
+║  Tip: Press ⌘/ to open the CLI Overlay directly               ║
+╚════════════════════════════════════════════════════════════════╝
+```
 
 ---
 

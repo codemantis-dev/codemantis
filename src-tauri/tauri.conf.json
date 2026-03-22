@@ -34,7 +34,7 @@
     "active": true,
     "targets": ["app", "dmg"],
     "macOS": {
-      "signingIdentity": null,
+      "signingIdentity": "Developer ID Application: HCR-Holding Gmbh (3DNX7TQ9FQ)",
       "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
       "files": {
