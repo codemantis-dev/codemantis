@@ -172,7 +172,7 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             if event.id() == "help_website" {
-                let _ = app.opener().open_url("https://codementis.dev/help", None::<&str>);
+                let _ = app.opener().open_url("https://codemantis.dev/docs", None::<&str>);
             }
         })
         .setup(|app| {

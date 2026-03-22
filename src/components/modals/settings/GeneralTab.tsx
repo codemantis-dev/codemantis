@@ -3,6 +3,8 @@ import type { ThemeId } from "../../../types/settings";
 import { THEMES } from "../../../types/settings";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { showToast } from "../../../stores/toastStore";
+import { useUiStore } from "../../../stores/uiStore";
+import { checkForUpdate } from "../../../lib/update-checker";
 
 export default function GeneralTab({
   theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, defaultContextWindow, showWelcomeScreen,
@@ -163,14 +165,16 @@ export default function GeneralTab({
 
 function CheckForUpdatesButton(): React.ReactElement {
   const [checking, setChecking] = useState(false);
+  const openUpdateModal = useUiStore((s) => s.openUpdateModal);
+  const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
 
   const handleCheck = async (): Promise<void> => {
     setChecking(true);
     try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const result = await check();
-      if (result) {
-        showToast(`Update available: v${result.version}`, "info");
+      const info = await checkForUpdate();
+      if (info) {
+        setShowSettingsModal(false);
+        openUpdateModal(info.version, info.body);
       } else {
         showToast("You're on the latest version", "success");
       }

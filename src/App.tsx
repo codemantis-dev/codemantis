@@ -17,6 +17,7 @@ import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
 import UpdateNotification from "./components/shared/UpdateNotification";
+import UpdateModal from "./components/modals/UpdateModal";
 import { showToast } from "./stores/toastStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
@@ -263,6 +264,7 @@ export default function App() {
         <ProjectPicker onSelectProject={handleSelectProject} />
         <SettingsModal />
         <McpModal />
+        <UpdateModal />
         <Toast />
       </div>
     );
@@ -279,6 +281,7 @@ export default function App() {
       <ProjectPicker onSelectProject={handleSelectProject} />
       <SettingsModal />
       <McpModal />
+      <UpdateModal />
       <Toast />
     </>
   );
