@@ -31,7 +31,7 @@ export default function SettingsModal() {
           style={{ background: "var(--bg-primary)", width: "min(92vw, 940px)", height: "min(88vh, 730px)" }}
         >
           {/* Sidebar */}
-          <nav className="w-48 shrink-0 border-r border-border flex flex-col" style={{ background: "var(--bg-secondary)" }}>
+          <nav className="w-52 shrink-0 border-r border-border flex flex-col" style={{ background: "var(--bg-secondary)" }}>
             <Dialog.Title className="text-ui text-text-primary font-semibold px-4 pt-4 pb-3">
               Settings
             </Dialog.Title>
