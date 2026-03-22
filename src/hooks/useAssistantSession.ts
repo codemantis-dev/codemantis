@@ -19,7 +19,7 @@ import {
 } from "../lib/tauri-commands";
 import { handleAssistantChatEvent, cleanupAssistantBuffers } from "../lib/assistant-event-handler";
 import { handleActivityEvent } from "../lib/event-classifier";
-import { fileToBase64, readFileContentSafe } from "../lib/file-utils";
+import { fileToBase64, readFileContentSafe, isTextMime } from "../lib/file-utils";
 import { handleError } from "../lib/error-handler";
 
 // Module-level listener map for assistant sessions
@@ -331,7 +331,7 @@ async function sendApiMessage(
           } catch (e) {
             console.error("[assistant] Failed to encode image:", e);
           }
-        } else if (att.mimeType.startsWith("text/") || att.mimeType === "application/json") {
+        } else if (isTextMime(att.mimeType)) {
           // Text-readable files (.txt, .md, .json, etc.) → include as readable text
           const text = await readFileContentSafe(att.filePath);
           if (text) {

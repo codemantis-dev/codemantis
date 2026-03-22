@@ -7,7 +7,7 @@ import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
 import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
 import { handleFileRequests } from "../lib/spec-file-requests";
-import { fileToBase64 } from "../lib/file-utils";
+import { fileToBase64, isTextMime } from "../lib/file-utils";
 
 export function useSpecConversation(): {
   sendMessage: (
@@ -166,7 +166,7 @@ export function useSpecConversation(): {
                 if (att.type === "image" && att.preview_url) {
                   const base64 = att.preview_url.split(",")[1] ?? att.preview_url;
                   parts.push({ type: "image", mime_type: att.mime_type, data: base64 });
-                } else if (att.type === "document" && att.mime_type.startsWith("text/")) {
+                } else if (att.type === "document" && isTextMime(att.mime_type)) {
                   // Text-readable files → include as readable text
                   if (att.text_content) {
                     parts.push({ type: "text", text: `--- ${att.name} ---\n${att.text_content}` });

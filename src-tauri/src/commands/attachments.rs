@@ -92,12 +92,33 @@ pub fn get_file_info(file_path: String) -> Result<AttachmentInfo, String> {
         .unwrap_or_default();
 
     let (mime_type, is_image) = match ext.as_str() {
+        // Images
         "png" => ("image/png".to_string(), true),
         "jpg" | "jpeg" => ("image/jpeg".to_string(), true),
         "gif" => ("image/gif".to_string(), true),
         "webp" => ("image/webp".to_string(), true),
+        "svg" => ("image/svg+xml".to_string(), true),
+        // Documents
         "pdf" => ("application/pdf".to_string(), false),
-        "txt" | "md" => ("text/plain".to_string(), false),
+        // Text / code
+        "txt" | "md" | "markdown" => ("text/plain".to_string(), false),
+        "json" => ("application/json".to_string(), false),
+        "csv" => ("text/csv".to_string(), false),
+        "xml" => ("text/xml".to_string(), false),
+        "html" | "htm" => ("text/html".to_string(), false),
+        "css" => ("text/css".to_string(), false),
+        "js" | "mjs" | "cjs" => ("text/javascript".to_string(), false),
+        "ts" | "tsx" | "jsx" => ("text/typescript".to_string(), false),
+        "py" => ("text/x-python".to_string(), false),
+        "rs" => ("text/x-rust".to_string(), false),
+        "go" => ("text/x-go".to_string(), false),
+        "java" => ("text/x-java".to_string(), false),
+        "rb" => ("text/x-ruby".to_string(), false),
+        "sh" | "bash" | "zsh" => ("text/x-shellscript".to_string(), false),
+        "yaml" | "yml" => ("text/yaml".to_string(), false),
+        "toml" => ("text/toml".to_string(), false),
+        "sql" => ("text/sql".to_string(), false),
+        "log" => ("text/plain".to_string(), false),
         _ => ("application/octet-stream".to_string(), false),
     };
 

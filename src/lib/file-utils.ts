@@ -12,6 +12,14 @@ export async function fileToBase64(filePath: string): Promise<{ data: string; mi
   return { data: btoa(binary), mimeType: info.mime_type };
 }
 
+/** Check if a MIME type represents a text-readable file (not binary). */
+export function isTextMime(mime: string): boolean {
+  if (mime.startsWith("text/")) return true;
+  if (mime === "application/json") return true;
+  if (mime === "application/xml") return true;
+  return false;
+}
+
 /** Read file content as text, returning undefined for binary/oversized files. */
 export async function readFileContentSafe(filePath: string): Promise<string | undefined> {
   try {
