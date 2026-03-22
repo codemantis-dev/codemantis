@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.8.2
+
+- Add recent commits popover in sidebar with git log integration
+- Fix DMG icon: regenerate all icons from 1024x1024 source (was broken 16x16)
+- Fix CI: add packageManager field for pnpm setup in GitHub Actions
+
 ## 0.8.1
 
 - Add in-app auto-update: checks for updates on launch, shows notification banner
