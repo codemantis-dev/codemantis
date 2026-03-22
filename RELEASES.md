@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.8.3
+
+- Add UpdateModal: confirmation dialog with progress bar for downloading and installing updates
+- "Check Now" in Settings opens the update modal directly when an update is found
+- Auto-check banner "Update Now" opens the modal instead of downloading inline
+
 ## 0.8.2
 
 - Add recent commits popover in sidebar with git log integration
