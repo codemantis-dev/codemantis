@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { ThemeId } from "../../../types/settings";
 import { THEMES } from "../../../types/settings";
 import { SectionTitle, FieldRow } from "./SettingsShared";
+import { showToast } from "../../../stores/toastStore";
 
 export default function GeneralTab({
   theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, defaultContextWindow, showWelcomeScreen,
@@ -145,7 +147,48 @@ export default function GeneralTab({
             />
           </button>
         </div>
+        <div className="flex items-center justify-between py-2 border-t border-border-light pt-4 mt-2">
+          <div>
+            <label className="text-ui text-text-secondary">Check for updates</label>
+            <p className="text-label text-text-ghost">
+              Current version: v{__APP_VERSION__}
+            </p>
+          </div>
+          <CheckForUpdatesButton />
+        </div>
       </div>
     </div>
+  );
+}
+
+function CheckForUpdatesButton(): React.ReactElement {
+  const [checking, setChecking] = useState(false);
+
+  const handleCheck = async (): Promise<void> => {
+    setChecking(true);
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const result = await check();
+      if (result) {
+        showToast(`Update available: v${result.version}`, "info");
+      } else {
+        showToast("You're on the latest version", "success");
+      }
+    } catch {
+      showToast("Failed to check for updates", "error");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCheck}
+      disabled={checking}
+      className="px-3 py-1.5 rounded-lg text-ui font-medium transition-colors disabled:opacity-50"
+      style={{ background: "var(--accent)", color: "white" }}
+    >
+      {checking ? "Checking..." : "Check Now"}
+    </button>
   );
 }

@@ -76,6 +76,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState::new(database))
         .manage(terminal::pty_manager::TerminalPool::new())
         .manage(preview::PreviewState::new())
@@ -175,6 +176,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             info!("CodeMantis {} starting", env!("CARGO_PKG_VERSION"));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
