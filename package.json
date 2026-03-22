@@ -6,6 +6,7 @@
   "author": "CodeMantis Contributors",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
