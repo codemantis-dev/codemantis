@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 0.8.4
+
+- Fix app icon: use correct source with rounded corners (CodeMantisIcon.png)
+- Fix git log NUL format and add git command tests
+
 ## 0.8.3
 
 - Add UpdateModal: confirmation dialog with progress bar for downloading and installing updates
