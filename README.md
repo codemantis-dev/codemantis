@@ -13,10 +13,10 @@ A free, open-source native macOS application that gives Claude Code a three-pane
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)]()
 [![Built with Tauri v2](https://img.shields.io/badge/built_with-Tauri_v2-FFC131.svg)](https://tauri.app)
-[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](https://github.com/codemantis-dev/codemantis/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/codemantis-dev/codemantis?color=green)](https://github.com/codemantis-dev/codemantis/releases)
 [![Free & Open Source](https://img.shields.io/badge/free_%26_open_source-brightgreen.svg)]()
 
-[Website](https://codemantis.netlify.app/) · [Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [Contributing](CONTRIBUTING.md)
+[Website](https://codemantis.dev) · [Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -216,8 +216,8 @@ MIT — see [LICENSE](LICENSE) for details.
 
 **Built by a non-developer. Powered by Claude Code. Crafted for Mac.**
 
-If that's not a product demo, what is?
+If that's not a product demo, what is? [Read the story &rarr;](https://dev.to/codemantis)
 
-[Website](https://codemantis.netlify.app/) · [GitHub](https://github.com/codemantis-dev/codemantis) · [Releases](https://github.com/codemantis-dev/codemantis/releases)
+[Website](https://codemantis.dev) · [GitHub](https://github.com/codemantis-dev/codemantis) · [Releases](https://github.com/codemantis-dev/codemantis/releases)
 
 </div>

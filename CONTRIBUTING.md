@@ -95,9 +95,11 @@ All contributions must follow the project's coding standards:
 
 ## Pull Request Process
 
-1. **Fork** the repository and create a feature branch from `main`:
+1. **Fork** the repository and create a feature branch from `dev`:
 
    ```bash
+   git checkout dev
+   git pull origin dev
    git checkout -b feature/your-feature-name
    ```
 
@@ -112,7 +114,7 @@ All contributions must follow the project's coding standards:
    cd src-tauri && cargo test  # All Rust tests must pass
    ```
 
-4. **Open a pull request** against `main` with a clear description of what you changed and why.
+4. **Open a pull request** against `dev` with a clear description of what you changed and why. The `dev` branch is the active development branch; `main` contains stable releases.
 
 5. Respond to review feedback promptly. We aim to review PRs within a few days.
 
