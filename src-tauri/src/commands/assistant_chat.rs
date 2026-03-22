@@ -24,6 +24,8 @@ pub enum ContentPart {
     Text { text: String },
     #[serde(rename = "image")]
     Image { mime_type: String, data: String },
+    #[serde(rename = "document")]
+    Document { mime_type: String, data: String },
 }
 
 // --- Provider-specific content formatting helpers ---
@@ -44,6 +46,14 @@ fn openai_content(content: &ChatContent) -> serde_json::Value {
                             "image_url": { "url": format!("data:{};base64,{}", mime_type, data) }
                         })
                     }
+                    // OpenAI Chat Completions doesn't support inline document data;
+                    // include as a file content block (supported by newer API versions)
+                    ContentPart::Document { mime_type, data } => {
+                        serde_json::json!({
+                            "type": "file",
+                            "file": { "filename": "document", "file_data": format!("data:{};base64,{}", mime_type, data) }
+                        })
+                    }
                 })
                 .collect();
             serde_json::json!(arr)
@@ -58,7 +68,7 @@ fn gemini_parts(content: &ChatContent) -> Vec<serde_json::Value> {
             .iter()
             .map(|p| match p {
                 ContentPart::Text { text } => serde_json::json!({"text": text}),
-                ContentPart::Image { mime_type, data } => {
+                ContentPart::Image { mime_type, data } | ContentPart::Document { mime_type, data } => {
                     serde_json::json!({"inlineData": {"mimeType": mime_type, "data": data}})
                 }
             })
@@ -79,6 +89,16 @@ fn anthropic_content(content: &ChatContent) -> serde_json::Value {
                     ContentPart::Image { mime_type, data } => {
                         serde_json::json!({
                             "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": data
+                            }
+                        })
+                    }
+                    ContentPart::Document { mime_type, data } => {
+                        serde_json::json!({
+                            "type": "document",
                             "source": {
                                 "type": "base64",
                                 "media_type": mime_type,

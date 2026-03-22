@@ -322,7 +322,7 @@ async function sendApiMessage(
       if (textContent) {
         parts.push({ type: "text", text: textContent });
       }
-      // Add image attachments as base64
+      // Add file attachments as multimodal content
       for (const att of attachments) {
         if (att.isImage) {
           try {
@@ -331,18 +331,23 @@ async function sendApiMessage(
           } catch (e) {
             console.error("[assistant] Failed to encode image:", e);
           }
+        } else if (att.mimeType.startsWith("text/") || att.mimeType === "application/json") {
+          // Text-readable files (.txt, .md, .json, etc.) → include as readable text
+          const text = await readFileContentSafe(att.filePath);
+          if (text) {
+            const truncated = text.slice(0, 30000) + (text.length > 30000 ? "\n..." : "");
+            parts.push({ type: "text", text: `--- ${att.fileName} ---\n${truncated}` });
+          } else {
+            parts.push({ type: "text", text: `[Could not read: ${att.fileName}]` });
+          }
         } else {
-          // Non-image files: read content for text files, reference for binary
+          // Binary files (PDF, docx, etc.) → send as document part
           try {
-            const text = await readFileContentSafe(att.filePath);
-            if (text) {
-              const truncated = text.slice(0, 10000) + (text.length > 10000 ? "..." : "");
-              parts.push({ type: "text", text: `--- Attached document: ${att.fileName} ---\n${truncated}` });
-            } else {
-              parts.push({ type: "text", text: `[Attached binary file: ${att.fileName} (${att.mimeType})]` });
-            }
-          } catch {
-            parts.push({ type: "text", text: `[Attached file: ${att.fileName} (${att.mimeType})]` });
+            const { data, mimeType } = await fileToBase64(att.filePath);
+            parts.push({ type: "document", mime_type: mimeType, data });
+          } catch (e) {
+            console.error("[assistant] Failed to encode document:", e);
+            parts.push({ type: "text", text: `[Attached file: ${att.fileName} — failed to read]` });
           }
         }
       }

@@ -347,7 +347,8 @@ export interface AssistantStreamEvent {
 
 export type ContentPart =
   | { type: "text"; text: string }
-  | { type: "image"; mime_type: string; data: string };
+  | { type: "image"; mime_type: string; data: string }
+  | { type: "document"; mime_type: string; data: string };
 
 export async function sendAssistantChat(params: {
   assistantId: string;

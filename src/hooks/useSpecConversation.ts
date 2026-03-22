@@ -7,6 +7,7 @@ import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
 import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
 import { handleFileRequests } from "../lib/spec-file-requests";
+import { fileToBase64 } from "../lib/file-utils";
 
 export function useSpecConversation(): {
   sendMessage: (
@@ -149,46 +150,45 @@ export function useSpecConversation(): {
 
       // Build API messages — include system messages (file_context etc.) for the AI
       const updatedConv = useSpecWriterStore.getState().getActiveConversation(projectPath)!;
+      const filteredMessages = updatedConv.messages.filter((m) => {
+        if (m.role === 'user' || m.role === 'assistant') return true;
+        if (m.role === 'system' && (m.message_type === 'file_context' || m.message_type === 'context_summary')) return true;
+        return false;
+      });
       const apiMessages: { role: string; content: string | ContentPart[] }[] =
-        updatedConv.messages
-          .filter((m) => {
-            // Include user and assistant messages
-            if (m.role === 'user' || m.role === 'assistant') return true;
-            // Include file_context and context_summary system messages as user messages
-            // so the AI sees the file contents
-            if (m.role === 'system' && (m.message_type === 'file_context' || m.message_type === 'context_summary')) return true;
-            return false;
-          })
-          .map((m) => {
-            // System messages with file context become user messages for the API
+        await Promise.all(filteredMessages.map(async (m) => {
             const apiRole = m.role === 'system' ? 'user' : m.role;
 
-            // If message has image attachments, build multimodal content
-            if (m.attachments?.some((a) => a.type === "image" && a.preview_url)) {
+            // If message has file attachments, build multimodal content parts
+            if (m.attachments && m.attachments.length > 0) {
               const parts: ContentPart[] = [{ type: "text", text: m.content }];
               for (const att of m.attachments) {
                 if (att.type === "image" && att.preview_url) {
                   const base64 = att.preview_url.split(",")[1] ?? att.preview_url;
-                  parts.push({
-                    type: "image",
-                    mime_type: att.mime_type,
-                    data: base64,
-                  });
+                  parts.push({ type: "image", mime_type: att.mime_type, data: base64 });
+                } else if (att.type === "document" && att.mime_type.startsWith("text/")) {
+                  // Text-readable files → include as readable text
+                  if (att.text_content) {
+                    parts.push({ type: "text", text: `--- ${att.name} ---\n${att.text_content}` });
+                  }
+                } else if (att.type === "document" && att.file_path) {
+                  // Binary files (PDF, docx, etc.) → send as document part
+                  try {
+                    const { data, mimeType } = await fileToBase64(att.file_path);
+                    parts.push({ type: "document", mime_type: mimeType, data });
+                  } catch {
+                    if (att.text_content) {
+                      parts.push({ type: "text", text: `--- ${att.name} ---\n${att.text_content}` });
+                    }
+                  }
+                } else if (att.type === "document" && att.text_content) {
+                  parts.push({ type: "text", text: `--- ${att.name} ---\n${att.text_content}` });
                 }
               }
               return { role: apiRole, content: parts };
             }
-            // If message has document attachments, append text content
-            let text = m.content;
-            if (m.attachments) {
-              for (const att of m.attachments) {
-                if (att.type === "document" && att.text_content) {
-                  text += `\n\n--- Attached document: ${att.name} ---\n${att.text_content}`;
-                }
-              }
-            }
-            return { role: apiRole, content: text };
-          });
+            return { role: apiRole, content: m.content };
+          }));
 
       // Add assistant placeholder for streaming
       const assistantMsg: SpecMessage = {
