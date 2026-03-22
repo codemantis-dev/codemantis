@@ -496,6 +496,42 @@ describe("CloneForm", () => {
     expect(mockOnCloned).toHaveBeenCalledWith("/Users/test/Projects/repo");
   });
 
+  // ── onBusyChange callback ──
+
+  it("calls onBusyChange(true) when cloning starts", async () => {
+    mockCloneFromGit.mockReturnValue(new Promise(() => {})); // never resolves
+    const onBusyChange = vi.fn();
+    render(<CloneForm onBack={mockOnBack} onCloned={mockOnCloned} onBusyChange={onBusyChange} />);
+
+    const urlInput = screen.getByPlaceholderText("https://github.com/user/repo");
+    fireEvent.change(urlInput, { target: { value: "https://github.com/user/repo.git" } });
+    const dirInput = screen.getByPlaceholderText("~/Projects") as HTMLInputElement;
+    fireEvent.change(dirInput, { target: { value: "/tmp/test" } });
+
+    fireEvent.click(screen.getByText("Clone & Open"));
+
+    await waitFor(() => {
+      expect(onBusyChange).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it("does not call onBusyChange when prop is not provided", async () => {
+    mockCloneFromGit.mockReturnValue(new Promise(() => {}));
+    // Should render and clone without errors when onBusyChange is omitted
+    render(<CloneForm onBack={mockOnBack} onCloned={mockOnCloned} />);
+
+    const urlInput = screen.getByPlaceholderText("https://github.com/user/repo");
+    fireEvent.change(urlInput, { target: { value: "https://github.com/user/repo.git" } });
+    const dirInput = screen.getByPlaceholderText("~/Projects") as HTMLInputElement;
+    fireEvent.change(dirInput, { target: { value: "/tmp/test" } });
+
+    fireEvent.click(screen.getByText("Clone & Open"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Cloning:/)).toBeInTheDocument();
+    });
+  });
+
   it("shows warnings on clone with warnings", async () => {
     mockCloneFromGit.mockResolvedValue({
       project_path: "/Users/test/Projects/repo",

@@ -10,11 +10,17 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 // Mock TemplatePicker to avoid nested async issues
 vi.mock("./TemplatePicker", () => ({
-  default: ({ onProjectCreated }: { onProjectCreated: (path: string) => void }) => (
+  default: ({ onProjectCreated, onBusyChange }: { onProjectCreated: (path: string) => void; onBusyChange?: (busy: boolean) => void }) => (
     <div data-testid="template-picker">
       <button onClick={() => onProjectCreated("/tmp/test")}>MockTemplateCreate</button>
+      <button onClick={() => onBusyChange?.(true)} data-testid="set-busy">SetBusy</button>
+      <button onClick={() => onBusyChange?.(false)} data-testid="clear-busy">ClearBusy</button>
     </div>
   ),
+}));
+
+vi.mock("../../stores/toastStore", () => ({
+  showToast: vi.fn(),
 }));
 
 describe("ProjectPicker", () => {
@@ -108,6 +114,55 @@ describe("ProjectPicker", () => {
     openPicker();
     render(<ProjectPicker onSelectProject={onSelectProject} />);
     expect(screen.getByText("(3)")).toBeInTheDocument();
+  });
+
+  // ── Dismiss protection ──
+
+  it("hides close button when busy", () => {
+    openPicker("templates");
+    render(<ProjectPicker onSelectProject={onSelectProject} />);
+
+    // Trigger busy state via mock TemplatePicker
+    fireEvent.click(screen.getByTestId("set-busy"));
+
+    // Close button should be hidden — the only X buttons should not be Dialog.Close
+    const dialog = screen.getByRole("dialog");
+    const closeButtons = dialog.querySelectorAll("button");
+    const xButtons = Array.from(closeButtons).filter((btn) =>
+      btn.querySelector("svg") && btn.closest("[aria-label]")?.getAttribute("aria-label")?.includes("close")
+    );
+    // The Dialog.Close X button should not be rendered
+    expect(xButtons).toHaveLength(0);
+  });
+
+  it("shows close button when not busy", () => {
+    openPicker("templates");
+    render(<ProjectPicker onSelectProject={onSelectProject} />);
+
+    // Set busy then clear it
+    fireEvent.click(screen.getByTestId("set-busy"));
+    fireEvent.click(screen.getByTestId("clear-busy"));
+
+    // Dialog should still be open and close button should be visible
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("removes a recent project when delete button is clicked", () => {
+    localStorage.setItem(
+      "codemantis-recent-projects",
+      JSON.stringify(["/Users/test/project-a", "/Users/test/project-b"])
+    );
+    openPicker("recent");
+    render(<ProjectPicker onSelectProject={onSelectProject} />);
+    expect(screen.getByText("project-a")).toBeInTheDocument();
+    expect(screen.getByText("project-b")).toBeInTheDocument();
+
+    const removeBtn = screen.getByLabelText("Remove project-a from recent projects");
+    fireEvent.click(removeBtn);
+
+    expect(screen.queryByText("project-a")).not.toBeInTheDocument();
+    expect(screen.getByText("project-b")).toBeInTheDocument();
+    expect(onSelectProject).not.toHaveBeenCalled();
   });
 
   it("opens recent project on click", () => {

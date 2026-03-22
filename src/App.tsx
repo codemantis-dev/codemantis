@@ -16,9 +16,11 @@ import QuestionModal from "./components/modals/QuestionModal";
 import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
+import ErrorCard from "./components/shared/ErrorCard";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import UpdateModal from "./components/modals/UpdateModal";
 import { showToast } from "./stores/toastStore";
+import { translateError, translateErrorForToast } from "./lib/error-messages";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
 
@@ -106,7 +108,7 @@ export default function App() {
       console.error("Failed to start session:", e);
       const msg = String(e);
       setError(msg);
-      showToast(`Failed to start session: ${msg}`, "error");
+      showToast(translateErrorForToast(msg), "error");
     }
   };
 
@@ -256,7 +258,11 @@ export default function App() {
             </p>
 
             {error && (
-              <p className="mt-2 text-red text-label text-center">{error}</p>
+              <ErrorCard
+                {...translateError(error)}
+                rawError={error}
+                onDismiss={() => setError(null)}
+              />
             )}
           </div>
         </div>

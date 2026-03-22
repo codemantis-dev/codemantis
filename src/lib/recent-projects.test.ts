@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { getRecentProjects, addRecentProject } from "./recent-projects";
+import { getRecentProjects, addRecentProject, removeRecentProject } from "./recent-projects";
 
 const CURRENT_KEY = "codemantis-recent-projects";
 const LEGACY_KEY = "claudeforge-recent-projects";
@@ -57,5 +57,20 @@ describe("recent-projects", () => {
   it("handles corrupt JSON gracefully (returns [])", () => {
     localStorage.setItem(CURRENT_KEY, "not-valid-json{{{");
     expect(getRecentProjects()).toEqual([]);
+  });
+
+  it("removeRecentProject removes the specified entry", () => {
+    addRecentProject("/a");
+    addRecentProject("/b");
+    addRecentProject("/c");
+    removeRecentProject("/b");
+    expect(getRecentProjects()).toEqual(["/c", "/a"]);
+  });
+
+  it("removeRecentProject is a no-op for non-existent path", () => {
+    addRecentProject("/a");
+    addRecentProject("/b");
+    removeRecentProject("/does-not-exist");
+    expect(getRecentProjects()).toEqual(["/b", "/a"]);
   });
 });

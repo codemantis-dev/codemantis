@@ -20,9 +20,8 @@ export default function SettingsModal() {
   return (
     <Dialog.Root open={state.showModal} onOpenChange={(open) => {
       if (!open) {
-        document.documentElement.setAttribute("data-theme", state.settings.theme);
+        state.handleCancel();
       }
-      state.setShowModal(open);
     }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />

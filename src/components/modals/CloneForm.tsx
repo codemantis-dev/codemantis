@@ -21,6 +21,7 @@ interface StepState {
 interface CloneFormProps {
   onBack: () => void;
   onCloned: (projectPath: string) => void;
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /** Extract project name from a git URL */
@@ -49,7 +50,7 @@ function isValidGitUrl(url: string): boolean {
   }
 }
 
-export default function CloneForm({ onBack, onCloned }: CloneFormProps) {
+export default function CloneForm({ onBack, onCloned, onBusyChange }: CloneFormProps) {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
@@ -74,6 +75,10 @@ export default function CloneForm({ onBack, onCloned }: CloneFormProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const urlRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onBusyChange?.(cloning);
+  }, [cloning, onBusyChange]);
 
   // Auto-focus URL field on mount
   useEffect(() => {

@@ -3,9 +3,12 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { LayoutGrid, FolderOpen, Clock, GitBranch, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useUiStore, type ProjectPickerTab } from "../../stores/uiStore";
+import { showToast } from "../../stores/toastStore";
+import { translateError } from "../../lib/error-messages";
+import ErrorCard from "../shared/ErrorCard";
 import TemplatePicker from "./TemplatePicker";
 import CloneForm from "./CloneForm";
-import { getRecentProjects, addRecentProject } from "../../lib/recent-projects";
+import { getRecentProjects, addRecentProject, removeRecentProject } from "../../lib/recent-projects";
 
 const TAB_ITEMS: { id: ProjectPickerTab; label: string; icon: typeof LayoutGrid }[] = [
   { id: "templates", label: "Templates", icon: LayoutGrid },
@@ -28,6 +31,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (showProjectPicker) {
@@ -81,12 +85,26 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
     setShowProjectPicker(false);
   };
 
+  const handleClose = (): void => {
+    if (busy) {
+      showToast("Cannot close while an operation is in progress", "info");
+      return;
+    }
+    setShowProjectPicker(false);
+  };
+
+  const handleRemoveRecent = (e: React.MouseEvent, path: string): void => {
+    e.stopPropagation();
+    removeRecentProject(path);
+    setRecentProjects(getRecentProjects());
+  };
+
   const folderName = projectPath
     ? projectPath.split("/").filter(Boolean).pop()
     : "";
 
   return (
-    <Dialog.Root open={showProjectPicker} onOpenChange={setShowProjectPicker}>
+    <Dialog.Root open={showProjectPicker} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content
@@ -96,17 +114,21 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
             width: "min(90vw, 680px)",
             height: "min(85vh, 600px)",
           }}
+          onInteractOutside={(e) => { if (busy) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }}
         >
           {/* Header with tabs */}
           <div className="flex items-center justify-between px-5 pt-5 pb-0">
             <Dialog.Title className="text-lg text-text-primary font-medium">
               {activeTab === "templates" ? "New Project" : activeTab === "open" ? "Open Project" : activeTab === "clone" ? "Clone from Git" : "Recent Projects"}
             </Dialog.Title>
-            <Dialog.Close asChild>
-              <button className="p-1 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors">
-                <X size={16} />
-              </button>
-            </Dialog.Close>
+            {!busy && (
+              <Dialog.Close asChild>
+                <button className="p-1 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors">
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
+            )}
           </div>
 
           <Dialog.Description className="sr-only">
@@ -146,7 +168,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           <div className="flex-1 min-h-0 overflow-y-auto p-5">
             {activeTab === "templates" && (
               <div className="h-full">
-                <TemplatePicker onProjectCreated={handleTemplateProjectCreated} />
+                <TemplatePicker onProjectCreated={handleTemplateProjectCreated} onBusyChange={setBusy} />
               </div>
             )}
 
@@ -184,7 +206,12 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                 </button>
 
                 {error && (
-                  <p className="mt-2 text-red text-label">{error}</p>
+                  <ErrorCard
+                    {...translateError(error)}
+                    rawError={error}
+                    compact
+                    onDismiss={() => setError(null)}
+                  />
                 )}
               </div>
             )}
@@ -194,6 +221,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                 <CloneForm
                   onBack={() => setActiveTab("templates")}
                   onCloned={handleCloneComplete}
+                  onBusyChange={setBusy}
                 />
               </div>
             )}
@@ -218,10 +246,20 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-ghost group-hover:text-text-dim shrink-0">
                             <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                           </svg>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <span className="text-text-secondary group-hover:text-text-primary text-ui block truncate">{name}</span>
                             <span className="text-text-ghost group-hover:text-text-dim text-label block truncate">{path}</span>
                           </div>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Remove ${name} from recent projects`}
+                            onClick={(e) => handleRemoveRecent(e, path)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleRemoveRecent(e as unknown as React.MouseEvent, path); } }}
+                            className="p-1 rounded-md text-text-ghost opacity-0 group-hover:opacity-100 hover:text-red hover:bg-red/10 transition-all shrink-0"
+                          >
+                            <X size={14} />
+                          </span>
                         </button>
                       );
                     })}

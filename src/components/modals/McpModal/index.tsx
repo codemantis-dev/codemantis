@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X } from "lucide-react";
 import type { ScopeFilter } from "./types";
 import { useMcpServerForm } from "./useMcpServerForm";
+import { showToast } from "../../../stores/toastStore";
 import TypeBadge from "./TypeBadge";
 import ScopeBadge from "./ScopeBadge";
 import TemplatePicker from "./TemplatePicker";
@@ -63,8 +64,18 @@ export default function McpModal(): React.JSX.Element {
     [handleShowConfigFile, form.scope],
   );
 
+  const hasUnsavedWork = editingServer !== null || configEditor !== null;
+
+  const handleClose = useCallback((): void => {
+    if (hasUnsavedWork) {
+      showToast("Save or discard your changes first", "info");
+      return;
+    }
+    setShowModal(false);
+  }, [hasUnsavedWork, setShowModal]);
+
   return (
-    <Dialog.Root open={showModal} onOpenChange={setShowModal}>
+    <Dialog.Root open={showModal} onOpenChange={(open) => { if (!open) handleClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content
@@ -74,6 +85,8 @@ export default function McpModal(): React.JSX.Element {
             width: "min(90vw, 780px)",
             height: "min(85vh, 720px)",
           }}
+          onInteractOutside={(e) => { if (hasUnsavedWork) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (hasUnsavedWork) e.preventDefault(); }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border shrink-0">
@@ -81,12 +94,14 @@ export default function McpModal(): React.JSX.Element {
               <Blocks size={16} className="text-accent" />
               MCP Servers
             </Dialog.Title>
-            <Dialog.Close
-              aria-label="Close MCP servers dialog"
-              className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
-            >
-              <X size={15} />
-            </Dialog.Close>
+            {!hasUnsavedWork && (
+              <Dialog.Close
+                aria-label="Close MCP servers dialog"
+                className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
+              >
+                <X size={15} />
+              </Dialog.Close>
+            )}
           </div>
           <Dialog.Description className="sr-only">
             Manage MCP server configurations

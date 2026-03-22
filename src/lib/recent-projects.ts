@@ -20,6 +20,11 @@ export function getRecentProjects(): string[] {
   }
 }
 
+export function removeRecentProject(path: string): void {
+  const recent = getRecentProjects().filter((p) => p !== path);
+  localStorage.setItem(RECENT_PROJECTS_KEY, JSON.stringify(recent));
+}
+
 export function addRecentProject(path: string): void {
   const recent = getRecentProjects().filter((p) => p !== path);
   recent.unshift(path);

@@ -268,7 +268,7 @@ describe("handleAssistantChatEvent", () => {
     const msgs = getMessages();
     expect(msgs).toHaveLength(2);
     expect(msgs[0].isStreaming).toBe(false); // finalized streaming
-    expect(msgs[1].content).toContain("Process exited");
+    expect(msgs[1].content).toContain("Something went wrong");
     expect(msgs[1].content).toContain("segfault");
   });
 
@@ -300,8 +300,8 @@ describe("handleAssistantChatEvent", () => {
 
     const msgs = getMessages();
     expect(msgs).toHaveLength(1);
-    expect(msgs[0].content).toContain("Process exited");
-    expect(msgs[0].content).toContain("137");
+    expect(msgs[0].content).toContain("Something went wrong");
+    expect(msgs[0].content).toContain("killed");
   });
 
   it("process_exited clears busy only (no streaming) when only busy is stuck", () => {
@@ -321,7 +321,7 @@ describe("handleAssistantChatEvent", () => {
     // Error message for non-zero exit code
     const msgs = getMessages();
     expect(msgs).toHaveLength(1);
-    expect(msgs[0].content).toContain("Process exited");
+    expect(msgs[0].content).toContain("Something went wrong");
   });
 
   // ── cleanupAssistantBuffers tests ──

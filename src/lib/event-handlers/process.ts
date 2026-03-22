@@ -4,6 +4,7 @@ import type {
 } from "../../types/claude-events";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
+import { translateError } from "../error-messages";
 import { nextMessageId } from "./chat";
 
 // Store state types (derived from Zustand store getState())
@@ -16,10 +17,13 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
     store.finalizeStreaming(sessionId);
   }
   const errorMsgId = nextMessageId();
+  const userError = translateError(event.error);
   store.addMessage(sessionId, {
     id: errorMsgId,
     role: "assistant",
-    content: `**Error:** ${event.error}`,
+    content:
+      `**${userError.title}**\n\n${userError.message}` +
+      (userError.remediation ? `\n\n**How to fix:** ${userError.remediation}` : ""),
     timestamp: now,
     activityIds: [],
     isStreaming: false,
@@ -125,15 +129,20 @@ export function handleProcessExited(sessionId: string, event: ProcessExitedEvent
       });
     }
   } else if (event.exit_code !== 0) {
-    const stderrInfo = event.stderr_tail
-      ? `\n\n**stderr:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
+    const stderrSummary = event.stderr_tail ?? "";
+    const userError = translateError(
+      stderrSummary || `Process exited with code ${event.exit_code}`
+    );
+    const stderrBlock = event.stderr_tail
+      ? `\n\n**Details:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
       : "";
     store.addMessage(sessionId, {
       id: nextMessageId(),
       role: "assistant",
       content:
-        `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
-        `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
+        `**${userError.title}**\n\n${userError.message}` +
+        (userError.remediation ? `\n\n**How to fix:** ${userError.remediation}` : "") +
+        stderrBlock,
       timestamp: now,
       activityIds: [],
       isStreaming: false,

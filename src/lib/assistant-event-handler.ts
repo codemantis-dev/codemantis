@@ -1,5 +1,6 @@
 import type { FrontendEvent } from "../types/claude-events";
 import { useAssistantStore } from "../stores/assistantStore";
+import { translateError } from "./error-messages";
 
 let messageCounter = 0;
 
@@ -134,17 +135,22 @@ export function handleAssistantChatEvent(sessionId: string, event: FrontendEvent
         }
       }
 
-      // Non-zero exit: add an informational error so the user knows what happened
+      // Non-zero exit: add a user-friendly error so the user knows what happened
       if (event.exit_code !== 0) {
-        const stderrInfo = event.stderr_tail
-          ? `\n\n\`\`\`\n${event.stderr_tail}\n\`\`\``
+        const stderrSummary = event.stderr_tail ?? "";
+        const userError = translateError(
+          stderrSummary || `Process exited with code ${event.exit_code}`
+        );
+        const stderrBlock = event.stderr_tail
+          ? `\n\n**Details:**\n\`\`\`\n${event.stderr_tail}\n\`\`\``
           : "";
         store.addMessage(sessionId, {
           id: nextAssistantMessageId(),
           role: "assistant",
           content:
-            `**Process exited** with code ${event.exit_code ?? "unknown"} ` +
-            `after ${Math.round(event.elapsed_ms / 1000)}s.${stderrInfo}`,
+            `**${userError.title}**\n\n${userError.message}` +
+            (userError.remediation ? `\n\n**How to fix:** ${userError.remediation}` : "") +
+            stderrBlock,
           timestamp: now,
           activityIds: [],
           isStreaming: false,

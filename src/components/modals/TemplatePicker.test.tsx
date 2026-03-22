@@ -162,6 +162,48 @@ describe("TemplatePicker", () => {
     expect(searchInput).toBeInTheDocument();
   });
 
+  // ── onBusyChange callback ──
+
+  it("calls onBusyChange(true) when navigating to detail view", async () => {
+    const onBusyChange = vi.fn();
+    render(<TemplatePicker onProjectCreated={onProjectCreated} onBusyChange={onBusyChange} />);
+    await waitFor(() => {
+      expect(screen.getByText("Next.js Full-Stack")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Next.js Full-Stack"));
+    expect(onBusyChange).toHaveBeenCalledWith(true);
+  });
+
+  it("calls onBusyChange(false) when navigating back to grid", async () => {
+    const onBusyChange = vi.fn();
+    render(<TemplatePicker onProjectCreated={onProjectCreated} onBusyChange={onBusyChange} />);
+    await waitFor(() => {
+      expect(screen.getByText("Next.js Full-Stack")).toBeInTheDocument();
+    });
+
+    // Go to detail
+    fireEvent.click(screen.getByText("Next.js Full-Stack"));
+    expect(onBusyChange).toHaveBeenCalledWith(true);
+
+    // Go back
+    onBusyChange.mockClear();
+    fireEvent.click(screen.getByText("Back to templates"));
+    await waitFor(() => {
+      expect(onBusyChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("does not call onBusyChange when prop is not provided", async () => {
+    // Should render without errors when onBusyChange is omitted
+    render(<TemplatePicker onProjectCreated={onProjectCreated} />);
+    await waitFor(() => {
+      expect(screen.getByText("Next.js Full-Stack")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Next.js Full-Stack"));
+    expect(screen.getByText("Back to templates")).toBeInTheDocument();
+  });
+
   it("resets to All when clicking All after filtering", async () => {
     render(<TemplatePicker onProjectCreated={onProjectCreated} />);
     await waitFor(() => {

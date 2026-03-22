@@ -26,6 +26,7 @@ import {
 } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
 import { handleError } from "../lib/error-handler";
+import { translateErrorForToast } from "../lib/error-messages";
 import { inputDrafts } from "../lib/input-drafts";
 
 const MAX_SESSIONS = 10;
@@ -239,7 +240,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
       return session.id;
     } catch (e) {
-      showToast(`Failed to resume session: ${String(e)}`, "error");
+      showToast(translateErrorForToast(String(e)), "error");
       throw e;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference

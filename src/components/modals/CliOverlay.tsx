@@ -13,6 +13,8 @@ import {
   resumeSessionProcess,
 } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
+import { translateError } from "../../lib/error-messages";
+import ErrorCard from "../shared/ErrorCard";
 import TerminalView from "../rightpanel/TerminalView";
 
 export default function CliOverlay() {
@@ -209,10 +211,12 @@ export default function CliOverlay() {
               </div>
             )}
             {error && (
-              <div className="h-full flex items-center justify-center p-4">
-                <div className="text-center">
-                  <p className="text-red text-ui mb-2">Failed to start Claude CLI</p>
-                  <p className="text-text-dim text-label">{error}</p>
+              <div className="h-full flex items-center justify-center p-8">
+                <div className="max-w-md w-full">
+                  <ErrorCard
+                    {...translateError(error)}
+                    rawError={error}
+                  />
                 </div>
               </div>
             )}
