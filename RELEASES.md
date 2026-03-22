@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 0.8.5
+
+- Refresh app icons and sync lockfile
+- Add community templates, Code of Conduct, and README/CONTRIBUTING updates
+
 ## 0.8.4
 
 - Fix app icon: use correct source with rounded corners (CodeMantisIcon.png)
