@@ -39,6 +39,7 @@ export default function SpecWriterSlideOver() {
   const setContextLoaded = useSpecWriterStore((s) => s.setContextLoaded);
   const setProjectContext = useSpecWriterStore((s) => s.setProjectContext);
   const addMessage = useSpecWriterStore((s) => s.addMessage);
+  const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
@@ -177,6 +178,15 @@ export default function SpecWriterSlideOver() {
       setCurrentSpecContent(activeProjectPath, newContent);
     }
   }, [activeProjectPath, setCurrentSpecContent]);
+
+  const handleCloseSpec = useCallback(() => {
+    if (activeProjectPath) {
+      setCurrentSpecContent(activeProjectPath, null);
+      setCurrentAuditContent(activeProjectPath, null);
+      setSelectedSavedSpec(activeProjectPath, null);
+      setIsEditing(false);
+    }
+  }, [activeProjectPath, setCurrentSpecContent, setCurrentAuditContent, setSelectedSavedSpec]);
 
   // Auto-exit edit mode when streaming starts
   useEffect(() => {
@@ -560,6 +570,7 @@ export default function SpecWriterSlideOver() {
                     auditContent={currentAuditContent}
                     isEditing={isEditing}
                     onContentChange={handleSpecEdit}
+                    onClose={handleCloseSpec}
                   />
                 </div>
 

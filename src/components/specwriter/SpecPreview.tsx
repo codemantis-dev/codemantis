@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from "react";
+import { X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,9 +10,10 @@ interface Props {
   auditContent?: string | null;
   isEditing?: boolean;
   onContentChange?: (content: string) => void;
+  onClose?: () => void;
 }
 
-export default function SpecPreview({ content, auditContent, isEditing, onContentChange }: Props) {
+export default function SpecPreview({ content, auditContent, isEditing, onContentChange, onClose }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
   const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
@@ -100,10 +102,20 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
 
       {title && (
         <div
-          className="px-4 py-2 text-xs font-medium border-b shrink-0 truncate"
+          className="px-4 py-2 text-xs font-medium border-b shrink-0 flex items-center gap-2"
           style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
         >
-          {title}
+          <span className="truncate flex-1">{title}</span>
+          {onClose && (
+            <button
+              onClick={onClose}
+              title="Close spec"
+              className="shrink-0 p-0.5 rounded hover:bg-bg-elevated transition-colors"
+              style={{ color: "var(--text-ghost)" }}
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       )}
       {isEditing && activeTab === 'spec' ? (
