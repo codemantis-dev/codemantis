@@ -9,6 +9,15 @@
     "beforeBuildCommand": "bash scripts/pre-build-clean.sh && pnpm build",
     "frontendDist": "../dist"
   },
+
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/codemantis-dev/codemantis/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGRTU2Q0ZENEU2MDFENzUKUldSMUhXQk8vV3psTDNyV2Fmc21nNG9iVGd5L2xWSlFkWFcrcFlmeFU3enZWZk1WU0xJUTZ2LzIK"
+    }
+  },
   "app": {
     "windows": [
       {
@@ -34,7 +43,7 @@
     "active": true,
     "targets": ["app", "dmg"],
     "macOS": {
-      "signingIdentity": "Developer ID Application: HCR-Holding Gmbh (3DNX7TQ9FQ)",
+      "signingIdentity": null,
       "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
       "files": {

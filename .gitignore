@@ -25,3 +25,5 @@ _guidance
 *.njsproj
 *.sln
 *.sw?
+.tauri/
+*.tauri/
