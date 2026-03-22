@@ -1657,17 +1657,18 @@ mod tests {
 
     #[test]
     fn install_runs_shell_command_successfully() {
-        // Verify the install mechanism actually runs commands
+        // Verify the install mechanism actually runs commands using -li
+        // (login+interactive) to match the production code path
         let path = login_shell_path();
         let result = std::process::Command::new("/bin/zsh")
-            .args(["-l", "-c", "echo prerequisite_install_test"])
+            .args(["-li", "-c", "echo prerequisite_install_test"])
             .env("PATH", &path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
             .unwrap();
-        assert!(result.status.success(), "zsh -l -c failed to run echo");
+        assert!(result.status.success(), "zsh -li -c failed to run echo");
         let stdout = String::from_utf8_lossy(&result.stdout);
         assert!(
             stdout.contains("prerequisite_install_test"),
@@ -1680,7 +1681,7 @@ mod tests {
     fn install_reports_failure_for_bad_command() {
         let path = login_shell_path();
         let result = std::process::Command::new("/bin/zsh")
-            .args(["-l", "-c", "__nonexistent_command_12345__"])
+            .args(["-li", "-c", "__nonexistent_command_12345__"])
             .env("PATH", &path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

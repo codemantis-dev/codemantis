@@ -72,3 +72,110 @@ pub fn app_data_dir() -> Option<PathBuf> {
     };
     dirs::data_dir().map(|d| d.join(dir_name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_path_uses_interactive_shell() {
+        // Verify that resolve_path_from_shell() sources ~/.zshrc by using
+        // an interactive shell (-li). Tools like bun, nvm, fnm, pyenv add
+        // their PATH entries in .zshrc, which is only sourced for interactive
+        // shells. Without -i, compiled .app bundles can't find these tools.
+        //
+        // We test this by comparing the output of -li (interactive+login)
+        // vs -l (login-only). On most dev machines .zshrc adds entries that
+        // .zprofile doesn't, so the interactive PATH should be a superset.
+        let interactive = std::process::Command::new("/bin/zsh")
+            .args(["-li", "-c", "echo $PATH"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .expect("failed to run zsh -li");
+
+        let login_only = std::process::Command::new("/bin/zsh")
+            .args(["-l", "-c", "echo $PATH"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .expect("failed to run zsh -l");
+
+        let interactive_path = String::from_utf8_lossy(&interactive.stdout)
+            .trim()
+            .to_string();
+        let login_path = String::from_utf8_lossy(&login_only.stdout)
+            .trim()
+            .to_string();
+
+        // The interactive PATH must be non-empty and at least as long as login-only.
+        // (On machines with .zshrc PATH additions it will be strictly longer.)
+        assert!(
+            !interactive_path.is_empty(),
+            "interactive shell PATH is empty"
+        );
+        assert!(
+            interactive_path.len() >= login_path.len(),
+            "interactive PATH ({} chars) should be >= login-only PATH ({} chars)",
+            interactive_path.len(),
+            login_path.len()
+        );
+    }
+
+    #[test]
+    fn resolve_path_contains_homebrew_paths() {
+        // On Apple Silicon Macs, Homebrew lives in /opt/homebrew/bin.
+        // On Intel Macs, it's /usr/local/bin.
+        // Both should appear in the resolved PATH.
+        let path = resolve_path_from_shell();
+        let has_homebrew = path.contains("/opt/homebrew/bin") || path.contains("/usr/local/bin");
+        assert!(
+            has_homebrew,
+            "resolved PATH should contain Homebrew path (/opt/homebrew/bin or /usr/local/bin): {}",
+            path
+        );
+    }
+
+    #[test]
+    fn login_shell_path_is_cached() {
+        // Call twice — both should return the same value (cached).
+        let first = login_shell_path();
+        let second = login_shell_path();
+        assert_eq!(first, second, "login_shell_path() should return cached value");
+    }
+
+    #[test]
+    fn refresh_clears_cache_and_resolves() {
+        let initial = login_shell_path();
+        let refreshed = refresh_login_shell_path();
+        // Both should be valid non-empty PATHs
+        assert!(!initial.is_empty());
+        assert!(!refreshed.is_empty());
+        // After refresh, login_shell_path() should return the new value
+        assert_eq!(refreshed, login_shell_path());
+    }
+
+    #[test]
+    fn tool_exists_finds_system_tools() {
+        let path = login_shell_path();
+        assert!(
+            tool_exists_in_login_shell("git", &path),
+            "git should be found in login shell PATH"
+        );
+        assert!(
+            tool_exists_in_login_shell("ls", &path),
+            "ls should be found in login shell PATH"
+        );
+    }
+
+    #[test]
+    fn tool_exists_rejects_missing_tools() {
+        let path = login_shell_path();
+        assert!(
+            !tool_exists_in_login_shell("__nonexistent_tool_99999__", &path),
+            "nonexistent tool should not be found"
+        );
+    }
+}

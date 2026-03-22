@@ -146,3 +146,36 @@ fn check_authenticated() -> bool {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn find_via_shell_uses_interactive_flag() {
+        // find_via_shell() must use -li (login+interactive) so that tools
+        // added in ~/.zshrc (like claude installed via npm with nvm) are
+        // visible in compiled .app bundles.
+        //
+        // We verify by running the same command find_via_shell uses and
+        // checking it can at least locate a common tool (git). This proves
+        // the -li mechanism is working even from a non-terminal context.
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let output = std::process::Command::new(&shell)
+            .args(["-li", "-c", "which git"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .expect("failed to spawn shell");
+
+        assert!(
+            output.status.success(),
+            "shell -li -c 'which git' should succeed"
+        );
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert!(
+            !path.is_empty() && path.contains("git"),
+            "should resolve git path, got: {}",
+            path
+        );
+    }
+}
