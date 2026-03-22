@@ -1,5 +1,13 @@
 # CodeMantis Releases
 
+## 0.8.1
+
+- Add in-app auto-update: checks for updates on launch, shows notification banner
+- Add "Check for Updates" button in Settings > General
+- Configure signed + notarized macOS builds via GitHub Actions
+- Build universal binary (Intel + Apple Silicon) with Apple Developer ID signing
+- Generate updater artifacts (latest.json) for seamless auto-updates
+
 ## 0.8.0
 
 - Version bump to 0.8.0 (pre-release)
