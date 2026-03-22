@@ -148,7 +148,7 @@ describe("TemplateDetail", () => {
     const input = screen.getByDisplayValue("next-js-full-stack");
     fireEvent.change(input, { target: { value: "my project!" } });
     fireEvent.click(screen.getByText("Use This Template"));
-    expect(screen.getByText("Only letters, numbers, hyphens, underscores, dots")).toBeInTheDocument();
+    expect(screen.getByText("Project name can only contain letters, numbers, hyphens, underscores, and dots (no spaces)")).toBeInTheDocument();
   });
 
   it("shows validation error when name starts with dot", () => {
@@ -157,7 +157,7 @@ describe("TemplateDetail", () => {
     const input = screen.getByDisplayValue("next-js-full-stack");
     fireEvent.change(input, { target: { value: ".hidden" } });
     fireEvent.click(screen.getByText("Use This Template"));
-    expect(screen.getByText("Cannot start with '.' or '-'")).toBeInTheDocument();
+    expect(screen.getByText("Project name cannot start with '.' or '-'")).toBeInTheDocument();
   });
 
   it("does not show View on GitHub for templates without repo_url", () => {

@@ -62,7 +62,8 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
       setShowProjectPicker(false);
     } catch (e) {
       console.error("Failed to start session:", e);
-      setError(String(e));
+      const detail = e instanceof Error ? e.message : String(e);
+      setError(`Failed to open project: ${detail}`);
     } finally {
       setStarting(false);
     }

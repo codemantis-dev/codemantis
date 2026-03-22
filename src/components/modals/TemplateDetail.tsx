@@ -48,6 +48,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
   const [projectName, setProjectName] = useState(slugify(template.name));
   const [parentDir, setParentDir] = useState(getLastScaffoldDir);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [prereqResults, setPrereqResults] = useState<PrerequisiteResult[] | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -106,6 +107,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
     if (selected) {
       setParentDir(selected as string);
       saveLastScaffoldDir(selected as string);
+      setLocationError(null);
     }
   };
 
@@ -116,22 +118,23 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
       return;
     }
     if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
-      setNameError("Only letters, numbers, hyphens, underscores, dots");
+      setNameError("Project name can only contain letters, numbers, hyphens, underscores, and dots (no spaces)");
       return;
     }
     if (trimmed.startsWith(".") || trimmed.startsWith("-")) {
-      setNameError("Cannot start with '.' or '-'");
+      setNameError("Project name cannot start with '.' or '-'");
       return;
     }
     if (!parentDir) {
-      setNameError("Choose a location first");
+      setLocationError("Choose a location first");
       return;
     }
     setNameError(null);
+    setLocationError(null);
     onUseTemplate(template, parentDir, trimmed);
   };
 
-  const canSubmit = projectName.trim() && parentDir && !nameError && !hasRequiredMissing;
+  const canSubmit = projectName.trim() && parentDir && !nameError && !locationError && !hasRequiredMissing;
 
   return (
     <div className="flex flex-col h-full">
@@ -261,6 +264,9 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
             className="w-full px-3 py-2 rounded-lg border border-border bg-bg-subtle text-text-primary text-ui focus:border-accent/50 focus:outline-none transition-colors"
             placeholder="my-project"
           />
+          {nameError && (
+            <p className="text-red text-label mt-1">{nameError}</p>
+          )}
         </div>
 
         {/* Location */}
@@ -277,11 +283,10 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
               {parentDir || "Choose a folder..."}
             </span>
           </button>
+          {locationError && (
+            <p className="text-red text-label mt-1">{locationError}</p>
+          )}
         </div>
-
-        {nameError && (
-          <p className="text-red text-label">{nameError}</p>
-        )}
 
         {/* Actions */}
         <div className="flex items-center gap-2 pt-1">

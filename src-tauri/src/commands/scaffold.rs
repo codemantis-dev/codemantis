@@ -233,8 +233,10 @@ pub(crate) async fn run_command(
 const ALLOWED_SCAFFOLD_COMMANDS: &[&str] = &[
     "which", "node", "npm", "npx", "pnpm", "yarn", "bun", "bunx",
     "cargo", "rustup", "go", "python", "python3", "pip", "pip3",
+    "uv", "corepack",
     "git", "deno", "flutter", "dart", "ruby", "gem", "composer",
     "php", "java", "javac", "mvn", "gradle", "swift",
+    "docker", "docker-compose",
     "create-react-app", "create-next-app", "create-vite",
     "mkdir", "cp", "mv", "rm", "cat", "echo", "sed", "chmod",
     "cd", "ls", "test", "brew",
@@ -1541,6 +1543,78 @@ mod tests {
                         template.id
                     );
                 }
+            }
+        }
+    }
+
+    // ── validate_shell_command ──
+
+    #[test]
+    fn allowed_simple_commands_pass() {
+        assert!(validate_shell_command("npm install").is_ok());
+        assert!(validate_shell_command("cargo build").is_ok());
+        assert!(validate_shell_command("pnpm install").is_ok());
+        assert!(validate_shell_command("yarn install").is_ok());
+        assert!(validate_shell_command("pip install -r requirements.txt").is_ok());
+    }
+
+    #[test]
+    fn docker_commands_pass() {
+        assert!(validate_shell_command("docker compose build").is_ok());
+        assert!(validate_shell_command("docker compose up").is_ok());
+        assert!(validate_shell_command("docker-compose build").is_ok());
+    }
+
+    #[test]
+    fn uv_and_corepack_commands_pass() {
+        assert!(validate_shell_command("uv sync").is_ok());
+        assert!(validate_shell_command("corepack enable").is_ok());
+    }
+
+    #[test]
+    fn commands_with_path_prefix_pass() {
+        assert!(validate_shell_command("/usr/bin/node script.js").is_ok());
+        assert!(validate_shell_command("/usr/local/bin/npm install").is_ok());
+    }
+
+    #[test]
+    fn commands_with_env_var_prefix_pass() {
+        assert!(validate_shell_command("NODE_ENV=production npm install").is_ok());
+    }
+
+    #[test]
+    fn disallowed_commands_rejected() {
+        assert!(validate_shell_command("curl http://example.com").is_err());
+        assert!(validate_shell_command("wget http://example.com").is_err());
+        assert!(validate_shell_command("sudo rm -rf /").is_err());
+    }
+
+    #[test]
+    fn empty_command_rejected() {
+        assert!(validate_shell_command("").is_err());
+        assert!(validate_shell_command("   ").is_err());
+    }
+
+    #[test]
+    fn chained_commands_validate_first_token() {
+        // Only the first command token is validated
+        assert!(validate_shell_command("corepack enable && yarn install").is_ok());
+    }
+
+    #[test]
+    fn all_template_install_commands_pass_allowlist() {
+        let json = include_str!("../../resources/templates.json");
+        let registry: TemplateRegistry = serde_json::from_str(json).unwrap();
+        for template in &registry.templates {
+            let cmd = &template.install_command;
+            if !cmd.is_empty() {
+                assert!(
+                    validate_shell_command(cmd).is_ok(),
+                    "Template '{}' install_command '{}' fails allowlist: {}",
+                    template.id,
+                    cmd,
+                    validate_shell_command(cmd).unwrap_err()
+                );
             }
         }
     }

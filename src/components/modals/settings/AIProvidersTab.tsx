@@ -57,7 +57,7 @@ export default function AIProvidersTab({
                 <p className="text-green text-label mt-1">API key is valid</p>
               )}
               {result === "error" && (
-                <p className="text-red text-label mt-1">Invalid API key or connection error</p>
+                <p className="text-red text-label mt-1">Could not validate API key — check that the key is correct and your internet connection is working</p>
               )}
             </div>
           );
