@@ -69,7 +69,7 @@ export default function UpdateModal() {
         />
         <Dialog.Content
           className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md rounded-xl shadow-2xl p-6"
-          style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+          style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}
         >
           {/* Close button */}
           {!downloading && (
