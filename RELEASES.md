@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.8.7
+
+- Fix Docker scaffold verification
+- Fix update notification bar layout
+- Sync lockfile for 0.8.6
+
 ## 0.8.6
 
 - Add friendly error UX with translated error messages and ErrorCard component
