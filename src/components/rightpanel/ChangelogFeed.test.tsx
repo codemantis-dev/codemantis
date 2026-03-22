@@ -173,6 +173,58 @@ describe("ChangelogFeed", () => {
     });
   });
 
+  describe("copy button", () => {
+    let clipboardWriteMock: ReturnType<typeof vi.fn>;
+    let clipboardWriteTextMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      // Polyfill ClipboardItem for jsdom
+      if (typeof globalThis.ClipboardItem === "undefined") {
+        globalThis.ClipboardItem = class ClipboardItem {
+          readonly types: string[];
+          constructor(private items: Record<string, Blob>) {
+            this.types = Object.keys(items);
+          }
+          getType(type: string): Promise<Blob> {
+            return Promise.resolve(this.items[type]);
+          }
+        } as unknown as typeof ClipboardItem;
+      }
+      clipboardWriteMock = vi.fn().mockResolvedValue(undefined);
+      clipboardWriteTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, {
+        clipboard: {
+          write: clipboardWriteMock,
+          writeText: clipboardWriteTextMock,
+        },
+      });
+    });
+
+    it("renders copy button for each entry", () => {
+      setup([makeEntry({ id: "e1" }), makeEntry({ id: "e2" })]);
+      render(<ChangelogFeed />);
+      const copyButtons = screen.getAllByTitle("Copy entry");
+      expect(copyButtons).toHaveLength(2);
+    });
+
+    it("copies headline and description as rich text on click", async () => {
+      setup([makeEntry({ id: "e1", headline: "My headline", description: "My description" })]);
+      render(<ChangelogFeed />);
+      await userEvent.click(screen.getByTitle("Copy entry"));
+      expect(clipboardWriteMock).toHaveBeenCalledOnce();
+      const items = clipboardWriteMock.mock.calls[0][0];
+      expect(items).toHaveLength(1);
+    });
+
+    it("falls back to writeText when clipboard.write fails", async () => {
+      clipboardWriteMock.mockRejectedValueOnce(new Error("not supported"));
+      setup([makeEntry({ id: "e1", headline: "Headline", description: "Desc" })]);
+      render(<ChangelogFeed />);
+      await userEvent.click(screen.getByTitle("Copy entry"));
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("Headline\nDesc");
+    });
+  });
+
   describe("null safety", () => {
     it("handles entry with null files_changed without crashing", async () => {
       const entry = makeEntry({ id: "e1", headline: "Test" });

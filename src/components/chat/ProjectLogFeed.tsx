@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ScrollText, RefreshCw, Loader2 } from "lucide-react";
+import { ScrollText, RefreshCw, Loader2, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -10,6 +10,7 @@ import type { ProjectChangelogEntry } from "../../types/changelog";
 function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
   const config = CATEGORY_CONFIG[entry.category] ?? CATEGORY_CONFIG.feature;
   const Icon = config.icon;
+  const [copied, setCopied] = useState(false);
   const dateTime = new Date(entry.timestamp).toLocaleString([], {
     month: "short",
     day: "numeric",
@@ -17,8 +18,25 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
     minute: "2-digit",
   });
 
+  const handleCopy = async () => {
+    const html = `<strong>${entry.headline}</strong><br>${entry.description}`;
+    const plain = `${entry.headline}\n${entry.description}`;
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+        }),
+      ]);
+    } catch {
+      await navigator.clipboard.writeText(plain);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
-    <div className="px-4 py-3 border-b border-border-light">
+    <div className="px-4 py-3 border-b border-border-light group">
       <div className="flex items-start gap-2.5">
         {/* Category icon */}
         <div className={`mt-0.5 shrink-0 ${config.color}`}>
@@ -35,6 +53,13 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
               {entry.session_name}
             </span>
             <span className="text-[10px] text-text-ghost ml-auto shrink-0">{dateTime}</span>
+            <button
+              onClick={handleCopy}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all"
+              title="Copy entry"
+            >
+              {copied ? <Check size={10} /> : <Copy size={10} />}
+            </button>
           </div>
 
           {/* Headline */}

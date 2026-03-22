@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight, Search, X, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -16,8 +16,26 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
   const Icon = config.icon;
   const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const hasDetails = !!(entry.technical_details || entry.tools_summary);
+
+  const handleCopy = async () => {
+    const html = `<strong>${entry.headline}</strong><br>${entry.description}`;
+    const plain = `${entry.headline}\n${entry.description}`;
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+        }),
+      ]);
+    } catch {
+      await navigator.clipboard.writeText(plain);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const handleDelete = async () => {
     try {
@@ -51,6 +69,13 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
               {config.label}
             </span>
             <span className="text-[10px] text-text-ghost ml-auto">{time}</span>
+            <button
+              onClick={handleCopy}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all"
+              title="Copy entry"
+            >
+              {copied ? <Check size={10} /> : <Copy size={10} />}
+            </button>
             <button
               onClick={handleDelete}
               className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-red transition-all"

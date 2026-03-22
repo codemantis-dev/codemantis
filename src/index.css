@@ -335,6 +335,7 @@ body,
 .changelog-markdown li { margin-bottom: 0.15em; }
 .changelog-markdown strong { color: var(--text-primary); font-weight: 600; }
 .changelog-markdown a { color: var(--accent-light); }
+.changelog-markdown { user-select: text; cursor: text; }
 
 /* Textarea */
 textarea {
