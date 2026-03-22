@@ -1,5 +1,12 @@
 # CodeMantis Releases
 
+## 0.8.6
+
+- Add friendly error UX with translated error messages and ErrorCard component
+- Add project picker busy state during session start
+- Refreshed app icons (edge-to-edge source)
+- Expand scaffold allowlist and improve template/settings UX
+
 ## 0.8.5
 
 - Refresh app icons and sync lockfile
