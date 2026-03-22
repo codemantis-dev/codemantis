@@ -109,7 +109,7 @@ fn find_claude_binary() -> Option<PathBuf> {
 fn find_via_shell() -> Option<PathBuf> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let output = std::process::Command::new(&shell)
-        .args(["-l", "-c", "which claude"])
+        .args(["-li", "-c", "which claude"])
         .output()
         .ok()?;
     if output.status.success() {

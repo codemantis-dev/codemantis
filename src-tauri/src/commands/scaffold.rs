@@ -667,9 +667,9 @@ pub struct InstallPrerequisiteResult {
 pub async fn install_prerequisite(command: String) -> Result<InstallPrerequisiteResult, String> {
     let path = login_shell_path();
     let result = tokio::task::spawn_blocking(move || {
-        // Use zsh login shell so brew/nvm/cargo/etc are in PATH
+        // Use zsh login+interactive shell so brew/nvm/cargo/bun/etc are in PATH
         std::process::Command::new("/bin/zsh")
-            .args(["-l", "-c", &command])
+            .args(["-li", "-c", &command])
             .env("PATH", &path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

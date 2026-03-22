@@ -13,7 +13,7 @@ static CACHED_LOGIN_PATH: Mutex<Option<String>> = Mutex::new(None);
 
 fn resolve_path_from_shell() -> String {
     std::process::Command::new("/bin/zsh")
-        .args(["-l", "-c", "echo $PATH"])
+        .args(["-li", "-c", "echo $PATH"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

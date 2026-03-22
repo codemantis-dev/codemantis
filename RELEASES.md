@@ -1,11 +1,8 @@
 # CodeMantis Releases
 
-## 1.0.0
+## 0.8.0
 
-- Public release on GitHub (MIT license)
-- 12 project templates (Next.js, Vite+React, FastAPI, Astro, Expo, Fumadocs, Nextra, Nextplate, and more)
-- Rewritten CLAUDE.md and README with screenshots
-- Cleaned up repository for open source (removed duplicates, stale artifacts, old naming)
+- Version bump to 0.8.0 (pre-release)
 
 ## 0.5.5
 
