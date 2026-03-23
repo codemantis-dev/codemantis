@@ -278,6 +278,8 @@ pub fn run() {
             commands::preview::get_dev_server_status,
             commands::preview::get_preview_console_logs,
             commands::preview::capture_preview_screenshot,
+            commands::session::create_specwriter_session,
+            commands::session::close_specwriter_session,
             commands::specwriter::save_task_board_state,
             commands::specwriter::load_task_board_state,
             commands::specwriter::delete_task_plan_cmd,

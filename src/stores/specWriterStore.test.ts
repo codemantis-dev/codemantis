@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("../lib/tauri-commands", () => ({
+  saveTaskBoardState: vi.fn().mockResolvedValue(undefined),
+  loadTaskBoardState: vi.fn().mockResolvedValue(null),
+  closeSpecwriterSession: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { useSpecWriterStore } from "./specWriterStore";
 
 const PROJECT = "/tmp/test-project";
@@ -12,6 +19,9 @@ describe("specWriterStore", () => {
       currentSpecContent: new Map(),
       currentAuditContent: new Map(),
       savedSpecs: new Map(),
+      fileRequestsPending: new Map(),
+      projectContext: new Map(),
+      cliSessionIds: new Map(),
     });
   });
 
@@ -106,5 +116,67 @@ describe("specWriterStore", () => {
     useSpecWriterStore.getState().setCurrentAuditContent(PROJECT_2, "# Audit 2");
     expect(useSpecWriterStore.getState().currentAuditContent.get(PROJECT)).toBe("# Audit 1");
     expect(useSpecWriterStore.getState().currentAuditContent.get(PROJECT_2)).toBe("# Audit 2");
+  });
+
+  // ── CLI session ID tests ──────────────────────────────────────
+
+  it("sets a CLI session ID for a project", () => {
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    expect(useSpecWriterStore.getState().cliSessionIds.get(PROJECT)).toBe("cli-session-abc");
+  });
+
+  it("overwrites an existing CLI session ID", () => {
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-xyz");
+    expect(useSpecWriterStore.getState().cliSessionIds.get(PROJECT)).toBe("cli-session-xyz");
+  });
+
+  it("clears CLI session ID when set to null", () => {
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, null);
+    expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
+  });
+
+  it("getCliSessionId returns undefined for project with no CLI session", () => {
+    expect(useSpecWriterStore.getState().getCliSessionId(PROJECT)).toBeUndefined();
+  });
+
+  it("getCliSessionId returns session ID for project with CLI session", () => {
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    expect(useSpecWriterStore.getState().getCliSessionId(PROJECT)).toBe("cli-session-abc");
+  });
+
+  it("clears CLI session ID when conversation is cleared", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    useSpecWriterStore.getState().clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
+  });
+
+  it("clearConversation works even when no CLI session exists", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    // No CLI session set — should not crash
+    useSpecWriterStore.getState().clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().conversations.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
+  });
+
+  it("clears CLI session ID on discardAndStartNew", async () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-abc");
+    await useSpecWriterStore.getState().discardAndStartNew(PROJECT);
+    expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
+  });
+
+  it("isolates CLI session IDs between projects", () => {
+    const PROJECT_2 = "/tmp/other-project";
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-1");
+    useSpecWriterStore.getState().setCliSessionId(PROJECT_2, "cli-session-2");
+    expect(useSpecWriterStore.getState().getCliSessionId(PROJECT)).toBe("cli-session-1");
+    expect(useSpecWriterStore.getState().getCliSessionId(PROJECT_2)).toBe("cli-session-2");
+    // Clearing one does not affect the other
+    useSpecWriterStore.getState().setCliSessionId(PROJECT, null);
+    expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().getCliSessionId(PROJECT_2)).toBe("cli-session-2");
   });
 });

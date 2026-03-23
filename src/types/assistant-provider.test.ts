@@ -8,6 +8,8 @@ import {
   calculateCost,
   SPEC_WRITING_MODELS,
   DEFAULT_SPEC_MODEL,
+  SPEC_CLAUDE_CODE_MODELS,
+  DEFAULT_SPEC_CLAUDE_CODE_MODEL,
   autoSelectSpecModel,
   isSpecModelAvailable,
   getSpecModelLabel,
@@ -200,8 +202,77 @@ describe("getSpecModelLabel", () => {
     expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
   });
 
+  it("returns label for Claude Code spec models", () => {
+    expect(getSpecModelLabel("claude-haiku-4-5")).toBe("Haiku 4.5");
+  });
+
   it("returns model ID for unknown model", () => {
     expect(getSpecModelLabel("unknown-model")).toBe("unknown-model");
+  });
+});
+
+// ── SpecWriter Claude Code model selection ─────────────────────
+
+describe("SPEC_CLAUDE_CODE_MODELS", () => {
+  it("has exactly 3 models", () => {
+    expect(SPEC_CLAUDE_CODE_MODELS).toHaveLength(3);
+  });
+
+  it("contains haiku, sonnet, and opus", () => {
+    const ids = SPEC_CLAUDE_CODE_MODELS.map((m) => m.id);
+    expect(ids).toContain("claude-haiku-4-5");
+    expect(ids).toContain("claude-sonnet-4-6");
+    expect(ids).toContain("claude-opus-4-6");
+  });
+
+  it("each model has id, label, and description fields", () => {
+    for (const model of SPEC_CLAUDE_CODE_MODELS) {
+      expect(typeof model.id).toBe("string");
+      expect(model.id.length).toBeGreaterThan(0);
+      expect(typeof model.label).toBe("string");
+      expect(model.label.length).toBeGreaterThan(0);
+      expect(typeof model.description).toBe("string");
+      expect(model.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("all IDs are valid Claude model IDs", () => {
+    for (const model of SPEC_CLAUDE_CODE_MODELS) {
+      expect(model.id).toMatch(/^claude-/);
+    }
+  });
+});
+
+describe("DEFAULT_SPEC_CLAUDE_CODE_MODEL", () => {
+  it("is claude-sonnet-4-6", () => {
+    expect(DEFAULT_SPEC_CLAUDE_CODE_MODEL).toBe("claude-sonnet-4-6");
+  });
+
+  it("exists in SPEC_CLAUDE_CODE_MODELS", () => {
+    const ids = SPEC_CLAUDE_CODE_MODELS.map((m) => m.id);
+    expect(ids).toContain(DEFAULT_SPEC_CLAUDE_CODE_MODEL);
+  });
+});
+
+describe("getSpecModelLabel with Claude Code models", () => {
+  it("returns label for Claude Code spec model not in API list", () => {
+    // claude-haiku-4-5 is only in SPEC_CLAUDE_CODE_MODELS, not SPEC_WRITING_MODELS
+    expect(getSpecModelLabel("claude-haiku-4-5")).toBe("Haiku 4.5");
+  });
+
+  it("prefers API spec label for models in both lists", () => {
+    // claude-sonnet-4-6 and claude-opus-4-6 are in SPEC_WRITING_MODELS (checked first)
+    expect(getSpecModelLabel("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
+    expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
+  });
+
+  it("returns label for API spec models (existing behavior)", () => {
+    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite");
+    expect(getSpecModelLabel("gpt-5.4-mini")).toBe("GPT-5.4 Mini");
+  });
+
+  it("returns model ID for unknown model", () => {
+    expect(getSpecModelLabel("totally-unknown-model")).toBe("totally-unknown-model");
   });
 });
 

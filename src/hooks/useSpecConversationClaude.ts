@@ -1,0 +1,398 @@
+import { useCallback, useRef } from "react";
+import { useSpecWriterStore } from "../stores/specWriterStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import {
+  createSpecwriterSession,
+  closeSpecwriterSession,
+  sendMessage as sendMessageCmd,
+  interruptSession,
+  listenChatEvents,
+  listTemplates,
+  gatherSpecContext,
+} from "../lib/tauri-commands";
+import type { FrontendEvent } from "../types/claude-events";
+import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
+import { DEFAULT_SPEC_CLAUDE_CODE_MODEL } from "../types/assistant-provider";
+import {
+  SPEC_READY_PATTERNS,
+  SPEC_START_PATTERN,
+  AUDIT_START_PATTERN,
+  buildClaudeCodePrompt,
+} from "../lib/spec-prompts";
+
+/**
+ * SpecWriter conversation hook for Claude Code CLI sessions.
+ * Same interface as useSpecConversation but uses CLI processes
+ * (via --append-system-prompt + --model) instead of API calls.
+ */
+export function useSpecConversationClaude(): {
+  sendMessage: (
+    projectPath: string,
+    content: string,
+    attachments?: SpecAttachment[]
+  ) => Promise<void>;
+  writeSpec: (projectPath: string) => void;
+  generateAudit: (projectPath: string) => void;
+  loadContext: (projectPath: string) => Promise<void>;
+  cancelStream: (projectPath: string) => void;
+  changeModel: (projectPath: string, newModel: string) => Promise<void>;
+} {
+  const unlistenRef = useRef<(() => void) | null>(null);
+  const streamBufferRef = useRef("");
+  const flushScheduledRef = useRef<number | null>(null);
+  const specDetectedRef = useRef(false);
+  const auditDetectedRef = useRef(false);
+
+  const loadContext = useCallback(async (projectPath: string) => {
+    try {
+      const context = await gatherSpecContext(projectPath);
+      const store = useSpecWriterStore.getState();
+      store.setProjectContext(projectPath, context);
+      store.setContextLoaded(projectPath, true);
+    } catch (e) {
+      console.warn("[useSpecConversationClaude] Context gathering failed:", e);
+      useSpecWriterStore.getState().setContextLoaded(projectPath, false);
+    }
+  }, []);
+
+  /**
+   * Ensure a Claude Code CLI session exists for this project's SpecWriter.
+   * Creates one lazily on first use.
+   */
+  const ensureSession = useCallback(async (projectPath: string): Promise<string> => {
+    const store = useSpecWriterStore.getState();
+    const existingId = store.getCliSessionId(projectPath);
+    if (existingId) return existingId;
+
+    const conv = store.getActiveConversation(projectPath);
+    if (!conv) throw new Error("No active SpecWriter conversation");
+
+    const model = conv.ai_model || DEFAULT_SPEC_CLAUDE_CODE_MODEL;
+    const projectContext = store.projectContext.get(projectPath) ?? "";
+    const systemPrompt = buildClaudeCodePrompt(
+      conv.mode,
+      conv.templateCatalog ?? "",
+      projectContext,
+    );
+
+    const sessionId = await createSpecwriterSession(projectPath, model, systemPrompt);
+    store.setCliSessionId(projectPath, sessionId);
+
+    return sessionId;
+  }, []);
+
+  const sendMessage = useCallback(
+    async (
+      projectPath: string,
+      content: string,
+      attachments?: SpecAttachment[]
+    ) => {
+      const store = useSpecWriterStore.getState();
+      const conv = store.getActiveConversation(projectPath);
+
+      // Initialize conversation if needed
+      if (!conv) {
+        const settings = useSettingsStore.getState().settings;
+        const model = settings.taskBoardPlanningModel || DEFAULT_SPEC_CLAUDE_CODE_MODEL;
+        const mode = "feature" as const;
+
+        let templateCatalog = "";
+        try {
+          const templates = await listTemplates();
+          templateCatalog = templates
+            .map((t) => {
+              let entry = `- ${t.id}: "${t.name}" [${t.category}]\n  ${t.description}`;
+              if (t.long_description) entry += `\n  Details: ${t.long_description}`;
+              if (t.tags.length > 0) entry += `\n  Tech: ${t.tags.join(", ")}`;
+              entry += `\n  Install: ${t.install_command} | Dev: ${t.dev_command}`;
+              if (t.prerequisites) entry += `\n  Requires: ${t.prerequisites}`;
+              return entry;
+            })
+            .join("\n");
+        } catch {
+          // Continue without template catalog
+        }
+        store.initConversation(projectPath, "claude-code", model, mode, templateCatalog);
+      }
+
+      // Build prompt with attachment references (Claude Code receives text only via stdin)
+      let prompt = content;
+      if (attachments && attachments.length > 0) {
+        const attachmentRefs = attachments
+          .map((a) => `[Attached file: ${a.file_path ?? a.name}]`)
+          .join("\n");
+        prompt = attachmentRefs + (content ? "\n\n" + content : "");
+      }
+
+      // Add user message to store
+      const userMessage: SpecMessage = {
+        id: `msg-${Date.now()}`,
+        role: "user",
+        content,
+        attachments,
+        message_type: "conversation",
+        timestamp: new Date().toISOString(),
+      };
+      store.addMessage(projectPath, userMessage);
+
+      // Add assistant placeholder for streaming
+      const assistantMsg: SpecMessage = {
+        id: `msg-${Date.now() + 1}`,
+        role: "assistant",
+        content: "",
+        message_type: "conversation",
+        timestamp: new Date().toISOString(),
+      };
+      store.addMessage(projectPath, assistantMsg);
+      store.setPlanningStreaming(projectPath, true);
+
+      // Ensure CLI session exists
+      let sessionId: string;
+      try {
+        sessionId = await ensureSession(projectPath);
+      } catch (err) {
+        store.setPlanningStreaming(projectPath, false);
+        store.addMessage(projectPath, {
+          id: `msg-err-${Date.now()}`,
+          role: "system",
+          content: `Failed to start Claude Code session: ${err}`,
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Setup streaming state
+      streamBufferRef.current = "";
+      specDetectedRef.current = false;
+      auditDetectedRef.current = false;
+
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
+      }
+
+      // Flush accumulated stream buffer to store (batched via RAF)
+      const flushStreamBuffer = (): void => {
+        flushScheduledRef.current = null;
+        const buf = streamBufferRef.current;
+        if (!buf) return;
+        const currentStore = useSpecWriterStore.getState();
+        currentStore.updateLastAssistantMessage(projectPath, buf);
+        if (specDetectedRef.current || SPEC_START_PATTERN.test(buf)) {
+          specDetectedRef.current = true;
+          currentStore.setCurrentSpecContent(projectPath, buf);
+        }
+        if (auditDetectedRef.current || AUDIT_START_PATTERN.test(buf)) {
+          auditDetectedRef.current = true;
+          currentStore.setCurrentAuditContent(projectPath, buf);
+        }
+      };
+
+      // Listen for CLI streaming events
+      const unlisten = await listenChatEvents(sessionId, (event: FrontendEvent) => {
+        const currentStore = useSpecWriterStore.getState();
+
+        if (event.type === "text_delta") {
+          streamBufferRef.current += event.text;
+          if (flushScheduledRef.current === null) {
+            flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
+          }
+        }
+
+        if (event.type === "turn_complete") {
+          // Cancel pending RAF and flush immediately
+          if (flushScheduledRef.current !== null) {
+            cancelAnimationFrame(flushScheduledRef.current);
+            flushScheduledRef.current = null;
+          }
+          flushStreamBuffer();
+
+          currentStore.setPlanningStreaming(projectPath, false);
+          const finalContent = streamBufferRef.current;
+
+          // Parse selectable options from ?> markers
+          const optionPattern = /^\s*\?>\s*(.+)$/gm;
+          const options: string[] = [];
+          let m;
+          while ((m = optionPattern.exec(finalContent)) !== null) {
+            options.push(m[1].trim());
+          }
+          if (options.length > 0) {
+            const cleanContent = finalContent.replace(/^\s*\?>\s*.+$/gm, "").trim();
+            currentStore.updateLastAssistantMessage(projectPath, cleanContent);
+            currentStore.setMessageOptions(projectPath, options);
+          }
+
+          // Check if AI is ready to write spec
+          if (SPEC_READY_PATTERNS.some((p) => p.test(finalContent))) {
+            currentStore.setConversationStatus(projectPath, "ready_to_write");
+          }
+
+          // Check for spec document output
+          if (SPEC_START_PATTERN.test(finalContent)) {
+            currentStore.setCurrentSpecContent(projectPath, finalContent);
+            currentStore.setConversationStatus(projectPath, "done");
+            // Update the message type to spec_document
+            const conv = currentStore.getActiveConversation(projectPath);
+            if (conv && conv.messages.length > 0) {
+              const messages = [...conv.messages];
+              const lastIdx = messages.length - 1;
+              if (messages[lastIdx].role === "assistant") {
+                messages[lastIdx] = { ...messages[lastIdx], message_type: "spec_document" };
+              }
+              useSpecWriterStore.setState((state) => {
+                const conversations = new Map(state.conversations);
+                const c = conversations.get(projectPath);
+                if (c) {
+                  conversations.set(projectPath, { ...c, messages });
+                }
+                return { conversations };
+              });
+            }
+
+            // Auto-offer audit generation after spec completes
+            const existingAudit = currentStore.currentAuditContent.get(projectPath);
+            if (!existingAudit) {
+              currentStore.addMessage(projectPath, {
+                id: `msg-audit-offer-${Date.now()}`,
+                role: "system",
+                content:
+                  "Spec complete! **Generate a Verification Audit?** This is a companion document that Claude Code uses to self-check its implementation \u2014 it opens every file, reads the actual code, and verifies it matches the spec.\n\nThis is the single most important step for implementation quality.",
+                message_type: "conversation",
+                timestamp: new Date().toISOString(),
+                parsedOptions: [
+                  "\u{1F4CB} Yes, generate the Verification Audit",
+                  "Not now \u2014 I'll generate it later",
+                ],
+              });
+            }
+          }
+
+          // Check for verification audit document output
+          if (AUDIT_START_PATTERN.test(finalContent)) {
+            currentStore.setCurrentAuditContent(projectPath, finalContent);
+          }
+
+          // Cleanup
+          streamBufferRef.current = "";
+          currentStore.persistState(projectPath);
+          if (unlistenRef.current) {
+            unlistenRef.current();
+            unlistenRef.current = null;
+          }
+        }
+
+        if (event.type === "process_exited") {
+          // Process died — clean up
+          if (flushScheduledRef.current !== null) {
+            cancelAnimationFrame(flushScheduledRef.current);
+            flushScheduledRef.current = null;
+          }
+          currentStore.setPlanningStreaming(projectPath, false);
+          currentStore.setCliSessionId(projectPath, null);
+
+          if (event.exit_code !== 0) {
+            currentStore.addMessage(projectPath, {
+              id: `msg-err-${Date.now()}`,
+              role: "system",
+              content: `Claude Code process exited unexpectedly (code ${event.exit_code ?? "unknown"}). ${event.stderr_tail ?? ""}`.trim(),
+              message_type: "conversation",
+              timestamp: new Date().toISOString(),
+            });
+          }
+          if (unlistenRef.current) {
+            unlistenRef.current();
+            unlistenRef.current = null;
+          }
+        }
+
+        if (event.type === "process_error") {
+          currentStore.setPlanningStreaming(projectPath, false);
+          currentStore.addMessage(projectPath, {
+            id: `msg-err-${Date.now()}`,
+            role: "system",
+            content: `Error: ${event.error}`,
+            message_type: "conversation",
+            timestamp: new Date().toISOString(),
+          });
+          if (unlistenRef.current) {
+            unlistenRef.current();
+            unlistenRef.current = null;
+          }
+        }
+      });
+
+      unlistenRef.current = unlisten;
+
+      // Send the actual message to the CLI
+      try {
+        await sendMessageCmd(sessionId, prompt);
+      } catch (err) {
+        store.setPlanningStreaming(projectPath, false);
+        store.addMessage(projectPath, {
+          id: `msg-err-${Date.now()}`,
+          role: "system",
+          content: `Failed to send message: ${err}`,
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    },
+    [ensureSession]
+  );
+
+  const writeSpec = useCallback(
+    (projectPath: string) => {
+      const store = useSpecWriterStore.getState();
+      store.setConversationStatus(projectPath, "writing");
+      sendMessage(projectPath, "Yes, write the specification now.");
+    },
+    [sendMessage]
+  );
+
+  const generateAudit = useCallback(
+    (projectPath: string) => {
+      sendMessage(
+        projectPath,
+        "Generate the Verification Audit document for the spec you just wrote. " +
+          "This is a guided code review document that Claude Code will use AFTER " +
+          "implementation to verify every component, state, validation, and " +
+          "integration point. Follow the Verification Audit format from your instructions."
+      );
+    },
+    [sendMessage]
+  );
+
+  const cancelStream = useCallback((projectPath: string) => {
+    const sessionId = useSpecWriterStore.getState().getCliSessionId(projectPath);
+    if (sessionId) {
+      interruptSession(sessionId).catch((e) => {
+        console.warn("[useSpecConversationClaude] interrupt failed:", e);
+      });
+    }
+  }, []);
+
+  const changeModel = useCallback(async (projectPath: string, newModel: string) => {
+    const store = useSpecWriterStore.getState();
+    const oldSessionId = store.getCliSessionId(projectPath);
+
+    // Close old session
+    if (oldSessionId) {
+      await closeSpecwriterSession(oldSessionId).catch(console.warn);
+      store.setCliSessionId(projectPath, null);
+    }
+
+    // Update the conversation model — next sendMessage will create a new session
+    store.updateConversationProvider(projectPath, "claude-code", newModel);
+  }, []);
+
+  return {
+    sendMessage,
+    writeSpec,
+    generateAudit,
+    loadContext,
+    cancelStream,
+    changeModel,
+  };
+}

@@ -1258,3 +1258,150 @@ export function buildSystemPrompt(mode: 'new_application' | 'feature', templateC
   }
   return NEW_APP_PROMPT.replace('{TEMPLATE_CATALOG}', templateCatalog);
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Claude Code CLI — SpecWriter system prompt for --append-system-prompt
+// ═══════════════════════════════════════════════════════════════════════
+
+const CLAUDE_CODE_SPECWRITER_WRAPPER = `\
+═══════════════════════════════════════════════════════════════════
+CODEMANTIS SPECWRITER MODE — ACTIVE
+═══════════════════════════════════════════════════════════════════
+
+You are operating inside CodeMantis SpecWriter. Your ONLY job is to
+produce implementation-ready specification documents by following the
+rules below. You are NOT in coding mode. You are in specification
+writing mode.
+
+HARD CONSTRAINTS:
+- Do NOT write, edit, create, or delete any files
+- Do NOT run bash commands
+- Do NOT suggest code changes directly
+- You CAN and SHOULD read project files to verify your assumptions
+  (use Read, Glob, Grep, ListDirectory as needed)
+
+RESPONSE FORMAT — CRITICAL FOR UI INTERACTION:
+The CodeMantis SpecWriter UI parses your responses for specific markers.
+You MUST use these exact formats:
+
+1. SELECTABLE OPTIONS: When presenting choices to the user, format
+   each option on its own line starting with ?> (the UI renders these
+   as clickable buttons):
+
+   ?> Option A description
+   ?> Option B description
+   ?> ★ Option C description — recommended
+
+   Rules:
+   - Each ?> MUST start at the beginning of the line (no indentation)
+   - Do NOT group options under sub-headers
+   - Use a single flat list
+   - Use ★ to mark recommended options
+
+2. FEATURE SELECTION: Before writing a spec, present features as
+   selectable options:
+
+   ?> ★ User authentication (email + OAuth) — recommended
+   ?> Dashboard with metric cards
+   ?> Settings page
+
+3. CONFIDENCE TAGS: Every reference to the existing codebase must
+   be tagged:
+   - ✅ VERIFIED — You read the file and confirmed this
+   - ⚠️ INFERRED — You see the file exists but haven't read it
+   - ❓ ASSUMED — No direct evidence, needs user confirmation
+
+   Because you have direct file access, MOST references should be
+   ✅ VERIFIED. Read files proactively to verify your assumptions.
+
+4. SPEC DOCUMENT: When you write the specification, start it with:
+   # {Name} — Requirements Specification
+   or
+   # {Name} — Feature Specification
+   The UI detects this heading to switch to spec preview mode.
+
+5. VERIFICATION AUDIT: When asked to generate an audit, start with:
+   # {Name} — Verification Audit
+   The UI detects this heading to show the audit tab.
+
+6. READY TO WRITE: When you have enough information, say one of:
+   - "I have enough to write the specification"
+   - "Shall I write the specification now?"
+   - "Ready to write"
+   The UI detects these phrases to show the "Generate Spec" button.
+
+CONVERSATION FLOW:
+1. When the user describes what they want, acknowledge and ask
+   clarifying questions using ?> option markers
+2. After 3-8 exchanges, present a feature list with ?> markers
+3. Wait for the user's selection
+4. Write the complete specification document
+
+FILE ACCESS ADVANTAGE:
+Unlike the API-based SpecWriter, you have direct access to the
+project's files. Use this advantage:
+- Read components before referencing them
+- Check actual prop interfaces and types
+- Verify route structures and layouts
+- Read database schemas and service layers
+- Check existing patterns before prescribing new ones
+
+Every reference you make should be ✅ VERIFIED because you CAN
+read the actual file. Use ⚠️ INFERRED only when you choose not
+to read a file to save time.
+
+{MODE_SPECIFIC_PROMPT}`;
+
+/**
+ * Strip REQUEST_FILES sections from a mode prompt for Claude Code usage.
+ * Claude Code can read files directly via Read/Grep/Glob tools, so the
+ * REQUEST_FILES marker-based approach is unnecessary.
+ */
+function stripRequestFileSections(prompt: string): string {
+  // Remove the FILE ACCESS — YOU CAN REQUEST PROJECT FILES section entirely
+  let result = prompt.replace(
+    /═+\nFILE ACCESS — YOU CAN REQUEST PROJECT FILES\n═+\n[\s\S]*?(?=═+\n[A-Z])/,
+    ''
+  );
+  // Remove individual 📂 REQUEST_FILES lines and surrounding instruction text
+  result = result.replace(/\s*📂 REQUEST_FILES:[^\n]*/g, '');
+  // Adapt confidence tagging rules for direct file access
+  result = result.replace(
+    '- If you need to know something, REQUEST THE FILE first\n- If you can\'t request more files, TAG as ⚠️ or ❓ and explain',
+    '- If you need to know something, READ THE FILE directly using the Read tool\n- Always read files before referencing them — most tags should be ✅ VERIFIED'
+  );
+  // Adapt conversation phase step about requesting files
+  result = result.replace(
+    /2\. IMMEDIATELY request the files you'll need:[\s\S]*?(?=3\. THEN)/,
+    '2. IMMEDIATELY read the files you\'ll need using the Read tool.\n   Read the database schema, main layout, and key components directly.\n\n'
+  );
+  result = result.replace(
+    /5\. BEFORE writing, do a final file read for any component you'll reference:[\s\S]*?(?=6\. FEATURE)/,
+    '5. BEFORE writing, read any component you\'ll reference using the Read tool.\n   Read the props interface of any component you plan to modify.\n\n'
+  );
+  return result;
+}
+
+/**
+ * Build the full --append-system-prompt text for a Claude Code SpecWriter session.
+ * Wraps the mode-specific prompt in the SpecWriter authority header.
+ */
+export function buildClaudeCodePrompt(
+  mode: 'new_application' | 'feature',
+  templateCatalog: string,
+  projectContext: string,
+): string {
+  let modePrompt: string;
+  if (mode === 'feature' && projectContext) {
+    modePrompt = FEATURE_MODE_PROMPT
+      .replace('{PROJECT_CONTEXT}', projectContext)
+      .replace('{TEMPLATE_CATALOG}', templateCatalog);
+  } else {
+    modePrompt = NEW_APP_PROMPT.replace('{TEMPLATE_CATALOG}', templateCatalog);
+  }
+
+  // Strip REQUEST_FILES sections — Claude Code reads files directly
+  const adaptedPrompt = stripRequestFileSections(modePrompt);
+
+  return CLAUDE_CODE_SPECWRITER_WRAPPER.replace('{MODE_SPECIFIC_PROMPT}', adaptedPrompt);
+}

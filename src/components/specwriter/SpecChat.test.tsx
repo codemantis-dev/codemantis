@@ -4,12 +4,13 @@ import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 const mockSendMessage = vi.fn();
-vi.mock("../../hooks/useSpecConversation", () => ({
-  useSpecConversation: () => ({
+vi.mock("../../hooks/useSpecConversationRouter", () => ({
+  useSpecConversationRouter: () => ({
     sendMessage: mockSendMessage,
     writeSpec: vi.fn(),
     generateAudit: vi.fn(),
     loadContext: vi.fn(),
+    cancelStream: vi.fn(),
   }),
 }));
 
@@ -59,7 +60,8 @@ describe("SpecChat", () => {
     expect(screen.getByText("Build a dashboard")).toBeTruthy();
   });
 
-  it("shows API key warning banner when model has no key", () => {
+  it("shows API key warning banner when API model has no key", () => {
+    // Explicitly init with an API provider that has no key
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
     // apiKeys is {} — no keys set
     render(<SpecChat projectPath={PROJECT} />);
@@ -107,5 +109,87 @@ describe("SpecChat", () => {
     fireEvent.click(screen.getByText("Regular option"));
     expect(onOptionAction).toHaveBeenCalledWith("Regular option");
     expect(mockSendMessage).toHaveBeenCalledWith(PROJECT, "Regular option");
+  });
+
+  // ── Provider & model selector tests ──────────────────────────────
+
+  it("defaults to Claude Code when no API keys are configured", () => {
+    // No conversation initialized, no API keys → init creates claude-code
+    render(<SpecChat projectPath={PROJECT} />);
+    // The conversation should be initialized with claude-code
+    const conv = useSpecWriterStore.getState().getActiveConversation(PROJECT);
+    expect(conv?.ai_provider).toBe("claude-code");
+    expect(conv?.ai_model).toBe("claude-sonnet-4-6");
+  });
+
+  it("defaults to API model when API key is available", () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
+    });
+    render(<SpecChat projectPath={PROJECT} />);
+    const conv = useSpecWriterStore.getState().getActiveConversation(PROJECT);
+    // Should auto-select gemini since it has a key
+    expect(conv?.ai_provider).not.toBe("claude-code");
+  });
+
+  it("does not show API key warning for Claude Code provider", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    expect(screen.queryByText(/no api key set/i)).toBeNull();
+  });
+
+  it("shows provider selector before first message", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    // Should have provider dropdown with "Claude Code" option
+    const selects = screen.getAllByRole("combobox");
+    expect(selects.length).toBeGreaterThanOrEqual(2); // provider + model
+  });
+
+  it("shows Claude Code models when claude-code is selected", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    // Should show Claude Code model options
+    expect(screen.getByText("Haiku 4.5")).toBeTruthy();
+    expect(screen.getByText("Sonnet 4.6")).toBeTruthy();
+    expect(screen.getByText("Opus 4.6")).toBeTruthy();
+  });
+
+  it("shows API models when API provider is selected", () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
+    });
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    expect(screen.getByText("Gemini 3.1 Flash Lite")).toBeTruthy();
+  });
+
+  it("hides selectors after first user message", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "user",
+      content: "Build a dashboard",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    render(<SpecChat projectPath={PROJECT} />);
+    // After first message, should show model badge, not selectors
+    const selects = screen.queryAllByRole("combobox");
+    // Mode selector is in the bottom bar, but provider/model selects should be gone
+    expect(selects.length).toBeLessThanOrEqual(1); // at most mode selector in footer
+  });
+
+  it("shows model label badge after conversation starts with Claude Code", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "user",
+      content: "Hello",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    render(<SpecChat projectPath={PROJECT} />);
+    expect(screen.getByText(/Sonnet 4\.6/)).toBeTruthy();
   });
 });

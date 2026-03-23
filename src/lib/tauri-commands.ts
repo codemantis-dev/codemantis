@@ -57,6 +57,24 @@ export async function checkProcessAlive(sessionId: string): Promise<boolean> {
   return invoke("check_process_alive", { sessionId });
 }
 
+// --- SpecWriter CLI Sessions ---
+
+export async function createSpecwriterSession(
+  projectPath: string,
+  model: string,
+  systemPrompt: string,
+): Promise<string> {
+  return invoke<string>("create_specwriter_session", {
+    projectPath,
+    model,
+    systemPrompt,
+  });
+}
+
+export async function closeSpecwriterSession(sessionId: string): Promise<void> {
+  return invoke("close_specwriter_session", { sessionId });
+}
+
 export async function sendMessage(
   sessionId: string,
   prompt: string

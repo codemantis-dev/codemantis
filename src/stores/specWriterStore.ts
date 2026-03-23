@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { saveTaskBoardState, loadTaskBoardState } from "../lib/tauri-commands";
+import { saveTaskBoardState, loadTaskBoardState, closeSpecwriterSession } from "../lib/tauri-commands";
 import type {
   SpecConversation,
   SpecMessage,
@@ -38,6 +38,9 @@ interface SpecWriterState {
   // Current audit content being previewed (per project)
   currentAuditContent: Map<string, string>;
 
+  // Claude Code CLI session IDs for SpecWriter (per project, runtime-only)
+  cliSessionIds: Map<string, string>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -71,6 +74,10 @@ interface SpecWriterState {
   setChatWidth: (projectPath: string, width: number) => void;
   setSelectedSavedSpec: (projectPath: string, filename: string | null) => void;
 
+  // Actions - CLI session
+  setCliSessionId: (projectPath: string, sessionId: string | null) => void;
+  getCliSessionId: (projectPath: string) => string | undefined;
+
   // Actions - Lifecycle
   discardAndStartNew: (projectPath: string) => Promise<void>;
 
@@ -99,6 +106,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   savedSpecs: new Map(),
   fileRequestsPending: new Map(),
   projectContext: new Map(),
+  cliSessionIds: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -208,16 +216,23 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { conversations };
     }),
 
-  clearConversation: (projectPath) =>
+  clearConversation: (projectPath) => {
+    const cliId = get().cliSessionIds.get(projectPath);
+    if (cliId) {
+      closeSpecwriterSession(cliId).catch(console.warn);
+    }
     set((state) => {
       const conversations = new Map(state.conversations);
       const currentSpecContent = new Map(state.currentSpecContent);
       const currentAuditContent = new Map(state.currentAuditContent);
+      const cliSessionIds = new Map(state.cliSessionIds);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent };
-    }),
+      cliSessionIds.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds };
+    });
+  },
 
   // File requests
   setFileRequestsPending: (projectPath, pending) =>
@@ -300,16 +315,36 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { uiState };
     }),
 
+  // CLI session
+  setCliSessionId: (projectPath, sessionId) =>
+    set((state) => {
+      const cliSessionIds = new Map(state.cliSessionIds);
+      if (sessionId === null) {
+        cliSessionIds.delete(projectPath);
+      } else {
+        cliSessionIds.set(projectPath, sessionId);
+      }
+      return { cliSessionIds };
+    }),
+
+  getCliSessionId: (projectPath) => get().cliSessionIds.get(projectPath),
+
   // Lifecycle
   discardAndStartNew: async (projectPath) => {
+    const cliId = get().cliSessionIds.get(projectPath);
+    if (cliId) {
+      await closeSpecwriterSession(cliId).catch(console.warn);
+    }
     set((s) => {
       const conversations = new Map(s.conversations);
       const currentSpecContent = new Map(s.currentSpecContent);
       const currentAuditContent = new Map(s.currentAuditContent);
+      const cliSessionIds = new Map(s.cliSessionIds);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent };
+      cliSessionIds.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds };
     });
   },
 

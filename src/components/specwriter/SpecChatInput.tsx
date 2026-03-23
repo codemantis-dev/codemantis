@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Send, Square, Paperclip } from "lucide-react";
-import { useSpecConversation } from "../../hooks/useSpecConversation";
+import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -50,7 +50,7 @@ function resizeImage(dataUri: string, maxSize: number = 1024): Promise<string> {
 export default function SpecChatInput({ projectPath }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
-  const { sendMessage, cancelStream } = useSpecConversation();
+  const { sendMessage, cancelStream } = useSpecConversationRouter();
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

@@ -3,11 +3,13 @@ import { ArrowDown } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
-import { useSpecConversation } from "../../hooks/useSpecConversation";
+import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import {
   getProviderForModel,
   SPEC_WRITING_MODELS,
+  SPEC_CLAUDE_CODE_MODELS,
   DEFAULT_SPEC_MODEL,
+  DEFAULT_SPEC_CLAUDE_CODE_MODEL,
   isSpecModelAvailable,
   autoSelectSpecModel,
   getSpecModelLabel,
@@ -36,19 +38,33 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const { writeSpec, sendMessage } = useSpecConversation();
+  const { writeSpec, sendMessage } = useSpecConversationRouter();
 
   // Init a fresh conversation if none exists — default to 'feature' mode
-  // Auto-select a model with an available API key if the default/saved one has no key
+  // Default to Claude Code (no API key needed), or auto-select an API model if available
   useEffect(() => {
     if (!conversation) {
       const settings = useSettingsStore.getState().settings;
       const rawModel = settings.taskBoardPlanningModel || DEFAULT_SPEC_MODEL;
-      const effectiveModel = isSpecModelAvailable(rawModel, settings.apiKeys)
-        ? rawModel
-        : autoSelectSpecModel(settings.apiKeys);
-      const provider = getProviderForModel(effectiveModel) ?? 'gemini';
-      useSpecWriterStore.getState().initConversation(projectPath, provider, effectiveModel, 'feature');
+      const hasApiKey = isSpecModelAvailable(rawModel, settings.apiKeys);
+
+      if (hasApiKey) {
+        const provider = getProviderForModel(rawModel) ?? "gemini";
+        useSpecWriterStore.getState().initConversation(projectPath, provider, rawModel, "feature");
+      } else {
+        // Try to auto-select an API model with a key; fallback to Claude Code
+        const autoModel = autoSelectSpecModel(settings.apiKeys);
+        const autoHasKey = isSpecModelAvailable(autoModel, settings.apiKeys);
+        if (autoHasKey) {
+          const provider = getProviderForModel(autoModel) ?? "gemini";
+          useSpecWriterStore.getState().initConversation(projectPath, provider, autoModel, "feature");
+        } else {
+          // No API keys configured — default to Claude Code
+          useSpecWriterStore.getState().initConversation(
+            projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL, "feature"
+          );
+        }
+      }
     }
   }, [projectPath, conversation]);
 
@@ -142,13 +158,38 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const hasUserMessages = messages.some((m) => m.role === "user");
 
   const currentModel = conversation?.ai_model ?? "";
+  const currentProvider = conversation?.ai_provider ?? "";
+  const isClaudeCode = currentProvider === "claude-code";
+
+  const handleProviderChange = useCallback(
+    (newProvider: string) => {
+      if (newProvider === "claude-code") {
+        updateConversationProvider(projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL);
+      } else {
+        // Pick the first model for this provider that has an API key
+        const model = SPEC_WRITING_MODELS.find(
+          (m) => m.provider === newProvider && isSpecModelAvailable(m.id, apiKeys)
+        );
+        updateConversationProvider(
+          projectPath,
+          newProvider,
+          model?.id ?? autoSelectSpecModel(apiKeys),
+        );
+      }
+    },
+    [projectPath, updateConversationProvider, apiKeys]
+  );
 
   const handleSpecModelChange = useCallback(
     (newModelId: string) => {
-      const provider = getProviderForModel(newModelId) ?? "gemini";
-      updateConversationProvider(projectPath, provider, newModelId);
+      if (isClaudeCode) {
+        updateConversationProvider(projectPath, "claude-code", newModelId);
+      } else {
+        const provider = getProviderForModel(newModelId) ?? "gemini";
+        updateConversationProvider(projectPath, provider, newModelId);
+      }
     },
-    [projectPath, updateConversationProvider]
+    [projectPath, updateConversationProvider, isClaudeCode]
   );
 
   const handleModeChange = useCallback(
@@ -158,8 +199,8 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
     [projectPath, setConversationMode]
   );
 
-  // Check if current model has an API key
-  const currentModelHasKey = isSpecModelAvailable(currentModel, apiKeys);
+  // Check if current model has an API key (Claude Code doesn't need one)
+  const currentModelHasKey = isClaudeCode || isSpecModelAvailable(currentModel, apiKeys);
 
   return (
     <div className="flex flex-col h-full">
@@ -183,6 +224,32 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
         )}
         {conversation && !hasUserMessages ? (
           <div className="flex items-center gap-1.5 ml-auto">
+            {/* Provider selector */}
+            <select
+              value={currentProvider}
+              onChange={(e) => handleProviderChange(e.target.value)}
+              className="px-1.5 py-0.5 rounded-md border text-xs"
+              style={{
+                background: "var(--bg-primary)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <option value="claude-code">Claude Code</option>
+              {["gemini", "openai", "anthropic", "openrouter"].map((p) => {
+                const hasKey = !!apiKeys[p]?.trim();
+                const labels: Record<string, string> = {
+                  gemini: "Gemini", openai: "OpenAI",
+                  anthropic: "Anthropic", openrouter: "OpenRouter",
+                };
+                return (
+                  <option key={p} value={p} disabled={!hasKey}>
+                    {labels[p] ?? p}{!hasKey ? " (no key)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+            {/* Model selector */}
             <select
               value={currentModel}
               onChange={(e) => handleSpecModelChange(e.target.value)}
@@ -193,19 +260,28 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
                 color: "var(--text-primary)",
               }}
             >
-              {SPEC_WRITING_MODELS.map((m) => {
-                const hasKey = isSpecModelAvailable(m.id, apiKeys);
-                return (
-                  <option key={m.id} value={m.id} disabled={!hasKey}>
-                    {m.label}{!hasKey ? " (no key)" : ""}
-                  </option>
-                );
-              })}
+              {isClaudeCode
+                ? SPEC_CLAUDE_CODE_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))
+                : SPEC_WRITING_MODELS
+                    .filter((m) => m.provider === currentProvider)
+                    .map((m) => {
+                      const hasKey = isSpecModelAvailable(m.id, apiKeys);
+                      return (
+                        <option key={m.id} value={m.id} disabled={!hasKey}>
+                          {m.label}{!hasKey ? " (no key)" : ""}
+                        </option>
+                      );
+                    })
+              }
             </select>
           </div>
         ) : conversation ? (
           <span className="ml-auto opacity-60 text-[10px]">
-            {getSpecModelLabel(conversation.ai_model)}
+            {isClaudeCode ? "Claude Code" : ""} {getSpecModelLabel(conversation.ai_model)}
           </span>
         ) : null}
       </div>

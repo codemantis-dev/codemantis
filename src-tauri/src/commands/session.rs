@@ -96,6 +96,8 @@ pub async fn create_session(
         &claude_binary,
         resume_cli_session_id.as_deref(),
         approval_port,
+        None, // model_override
+        None, // append_system_prompt
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -188,6 +190,8 @@ pub async fn resume_session_process(
         &claude_binary,
         effective_cli_session_id.as_deref(),
         approval_port,
+        None, // model_override
+        None, // append_system_prompt
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -584,6 +588,89 @@ pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
         SessionMode::AutoAccept => "acceptEdits",
         SessionMode::Plan => "plan",
     }
+}
+
+// ── SpecWriter sessions ─────────────────────────────────────────────
+
+/// Create a dedicated SpecWriter CLI session with model override and system prompt.
+/// The session is NOT added to the session tab bar or persisted to the database.
+#[tauri::command]
+pub async fn create_specwriter_session(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    project_path: String,
+    model: String,
+    system_prompt: String,
+) -> Result<String, String> {
+    let session_id = Uuid::new_v4().to_string();
+
+    let claude_binary = {
+        let binary = state.claude_binary.lock().await;
+        binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
+    };
+
+    let approval_port = {
+        let port = state.approval_server_port.lock().await;
+        *port
+    };
+
+    let process = ClaudeProcess::spawn(
+        app_handle,
+        session_id.clone(),
+        &project_path,
+        &claude_binary,
+        None, // no resume
+        approval_port,
+        Some(&model),
+        Some(&system_prompt),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Store process (for send_message, interrupt, cleanup on exit)
+    {
+        let mut processes = state.processes.lock().await;
+        processes.insert(session_id.clone(), process);
+    }
+
+    // Set Plan mode so the CLI cannot write/edit/create files
+    {
+        let mut modes = state.session_modes.lock().await;
+        modes.insert(session_id.clone(), SessionMode::Plan);
+    }
+
+    // Intentionally NOT added to state.sessions (no tab in UI)
+    // Intentionally NOT persisted to database
+
+    info!(
+        "SpecWriter session created: id={}, model={}, project={}",
+        session_id, model, project_path
+    );
+    Ok(session_id)
+}
+
+/// Close a SpecWriter CLI session. Lightweight cleanup — no database, no terminal pool.
+#[tauri::command]
+pub async fn close_specwriter_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    {
+        let mut processes = state.processes.lock().await;
+        if let Some(mut process) = processes.remove(&session_id) {
+            process.shutdown().await;
+        }
+    }
+    {
+        let mut modes = state.session_modes.lock().await;
+        modes.remove(&session_id);
+    }
+    {
+        let mut pending = state.pending_control_requests.lock().await;
+        pending.retain(|_, (sid, _)| sid != &session_id);
+    }
+    info!("SpecWriter session closed: id={}", session_id);
+    Ok(())
 }
 
 #[cfg(test)]

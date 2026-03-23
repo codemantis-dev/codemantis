@@ -216,7 +216,7 @@ export default function ScaffoldProgress({
       setSetupSessionId(null);
       setIsAssistantBusy(false);
     }
-  }, [parseMissingTools, projectPath]);
+  }, [parseMissingTools, projectPath, projectName, template]);
 
   /** Send a follow-up message in the setup assistant */
   const handleSendSetupMessage = useCallback(async () => {

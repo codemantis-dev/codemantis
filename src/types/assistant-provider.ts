@@ -103,6 +103,23 @@ export const SPEC_WRITING_MODELS: SpecModelOption[] = [
 
 export const DEFAULT_SPEC_MODEL = "gemini-3.1-flash-lite-preview";
 
+// ── SpecWriter Claude Code model selection ──────────────────────
+
+export interface SpecClaudeCodeModel {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/** Models available when using Claude Code CLI as the SpecWriter provider. */
+export const SPEC_CLAUDE_CODE_MODELS: SpecClaudeCodeModel[] = [
+  { id: "claude-haiku-4-5",  label: "Haiku 4.5",  description: "Fast, lower cost" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6",  description: "Balanced (default)" },
+  { id: "claude-opus-4-6",   label: "Opus 4.6",    description: "Highest quality" },
+];
+
+export const DEFAULT_SPEC_CLAUDE_CODE_MODEL = "claude-sonnet-4-6";
+
 /**
  * Auto-select the best available spec-writing model given the user's API keys.
  * Walks SPEC_WRITING_MODELS in priority order, returns first model whose
@@ -130,7 +147,9 @@ export function isSpecModelAvailable(
 
 /** Get the display label for a spec-writing model. Falls back to modelId. */
 export function getSpecModelLabel(modelId: string): string {
-  return SPEC_WRITING_MODELS.find((m) => m.id === modelId)?.label ?? modelId;
+  return SPEC_WRITING_MODELS.find((m) => m.id === modelId)?.label
+    ?? SPEC_CLAUDE_CODE_MODELS.find((m) => m.id === modelId)?.label
+    ?? modelId;
 }
 
 /** Calculate cost in USD from token counts and pricing. */

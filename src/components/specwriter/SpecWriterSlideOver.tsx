@@ -6,7 +6,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
 import { listSpecDocuments, gatherSpecContext, saveTaskBoardState, addVerificationWorkflowToClaudeMd } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
-import { useSpecConversation } from "../../hooks/useSpecConversation";
+import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import SpecChat from "./SpecChat";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -52,7 +52,7 @@ export default function SpecWriterSlideOver() {
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage, writeSpec, generateAudit } = useSpecConversation();
+  const { sendMessage: sendSpecMessage, writeSpec, generateAudit } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const conversationMode = conversation?.mode;
   const hasMessages = (conversation?.messages.length ?? 0) > 0;

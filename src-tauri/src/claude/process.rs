@@ -186,10 +186,12 @@ impl ClaudeProcess {
         claude_binary: &str,
         resume_cli_session_id: Option<&str>,
         approval_server_port: Option<u16>,
+        model_override: Option<&str>,
+        append_system_prompt: Option<&str>,
     ) -> Result<Self, AppError> {
         info!(
-            "Spawning Claude CLI for session {} in {} (resume: {:?}, approval_port: {:?})",
-            session_id, project_path, resume_cli_session_id, approval_server_port
+            "Spawning Claude CLI for session {} in {} (resume: {:?}, approval_port: {:?}, model: {:?})",
+            session_id, project_path, resume_cli_session_id, approval_server_port, model_override
         );
 
         // Clean up any legacy hook config from settings.local.json
@@ -219,6 +221,16 @@ impl ClaudeProcess {
             );
             cmd.args(["--settings", &settings_json]);
             debug!("Hook config passed via --settings for port {}", port);
+        }
+
+        // Model override (for SpecWriter sessions with a specific model)
+        if let Some(model) = model_override {
+            cmd.args(["--model", model]);
+        }
+
+        // Append system prompt (for SpecWriter behavioral instructions)
+        if let Some(prompt) = append_system_prompt {
+            cmd.args(["--append-system-prompt", prompt]);
         }
 
         if let Some(cli_sid) = resume_cli_session_id {
