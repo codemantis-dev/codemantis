@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.8.8
+
+- Add OpenRouter provider support across settings and assistant flows
+- Add local-only preview guard with loopback detection
+- Fix preview bridge layout offsets for toolbar
+
 ## 0.8.7
 
 - Fix Docker scaffold verification
