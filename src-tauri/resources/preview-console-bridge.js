@@ -221,8 +221,9 @@
   var cmStyle = document.createElement('style');
   cmStyle.id = '__cm_toolbar_style';
   cmStyle.textContent =
-    'body { margin-top: ' + TOOLBAR_HEIGHT + 'px !important; padding-bottom: ' + TOOLBAR_HEIGHT + 'px !important; }' +
-    ' html { scroll-padding-top: ' + TOOLBAR_HEIGHT + 'px; scroll-padding-bottom: ' + TOOLBAR_HEIGHT + 'px; }';
+    'html { padding-top: ' + TOOLBAR_HEIGHT + 'px !important; box-sizing: border-box !important; ' +
+    'scroll-padding-top: ' + TOOLBAR_HEIGHT + 'px; }' +
+    ' body { margin-top: 0 !important; max-height: calc(100vh - ' + TOOLBAR_HEIGHT + 'px) !important; }';
 
   function insertStyle() {
     var target = document.head || document.documentElement;
@@ -485,7 +486,7 @@
       renderConsoleEntries();
     } else {
       drawer.style.display = 'none';
-      document.body.style.setProperty('padding-bottom', TOOLBAR_HEIGHT + 'px', 'important');
+      document.body.style.removeProperty('padding-bottom');
     }
   }
 
