@@ -11,6 +11,7 @@ const PROVIDER_BADGES: Record<AIProvider, { short: string; color: string }> = {
   openai: { short: "OA", color: "#10a37f" },
   gemini: { short: "G", color: "#4285f4" },
   anthropic: { short: "A", color: "#d4a574" },
+  openrouter: { short: "OR", color: "#6366f1" },
 };
 
 interface AssistantTabsProps {

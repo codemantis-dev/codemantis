@@ -1,7 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useSettingsFormState } from "../../hooks/useSettingsFormState";
-import { SPEC_WRITING_MODELS } from "../../types/assistant-provider";
+import { getAvailableSpecModels } from "../../types/assistant-provider";
+import { useOpenRouterStore } from "../../stores/openRouterStore";
 
 import { NAV_ITEMS } from "./settings/SettingsShared";
 import GeneralTab from "./settings/GeneralTab";
@@ -280,6 +281,9 @@ function SpecWriterSettingsContent({
   onPlanningModelChange: (v: string) => void;
   onMaxTokensChange: (v: number) => void;
 }) {
+  const orModels = useOpenRouterStore((s) => s.models);
+  const allSpecModels = getAvailableSpecModels(apiKeys, orModels);
+
   return (
     <div>
       <SectionTitle>SpecWriter</SectionTitle>
@@ -289,7 +293,7 @@ function SpecWriterSettingsContent({
           onChange={(e) => onPlanningModelChange(e.target.value)}
           className="w-64 px-2 py-1 rounded text-ui bg-bg-elevated text-text-primary border border-border"
         >
-          {SPEC_WRITING_MODELS.map((m) => {
+          {allSpecModels.map((m) => {
             const hasKey = !!apiKeys[m.provider]?.trim();
             return (
               <option key={m.id} value={m.id} disabled={!hasKey}>

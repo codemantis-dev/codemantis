@@ -165,6 +165,9 @@ pub async fn send_assistant_chat(
         "anthropic" => {
             stream_anthropic(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens, cancel_rx).await
         }
+        "openrouter" => {
+            stream_openrouter(&app_handle, &event_name, &client, &api_key, &model, &system_prompt, &messages, max_tokens, cancel_rx).await
+        }
         _ => Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -550,6 +553,116 @@ async fn stream_anthropic(
                                 }
                             }
                             current_event_type.clear();
+                        }
+                    }
+                    Some(Err(e)) => return Err(format!("Stream read error: {}", e)),
+                    None => break,
+                }
+            }
+            _ = cancel_rx.changed() => {
+                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                return Ok((input_tokens, output_tokens));
+            }
+        }
+    }
+
+    let _ = app.emit(event_name, StreamEvent::Done {
+        content: full_text,
+        input_tokens,
+        output_tokens,
+    });
+
+    Ok((input_tokens, output_tokens))
+}
+
+// --- OpenRouter SSE streaming (OpenAI-compatible) ---
+
+async fn stream_openrouter(
+    app: &AppHandle,
+    event_name: &str,
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+    max_tokens: Option<u32>,
+    mut cancel_rx: watch::Receiver<bool>,
+) -> Result<(u32, u32), String> {
+    let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
+    for msg in messages {
+        api_messages.push(serde_json::json!({"role": msg.role, "content": openai_content(&msg.content)}));
+    }
+
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": api_messages,
+        "stream": true,
+        "stream_options": {"include_usage": true},
+    });
+    if let Some(mt) = max_tokens {
+        body["max_completion_tokens"] = serde_json::json!(mt);
+    }
+
+    let resp = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(api_key)
+        .header("HTTP-Referer", "https://codemantis.dev")
+        .header("X-Title", "CodeMantis")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("OpenRouter API error {}: {}", status, text));
+    }
+
+    let mut full_text = String::new();
+    let mut input_tokens: u32 = 0;
+    let mut output_tokens: u32 = 0;
+    let mut line_buffer = String::new();
+    let mut stream = resp.bytes_stream();
+
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        line_buffer.push_str(&text);
+
+                        while let Some(pos) = line_buffer.find('\n') {
+                            let line = line_buffer[..pos].trim().to_string();
+                            line_buffer = line_buffer[pos + 1..].to_string();
+
+                            if line.is_empty() || !line.starts_with("data: ") {
+                                continue;
+                            }
+                            let data = &line[6..];
+                            if data == "[DONE]" {
+                                continue;
+                            }
+
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                if let Some(delta_text) = json["choices"][0]["delta"]["content"].as_str() {
+                                    if !delta_text.is_empty() {
+                                        full_text.push_str(delta_text);
+                                        let _ = app.emit(event_name, StreamEvent::Delta {
+                                            text: delta_text.to_string(),
+                                        });
+                                    }
+                                }
+                                if let Some(usage) = json.get("usage") {
+                                    if let Some(pt) = usage["prompt_tokens"].as_u64() {
+                                        input_tokens = pt as u32;
+                                    }
+                                    if let Some(ct) = usage["completion_tokens"].as_u64() {
+                                        output_tokens = ct as u32;
+                                    }
+                                }
+                            }
                         }
                     }
                     Some(Err(e)) => return Err(format!("Stream read error: {}", e)),

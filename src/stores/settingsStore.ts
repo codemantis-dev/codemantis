@@ -79,6 +79,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       applyTheme(settings.theme);
       applyFontSize(settings.fontSize ?? 13);
       set({ settings, loaded: true });
+
+      // Auto-fetch OpenRouter models if key is configured
+      const orKey = settings.apiKeys?.["openrouter"]?.trim();
+      if (orKey) {
+        import("./openRouterStore").then(({ useOpenRouterStore }) => {
+          useOpenRouterStore.getState().fetchModels(orKey);
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error("Failed to load settings:", e);
       set({ loaded: true });

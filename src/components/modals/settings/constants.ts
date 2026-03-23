@@ -20,4 +20,5 @@ export const CHANGELOG_PROVIDERS: { id: ChangelogProvider; label: string }[] = [
   { id: "gemini", label: "Google Gemini" },
   { id: "openai", label: "OpenAI" },
   { id: "anthropic", label: "Anthropic" },
+  { id: "openrouter", label: "OpenRouter" },
 ];

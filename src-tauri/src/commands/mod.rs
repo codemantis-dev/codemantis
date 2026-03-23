@@ -8,6 +8,7 @@ pub mod files;
 pub mod git;
 pub mod help;
 pub mod mcp;
+pub mod openrouter;
 pub mod preview;
 pub mod scaffold;
 pub mod session;

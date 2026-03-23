@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { handleError } from "../lib/error-handler";
 import { AI_MODELS } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
+import { useOpenRouterStore } from "../stores/openRouterStore";
 
 interface UseProviderMenuParams {
   activeProjectPath: string | null;
@@ -47,11 +48,17 @@ export function useProviderMenu({
     }
 
     // Use settings default model if none provided
-    const resolvedModel = model ?? (
-      provider !== "claude-code"
-        ? (defaultModels[provider] ?? AI_MODELS[provider as APIProvider]?.[0]?.id)
-        : undefined
-    );
+    let resolvedModel = model;
+    if (!resolvedModel && provider !== "claude-code") {
+      if (provider === "openrouter") {
+        const orStore = useOpenRouterStore.getState();
+        resolvedModel = defaultModels[provider]
+          ?? orStore.getFreeModels()[0]?.id
+          ?? orStore.models[0]?.id;
+      } else {
+        resolvedModel = defaultModels[provider] ?? AI_MODELS[provider as APIProvider]?.[0]?.id;
+      }
+    }
 
     setCreating(true);
     setShowProviderMenu(false);

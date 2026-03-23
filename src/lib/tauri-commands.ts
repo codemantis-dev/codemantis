@@ -320,6 +320,27 @@ export async function testChangelogApiKey(
   return invoke<boolean>("test_changelog_api_key", { provider, apiKey, model });
 }
 
+// --- OpenRouter ---
+
+export interface OpenRouterModelResult {
+  id: string;
+  name: string;
+  isFree: boolean;
+  inputModalities: string[];
+  outputModalities: string[];
+  contextLength: number;
+  pricingInput: number;
+  pricingOutput: number;
+}
+
+export async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterModelResult[]> {
+  return invoke<OpenRouterModelResult[]>("fetch_openrouter_models", { apiKey });
+}
+
+export async function testOpenRouterKey(apiKey: string): Promise<boolean> {
+  return invoke<boolean>("test_openrouter_key", { apiKey });
+}
+
 // --- API Logs ---
 
 export async function getApiLogs(): Promise<ApiLogEntry[]> {

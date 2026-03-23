@@ -257,6 +257,8 @@ pub fn run() {
             commands::api_logs::cleanup_api_logs,
             commands::assistant_chat::send_assistant_chat,
             commands::assistant_chat::cancel_assistant_chat,
+            commands::openrouter::fetch_openrouter_models,
+            commands::openrouter::test_openrouter_key,
             commands::scaffold::list_templates,
             commands::scaffold::check_template_prerequisites,
             commands::scaffold::install_prerequisite,

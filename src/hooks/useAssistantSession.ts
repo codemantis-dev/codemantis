@@ -21,6 +21,7 @@ import { handleAssistantChatEvent, cleanupAssistantBuffers } from "../lib/assist
 import { handleActivityEvent } from "../lib/event-classifier";
 import { fileToBase64, readFileContentSafe, isTextMime } from "../lib/file-utils";
 import { handleError } from "../lib/error-handler";
+import { useOpenRouterStore } from "../stores/openRouterStore";
 
 // Module-level listener map for assistant sessions
 const assistantListeners = new Map<string, UnlistenFn[]>();
@@ -56,6 +57,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const providerLabel = provider === "claude-code" ? "Claude" :
       provider === "openai" ? "GPT" :
       provider === "gemini" ? "Gemini" :
+      provider === "openrouter" ? "OpenRouter" :
       "Anthropic";
     const name = `${providerLabel} ${num}`;
 
@@ -311,6 +313,22 @@ async function sendApiMessage(
   const chatHistory: { role: string; content: string | ContentPart[] }[] = allMessages
     .filter((m) => (m.role === "user" || m.role === "assistant") && !m.retryable && m.content !== "")
     .map((m) => ({ role: m.role, content: m.content as string | ContentPart[] }));
+
+  // Capability check for OpenRouter models — reject attachments if model doesn't support them
+  if (provider === "openrouter" && attachments && attachments.length > 0 && model) {
+    const orStore = useOpenRouterStore.getState();
+    const orModel = orStore.getModel(model);
+    if (orModel) {
+      const hasImages = attachments.some((a) => a.isImage);
+      const hasFiles = attachments.some((a) => !a.isImage);
+      if (hasImages && !orModel.inputModalities.includes("image")) {
+        throw new Error(`${orModel.name} does not support image inputs. Remove image attachments or switch to a vision-capable model.`);
+      }
+      if (hasFiles && !orModel.inputModalities.includes("file") && !orModel.inputModalities.includes("image")) {
+        throw new Error(`${orModel.name} does not support file attachments. Remove files or switch to a model that supports documents.`);
+      }
+    }
+  }
 
   // For the last user message, attach images as multimodal content
   if (attachments && attachments.length > 0 && chatHistory.length > 0) {

@@ -64,6 +64,8 @@ pub struct AppState {
     pub pending_control_requests: Mutex<HashMap<String, (String, ControlRequestKind)>>,
     /// Cancellation senders for in-flight assistant chat streams.
     pub assistant_cancellation: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
+    /// Cached OpenRouter model list with TTL.
+    pub openrouter_model_cache: Mutex<Option<(std::time::Instant, Vec<crate::commands::openrouter::OpenRouterModelResult>)>>,
 }
 
 impl AppState {
@@ -79,6 +81,7 @@ impl AppState {
             session_modes: Mutex::new(HashMap::new()),
             pending_control_requests: Mutex::new(HashMap::new()),
             assistant_cancellation: Mutex::new(HashMap::new()),
+            openrouter_model_cache: Mutex::new(None),
         }
     }
 }

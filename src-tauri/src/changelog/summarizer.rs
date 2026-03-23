@@ -69,6 +69,7 @@ pub async fn summarize_turn(
         "gemini" => call_gemini(&client, api_key, model, system_prompt, &prompt).await?,
         "openai" => call_openai(&client, api_key, model, system_prompt, &prompt).await?,
         "anthropic" => call_anthropic(&client, api_key, model, system_prompt, &prompt).await?,
+        "openrouter" => call_openrouter(&client, api_key, model, system_prompt, &prompt).await?,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -86,6 +87,7 @@ pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<
         "gemini" => call_gemini(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         "openai" => call_openai(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         "anthropic" => call_anthropic(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "openrouter" => call_openrouter(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
@@ -263,6 +265,62 @@ async fn call_anthropic(
     }) as u32;
     let output_tokens = json["usage"]["output_tokens"].as_u64().unwrap_or_else(|| {
         log::warn!("Anthropic response missing output_tokens");
+        0
+    }) as u32;
+
+    Ok((text, input_tokens, output_tokens))
+}
+
+async fn call_openrouter(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+) -> Result<(String, u32, u32), String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_completion_tokens": 1024,
+        "response_format": {"type": "json_object"}
+    });
+
+    let resp = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(api_key)
+        .header("HTTP-Referer", "https://codemantis.dev")
+        .header("X-Title", "CodeMantis")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("OpenRouter API error {}: {}", status, text));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("OpenRouter response parse failed: {}", e))?;
+
+    let text = json["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No content in OpenRouter response".to_string())?;
+
+    let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("OpenRouter response missing prompt_tokens");
+        0
+    }) as u32;
+    let output_tokens = json["usage"]["completion_tokens"].as_u64().unwrap_or_else(|| {
+        log::warn!("OpenRouter response missing completion_tokens");
         0
     }) as u32;
 

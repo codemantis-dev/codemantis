@@ -34,7 +34,7 @@ export interface ModelPricing {
   output: number; // cost per 1M output tokens in USD
 }
 
-export type ChangelogProvider = "gemini" | "openai" | "anthropic";
+export type ChangelogProvider = "gemini" | "openai" | "anthropic" | "openrouter";
 
 export interface AppSettings {
   theme: ThemeId;

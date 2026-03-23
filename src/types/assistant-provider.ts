@@ -1,7 +1,7 @@
 import type { ModelPricing } from "./settings";
 
 /** All supported AI provider types. */
-export type AIProvider = "claude-code" | "openai" | "gemini" | "anthropic";
+export type AIProvider = "claude-code" | "openai" | "gemini" | "anthropic" | "openrouter";
 
 /** API-only providers (excludes claude-code which uses the local CLI). */
 export type APIProvider = Exclude<AIProvider, "claude-code">;
@@ -23,6 +23,7 @@ export const AI_PROVIDERS: ProviderOption[] = [
   { id: "openai", label: "OpenAI", requiresApiKey: true },
   { id: "gemini", label: "Google Gemini", requiresApiKey: true },
   { id: "anthropic", label: "Anthropic API", requiresApiKey: true },
+  { id: "openrouter", label: "OpenRouter", requiresApiKey: true },
 ];
 
 export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
@@ -45,6 +46,7 @@ export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultPricing: { input: 3.0, output: 15.0 } },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", defaultPricing: { input: 0.80, output: 4.0 } },
   ],
+  openrouter: [], // Models fetched dynamically from OpenRouter API
 };
 
 /** Build default pricing map from all AI_MODELS. */
@@ -58,13 +60,20 @@ export function getDefaultModelPricing(): Record<string, ModelPricing> {
   return pricing;
 }
 
-/** Look up the provider for a given model ID. Returns null if not found. */
-export function getProviderForModel(modelId: string): APIProvider | null {
+/**
+ * Look up the provider for a given model ID. Checks hardcoded models first,
+ * then falls back to OpenRouter model cache via optional lookup function.
+ */
+export function getProviderForModel(
+  modelId: string,
+  openRouterLookup?: (id: string) => boolean,
+): APIProvider | null {
   for (const [provider, models] of Object.entries(AI_MODELS)) {
     if (models.some((m) => m.id === modelId)) {
       return provider as APIProvider;
     }
   }
+  if (openRouterLookup?.(modelId)) return "openrouter";
   return null;
 }
 
@@ -109,8 +118,12 @@ export function autoSelectSpecModel(apiKeys: Record<string, string>): string {
 }
 
 /** Check whether the given model's provider has an API key set. */
-export function isSpecModelAvailable(modelId: string, apiKeys: Record<string, string>): boolean {
-  const provider = getProviderForModel(modelId);
+export function isSpecModelAvailable(
+  modelId: string,
+  apiKeys: Record<string, string>,
+  openRouterLookup?: (id: string) => boolean,
+): boolean {
+  const provider = getProviderForModel(modelId, openRouterLookup);
   if (!provider) return false;
   return !!apiKeys[provider]?.trim();
 }
@@ -130,4 +143,67 @@ export function calculateCost(
   const pricing = modelPricing[modelId];
   if (!pricing) return 0;
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+}
+
+// ── OpenRouter types & capability helpers ──────────────────────
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  isFree: boolean;
+  inputModalities: string[];
+  outputModalities: string[];
+  contextLength: number;
+  pricing: { input: number; output: number };
+}
+
+/** Check if an OpenRouter model supports image inputs. */
+export function modelSupportsImages(model: OpenRouterModel): boolean {
+  return model.inputModalities.includes("image");
+}
+
+/** Check if an OpenRouter model supports file/document inputs. */
+export function modelSupportsFiles(model: OpenRouterModel): boolean {
+  return model.inputModalities.includes("file");
+}
+
+/** Check if an OpenRouter model supports any kind of attachment. */
+export function modelSupportsAttachments(model: OpenRouterModel): boolean {
+  return model.inputModalities.some((m) => m === "image" || m === "file");
+}
+
+/**
+ * Find the nearest vision-capable model, preferring free models first.
+ * Used when the user tries to attach an image with a text-only model.
+ */
+export function findNearestVisionModel(
+  availableModels: OpenRouterModel[],
+): string | null {
+  const freeVision = availableModels
+    .filter((m) => m.isFree && modelSupportsImages(m))
+    .sort((a, b) => b.contextLength - a.contextLength);
+  if (freeVision.length > 0) return freeVision[0].id;
+
+  const paidVision = availableModels.filter((m) => !m.isFree && modelSupportsImages(m));
+  return paidVision[0]?.id ?? null;
+}
+
+/**
+ * Build spec model list that includes OpenRouter free models when available.
+ */
+export function getAvailableSpecModels(
+  apiKeys: Record<string, string>,
+  orModels: OpenRouterModel[],
+): SpecModelOption[] {
+  const base = [...SPEC_WRITING_MODELS];
+  if (apiKeys["openrouter"]?.trim() && orModels.length > 0) {
+    const freeModels = orModels
+      .filter((m) => m.isFree)
+      .sort((a, b) => b.contextLength - a.contextLength)
+      .slice(0, 5);
+    for (const m of freeModels) {
+      base.push({ id: m.id, provider: "openrouter" as APIProvider, label: `${m.name} (free)` });
+    }
+  }
+  return base;
 }

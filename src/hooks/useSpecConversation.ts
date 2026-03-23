@@ -3,6 +3,7 @@ import { useSpecWriterStore } from "../stores/specWriterStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemplates, gatherSpecContext } from "../lib/tauri-commands";
 import { getProviderForModel, DEFAULT_SPEC_MODEL, isSpecModelAvailable, autoSelectSpecModel } from "../types/assistant-provider";
+import { useOpenRouterStore } from "../stores/openRouterStore";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
 import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
@@ -95,10 +96,11 @@ export function useSpecConversation(): {
       // Initialize conversation if needed
       if (!conv) {
         const rawModel = settings.taskBoardPlanningModel || DEFAULT_SPEC_MODEL;
-        const planningModel = isSpecModelAvailable(rawModel, settings.apiKeys)
+        const orHasModel = (id: string) => useOpenRouterStore.getState().hasModel(id);
+        const planningModel = isSpecModelAvailable(rawModel, settings.apiKeys, orHasModel)
           ? rawModel
           : autoSelectSpecModel(settings.apiKeys);
-        const provider = getProviderForModel(planningModel) ?? "gemini";
+        const provider = getProviderForModel(planningModel, orHasModel) ?? "gemini";
         const model = planningModel;
 
         // Determine mode: feature if there's an active project context

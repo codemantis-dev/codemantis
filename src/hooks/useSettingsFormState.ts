@@ -5,7 +5,8 @@ import { useSettingsStore } from "../stores/settingsStore";
 import type { QuickCommand, AssistantShortcut, ThemeId, ChangelogProvider, ModelPricing } from "../types/settings";
 import { AI_MODELS, getDefaultModelPricing } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
-import { testChangelogApiKey } from "../lib/tauri-commands";
+import { testChangelogApiKey, testOpenRouterKey } from "../lib/tauri-commands";
+import { useOpenRouterStore } from "../stores/openRouterStore";
 import type { SettingsTab } from "../components/modals/settings/SettingsShared";
 
 /**
@@ -119,6 +120,15 @@ export function useSettingsFormState() {
   // --- Handlers ---
 
   const handleSave = (): void => {
+    // Merge OpenRouter dynamic pricing into modelPricing
+    const orModels = useOpenRouterStore.getState().models;
+    const mergedPricing = { ...modelPricing };
+    for (const m of orModels) {
+      if (!mergedPricing[m.id]) {
+        mergedPricing[m.id] = { input: m.pricing.input, output: m.pricing.output };
+      }
+    }
+
     updateSettings({
       theme,
       fontSize,
@@ -130,7 +140,7 @@ export function useSettingsFormState() {
       changelogProvider,
       changelogModel,
       apiKeys,
-      modelPricing,
+      modelPricing: mergedPricing,
       changelogPrompt,
       assistantShortcuts: assistantShortcuts.filter((s) => s.name.trim() && s.prompt.trim()),
       assistantDefaultProvider,
@@ -150,6 +160,13 @@ export function useSettingsFormState() {
       taskBoardAutoStartNext,
       taskBoardAutoOpenSlideOver,
     });
+
+    // Trigger OpenRouter model fetch if key changed
+    const orKey = apiKeys["openrouter"]?.trim();
+    if (orKey && orKey !== settings.apiKeys["openrouter"]?.trim()) {
+      useOpenRouterStore.getState().fetchModels(orKey);
+    }
+
     setShowModal(false);
   };
 
@@ -169,9 +186,18 @@ export function useSettingsFormState() {
     setTestingKey(provider);
     setTestResults((prev) => { const next = { ...prev }; delete next[provider]; return next; });
     try {
-      const models = AI_MODELS[provider as APIProvider] ?? [];
-      const testModel = models[0]?.id ?? "";
-      const success = await testChangelogApiKey(provider as ChangelogProvider, apiKey, testModel);
+      let success: boolean;
+      if (provider === "openrouter") {
+        success = await testOpenRouterKey(apiKey);
+        // On success, trigger model fetch
+        if (success) {
+          useOpenRouterStore.getState().fetchModels(apiKey);
+        }
+      } else {
+        const models = AI_MODELS[provider as APIProvider] ?? [];
+        const testModel = models[0]?.id ?? "";
+        success = await testChangelogApiKey(provider as ChangelogProvider, apiKey, testModel);
+      }
       setTestResults((prev) => ({ ...prev, [provider]: success ? "success" : "error" }));
     } catch {
       setTestResults((prev) => ({ ...prev, [provider]: "error" }));
@@ -182,9 +208,19 @@ export function useSettingsFormState() {
 
   const handleChangelogProviderChange = (p: ChangelogProvider): void => {
     setChangelogProvider(p);
-    const models = AI_MODELS[p as APIProvider];
-    if (models.length > 0) {
-      setChangelogModel(models[0].id);
+    if (p === "openrouter") {
+      const orModels = useOpenRouterStore.getState().models;
+      const freeModel = orModels.find((m) => m.isFree);
+      if (freeModel) {
+        setChangelogModel(freeModel.id);
+      } else if (orModels.length > 0) {
+        setChangelogModel(orModels[0].id);
+      }
+    } else {
+      const models = AI_MODELS[p as APIProvider];
+      if (models.length > 0) {
+        setChangelogModel(models[0].id);
+      }
     }
   };
 

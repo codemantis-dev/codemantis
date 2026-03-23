@@ -30,6 +30,7 @@ import AssistantChatMessages from "./AssistantChatMessages";
 import { assistantInputDrafts } from "../../lib/input-drafts";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
+import { useOpenRouterStore } from "../../stores/openRouterStore";
 
 export default function AssistantPanel() {
   const [input, setInput] = useState("");
@@ -92,13 +93,22 @@ export default function AssistantPanel() {
     handleAddShortcut, handleSaveShortcut,
   } = useAssistantShortcuts({ shortcuts, updateSettings });
 
-  const { activeInstance, isClaudeCode, isApiProvider, showThinking } = useMemo(() => {
+  const orModels = useOpenRouterStore((s) => s.models);
+  const { activeInstance, isClaudeCode, isApiProvider, showThinking, supportsAttachments } = useMemo(() => {
     const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
     const isClaudeCode = activeInstance?.provider === "claude-code";
     const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
     const showThinking = busy && !streaming?.isStreaming;
-    return { activeInstance, isClaudeCode, isApiProvider, showThinking };
-  }, [activeAssistantId, assistants, busy, streaming]);
+    // Attachment support — for OpenRouter, check model capabilities
+    let supportsAttachments = true;
+    if (activeInstance?.provider === "openrouter" && activeInstance.model) {
+      const orModel = orModels.find((m) => m.id === activeInstance.model);
+      if (orModel) {
+        supportsAttachments = orModel.inputModalities.some((m) => m === "image" || m === "file");
+      }
+    }
+    return { activeInstance, isClaudeCode, isApiProvider, showThinking, supportsAttachments };
+  }, [activeAssistantId, assistants, busy, streaming, orModels]);
 
   // Close provider menu on click outside
   const closeProviderMenu = useCallback(() => setShowProviderMenu(false), [setShowProviderMenu]);
@@ -573,7 +583,12 @@ export default function AssistantPanel() {
       {isApiProvider && messages.length === 0 && !streaming?.isStreaming && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-text-ghost border-b border-border-light" style={{ background: "var(--bg-secondary)" }}>
           <Info size={10} />
-          <span>Chat only — no file access or tool use. Uses your {activeInstance!.provider} API key.</span>
+          <span>
+            Chat only — no file access or tool use.
+            {activeInstance!.provider === "openrouter"
+              ? ` Model: ${activeInstance!.model ?? "none"}.${!supportsAttachments ? " Text only — no image/file attachments." : ""}`
+              : ` Uses your ${activeInstance!.provider} API key.`}
+          </span>
         </div>
       )}
 
@@ -653,9 +668,9 @@ export default function AssistantPanel() {
           <div className="flex flex-col gap-1">
             <button
               onClick={handleFileDialog}
-              disabled={!activeAssistantId || busy}
+              disabled={!activeAssistantId || busy || !supportsAttachments}
               className="p-1.5 rounded-lg text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Attach file"
+              title={!supportsAttachments ? "This model only accepts text. Switch to a vision model to attach files." : "Attach file"}
             >
               <Plus size={16} />
             </button>

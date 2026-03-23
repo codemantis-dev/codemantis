@@ -1,8 +1,10 @@
+import { useState, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import type { ChangelogProvider } from "../../../types/settings";
 import { DEFAULT_CHANGELOG_PROMPT } from "../../../types/settings";
 import { AI_MODELS } from "../../../types/assistant-provider";
 import type { APIProvider } from "../../../types/assistant-provider";
+import { useOpenRouterStore } from "../../../stores/openRouterStore";
 import { SectionTitle, FieldRow, CHANGELOG_PROVIDERS } from "./SettingsShared";
 
 export default function ChangelogSettingsTab({
@@ -13,7 +15,25 @@ export default function ChangelogSettingsTab({
   onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
   onModelChange: (m: string) => void; onPromptChange: (v: string) => void;
 }) {
-  const availableModels = AI_MODELS[provider as APIProvider] ?? [];
+  const orModels = useOpenRouterStore((s) => s.models);
+  const [orSearch, setOrSearch] = useState("");
+  const isOpenRouter = provider === "openrouter";
+
+  const availableModels = isOpenRouter
+    ? [] // OpenRouter uses a custom dropdown below
+    : (AI_MODELS[provider as APIProvider] ?? []);
+
+  const filteredOrModels = useMemo(() => {
+    if (!isOpenRouter) return [];
+    const q = orSearch.toLowerCase();
+    const models = q ? orModels.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : orModels;
+    // Free first, then by name
+    return [...models].sort((a, b) => {
+      if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [isOpenRouter, orModels, orSearch]);
+
   return (
     <div>
       <SectionTitle>Changelog</SectionTitle>
@@ -54,15 +74,39 @@ export default function ChangelogSettingsTab({
             </FieldRow>
 
             <FieldRow label="Model">
-              <select
-                value={model}
-                onChange={(e) => onModelChange(e.target.value)}
-                className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40"
-              >
-                {availableModels.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
+              {isOpenRouter ? (
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    type="text"
+                    value={orSearch}
+                    onChange={(e) => setOrSearch(e.target.value)}
+                    placeholder="Search OpenRouter models..."
+                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 placeholder:text-text-ghost w-64"
+                  />
+                  <select
+                    value={model}
+                    onChange={(e) => onModelChange(e.target.value)}
+                    size={6}
+                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 w-64"
+                  >
+                    {filteredOrModels.slice(0, 50).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.isFree ? "[FREE] " : ""}{m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <select
+                  value={model}
+                  onChange={(e) => onModelChange(e.target.value)}
+                  className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-ui outline-none focus:border-accent/40"
+                >
+                  {availableModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              )}
             </FieldRow>
           </div>
 

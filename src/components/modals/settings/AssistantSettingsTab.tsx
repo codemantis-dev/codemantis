@@ -1,6 +1,8 @@
+import { useState, useMemo } from "react";
 import type { AssistantShortcut } from "../../../types/settings";
 import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../../types/assistant-provider";
+import { useOpenRouterStore } from "../../../stores/openRouterStore";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function AssistantSettingsTab({
@@ -16,6 +18,17 @@ export default function AssistantSettingsTab({
   onShortcutsChange: (shortcuts: AssistantShortcut[]) => void;
 }) {
   const apiProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
+  const orModels = useOpenRouterStore((s) => s.models);
+  const [orSearch, setOrSearch] = useState("");
+
+  const filteredOrModels = useMemo(() => {
+    const q = orSearch.toLowerCase();
+    const models = q ? orModels.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : orModels;
+    return [...models].sort((a, b) => {
+      if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [orModels, orSearch]);
 
   const handleShortcutUpdate = (index: number, field: "name" | "prompt", value: string) => {
     const updated = [...shortcuts];
@@ -56,9 +69,42 @@ export default function AssistantSettingsTab({
         </p>
         <div className="space-y-3">
           {apiProviders.map((p) => {
-            const models = AI_MODELS[p.id as APIProvider] ?? [];
+            const isOpenRouter = p.id === "openrouter";
+            const models = isOpenRouter ? [] : (AI_MODELS[p.id as APIProvider] ?? []);
             const hasKey = !!(apiKeys[p.id] ?? "").trim();
-            const currentModel = defaultModel[p.id] ?? models[0]?.id ?? "";
+            const currentModel = defaultModel[p.id] ?? (isOpenRouter ? orModels[0]?.id : models[0]?.id) ?? "";
+
+            if (isOpenRouter) {
+              return (
+                <FieldRow key={p.id} label={p.label}>
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="text"
+                      value={orSearch}
+                      onChange={(e) => setOrSearch(e.target.value)}
+                      placeholder="Search..."
+                      disabled={!hasKey}
+                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 placeholder:text-text-ghost w-52"
+                    />
+                    <select
+                      value={currentModel}
+                      onChange={(e) => onModelChange(p.id, e.target.value)}
+                      disabled={!hasKey}
+                      size={4}
+                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 w-52"
+                      title={!hasKey ? `Set API key in Settings > AI Providers` : undefined}
+                    >
+                      {filteredOrModels.slice(0, 50).map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.isFree ? "[FREE] " : ""}{m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </FieldRow>
+              );
+            }
+
             return (
               <FieldRow key={p.id} label={p.label}>
                 <select

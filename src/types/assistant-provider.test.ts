@@ -3,6 +3,7 @@ import {
   AI_PROVIDERS,
   AI_MODELS,
   getDefaultModelPricing,
+  getProviderForModel,
   getModelLabel,
   calculateCost,
   SPEC_WRITING_MODELS,
@@ -10,16 +11,23 @@ import {
   autoSelectSpecModel,
   isSpecModelAvailable,
   getSpecModelLabel,
+  modelSupportsImages,
+  modelSupportsFiles,
+  modelSupportsAttachments,
+  findNearestVisionModel,
+  getAvailableSpecModels,
 } from "./assistant-provider";
+import type { OpenRouterModel } from "./assistant-provider";
 
 describe("assistant-provider types", () => {
-  it("AI_PROVIDERS has 4 providers", () => {
-    expect(AI_PROVIDERS).toHaveLength(4);
+  it("AI_PROVIDERS has 5 providers", () => {
+    expect(AI_PROVIDERS).toHaveLength(5);
     const ids = AI_PROVIDERS.map((p) => p.id);
     expect(ids).toContain("claude-code");
     expect(ids).toContain("openai");
     expect(ids).toContain("gemini");
     expect(ids).toContain("anthropic");
+    expect(ids).toContain("openrouter");
   });
 
   it("claude-code does not require API key", () => {
@@ -194,5 +202,191 @@ describe("getSpecModelLabel", () => {
 
   it("returns model ID for unknown model", () => {
     expect(getSpecModelLabel("unknown-model")).toBe("unknown-model");
+  });
+});
+
+// ── OpenRouter capability helpers ──────────────────────────────
+
+function makeModel(overrides: Partial<OpenRouterModel> = {}): OpenRouterModel {
+  return {
+    id: "test/model",
+    name: "Test Model",
+    isFree: false,
+    inputModalities: ["text"],
+    outputModalities: ["text"],
+    contextLength: 4096,
+    pricing: { input: 1.0, output: 2.0 },
+    ...overrides,
+  };
+}
+
+describe("modelSupportsImages", () => {
+  it("returns true when inputModalities includes image", () => {
+    const model = makeModel({ inputModalities: ["text", "image"] });
+    expect(modelSupportsImages(model)).toBe(true);
+  });
+
+  it("returns false when inputModalities is text only", () => {
+    const model = makeModel({ inputModalities: ["text"] });
+    expect(modelSupportsImages(model)).toBe(false);
+  });
+
+  it("returns true when model has all modalities", () => {
+    const model = makeModel({ inputModalities: ["text", "image", "file"] });
+    expect(modelSupportsImages(model)).toBe(true);
+  });
+});
+
+describe("modelSupportsFiles", () => {
+  it("returns true when inputModalities includes file", () => {
+    const model = makeModel({ inputModalities: ["text", "file"] });
+    expect(modelSupportsFiles(model)).toBe(true);
+  });
+
+  it("returns false when inputModalities lacks file", () => {
+    const model = makeModel({ inputModalities: ["text", "image"] });
+    expect(modelSupportsFiles(model)).toBe(false);
+  });
+});
+
+describe("modelSupportsAttachments", () => {
+  it("returns true when model supports images", () => {
+    const model = makeModel({ inputModalities: ["text", "image"] });
+    expect(modelSupportsAttachments(model)).toBe(true);
+  });
+
+  it("returns true when model supports files", () => {
+    const model = makeModel({ inputModalities: ["text", "file"] });
+    expect(modelSupportsAttachments(model)).toBe(true);
+  });
+
+  it("returns true when model supports both", () => {
+    const model = makeModel({ inputModalities: ["text", "image", "file"] });
+    expect(modelSupportsAttachments(model)).toBe(true);
+  });
+
+  it("returns false when model is text-only", () => {
+    const model = makeModel({ inputModalities: ["text"] });
+    expect(modelSupportsAttachments(model)).toBe(false);
+  });
+});
+
+describe("findNearestVisionModel", () => {
+  it("returns free vision model first", () => {
+    const models = [
+      makeModel({ id: "paid-vision", isFree: false, inputModalities: ["text", "image"], contextLength: 128000 }),
+      makeModel({ id: "free-vision", isFree: true, inputModalities: ["text", "image"], contextLength: 32000 }),
+      makeModel({ id: "free-text", isFree: true, inputModalities: ["text"], contextLength: 64000 }),
+    ];
+    expect(findNearestVisionModel(models)).toBe("free-vision");
+  });
+
+  it("returns highest context free vision model when multiple available", () => {
+    const models = [
+      makeModel({ id: "free-small", isFree: true, inputModalities: ["text", "image"], contextLength: 8000 }),
+      makeModel({ id: "free-large", isFree: true, inputModalities: ["text", "image"], contextLength: 128000 }),
+    ];
+    expect(findNearestVisionModel(models)).toBe("free-large");
+  });
+
+  it("falls back to paid vision model when no free vision available", () => {
+    const models = [
+      makeModel({ id: "free-text", isFree: true, inputModalities: ["text"] }),
+      makeModel({ id: "paid-vision", isFree: false, inputModalities: ["text", "image"] }),
+    ];
+    expect(findNearestVisionModel(models)).toBe("paid-vision");
+  });
+
+  it("returns null when no vision models available", () => {
+    const models = [
+      makeModel({ id: "text-only-1", inputModalities: ["text"] }),
+      makeModel({ id: "text-only-2", inputModalities: ["text"] }),
+    ];
+    expect(findNearestVisionModel(models)).toBeNull();
+  });
+
+  it("returns null for empty model list", () => {
+    expect(findNearestVisionModel([])).toBeNull();
+  });
+});
+
+describe("getAvailableSpecModels", () => {
+  it("returns base spec models when no OpenRouter key", () => {
+    const result = getAvailableSpecModels({}, []);
+    expect(result).toHaveLength(SPEC_WRITING_MODELS.length);
+  });
+
+  it("returns base spec models when OpenRouter key but no models loaded", () => {
+    const result = getAvailableSpecModels({ openrouter: "key" }, []);
+    expect(result).toHaveLength(SPEC_WRITING_MODELS.length);
+  });
+
+  it("appends free OpenRouter models when key and models available", () => {
+    const orModels: OpenRouterModel[] = [
+      makeModel({ id: "free/model-1", name: "Free One", isFree: true, contextLength: 32000 }),
+      makeModel({ id: "free/model-2", name: "Free Two", isFree: true, contextLength: 64000 }),
+      makeModel({ id: "paid/model-1", name: "Paid One", isFree: false }),
+    ];
+    const result = getAvailableSpecModels({ openrouter: "key" }, orModels);
+    expect(result.length).toBe(SPEC_WRITING_MODELS.length + 2); // only free models added
+    const orEntries = result.filter((m) => m.provider === "openrouter");
+    expect(orEntries).toHaveLength(2);
+    expect(orEntries[0].label).toContain("(free)");
+  });
+
+  it("limits to 5 free OpenRouter models", () => {
+    const orModels: OpenRouterModel[] = Array.from({ length: 10 }, (_, i) =>
+      makeModel({ id: `free/model-${i}`, name: `Free ${i}`, isFree: true, contextLength: 1000 * i })
+    );
+    const result = getAvailableSpecModels({ openrouter: "key" }, orModels);
+    const orEntries = result.filter((m) => m.provider === "openrouter");
+    expect(orEntries).toHaveLength(5);
+  });
+
+  it("sorts free models by context length descending", () => {
+    const orModels: OpenRouterModel[] = [
+      makeModel({ id: "free/small", name: "Small", isFree: true, contextLength: 4000 }),
+      makeModel({ id: "free/large", name: "Large", isFree: true, contextLength: 128000 }),
+      makeModel({ id: "free/medium", name: "Medium", isFree: true, contextLength: 32000 }),
+    ];
+    const result = getAvailableSpecModels({ openrouter: "key" }, orModels);
+    const orEntries = result.filter((m) => m.provider === "openrouter");
+    expect(orEntries[0].id).toBe("free/large");
+    expect(orEntries[1].id).toBe("free/medium");
+    expect(orEntries[2].id).toBe("free/small");
+  });
+});
+
+describe("getProviderForModel with OpenRouter lookup", () => {
+  it("returns openrouter when lookup function matches", () => {
+    const lookup = (id: string) => id === "google/gemini:free";
+    expect(getProviderForModel("google/gemini:free", lookup)).toBe("openrouter");
+  });
+
+  it("prefers hardcoded provider over OpenRouter lookup", () => {
+    const lookup = () => true;
+    expect(getProviderForModel("gpt-4.1", lookup)).toBe("openai");
+  });
+
+  it("returns null when no match and no lookup", () => {
+    expect(getProviderForModel("unknown-model")).toBeNull();
+  });
+
+  it("returns null when lookup returns false", () => {
+    const lookup = () => false;
+    expect(getProviderForModel("unknown-model", lookup)).toBeNull();
+  });
+});
+
+describe("OpenRouter in AI_PROVIDERS and AI_MODELS", () => {
+  it("openrouter is in AI_PROVIDERS", () => {
+    const or = AI_PROVIDERS.find((p) => p.id === "openrouter");
+    expect(or).toBeDefined();
+    expect(or!.label).toBe("OpenRouter");
+    expect(or!.requiresApiKey).toBe(true);
+  });
+
+  it("openrouter has empty model list in AI_MODELS (dynamic)", () => {
+    expect(AI_MODELS.openrouter).toEqual([]);
   });
 });
