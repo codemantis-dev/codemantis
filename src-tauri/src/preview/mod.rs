@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +42,13 @@ pub struct PreviewState {
     /// Serializes preview window creation to prevent race conditions
     /// where two concurrent calls both find no existing window and both create one.
     pub window_lock: Arc<Mutex<()>>,
+    /// Cancellation token for the active console-polling task.
+    /// Cancelled when a new preview window is opened or the preview is closed,
+    /// preventing orphaned polling tasks from emitting stale events.
+    pub poll_cancel: Arc<Mutex<CancellationToken>>,
+    /// The project path that currently owns the preview window.
+    /// Used to scope close events to the correct project.
+    pub active_preview_project: Arc<Mutex<Option<String>>>,
 }
 
 impl PreviewState {
@@ -49,6 +57,8 @@ impl PreviewState {
             dev_servers: Arc::new(Mutex::new(HashMap::new())),
             console_logs: Arc::new(Mutex::new(Vec::new())),
             window_lock: Arc::new(Mutex::new(())),
+            poll_cancel: Arc::new(Mutex::new(CancellationToken::new())),
+            active_preview_project: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -272,5 +282,135 @@ mod tests {
         let servers = servers_clone.lock().await;
         assert!(servers.contains_key("/project"));
         assert_eq!(servers.get("/project").unwrap().port, Some(3000));
+    }
+
+    #[tokio::test]
+    async fn poll_cancel_starts_uncancelled() {
+        let state = PreviewState::new();
+        let token = state.poll_cancel.lock().await;
+        assert!(!token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn poll_cancel_cancels_cloned_tokens() {
+        let state = PreviewState::new();
+
+        // Clone the token (simulating what the polling task does)
+        let task_token = {
+            let token = state.poll_cancel.lock().await;
+            token.clone()
+        };
+
+        assert!(!task_token.is_cancelled());
+
+        // Cancel via the state (simulating what open_preview_window does)
+        {
+            let mut cancel = state.poll_cancel.lock().await;
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+        }
+
+        // The cloned token should be cancelled
+        assert!(task_token.is_cancelled());
+
+        // The new token in state should NOT be cancelled
+        let new_token = state.poll_cancel.lock().await;
+        assert!(!new_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn poll_cancel_multiple_replacements() {
+        let state = PreviewState::new();
+
+        // Simulate three consecutive preview opens — each cancels the previous
+        let token_a = {
+            let t = state.poll_cancel.lock().await;
+            t.clone()
+        };
+
+        // "Open" preview B — cancels A
+        {
+            let mut cancel = state.poll_cancel.lock().await;
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+        }
+        let token_b = {
+            let t = state.poll_cancel.lock().await;
+            t.clone()
+        };
+
+        // "Open" preview C — cancels B
+        {
+            let mut cancel = state.poll_cancel.lock().await;
+            cancel.cancel();
+            *cancel = CancellationToken::new();
+        }
+        let token_c = {
+            let t = state.poll_cancel.lock().await;
+            t.clone()
+        };
+
+        assert!(token_a.is_cancelled());
+        assert!(token_b.is_cancelled());
+        assert!(!token_c.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn active_preview_project_starts_none() {
+        let state = PreviewState::new();
+        let active = state.active_preview_project.lock().await;
+        assert!(active.is_none());
+    }
+
+    #[tokio::test]
+    async fn active_preview_project_set_and_clear() {
+        let state = PreviewState::new();
+
+        // Set active project (simulates open_preview_window)
+        {
+            let mut active = state.active_preview_project.lock().await;
+            *active = Some("/project-a".to_string());
+        }
+
+        {
+            let active = state.active_preview_project.lock().await;
+            assert_eq!(active.as_deref(), Some("/project-a"));
+        }
+
+        // Replace with different project
+        {
+            let mut active = state.active_preview_project.lock().await;
+            *active = Some("/project-b".to_string());
+        }
+
+        {
+            let active = state.active_preview_project.lock().await;
+            assert_eq!(active.as_deref(), Some("/project-b"));
+        }
+
+        // Clear (simulates close_preview_window)
+        {
+            let mut active = state.active_preview_project.lock().await;
+            *active = None;
+        }
+
+        let active = state.active_preview_project.lock().await;
+        assert!(active.is_none());
+    }
+
+    #[tokio::test]
+    async fn active_preview_project_shared_via_arc() {
+        let state = PreviewState::new();
+        let arc_clone = state.active_preview_project.clone();
+
+        // Set via original
+        {
+            let mut active = state.active_preview_project.lock().await;
+            *active = Some("/project".to_string());
+        }
+
+        // Read via clone — should see the same data
+        let active = arc_clone.lock().await;
+        assert_eq!(active.as_deref(), Some("/project"));
     }
 }

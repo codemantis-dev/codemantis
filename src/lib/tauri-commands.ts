@@ -562,10 +562,11 @@ export async function generateClaudeMd(
 export async function openPreviewWindow(
   url: string,
   projectName: string,
+  projectPath: string,
   width?: number,
   height?: number,
 ): Promise<void> {
-  return invoke("open_preview_window", { url, projectName, width, height });
+  return invoke("open_preview_window", { url, projectName, projectPath, width, height });
 }
 
 export async function closePreviewWindow(): Promise<void> {

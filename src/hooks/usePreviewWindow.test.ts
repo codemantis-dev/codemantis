@@ -8,13 +8,15 @@ const {
   mockNavigatePreview,
   mockRefreshPreview,
   mockFocusPreviewWindow,
+  mockStopDevServer,
   mockUnlisten,
 } = vi.hoisted(() => ({
-  mockOpenPreviewWindow: vi.fn<(url: string, projectName: string) => Promise<void>>(),
+  mockOpenPreviewWindow: vi.fn<(url: string, projectName: string, projectPath: string) => Promise<void>>(),
   mockClosePreviewWindow: vi.fn<() => Promise<void>>(),
   mockNavigatePreview: vi.fn<(url: string) => Promise<void>>(),
   mockRefreshPreview: vi.fn<() => Promise<void>>(),
   mockFocusPreviewWindow: vi.fn<() => Promise<boolean>>(),
+  mockStopDevServer: vi.fn<(projectPath: string) => Promise<void>>(),
   mockUnlisten: vi.fn(),
 }));
 
@@ -24,10 +26,16 @@ vi.mock("../lib/tauri-commands", () => ({
   navigatePreview: mockNavigatePreview,
   refreshPreview: mockRefreshPreview,
   focusPreviewWindow: mockFocusPreviewWindow,
+  stopDevServer: mockStopDevServer,
+  readFileBytes: vi.fn(),
 }));
 
+// Capture listener callbacks so we can simulate events in tests
+const eventListeners = new Map<string, (event: unknown) => void>();
+
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn((_eventName: string, _cb: (event: unknown) => void) => {
+  listen: vi.fn((eventName: string, cb: (event: unknown) => void) => {
+    eventListeners.set(eventName, cb);
     return Promise.resolve(mockUnlisten);
   }),
 }));
@@ -39,6 +47,7 @@ import { usePreviewStore } from "../stores/previewStore";
 describe("usePreviewWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    eventListeners.clear();
 
     // Set up session store with active project
     useSessionStore.setState({
@@ -69,7 +78,8 @@ describe("usePreviewWindow", () => {
 
     expect(mockOpenPreviewWindow).toHaveBeenCalledWith(
       "http://localhost:5173",
-      "project"
+      "project",
+      "/test/project"
     );
     expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(true);
   });
@@ -85,7 +95,8 @@ describe("usePreviewWindow", () => {
 
     expect(mockOpenPreviewWindow).toHaveBeenCalledWith(
       "http://localhost:3000",
-      "project"
+      "project",
+      "/test/project"
     );
   });
 
@@ -172,8 +183,119 @@ describe("usePreviewWindow", () => {
 
     expect(mockOpenPreviewWindow).toHaveBeenCalledWith(
       "http://localhost:5173",
-      "project"
+      "project",
+      "/test/project"
     );
     expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(true);
+  });
+
+  it("togglePreview syncs state when focus fails (stale previewOpen)", async () => {
+    // State says open but the actual window is gone
+    usePreviewStore.getState().setPreviewOpen("/test/project", true);
+    mockFocusPreviewWindow.mockResolvedValueOnce(false);
+
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.togglePreview();
+    });
+
+    // Should have synced previewOpen to false since focus returned false
+    expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(false);
+  });
+
+  // ── Close event listener tests ──
+
+  it("close event with project path marks correct project as closed", async () => {
+    usePreviewStore.getState().setPreviewOpen("/project-a", true);
+
+    // Render hook to register the listener
+    renderHook(() => usePreviewWindow());
+    // Wait for the listen promise to resolve and register the callback
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const closeListener = eventListeners.get("preview-window-closed");
+    expect(closeListener).toBeDefined();
+
+    // Simulate Rust emitting close event with project path payload
+    await act(async () => {
+      closeListener!({ payload: "/project-a" });
+    });
+
+    expect(usePreviewStore.getState().previewOpen.get("/project-a")).toBe(false);
+  });
+
+  it("close event marks payload project, not active project", async () => {
+    // Active project is B, but the close event is for project A
+    useSessionStore.setState({ activeProjectPath: "/project-b" });
+    usePreviewStore.getState().setPreviewOpen("/project-a", true);
+    usePreviewStore.getState().setPreviewOpen("/project-b", true);
+
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const closeListener = eventListeners.get("preview-window-closed");
+
+    // Close event arrives for project A (from old polling task)
+    await act(async () => {
+      closeListener!({ payload: "/project-a" });
+    });
+
+    // Project A should be marked closed
+    expect(usePreviewStore.getState().previewOpen.get("/project-a")).toBe(false);
+    // Project B should remain open — this is the critical race condition fix
+    expect(usePreviewStore.getState().previewOpen.get("/project-b")).toBe(true);
+  });
+
+  it("close event stops dev server for the correct project", async () => {
+    mockStopDevServer.mockResolvedValueOnce(undefined);
+
+    usePreviewStore.getState().setPreviewOpen("/project-a", true);
+    usePreviewStore.getState().setDevServer("/project-a", {
+      url: "http://localhost:3000",
+      port: 3000,
+      status: "running",
+      terminalId: "term-1",
+    });
+
+    // Active project is B
+    useSessionStore.setState({ activeProjectPath: "/project-b" });
+
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const closeListener = eventListeners.get("preview-window-closed");
+
+    await act(async () => {
+      closeListener!({ payload: "/project-a" });
+    });
+
+    // Should stop dev server for project A, not project B
+    expect(mockStopDevServer).toHaveBeenCalledWith("/project-a");
+  });
+
+  it("close event falls back to active project if payload is empty", async () => {
+    usePreviewStore.getState().setPreviewOpen("/test/project", true);
+
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const closeListener = eventListeners.get("preview-window-closed");
+
+    // Simulate legacy event with empty payload (backwards compatibility)
+    await act(async () => {
+      closeListener!({ payload: "" });
+    });
+
+    // Should fall back to activeProjectPath ("/test/project")
+    expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(false);
   });
 });

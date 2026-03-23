@@ -305,7 +305,8 @@ describe("usePreviewServer", () => {
 
     expect(mockOpenPreviewWindow).toHaveBeenCalledWith(
       "http://localhost:3000",
-      "my-project"
+      "my-project",
+      PROJECT
     );
 
     const devServer = usePreviewStore.getState().devServer.get(PROJECT);

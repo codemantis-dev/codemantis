@@ -78,6 +78,9 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
     if (previewOpen) {
       const focused = await focusPreviewWindow();
       if (focused) return;
+      // Window is gone but state said it was open — sync state and fall through
+      // to re-open instead of silently doing nothing.
+      usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
     }
 
     // If dev server is running, open/focus the preview
@@ -87,7 +90,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       // from racing and opening a second window
       usePreviewStore.getState().setPreviewOpen(activeProjectPath, true);
       try {
-        await openPreviewWindow(devServer.url, projectName);
+        await openPreviewWindow(devServer.url, projectName, activeProjectPath);
       } catch (err) {
         usePreviewStore.getState().setPreviewOpen(activeProjectPath, false);
         handleError("TitleBar.openPreviewWindow", err);

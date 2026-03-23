@@ -45,7 +45,7 @@ export function usePreviewServer(): {
       if (activeProjectPathRef.current === projectPath && !alreadyOpen) {
         const projectName =
           projectPath.split("/").filter(Boolean).pop() ?? "Preview";
-        openPreviewWindow(url, projectName)
+        openPreviewWindow(url, projectName, projectPath)
           .then(() => {
             usePreviewStore.getState().setPreviewOpen(projectPath, true);
           })

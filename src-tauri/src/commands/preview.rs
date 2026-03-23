@@ -6,6 +6,7 @@ use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +110,7 @@ pub fn capture_screenshot_inner(app_handle: &AppHandle) -> Result<String, String
 pub async fn open_preview_window(
     url: String,
     project_name: String,
+    project_path: String,
     width: Option<f64>,
     height: Option<f64>,
     app_handle: AppHandle,
@@ -121,12 +123,27 @@ pub async fn open_preview_window(
     // calls both find no existing window and both try to create one.
     let _lock = preview_state.window_lock.lock().await;
 
+    // Cancel any previous polling task before destroying the window.
+    // This prevents the orphaned task from seeing the window disappear and
+    // emitting a stale "preview-window-closed" event for the wrong project.
+    {
+        let mut cancel = preview_state.poll_cancel.lock().await;
+        cancel.cancel();
+        *cancel = CancellationToken::new();
+    }
+
     // Destroy existing preview window if any.
     // Use destroy() instead of close() to avoid firing the CloseRequested event,
     // which would incorrectly signal the JS side that the preview was closed
     // when we're actually just replacing it.
     if let Some(existing) = app_handle.get_webview_window("preview") {
         let _ = existing.destroy();
+    }
+
+    // Store which project owns this preview window
+    {
+        let mut active = preview_state.active_preview_project.lock().await;
+        *active = Some(project_path.clone());
     }
 
     // Clear console logs from previous preview session
@@ -154,12 +171,14 @@ pub async fn open_preview_window(
 
     let _ = window.set_focus();
 
-    // Emit close event only for genuine user-initiated closes
+    // Emit close event only for genuine user-initiated closes.
+    // Include the project path so the frontend marks the correct project as closed.
     let ah = app_handle.clone();
+    let close_project_path = project_path.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { .. } = event {
-            info!("[preview] CloseRequested — emitting preview-window-closed");
-            if let Err(e) = ah.emit("preview-window-closed", ()) {
+            info!("[preview] CloseRequested — emitting preview-window-closed for {}", close_project_path);
+            if let Err(e) = ah.emit("preview-window-closed", close_project_path.clone()) {
                 warn!("[preview] Failed to emit preview-window-closed: {}", e);
             }
         }
@@ -174,9 +193,16 @@ pub async fn open_preview_window(
         *port
     };
 
+    // Grab a clone of the current cancellation token for this polling task.
+    let poll_token = {
+        let cancel = preview_state.poll_cancel.lock().await;
+        cancel.clone()
+    };
+
     // Spawn console polling + callback port injection task.
     let poll_ah = app_handle.clone();
     let console_logs = preview_state.console_logs.clone();
+    let poll_project_path = project_path.clone();
     tokio::spawn(async move {
         // Wait briefly for the window to load
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -195,17 +221,27 @@ pub async fn open_preview_window(
         loop {
             interval.tick().await;
 
+            // Stop polling if this task was cancelled (a new preview window replaced us)
+            if poll_token.is_cancelled() {
+                debug!("[preview] Polling task cancelled for {}", poll_project_path);
+                break;
+            }
+
             // Check if preview window still exists
             let preview_win = match poll_ah.get_webview_window("preview") {
                 Some(w) => w,
                 None => {
-                    warn!("Preview window gone (possibly WKWebView crash), emitting close event");
+                    // Don't emit close if we were cancelled — the replacement
+                    // window's lifecycle owns close events now.
+                    if poll_token.is_cancelled() {
+                        debug!("[preview] Polling task cancelled (window gone) for {}", poll_project_path);
+                        break;
+                    }
+                    warn!("Preview window gone (possibly WKWebView crash), emitting close event for {}", poll_project_path);
                     // Failsafe: emit close event so frontend syncs state.
-                    // The on_window_event(CloseRequested) handler may not fire if
-                    // the window was destroyed without a normal close (e.g. content
-                    // process crash). Duplicate events are safe — the frontend
-                    // handler is idempotent.
-                    let _ = poll_ah.emit("preview-window-closed", ());
+                    // Include the project path so the frontend marks the correct
+                    // project as closed (not whatever project is currently active).
+                    let _ = poll_ah.emit("preview-window-closed", poll_project_path.clone());
                     break;
                 }
             };
@@ -337,10 +373,28 @@ pub async fn capture_preview_screenshot(
 }
 
 #[tauri::command]
-pub async fn close_preview_window(app_handle: AppHandle) -> Result<(), String> {
+pub async fn close_preview_window(
+    app_handle: AppHandle,
+    preview_state: State<'_, PreviewState>,
+) -> Result<(), String> {
+    // Cancel the polling task so it doesn't emit a stale close event
+    // after the window is gone.
+    {
+        let mut cancel = preview_state.poll_cancel.lock().await;
+        cancel.cancel();
+        *cancel = CancellationToken::new();
+    }
+
     if let Some(window) = app_handle.get_webview_window("preview") {
         window.close().map_err(|e| e.to_string())?;
     }
+
+    // Clear the active preview project
+    {
+        let mut active = preview_state.active_preview_project.lock().await;
+        *active = None;
+    }
+
     Ok(())
 }
 

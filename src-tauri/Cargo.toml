@@ -38,5 +38,6 @@ url = "2"
 tempfile = "3"
 libc = "0.2"
 toml = "0.8"
+tokio-util = "0.7"
 
 [dev-dependencies]

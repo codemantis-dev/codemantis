@@ -822,10 +822,11 @@ describe("listenScaffoldProgress", () => {
 // ---------------------------------------------------------------------------
 describe("openPreviewWindow", () => {
   it("calls invoke with open_preview_window and all args", async () => {
-    await openPreviewWindow("http://localhost:3000", "MyApp", 1280, 800);
+    await openPreviewWindow("http://localhost:3000", "MyApp", "/Users/test/MyApp", 1280, 800);
     expectInvoke("open_preview_window", {
       url: "http://localhost:3000",
       projectName: "MyApp",
+      projectPath: "/Users/test/MyApp",
       width: 1280,
       height: 800,
     });

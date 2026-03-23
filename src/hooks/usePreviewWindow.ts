@@ -71,13 +71,15 @@ export function usePreviewWindow(): {
     };
   }, []);
 
-  // Listen for preview window close events — register once, read project from ref
+  // Listen for preview window close events — the event payload contains the
+  // project path that owned the preview, so we mark the correct project as
+  // closed regardless of which project is currently active.
   useEffect(() => {
     let cancelled = false;
     let unlistenFn: (() => void) | null = null;
 
-    listen("preview-window-closed", () => {
-      const projectPath = activeProjectPathRef.current;
+    listen<string>("preview-window-closed", (event) => {
+      const projectPath = event.payload || activeProjectPathRef.current;
       if (projectPath) {
         usePreviewStore.getState().setPreviewOpen(projectPath, false);
         // Auto-stop dev server when preview window is closed
@@ -116,7 +118,7 @@ export function usePreviewWindow(): {
       const projectName =
         projectPath.split("/").filter(Boolean).pop() ?? "Preview";
 
-      await openPreviewWindow(targetUrl, projectName);
+      await openPreviewWindow(targetUrl, projectName, projectPath);
       usePreviewStore.getState().setPreviewOpen(projectPath, true);
     },
     [],
