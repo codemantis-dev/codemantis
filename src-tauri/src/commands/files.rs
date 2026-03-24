@@ -75,6 +75,12 @@ fn scan_directory(dir: &Path, depth: usize) -> Result<Vec<FileNode>, std::io::Er
         }
 
         let path = entry.path();
+
+        // Skip symlinks to prevent traversal outside the project root
+        if path.is_symlink() {
+            continue;
+        }
+
         let is_dir = path.is_dir();
 
         let children = if is_dir {

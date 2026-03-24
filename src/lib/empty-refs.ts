@@ -5,8 +5,7 @@
  *  These are frozen empty arrays/objects — safe to reuse as long as
  *  consumers never mutate them (which they shouldn't). */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const EMPTY_ARRAY: any[] = Object.freeze([]) as unknown as any[];
+export const EMPTY_ARRAY: never[] = Object.freeze([]) as never[];
 
 export const EMPTY_STREAMING = Object.freeze({
   isStreaming: false,

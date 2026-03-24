@@ -349,4 +349,58 @@ mod tests {
         // This should be skipped because it can't be parsed as RawStreamEvent
         assert_eq!(events.len(), 0, "JSON without 'type' field should be skipped");
     }
+
+    // ── Additional unwrap edge cases ──
+
+    #[test]
+    fn unwrap_stream_event_with_extra_fields() {
+        // stream_event wrapper with extra top-level fields should still work
+        let wrapper = serde_json::json!({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_stop",
+                "index": 0
+            },
+            "timestamp": "2026-01-01"
+        });
+        let result = try_unwrap_stream_event(wrapper);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unwrap_stream_event_with_null_event() {
+        let wrapper = serde_json::json!({
+            "type": "stream_event",
+            "event": null
+        });
+        let result = try_unwrap_stream_event(wrapper);
+        // null cannot be deserialized into RawStreamEvent
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn handles_result_event_with_duration() {
+        let ndjson = "{\"type\":\"result\",\"duration_ms\":1500}\n";
+        let events = parse_ndjson(ndjson).await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RawStreamEvent::Result { duration_ms, .. } => {
+                assert_eq!(*duration_ms, Some(1500));
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn handles_content_block_stop_event() {
+        let ndjson = "{\"type\":\"content_block_stop\",\"index\":2}\n";
+        let events = parse_ndjson(ndjson).await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RawStreamEvent::ContentBlockStop { index, .. } => {
+                assert_eq!(*index, Some(2));
+            }
+            other => panic!("Expected ContentBlockStop, got {:?}", other),
+        }
+    }
 }

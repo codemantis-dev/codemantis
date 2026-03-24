@@ -858,6 +858,487 @@ fn infer_env_var_purpose(name: &str) -> String {
     String::new()
 }
 
+// ── Analysis Helper Functions ──
+
+/// Detect JavaScript/TypeScript framework from package.json dependencies.
+fn detect_js_framework(
+    pkg: &serde_json::Value,
+    project_path: &Path,
+    analysis: &mut ProjectAnalysis,
+) {
+    if has_dep(pkg, "next") {
+        let ver = pkg_dep_version(pkg, "next").unwrap_or_default();
+        analysis.framework = Some("Next.js".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+        if project_path.join("src/app").is_dir() || project_path.join("app").is_dir() {
+            analysis.router_type = Some("App Router".to_string());
+            analysis
+                .architecture_notes
+                .push("Next.js App Router with server components".to_string());
+        } else if project_path.join("src/pages").is_dir()
+            || project_path.join("pages").is_dir()
+        {
+            analysis.router_type = Some("Pages Router".to_string());
+        }
+    } else if has_dep(pkg, "astro") {
+        let ver = pkg_dep_version(pkg, "astro").unwrap_or_default();
+        analysis.framework = Some("Astro".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+    } else if has_dep(pkg, "@sveltejs/kit") || has_dep(pkg, "svelte") {
+        let ver = pkg_dep_version(pkg, "@sveltejs/kit")
+            .or_else(|| pkg_dep_version(pkg, "svelte"))
+            .unwrap_or_default();
+        let name = if has_dep(pkg, "@sveltejs/kit") {
+            "SvelteKit"
+        } else {
+            "Svelte"
+        };
+        analysis.framework = Some(name.to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+        if project_path.join("src/routes").is_dir() {
+            analysis.router_type = Some("File-based routing".to_string());
+        }
+    } else if has_dep(pkg, "nuxt") || has_dep(pkg, "nuxt3") {
+        let ver = pkg_dep_version(pkg, "nuxt")
+            .or_else(|| pkg_dep_version(pkg, "nuxt3"))
+            .unwrap_or_default();
+        analysis.framework = Some("Nuxt".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+        analysis.language = "Vue/TypeScript".to_string();
+    } else if has_dep(pkg, "vue") {
+        let ver = pkg_dep_version(pkg, "vue").unwrap_or_default();
+        analysis.framework = Some("Vue".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+        analysis.language = "Vue/TypeScript".to_string();
+    } else if has_dep(pkg, "react") {
+        detect_react_framework(pkg, project_path, analysis);
+    } else if has_dep(pkg, "express") {
+        let ver = pkg_dep_version(pkg, "express").unwrap_or_default();
+        analysis.framework = Some("Express.js".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+    } else if has_dep(pkg, "fastify") {
+        let ver = pkg_dep_version(pkg, "fastify").unwrap_or_default();
+        analysis.framework = Some("Fastify".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+    } else if has_dep(pkg, "hono") {
+        let ver = pkg_dep_version(pkg, "hono").unwrap_or_default();
+        analysis.framework = Some("Hono".to_string());
+        if !ver.is_empty() {
+            analysis.framework_version = Some(ver);
+        }
+    }
+}
+
+/// Detect React meta-framework (Remix, Gatsby, Expo, etc.) or plain React + build tool.
+fn detect_react_framework(
+    pkg: &serde_json::Value,
+    project_path: &Path,
+    analysis: &mut ProjectAnalysis,
+) {
+    let ver = pkg_dep_version(pkg, "react").unwrap_or_default();
+    if has_dep(pkg, "@remix-run/react") || has_dep(pkg, "remix") {
+        analysis.framework = Some("Remix".to_string());
+        analysis.framework_version =
+            pkg_dep_version(pkg, "@remix-run/react").or(Some(ver));
+    } else if has_dep(pkg, "gatsby") {
+        analysis.framework = Some("Gatsby".to_string());
+        analysis.framework_version = pkg_dep_version(pkg, "gatsby").or(Some(ver));
+    } else if has_dep(pkg, "expo") || has_dep(pkg, "expo-router") {
+        analysis.framework = Some("Expo (React Native)".to_string());
+        analysis.framework_version = pkg_dep_version(pkg, "expo").or(Some(ver));
+    } else if has_dep(pkg, "react-native") {
+        analysis.framework = Some("React Native".to_string());
+        analysis.framework_version = pkg_dep_version(pkg, "react-native").or(Some(ver));
+    } else {
+        // Plain React — check build tool
+        if project_path.join("vite.config.ts").exists()
+            || project_path.join("vite.config.js").exists()
+            || project_path.join("vite.config.mjs").exists()
+        {
+            let vite_ver = pkg_dep_version(pkg, "vite").unwrap_or_default();
+            analysis.framework = Some("React + Vite".to_string());
+            if !vite_ver.is_empty() {
+                analysis.framework_version = Some(format!("React {}, Vite {}", ver, vite_ver));
+            } else if !ver.is_empty() {
+                analysis.framework_version = Some(ver);
+            }
+        } else {
+            analysis.framework = Some("React".to_string());
+            if !ver.is_empty() {
+                analysis.framework_version = Some(ver);
+            }
+        }
+    }
+}
+
+/// Detect JS ecosystem tooling: CSS, ORM, auth, testing, state, router, UI lib, deployment.
+fn detect_js_ecosystem(
+    pkg: &serde_json::Value,
+    project_path: &Path,
+    analysis: &mut ProjectAnalysis,
+) {
+    // CSS framework
+    if has_dep(pkg, "tailwindcss") {
+        let ver = pkg_dep_version(pkg, "tailwindcss").unwrap_or_default();
+        analysis.css_framework = Some(if ver.is_empty() {
+            "Tailwind CSS".to_string()
+        } else {
+            format!("Tailwind CSS {}", ver)
+        });
+    } else if has_dep(pkg, "@chakra-ui/react") {
+        analysis.css_framework = Some("Chakra UI".to_string());
+    } else if has_dep(pkg, "@mui/material") {
+        analysis.css_framework = Some("Material UI".to_string());
+    } else if has_dep(pkg, "styled-components") {
+        analysis.css_framework = Some("styled-components".to_string());
+    }
+
+    // ORM / Database
+    if has_dep(pkg, "@prisma/client") || has_dep(pkg, "prisma") {
+        analysis.orm = Some("Prisma".to_string());
+        if project_path.join("prisma/schema.prisma").exists() {
+            analysis.database = Some("Prisma ORM".to_string());
+        }
+    }
+    if has_dep(pkg, "drizzle-orm") {
+        analysis.orm = Some("Drizzle".to_string());
+        analysis.database = Some("Drizzle ORM".to_string());
+    }
+    if has_dep(pkg, "@supabase/supabase-js") {
+        analysis.database =
+            Some(analysis.database.take().map_or("Supabase".to_string(), |d| {
+                format!("{} + Supabase", d)
+            }));
+    }
+    if has_dep(pkg, "firebase") || has_dep(pkg, "firebase-admin") {
+        analysis.database =
+            Some(analysis.database.take().map_or("Firebase".to_string(), |d| {
+                format!("{} + Firebase", d)
+            }));
+    }
+    if has_dep(pkg, "mongoose") {
+        analysis.orm = Some("Mongoose".to_string());
+        analysis.database = Some("MongoDB (Mongoose)".to_string());
+    }
+
+    // Auth
+    if has_dep(pkg, "next-auth") || has_dep(pkg, "@auth/core") {
+        analysis.auth = Some("NextAuth.js / Auth.js".to_string());
+    } else if has_dep(pkg, "@clerk/nextjs") || has_dep(pkg, "@clerk/clerk-react") {
+        analysis.auth = Some("Clerk".to_string());
+    } else if has_dep(pkg, "lucia") || has_dep(pkg, "lucia-auth") {
+        analysis.auth = Some("Lucia Auth".to_string());
+    } else if has_dep(pkg, "@supabase/auth-helpers-nextjs")
+        || has_dep(pkg, "@supabase/ssr")
+    {
+        analysis.auth = Some("Supabase Auth".to_string());
+    } else if has_dep(pkg, "passport") {
+        analysis.auth = Some("Passport.js".to_string());
+    }
+
+    // Testing
+    if has_dep(pkg, "vitest") {
+        analysis.test_framework = Some("Vitest".to_string());
+    } else if has_dep(pkg, "jest") {
+        analysis.test_framework = Some("Jest".to_string());
+    }
+    if has_dep(pkg, "@playwright/test") || has_dep(pkg, "playwright") {
+        let base = analysis.test_framework.clone().unwrap_or_default();
+        analysis.test_framework = Some(if base.is_empty() {
+            "Playwright".to_string()
+        } else {
+            format!("{} + Playwright (E2E)", base)
+        });
+    } else if has_dep(pkg, "cypress") {
+        let base = analysis.test_framework.clone().unwrap_or_default();
+        analysis.test_framework = Some(if base.is_empty() {
+            "Cypress".to_string()
+        } else {
+            format!("{} + Cypress (E2E)", base)
+        });
+    }
+
+    // State management
+    if has_dep(pkg, "zustand") {
+        analysis.state_management = Some("Zustand".to_string());
+    } else if has_dep(pkg, "@reduxjs/toolkit") || has_dep(pkg, "redux") {
+        analysis.state_management = Some("Redux Toolkit".to_string());
+    } else if has_dep(pkg, "jotai") {
+        analysis.state_management = Some("Jotai".to_string());
+    } else if has_dep(pkg, "recoil") {
+        analysis.state_management = Some("Recoil".to_string());
+    } else if has_dep(pkg, "pinia") {
+        analysis.state_management = Some("Pinia".to_string());
+    } else if has_dep(pkg, "mobx") {
+        analysis.state_management = Some("MobX".to_string());
+    }
+
+    // Router (for non-Next.js/SvelteKit projects)
+    if analysis.router_type.is_none() {
+        if has_dep(pkg, "@tanstack/react-router") {
+            analysis.router_type = Some("TanStack Router (file-based)".to_string());
+        } else if has_dep(pkg, "react-router-dom") || has_dep(pkg, "react-router") {
+            let ver = pkg_dep_version(pkg, "react-router-dom")
+                .or_else(|| pkg_dep_version(pkg, "react-router"))
+                .unwrap_or_default();
+            analysis.router_type = if ver.starts_with('7') || ver.starts_with('6') {
+                Some(format!("React Router {}", ver))
+            } else {
+                Some("React Router".to_string())
+            };
+        } else if has_dep(pkg, "wouter") {
+            analysis.router_type = Some("Wouter".to_string());
+        }
+    }
+
+    // TanStack Query
+    if has_dep(pkg, "@tanstack/react-query") {
+        analysis.architecture_notes.push("Data fetching: TanStack Query".to_string());
+    }
+
+    // UI Component Library
+    if project_path.join("components.json").exists() {
+        analysis.ui_library = Some("shadcn/ui".to_string());
+        analysis.architecture_notes.push(
+            "UI: shadcn/ui — add components with `npx shadcn@latest add {name}`".to_string(),
+        );
+    }
+    if analysis.ui_library.is_none() {
+        if has_dep(pkg, "@radix-ui/react-dialog") || has_dep(pkg, "@radix-ui/themes") {
+            analysis.ui_library = Some("Radix UI".to_string());
+        } else if has_dep(pkg, "antd") {
+            analysis.ui_library = Some("Ant Design".to_string());
+        } else if has_dep(pkg, "@headlessui/react") {
+            analysis.ui_library = Some("Headless UI".to_string());
+        } else if has_dep(pkg, "@mantine/core") {
+            analysis.ui_library = Some("Mantine".to_string());
+        } else if has_dep(pkg, "daisyui") {
+            analysis.ui_library = Some("daisyUI".to_string());
+        } else if has_dep(pkg, "@nextui-org/react") {
+            analysis.ui_library = Some("NextUI".to_string());
+        } else if has_dep(pkg, "flowbite-react") || has_dep(pkg, "flowbite") {
+            analysis.ui_library = Some("Flowbite".to_string());
+        }
+    }
+
+    // Monorepo
+    if pkg.get("workspaces").is_some() {
+        analysis.has_monorepo = true;
+        analysis
+            .architecture_notes
+            .push("Monorepo with npm/yarn/pnpm workspaces".to_string());
+    }
+
+    // Deployment
+    if project_path.join("vercel.json").exists() || has_dep(pkg, "vercel") {
+        analysis.deployment = Some("Vercel".to_string());
+    } else if project_path.join("netlify.toml").exists() {
+        analysis.deployment = Some("Netlify".to_string());
+    } else if project_path.join("fly.toml").exists() {
+        analysis.deployment = Some("Fly.io".to_string());
+    } else if project_path.join("render.yaml").exists() {
+        analysis.deployment = Some("Render".to_string());
+    } else if project_path.join("railway.json").exists()
+        || project_path.join("railway.toml").exists()
+    {
+        analysis.deployment = Some("Railway".to_string());
+    } else if project_path.join("Dockerfile").exists() {
+        analysis.deployment = Some("Docker".to_string());
+    }
+}
+
+/// Detect non-JS project types: Rust (Cargo.toml), Python (pyproject.toml), Go (go.mod), Ruby (Gemfile).
+fn detect_non_js_projects(project_path: &Path, analysis: &mut ProjectAnalysis) {
+    // Cargo.toml (Rust)
+    let cargo_path = project_path.join("Cargo.toml");
+    if cargo_path.exists() {
+        if analysis.language == "Unknown" {
+            analysis.language = "Rust".to_string();
+        }
+        if let Ok(content) = std::fs::read_to_string(&cargo_path) {
+            if let Ok(cargo) = content.parse::<toml::Value>() {
+                if let Some(package) = cargo.get("package") {
+                    if analysis.description.is_none() {
+                        if let Some(desc) = package.get("description").and_then(|v| v.as_str()) {
+                            analysis.description = Some(desc.to_string());
+                        }
+                    }
+                    if let Some(edition) = package.get("edition").and_then(|v| v.as_str()) {
+                        analysis
+                            .conventions
+                            .push(format!("Rust edition: {}", edition));
+                    }
+                }
+                if cargo.get("workspace").is_some() {
+                    analysis.has_monorepo = true;
+                    analysis
+                        .architecture_notes
+                        .push("Cargo workspace (monorepo)".to_string());
+                }
+            }
+        }
+        let tauri_conf = project_path.join("src-tauri/tauri.conf.json");
+        if tauri_conf.exists() {
+            analysis.framework = Some("Tauri".to_string());
+            analysis
+                .architecture_notes
+                .push("Tauri desktop application (Rust + Web frontend)".to_string());
+        }
+    }
+
+    // pyproject.toml (Python)
+    let pyproject_path = project_path.join("pyproject.toml");
+    if pyproject_path.exists() && analysis.language == "Unknown" {
+        analysis.language = "Python".to_string();
+        if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
+            let lower = content.to_lowercase();
+            if lower.contains("fastapi") {
+                analysis.framework = Some("FastAPI".to_string());
+            } else if lower.contains("django") {
+                analysis.framework = Some("Django".to_string());
+            } else if lower.contains("flask") {
+                analysis.framework = Some("Flask".to_string());
+            }
+            if lower.contains("pytest") {
+                analysis.test_framework = Some("pytest".to_string());
+            }
+            if lower.contains("sqlalchemy") {
+                analysis.orm = Some("SQLAlchemy".to_string());
+                analysis.database = Some("SQLAlchemy".to_string());
+            }
+        }
+    }
+
+    // go.mod (Go)
+    let gomod_path = project_path.join("go.mod");
+    if gomod_path.exists() && analysis.language == "Unknown" {
+        analysis.language = "Go".to_string();
+        if let Ok(content) = std::fs::read_to_string(&gomod_path) {
+            if content.contains("gin-gonic") {
+                analysis.framework = Some("Gin".to_string());
+            } else if content.contains("echo") {
+                analysis.framework = Some("Echo".to_string());
+            } else if content.contains("fiber") {
+                analysis.framework = Some("Fiber".to_string());
+            }
+        }
+    }
+
+    // Gemfile (Ruby)
+    if project_path.join("Gemfile").exists() && analysis.language == "Unknown" {
+        analysis.language = "Ruby".to_string();
+        if project_path.join("config/routes.rb").exists() {
+            analysis.framework = Some("Ruby on Rails".to_string());
+        }
+    }
+}
+
+/// Detect project infrastructure: Makefile, dir tree, conventions, env vars, Docker, CI/CD, monorepo tools.
+fn detect_project_infrastructure(project_path: &Path, analysis: &mut ProjectAnalysis) {
+    // Description fallback
+    if analysis.description.is_none() {
+        analysis.description = extract_readme_description(project_path);
+    }
+
+    // Makefile targets
+    let makefile_path = project_path.join("Makefile");
+    if makefile_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&makefile_path) {
+            let targets: Vec<(String, String)> = content
+                .lines()
+                .filter_map(|line| {
+                    if line.ends_with(':') || line.contains(": ") || line.contains(":\t") {
+                        let target = line.split(':').next()?.trim();
+                        if !target.is_empty()
+                            && !target.starts_with('.')
+                            && !target.starts_with('\t')
+                            && !target.starts_with(' ')
+                            && !target.contains('$')
+                            && !target.contains('/')
+                        {
+                            return Some((
+                                format!("make {}", target),
+                                infer_script_description(target, ""),
+                            ));
+                        }
+                    }
+                    None
+                })
+                .collect();
+            analysis.scripts.extend(targets);
+        }
+    }
+
+    // Directory tree
+    analysis.directory_tree = build_directory_tree(project_path, 3);
+
+    // Key directories & files
+    analysis.key_directories = detect_key_directories(project_path);
+    analysis.key_files = detect_key_files(project_path);
+
+    // Conventions
+    analysis
+        .conventions
+        .extend(detect_tsconfig_conventions(project_path));
+    analysis
+        .conventions
+        .extend(detect_eslint_conventions(project_path));
+    analysis
+        .conventions
+        .extend(detect_prettier_conventions(project_path));
+    analysis
+        .conventions
+        .extend(detect_commit_conventions(project_path));
+
+    // Environment variables
+    analysis.env_vars = read_env_example(project_path);
+
+    // Docker
+    if project_path.join("Dockerfile").exists() || project_path.join("docker-compose.yml").exists()
+    {
+        analysis
+            .architecture_notes
+            .push("Docker containerization configured".to_string());
+    }
+
+    // CI/CD
+    if project_path.join(".github/workflows").is_dir() {
+        analysis
+            .architecture_notes
+            .push("GitHub Actions CI/CD".to_string());
+    }
+
+    // Turborepo
+    if project_path.join("turbo.json").exists() {
+        analysis.has_monorepo = true;
+        analysis
+            .architecture_notes
+            .push("Turborepo build system".to_string());
+    }
+
+    // Nx
+    if project_path.join("nx.json").exists() {
+        analysis.has_monorepo = true;
+        analysis
+            .architecture_notes
+            .push("Nx workspace".to_string());
+    }
+}
+
 // ── Main Analysis Function ──
 
 pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
@@ -893,24 +1374,21 @@ pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
         key_files: vec![],
     };
 
-    // ── package.json analysis ──
+    // package.json analysis (JavaScript/TypeScript projects)
     let pkg_path = project_path.join("package.json");
     let pkg = read_json(&pkg_path);
 
     if let Some(ref pkg) = pkg {
         analysis.language = "TypeScript/JavaScript".to_string();
 
-        // Description
         if let Some(desc) = pkg.get("description").and_then(|v| v.as_str()) {
             if !desc.is_empty() {
                 analysis.description = Some(desc.to_string());
             }
         }
 
-        // Package manager
         analysis.package_manager = detect_package_manager(project_path);
 
-        // Scripts
         if let Some(scripts) = pkg.get("scripts").and_then(|v| v.as_object()) {
             analysis.scripts = scripts
                 .iter()
@@ -921,465 +1399,12 @@ pub fn analyze_project(project_path: &Path) -> ProjectAnalysis {
                 .collect();
         }
 
-        // ── Framework detection ──
-        if has_dep(pkg, "next") {
-            let ver = pkg_dep_version(pkg, "next").unwrap_or_default();
-            analysis.framework = Some("Next.js".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-            // Router type
-            if project_path.join("src/app").is_dir() || project_path.join("app").is_dir() {
-                analysis.router_type = Some("App Router".to_string());
-                analysis
-                    .architecture_notes
-                    .push("Next.js App Router with server components".to_string());
-            } else if project_path.join("src/pages").is_dir()
-                || project_path.join("pages").is_dir()
-            {
-                analysis.router_type = Some("Pages Router".to_string());
-            }
-        } else if has_dep(pkg, "astro") {
-            let ver = pkg_dep_version(pkg, "astro").unwrap_or_default();
-            analysis.framework = Some("Astro".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-        } else if has_dep(pkg, "@sveltejs/kit") || has_dep(pkg, "svelte") {
-            let ver = pkg_dep_version(pkg, "@sveltejs/kit")
-                .or_else(|| pkg_dep_version(pkg, "svelte"))
-                .unwrap_or_default();
-            let name = if has_dep(pkg, "@sveltejs/kit") {
-                "SvelteKit"
-            } else {
-                "Svelte"
-            };
-            analysis.framework = Some(name.to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-            if project_path.join("src/routes").is_dir() {
-                analysis.router_type = Some("File-based routing".to_string());
-            }
-        } else if has_dep(pkg, "nuxt") || has_dep(pkg, "nuxt3") {
-            let ver = pkg_dep_version(pkg, "nuxt")
-                .or_else(|| pkg_dep_version(pkg, "nuxt3"))
-                .unwrap_or_default();
-            analysis.framework = Some("Nuxt".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-            analysis.language = "Vue/TypeScript".to_string();
-        } else if has_dep(pkg, "vue") {
-            let ver = pkg_dep_version(pkg, "vue").unwrap_or_default();
-            analysis.framework = Some("Vue".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-            analysis.language = "Vue/TypeScript".to_string();
-        } else if has_dep(pkg, "react") {
-            let ver = pkg_dep_version(pkg, "react").unwrap_or_default();
-            // Check for specific React meta-frameworks
-            if has_dep(pkg, "@remix-run/react") || has_dep(pkg, "remix") {
-                analysis.framework = Some("Remix".to_string());
-                analysis.framework_version =
-                    pkg_dep_version(pkg, "@remix-run/react").or(Some(ver));
-            } else if has_dep(pkg, "gatsby") {
-                analysis.framework = Some("Gatsby".to_string());
-                analysis.framework_version = pkg_dep_version(pkg, "gatsby").or(Some(ver));
-            } else if has_dep(pkg, "expo") || has_dep(pkg, "expo-router") {
-                analysis.framework = Some("Expo (React Native)".to_string());
-                analysis.framework_version = pkg_dep_version(pkg, "expo").or(Some(ver));
-            } else if has_dep(pkg, "react-native") {
-                analysis.framework = Some("React Native".to_string());
-                analysis.framework_version = pkg_dep_version(pkg, "react-native").or(Some(ver));
-            } else {
-                // Plain React — check build tool
-                if project_path.join("vite.config.ts").exists()
-                    || project_path.join("vite.config.js").exists()
-                    || project_path.join("vite.config.mjs").exists()
-                {
-                    let vite_ver = pkg_dep_version(pkg, "vite").unwrap_or_default();
-                    analysis.framework = Some("React + Vite".to_string());
-                    if !vite_ver.is_empty() {
-                        analysis.framework_version = Some(format!("React {}, Vite {}", ver, vite_ver));
-                    } else if !ver.is_empty() {
-                        analysis.framework_version = Some(ver);
-                    }
-                } else {
-                    analysis.framework = Some("React".to_string());
-                    if !ver.is_empty() {
-                        analysis.framework_version = Some(ver);
-                    }
-                }
-            }
-        } else if has_dep(pkg, "express") {
-            let ver = pkg_dep_version(pkg, "express").unwrap_or_default();
-            analysis.framework = Some("Express.js".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-        } else if has_dep(pkg, "fastify") {
-            let ver = pkg_dep_version(pkg, "fastify").unwrap_or_default();
-            analysis.framework = Some("Fastify".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-        } else if has_dep(pkg, "hono") {
-            let ver = pkg_dep_version(pkg, "hono").unwrap_or_default();
-            analysis.framework = Some("Hono".to_string());
-            if !ver.is_empty() {
-                analysis.framework_version = Some(ver);
-            }
-        }
-
-        // ── CSS framework ──
-        if has_dep(pkg, "tailwindcss") {
-            let ver = pkg_dep_version(pkg, "tailwindcss").unwrap_or_default();
-            analysis.css_framework = Some(if ver.is_empty() {
-                "Tailwind CSS".to_string()
-            } else {
-                format!("Tailwind CSS {}", ver)
-            });
-        } else if has_dep(pkg, "@chakra-ui/react") {
-            analysis.css_framework = Some("Chakra UI".to_string());
-        } else if has_dep(pkg, "@mui/material") {
-            analysis.css_framework = Some("Material UI".to_string());
-        } else if has_dep(pkg, "styled-components") {
-            analysis.css_framework = Some("styled-components".to_string());
-        }
-
-        // ── ORM / Database ──
-        if has_dep(pkg, "@prisma/client") || has_dep(pkg, "prisma") {
-            analysis.orm = Some("Prisma".to_string());
-            if project_path.join("prisma/schema.prisma").exists() {
-                analysis.database = Some("Prisma ORM".to_string());
-            }
-        }
-        if has_dep(pkg, "drizzle-orm") {
-            analysis.orm = Some("Drizzle".to_string());
-            analysis.database = Some("Drizzle ORM".to_string());
-        }
-        if has_dep(pkg, "@supabase/supabase-js") {
-            analysis.database =
-                Some(analysis.database.map_or("Supabase".to_string(), |d| {
-                    format!("{} + Supabase", d)
-                }));
-        }
-        if has_dep(pkg, "firebase") || has_dep(pkg, "firebase-admin") {
-            analysis.database =
-                Some(analysis.database.map_or("Firebase".to_string(), |d| {
-                    format!("{} + Firebase", d)
-                }));
-        }
-        if has_dep(pkg, "mongoose") {
-            analysis.orm = Some("Mongoose".to_string());
-            analysis.database = Some("MongoDB (Mongoose)".to_string());
-        }
-
-        // ── Auth ──
-        if has_dep(pkg, "next-auth") || has_dep(pkg, "@auth/core") {
-            analysis.auth = Some("NextAuth.js / Auth.js".to_string());
-        } else if has_dep(pkg, "@clerk/nextjs") || has_dep(pkg, "@clerk/clerk-react") {
-            analysis.auth = Some("Clerk".to_string());
-        } else if has_dep(pkg, "lucia") || has_dep(pkg, "lucia-auth") {
-            analysis.auth = Some("Lucia Auth".to_string());
-        } else if has_dep(pkg, "@supabase/auth-helpers-nextjs")
-            || has_dep(pkg, "@supabase/ssr")
-        {
-            analysis.auth = Some("Supabase Auth".to_string());
-        } else if has_dep(pkg, "passport") {
-            analysis.auth = Some("Passport.js".to_string());
-        }
-
-        // ── Testing ──
-        if has_dep(pkg, "vitest") {
-            analysis.test_framework = Some("Vitest".to_string());
-        } else if has_dep(pkg, "jest") {
-            analysis.test_framework = Some("Jest".to_string());
-        }
-        // E2E (additive)
-        if has_dep(pkg, "@playwright/test") || has_dep(pkg, "playwright") {
-            let base = analysis.test_framework.clone().unwrap_or_default();
-            analysis.test_framework = Some(if base.is_empty() {
-                "Playwright".to_string()
-            } else {
-                format!("{} + Playwright (E2E)", base)
-            });
-        } else if has_dep(pkg, "cypress") {
-            let base = analysis.test_framework.clone().unwrap_or_default();
-            analysis.test_framework = Some(if base.is_empty() {
-                "Cypress".to_string()
-            } else {
-                format!("{} + Cypress (E2E)", base)
-            });
-        }
-
-        // ── State management ──
-        if has_dep(pkg, "zustand") {
-            analysis.state_management = Some("Zustand".to_string());
-        } else if has_dep(pkg, "@reduxjs/toolkit") || has_dep(pkg, "redux") {
-            analysis.state_management = Some("Redux Toolkit".to_string());
-        } else if has_dep(pkg, "jotai") {
-            analysis.state_management = Some("Jotai".to_string());
-        } else if has_dep(pkg, "recoil") {
-            analysis.state_management = Some("Recoil".to_string());
-        } else if has_dep(pkg, "pinia") {
-            analysis.state_management = Some("Pinia".to_string());
-        } else if has_dep(pkg, "mobx") {
-            analysis.state_management = Some("MobX".to_string());
-        }
-
-        // ── Router (for non-Next.js/SvelteKit projects) ──
-        if analysis.router_type.is_none() {
-            if has_dep(pkg, "@tanstack/react-router") {
-                analysis.router_type = Some("TanStack Router (file-based)".to_string());
-            } else if has_dep(pkg, "react-router-dom") || has_dep(pkg, "react-router") {
-                let ver = pkg_dep_version(pkg, "react-router-dom")
-                    .or_else(|| pkg_dep_version(pkg, "react-router"))
-                    .unwrap_or_default();
-                analysis.router_type = if ver.starts_with('7') || ver.starts_with('6') {
-                    Some(format!("React Router {}", ver))
-                } else {
-                    Some("React Router".to_string())
-                };
-            } else if has_dep(pkg, "wouter") {
-                analysis.router_type = Some("Wouter".to_string());
-            }
-        }
-
-        // ── TanStack Query ──
-        if has_dep(pkg, "@tanstack/react-query") {
-            analysis.architecture_notes.push("Data fetching: TanStack Query".to_string());
-        }
-
-        // ── UI Component Library ──
-        if project_path.join("components.json").exists() {
-            analysis.ui_library = Some("shadcn/ui".to_string());
-            analysis.architecture_notes.push(
-                "UI: shadcn/ui — add components with `npx shadcn@latest add {name}`".to_string(),
-            );
-        }
-
-        if analysis.ui_library.is_none() {
-            if has_dep(pkg, "@radix-ui/react-dialog") || has_dep(pkg, "@radix-ui/themes") {
-                analysis.ui_library = Some("Radix UI".to_string());
-            } else if has_dep(pkg, "antd") {
-                analysis.ui_library = Some("Ant Design".to_string());
-            } else if has_dep(pkg, "@headlessui/react") {
-                analysis.ui_library = Some("Headless UI".to_string());
-            } else if has_dep(pkg, "@mantine/core") {
-                analysis.ui_library = Some("Mantine".to_string());
-            } else if has_dep(pkg, "daisyui") {
-                analysis.ui_library = Some("daisyUI".to_string());
-            } else if has_dep(pkg, "@nextui-org/react") {
-                analysis.ui_library = Some("NextUI".to_string());
-            } else if has_dep(pkg, "flowbite-react") || has_dep(pkg, "flowbite") {
-                analysis.ui_library = Some("Flowbite".to_string());
-            }
-        }
-
-        // ── Monorepo ──
-        if pkg.get("workspaces").is_some() {
-            analysis.has_monorepo = true;
-            analysis
-                .architecture_notes
-                .push("Monorepo with npm/yarn/pnpm workspaces".to_string());
-        }
-
-        // ── Deployment ──
-        if project_path.join("vercel.json").exists() || has_dep(pkg, "vercel") {
-            analysis.deployment = Some("Vercel".to_string());
-        } else if project_path.join("netlify.toml").exists() {
-            analysis.deployment = Some("Netlify".to_string());
-        } else if project_path.join("fly.toml").exists() {
-            analysis.deployment = Some("Fly.io".to_string());
-        } else if project_path.join("render.yaml").exists() {
-            analysis.deployment = Some("Render".to_string());
-        } else if project_path.join("railway.json").exists()
-            || project_path.join("railway.toml").exists()
-        {
-            analysis.deployment = Some("Railway".to_string());
-        } else if project_path.join("Dockerfile").exists() {
-            analysis.deployment = Some("Docker".to_string());
-        }
+        detect_js_framework(pkg, project_path, &mut analysis);
+        detect_js_ecosystem(pkg, project_path, &mut analysis);
     }
 
-    // ── Cargo.toml analysis (Rust projects) ──
-    let cargo_path = project_path.join("Cargo.toml");
-    if cargo_path.exists() {
-        if analysis.language == "Unknown" {
-            analysis.language = "Rust".to_string();
-        }
-        if let Ok(content) = std::fs::read_to_string(&cargo_path) {
-            if let Ok(cargo) = content.parse::<toml::Value>() {
-                if let Some(package) = cargo.get("package") {
-                    if analysis.description.is_none() {
-                        if let Some(desc) = package.get("description").and_then(|v| v.as_str()) {
-                            analysis.description = Some(desc.to_string());
-                        }
-                    }
-                    if let Some(edition) = package.get("edition").and_then(|v| v.as_str()) {
-                        analysis
-                            .conventions
-                            .push(format!("Rust edition: {}", edition));
-                    }
-                }
-                // Workspace = monorepo
-                if cargo.get("workspace").is_some() {
-                    analysis.has_monorepo = true;
-                    analysis
-                        .architecture_notes
-                        .push("Cargo workspace (monorepo)".to_string());
-                }
-            }
-        }
-        // Detect Tauri
-        let tauri_conf = project_path.join("src-tauri/tauri.conf.json");
-        if tauri_conf.exists() {
-            analysis.framework = Some("Tauri".to_string());
-            analysis
-                .architecture_notes
-                .push("Tauri desktop application (Rust + Web frontend)".to_string());
-        }
-    }
-
-    // ── pyproject.toml / Python analysis ──
-    let pyproject_path = project_path.join("pyproject.toml");
-    if pyproject_path.exists() && analysis.language == "Unknown" {
-        analysis.language = "Python".to_string();
-        if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
-            let lower = content.to_lowercase();
-            if lower.contains("fastapi") {
-                analysis.framework = Some("FastAPI".to_string());
-            } else if lower.contains("django") {
-                analysis.framework = Some("Django".to_string());
-            } else if lower.contains("flask") {
-                analysis.framework = Some("Flask".to_string());
-            }
-            if lower.contains("pytest") {
-                analysis.test_framework = Some("pytest".to_string());
-            }
-            if lower.contains("sqlalchemy") {
-                analysis.orm = Some("SQLAlchemy".to_string());
-                analysis.database = Some("SQLAlchemy".to_string());
-            }
-        }
-    }
-
-    // ── go.mod analysis ──
-    let gomod_path = project_path.join("go.mod");
-    if gomod_path.exists() && analysis.language == "Unknown" {
-        analysis.language = "Go".to_string();
-        if let Ok(content) = std::fs::read_to_string(&gomod_path) {
-            if content.contains("gin-gonic") {
-                analysis.framework = Some("Gin".to_string());
-            } else if content.contains("echo") {
-                analysis.framework = Some("Echo".to_string());
-            } else if content.contains("fiber") {
-                analysis.framework = Some("Fiber".to_string());
-            }
-        }
-    }
-
-    // ── Gemfile analysis (Ruby) ──
-    if project_path.join("Gemfile").exists() && analysis.language == "Unknown" {
-        analysis.language = "Ruby".to_string();
-        if project_path.join("config/routes.rb").exists() {
-            analysis.framework = Some("Ruby on Rails".to_string());
-        }
-    }
-
-    // ── Description fallback ──
-    if analysis.description.is_none() {
-        analysis.description = extract_readme_description(project_path);
-    }
-
-    // ── Makefile targets ──
-    let makefile_path = project_path.join("Makefile");
-    if makefile_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&makefile_path) {
-            let targets: Vec<(String, String)> = content
-                .lines()
-                .filter_map(|line| {
-                    if line.ends_with(':') || line.contains(": ") || line.contains(":\t") {
-                        let target = line.split(':').next()?.trim();
-                        if !target.is_empty()
-                            && !target.starts_with('.')
-                            && !target.starts_with('\t')
-                            && !target.starts_with(' ')
-                            && !target.contains('$')
-                            && !target.contains('/')
-                        {
-                            return Some((
-                                format!("make {}", target),
-                                infer_script_description(target, ""),
-                            ));
-                        }
-                    }
-                    None
-                })
-                .collect();
-            analysis.scripts.extend(targets);
-        }
-    }
-
-    // ── Directory tree ──
-    analysis.directory_tree = build_directory_tree(project_path, 3);
-
-    // ── Key directories ──
-    analysis.key_directories = detect_key_directories(project_path);
-
-    // ── Key files ──
-    analysis.key_files = detect_key_files(project_path);
-
-    // ── Conventions ──
-    analysis
-        .conventions
-        .extend(detect_tsconfig_conventions(project_path));
-    analysis
-        .conventions
-        .extend(detect_eslint_conventions(project_path));
-    analysis
-        .conventions
-        .extend(detect_prettier_conventions(project_path));
-    analysis
-        .conventions
-        .extend(detect_commit_conventions(project_path));
-
-    // ── Environment variables ──
-    analysis.env_vars = read_env_example(project_path);
-
-    // ── Docker ──
-    if project_path.join("Dockerfile").exists() || project_path.join("docker-compose.yml").exists()
-    {
-        analysis
-            .architecture_notes
-            .push("Docker containerization configured".to_string());
-    }
-
-    // ── CI/CD ──
-    if project_path.join(".github/workflows").is_dir() {
-        analysis
-            .architecture_notes
-            .push("GitHub Actions CI/CD".to_string());
-    }
-
-    // ── Turborepo ──
-    if project_path.join("turbo.json").exists() {
-        analysis.has_monorepo = true;
-        analysis
-            .architecture_notes
-            .push("Turborepo build system".to_string());
-    }
-
-    // ── Nx ──
-    if project_path.join("nx.json").exists() {
-        analysis.has_monorepo = true;
-        analysis
-            .architecture_notes
-            .push("Nx workspace".to_string());
-    }
+    detect_non_js_projects(project_path, &mut analysis);
+    detect_project_infrastructure(project_path, &mut analysis);
 
     analysis
 }

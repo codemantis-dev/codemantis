@@ -1,0 +1,140 @@
+import { Pencil, Eye, ClipboardCheck } from "lucide-react";
+import SpecPreview from "./SpecPreview";
+import SavedSpecsList from "./SavedSpecsList";
+
+interface Props {
+  activeProjectPath: string;
+  currentSpecContent: string | null;
+  currentAuditContent: string | null;
+  isEditing: boolean;
+  isStreaming: boolean;
+  canGenerateAudit: boolean;
+  canSaveAudit: boolean;
+  canSave: boolean;
+  onSpecEdit: (newContent: string) => void;
+  onCloseSpec: () => void;
+  onToggleEdit: () => void;
+  onCopySpec: () => void;
+  onGenerateAudit: () => void;
+  onOpenSaveAuditDialog: () => void;
+  onOpenSaveSpecDialog: () => void;
+  onLoadSpec: (content: string, filename: string) => void;
+}
+
+export default function SpecPreviewPanel({
+  activeProjectPath,
+  currentSpecContent,
+  currentAuditContent,
+  isEditing,
+  isStreaming,
+  canGenerateAudit,
+  canSaveAudit,
+  canSave,
+  onSpecEdit,
+  onCloseSpec,
+  onToggleEdit,
+  onCopySpec,
+  onGenerateAudit,
+  onOpenSaveAuditDialog,
+  onOpenSaveSpecDialog,
+  onLoadSpec,
+}: Props) {
+  return (
+    <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Spec Preview */}
+      <div className="flex-1 overflow-hidden">
+        <SpecPreview
+          content={currentSpecContent}
+          auditContent={currentAuditContent}
+          isEditing={isEditing}
+          onContentChange={onSpecEdit}
+          onClose={onCloseSpec}
+        />
+      </div>
+
+      {/* Action buttons — Edit + Copy left, Audit/Save right */}
+      {currentSpecContent && (
+        <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
+          <button
+            onClick={onToggleEdit}
+            disabled={isStreaming}
+            title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+            style={isEditing ? {
+              background: "var(--accent)",
+              color: "white",
+            } : {
+              background: "var(--bg-elevated)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
+            {isEditing ? "Preview" : "Edit"}
+          </button>
+          <button
+            onClick={onCopySpec}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            Copy to Clipboard
+          </button>
+
+          {/* Spacer pushes audit + save buttons right */}
+          <div className="flex-1" />
+
+          {/* Generate Audit / Save Audit */}
+          {canGenerateAudit && (
+            <button
+              onClick={onGenerateAudit}
+              disabled={isStreaming}
+              title="Generate a Verification Audit companion document for the spec"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <ClipboardCheck size={13} />
+              Generate Audit
+            </button>
+          )}
+          {canSaveAudit && (
+            <button
+              onClick={onOpenSaveAuditDialog}
+              title="Save verification audit to project"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white" }}
+            >
+              <ClipboardCheck size={13} />
+              Save Audit
+            </button>
+          )}
+
+          {/* Save to Project */}
+          {canSave && (
+            <button
+              onClick={onOpenSaveSpecDialog}
+              title="Save specification to project"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white" }}
+            >
+              Save to Project
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Saved Specs List */}
+      <SavedSpecsList
+        projectPath={activeProjectPath}
+        onLoadSpec={onLoadSpec}
+      />
+    </div>
+  );
+}

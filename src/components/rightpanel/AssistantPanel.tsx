@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Plus, MessageSquare, Info, Square } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useAssistantStore } from "../../stores/assistantStore";
 import type { AssistantInstance } from "../../stores/assistantStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -12,42 +11,24 @@ import { useAssistantSession } from "../../hooks/useAssistantSession";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useProviderMenu } from "../../hooks/useProviderMenu";
 import { useAssistantShortcuts } from "../../hooks/useAssistantShortcuts";
-import type { SlashCommand } from "../../types/slash-commands";
-import {
-  discoverCommands,
-  expandSkill,
-  pauseSessionProcess,
-  resumeSessionProcess,
-  saveClipboardImage,
-  getFileInfo,
-} from "../../lib/tauri-commands";
-import AssistantTabs from "./AssistantTabs";
-import AssistantAttachmentBar from "./AssistantAttachmentBar";
-import AssistantMessageMenu from "./AssistantMessageMenu";
+import { useAssistantAttachments } from "../../hooks/useAssistantAttachments";
 import AssistantProviderMenu from "./AssistantProviderMenu";
-import AssistantCommandPalette from "./AssistantCommandPalette";
-import AssistantChatMessages from "./AssistantChatMessages";
+import AssistantMessageMenu from "./AssistantMessageMenu";
+import AssistantHeader from "./AssistantHeader";
+import AssistantMessageList from "./AssistantMessageList";
+import AssistantInputArea from "./AssistantInputArea";
 import { assistantInputDrafts } from "../../lib/input-drafts";
-import { useFileDrop } from "../../hooks/useFileDrop";
-import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
-import { useOpenRouterStore } from "../../stores/openRouterStore";
 
 export default function AssistantPanel() {
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string } | null>(null);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [commandQuery, setCommandQuery] = useState("");
-  const [commands, setCommands] = useState<SlashCommand[]>([]);
-  const [commandIndex, setCommandIndex] = useState(0);
   const prevAssistantRef = useRef<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
-  // Read raw project list (stable reference from store), then filter in useMemo
   const allProjectAssistants = useAssistantStore((s) => activeProjectPath ? s.projectAssistants.get(activeProjectPath) ?? EMPTY_ARRAY : EMPTY_ARRAY) as AssistantInstance[];
   const assistants = useMemo(() => {
     if (!activeSessionId) return EMPTY_ARRAY as AssistantInstance[];
@@ -60,11 +41,7 @@ export default function AssistantPanel() {
   const busy = useAssistantStore((s) => activeAssistantId ? s.busy.get(activeAssistantId) ?? false : false);
   const allBusy = useAssistantStore((s) => s.busy);
   const allCost = useAssistantStore((s) => s.sessionCost);
-  const currentAttachments = useAssistantStore((s) => activeAssistantId ? s.attachments.get(activeAssistantId) ?? EMPTY_ARRAY : EMPTY_ARRAY);
   const setActiveAssistant = useAssistantStore((s) => s.setActiveAssistant);
-  const addAssistantAttachment = useAssistantStore((s) => s.addAssistantAttachment);
-  const removeAssistantAttachment = useAssistantStore((s) => s.removeAssistantAttachment);
-  const clearAssistantAttachments = useAssistantStore((s) => s.clearAssistantAttachments);
 
   const shortcuts = useSettingsStore((s) => s.settings.assistantShortcuts);
   const apiKeys = useSettingsStore((s) => s.settings.apiKeys);
@@ -93,30 +70,29 @@ export default function AssistantPanel() {
     handleAddShortcut, handleSaveShortcut,
   } = useAssistantShortcuts({ shortcuts, updateSettings });
 
-  const orModels = useOpenRouterStore((s) => s.models);
-  const { activeInstance, isClaudeCode, isApiProvider, showThinking, supportsAttachments } = useMemo(() => {
+  const {
+    currentAttachments,
+    removeAssistantAttachment,
+    clearAssistantAttachments,
+    inputContainerRef,
+    dragOver,
+    handlePaste,
+    handleFileDialog,
+  } = useAssistantAttachments({
+    activeAssistantId,
+    activeProjectPath,
+  });
+
+  const { activeInstance, isClaudeCode, isApiProvider, showThinking } = useMemo(() => {
     const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
     const isClaudeCode = activeInstance?.provider === "claude-code";
     const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
     const showThinking = busy && !streaming?.isStreaming;
-    // Attachment support — for OpenRouter, check model capabilities
-    let supportsAttachments = true;
-    if (activeInstance?.provider === "openrouter" && activeInstance.model) {
-      const orModel = orModels.find((m) => m.id === activeInstance.model);
-      if (orModel) {
-        supportsAttachments = orModel.inputModalities.some((m) => m === "image" || m === "file");
-      }
-    }
-    return { activeInstance, isClaudeCode, isApiProvider, showThinking, supportsAttachments };
-  }, [activeAssistantId, assistants, busy, streaming, orModels]);
+    return { activeInstance, isClaudeCode, isApiProvider, showThinking };
+  }, [activeAssistantId, assistants, busy, streaming]);
 
-  // Close provider menu on click outside
   const closeProviderMenu = useCallback(() => setShowProviderMenu(false), [setShowProviderMenu]);
   const providerMenuRef = useClickOutside<HTMLDivElement>(showProviderMenu, closeProviderMenu);
-
-  // Close command palette on click outside
-  const closeCommandPalette = useCallback(() => setShowCommandPalette(false), []);
-  const commandPaletteRef = useClickOutside<HTMLDivElement>(showCommandPalette, closeCommandPalette);
 
   // Save/restore input drafts per assistant tab
   useEffect(() => {
@@ -135,61 +111,9 @@ export default function AssistantPanel() {
     }
     setShowProviderMenu(false);
     setExpandedProvider(null);
-    setShowCommandPalette(false);
-    setCommandQuery("");
-    setCommandIndex(0);
     setContextMenu(null);
     prevAssistantRef.current = activeAssistantId;
   }, [activeAssistantId, setShowProviderMenu, setExpandedProvider]);
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, streaming?.streamingContent, showThinking]);
-
-  // Load commands for slash command palette (Claude Code assistants only)
-  useEffect(() => {
-    if (!activeProjectPath) return;
-    discoverCommands(activeProjectPath)
-      .then(setCommands)
-      .catch((e) => console.error("[assistant] Failed to discover commands:", e));
-  }, [activeProjectPath]);
-
-  const handleClose = useCallback(async (sessionId: string) => {
-    if (!activeProjectPath) return;
-    await closeAssistant(activeProjectPath, sessionId);
-  }, [activeProjectPath, closeAssistant]);
-
-  const handleSelect = useCallback((sessionId: string) => {
-    if (!activeSessionId) return;
-    setActiveAssistant(activeSessionId, sessionId);
-  }, [activeSessionId, setActiveAssistant]);
-
-  const handleSend = useCallback(() => {
-    const trimmed = input.trim();
-    const hasAttachments = currentAttachments.length > 0;
-    if ((!trimmed && !hasAttachments) || !activeAssistantId || busy) return;
-
-    // Handle slash commands for Claude Code assistants
-    if (isClaudeCode && trimmed.startsWith("/")) {
-      handleSlashCommand(trimmed);
-      return;
-    }
-
-    sendMessage(activeAssistantId, trimmed, hasAttachments ? currentAttachments : undefined);
-    clearAssistantAttachments(activeAssistantId);
-    setInput("");
-    assistantInputDrafts.delete(activeAssistantId);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSlashCommand is defined below and uses callbacks that would create a circular dependency
-  }, [input, activeAssistantId, busy, sendMessage, isClaudeCode, currentAttachments, clearAssistantAttachments]);
-
-  const handleStop = useCallback(() => {
-    if (!activeAssistantId || !busy) return;
-    cancelAssistant(activeAssistantId);
-  }, [activeAssistantId, busy, cancelAssistant]);
 
   // Escape key to cancel assistant generation
   useEffect(() => {
@@ -204,322 +128,22 @@ export default function AssistantPanel() {
     return () => window.removeEventListener("keydown", handler);
   }, [activeAssistantId, busy, cancelAssistant]);
 
-  const handleSlashCommand = useCallback(async (rawInput: string) => {
-    if (!activeAssistantId || !activeProjectPath) return;
+  const handleClose = useCallback(async (sessionId: string) => {
+    if (!activeProjectPath) return;
+    await closeAssistant(activeProjectPath, sessionId);
+  }, [activeProjectPath, closeAssistant]);
 
-    const withoutSlash = rawInput.slice(1);
-    const [cmdName, ...argParts] = withoutSlash.split(/\s+/);
-    const args = argParts.join(" ");
-
-    const cmd = commands.find((c) => c.name.toLowerCase() === cmdName.toLowerCase());
-    if (!cmd) {
-      // Not a recognized command — show info message
-      const store = useAssistantStore.getState();
-      store.addMessage(activeAssistantId, {
-        id: `sys-${Date.now()}`,
-        role: "assistant",
-        content: `Unknown command \`/${cmdName}\`. Type \`/\` to see available commands.`,
-        timestamp: new Date().toISOString(),
-        activityIds: [],
-        isStreaming: false,
-      });
-      setInput("");
-      return;
-    }
-
-    setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-
-    try {
-      if (cmd.category === "skill" && cmd.source_path) {
-        const session = useSessionStore.getState().sessions.get(activeAssistantId);
-        const cliSessionId = session?.cli_session_id ?? "";
-        const expanded = await expandSkill(activeProjectPath, cmd.source_path, args, cliSessionId);
-        if (expanded.prompt.trim()) {
-          sendMessage(activeAssistantId, expanded.prompt);
-        }
-      } else if (cmd.category === "built-in") {
-        // Handle built-in commands within assistant context
-        const store = useAssistantStore.getState();
-        const sysMsg = (content: string) => {
-          store.addMessage(activeAssistantId, {
-            id: `sys-${Date.now()}`,
-            role: "assistant",
-            content,
-            timestamp: new Date().toISOString(),
-            activityIds: [],
-            isStreaming: false,
-          });
-        };
-        switch (cmd.name) {
-          case "help":
-            sysMsg("**Available Commands**\n\nType `/` to see available slash commands. Skills from `.claude/commands/` will be expanded and sent as prompts.");
-            break;
-          case "clear": {
-            store.clearMessages(activeAssistantId);
-            // Restart the CLI process for a fresh context
-            try {
-              await pauseSessionProcess(activeAssistantId);
-              await resumeSessionProcess(activeAssistantId);
-            } catch {
-              // Non-fatal: session may be API-only or already closed
-            }
-            break;
-          }
-          case "context": {
-            const sessionCtx = useSessionStore.getState().sessionContext.get(activeAssistantId);
-            if (sessionCtx) {
-              const pct = sessionCtx.max > 0 ? Math.round((sessionCtx.used / sessionCtx.max) * 100) : 0;
-              sysMsg(`**Context:** ${sessionCtx.used.toLocaleString()} / ${sessionCtx.max.toLocaleString()} tokens (${pct}%)`);
-            } else {
-              sysMsg("Context info is not available for this assistant type.");
-            }
-            break;
-          }
-          case "cost": {
-            const usage = store.getTokenUsage(activeAssistantId);
-            const stats = useSessionStore.getState().sessionStats.get(activeAssistantId);
-            if (stats) {
-              sysMsg(`**Session Cost**\n- Cost: $${stats.totalCostUsd.toFixed(4)}\n- Input: ${stats.totalInputTokens.toLocaleString()} tokens\n- Output: ${stats.totalOutputTokens.toLocaleString()} tokens\n- Turns: ${stats.turnCount}`);
-            } else if (usage.inputTokens > 0 || usage.outputTokens > 0) {
-              sysMsg(`**Token Usage**\n- Input: ${usage.inputTokens.toLocaleString()} tokens\n- Output: ${usage.outputTokens.toLocaleString()} tokens`);
-            } else {
-              sysMsg("No usage data available yet.");
-            }
-            break;
-          }
-          case "exit":
-            handleClose(activeAssistantId);
-            break;
-          case "rename": {
-            if (args.trim()) {
-              store.renameAssistant(activeProjectPath, activeAssistantId, args.trim());
-              sysMsg(`Renamed to **${args.trim()}**`);
-            } else {
-              sysMsg("Usage: `/rename New Name`");
-            }
-            break;
-          }
-          default:
-            sysMsg(`The \`/${cmd.name}\` command is not available in assistant tabs.`);
-            break;
-        }
-      } else {
-        // cli-only commands: open CLI overlay for Claude Code, show message for API
-        if (isClaudeCode && activeProjectPath) {
-          useUiStore.getState().setCliOverlayInitialInput(rawInput);
-          useUiStore.getState().setCliOverlaySessionId(activeAssistantId);
-          useUiStore.getState().setCliOverlayProjectPath(activeProjectPath);
-          useUiStore.getState().setShowCliOverlay(true);
-        } else {
-          const store = useAssistantStore.getState();
-          store.addMessage(activeAssistantId, {
-            id: `sys-${Date.now()}`,
-            role: "assistant",
-            content: `The \`/${cmd.name}\` command requires the Claude Code CLI and is not available for API providers.`,
-            timestamp: new Date().toISOString(),
-            activityIds: [],
-            isStreaming: false,
-          });
-        }
-      }
-    } catch (e) {
-      console.error("[assistant] Slash command error:", e);
-    }
-  }, [activeAssistantId, activeProjectPath, commands, sendMessage, handleClose, isClaudeCode]);
-
-  const filteredCommands = useMemo((): SlashCommand[] => {
-    if (!commandQuery) return commands;
-    const q = commandQuery.toLowerCase().split(/\s/)[0];
-    return commands.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)
-    );
-  }, [commands, commandQuery]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Command palette navigation
-      if (showCommandPalette) {
-        const filtered = filteredCommands;
-        switch (e.key) {
-          case "ArrowDown":
-            e.preventDefault();
-            setCommandIndex((i) => Math.min(i + 1, filtered.length - 1));
-            return;
-          case "ArrowUp":
-            e.preventDefault();
-            setCommandIndex((i) => Math.max(i - 1, 0));
-            return;
-          case "Enter":
-            e.preventDefault();
-            if (filtered[commandIndex]) {
-              const cmd = filtered[commandIndex];
-              const parts = commandQuery.split(/\s+/);
-              const args = parts.length > 1 ? parts.slice(1).join(" ") : "";
-              setShowCommandPalette(false);
-              setInput("");
-              if (textareaRef.current) textareaRef.current.style.height = "auto";
-              // Execute the command
-              if (cmd.category === "skill" && cmd.source_path && activeProjectPath && activeAssistantId) {
-                const session = useSessionStore.getState().sessions.get(activeAssistantId);
-                expandSkill(activeProjectPath, cmd.source_path, args, session?.cli_session_id ?? "")
-                  .then((expanded) => {
-                    if (expanded.prompt.trim()) sendMessage(activeAssistantId, expanded.prompt);
-                  })
-                  .catch(console.error);
-              } else {
-                handleSlashCommand("/" + cmd.name + (args ? " " + args : ""));
-              }
-            }
-            return;
-          case "Escape":
-            e.preventDefault();
-            setShowCommandPalette(false);
-            setInput("");
-            return;
-        }
-      }
-
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands]
-  );
-
-  // Auto-resize textarea + slash command detection
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const value = e.target.value;
-      setInput(value);
-      const el = e.target;
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 200) + "px";
-
-      // Slash command detection for Claude Code assistants
-      if (isClaudeCode && value.startsWith("/")) {
-        const query = value.slice(1);
-        setCommandQuery(query);
-        setShowCommandPalette(true);
-        setCommandIndex(0);
-      } else {
-        setShowCommandPalette(false);
-      }
-    },
-    [isClaudeCode]
-  );
-
-  // Tauri native file drop
-  const inputContainerRef = useRef<HTMLDivElement>(null);
-  const handleFileDrop = useCallback(async (paths: string[]) => {
-    if (!activeAssistantId) return;
-    const atts = await processDroppedPaths(paths);
-    for (const att of atts) addAssistantAttachment(activeAssistantId, att);
-  }, [activeAssistantId, addAssistantAttachment]);
-  const { isDragOver: dragOver } = useFileDrop({
-    id: "assistant-panel",
-    containerRef: inputContainerRef,
-    onDrop: handleFileDrop,
-    priority: 5,
-    enabled: !!activeAssistantId,
-  });
-
-  const handlePaste = useCallback(
-    async (e: React.ClipboardEvent) => {
-      if (!activeAssistantId || !activeProjectPath) return;
-
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          e.preventDefault();
-          const blob = item.getAsFile();
-          if (!blob) continue;
-
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
-          const filename = `clipboard_${timeStr}.png`;
-
-          const arrayBuffer = await blob.arrayBuffer();
-          const imageData = Array.from(new Uint8Array(arrayBuffer));
-
-          try {
-            const info = await saveClipboardImage(activeProjectPath, imageData, filename);
-            const thumbnailUrl = info.is_image
-              ? await createPreviewUrl(info.file_path, info.mime_type)
-              : undefined;
-            addAssistantAttachment(activeAssistantId, {
-              id: `att-${Date.now()}`,
-              fileName: info.file_name,
-              filePath: info.file_path,
-              fileSize: info.file_size,
-              mimeType: info.mime_type,
-              isImage: info.is_image,
-              thumbnailUrl,
-            });
-          } catch (err) {
-            console.error("Failed to save clipboard image:", err);
-          }
-          return;
-        }
-      }
-    },
-    [activeAssistantId, activeProjectPath, addAssistantAttachment]
-  );
-
-  const handleFileDialog = useCallback(async () => {
-    if (!activeAssistantId || !activeProjectPath) return;
-
-    try {
-      const result = await open({
-        multiple: true,
-        filters: [
-          { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
-          { name: "Documents", extensions: ["pdf", "txt", "md"] },
-          { name: "Code", extensions: ["ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "rb"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
-      });
-
-      if (!result) return;
-
-      const paths = Array.isArray(result) ? result : [result];
-      for (const filePath of paths) {
-        try {
-          const info = await getFileInfo(filePath);
-          const previewUrl = info.is_image
-            ? await createPreviewUrl(info.file_path, info.mime_type)
-            : undefined;
-          addAssistantAttachment(activeAssistantId, {
-            id: `att-${Date.now()}-${info.file_name}`,
-            fileName: info.file_name,
-            filePath: info.file_path,
-            fileSize: info.file_size,
-            mimeType: info.mime_type,
-            isImage: info.is_image,
-            thumbnailUrl: previewUrl,
-          });
-        } catch (err) {
-          console.error("Failed to get file info:", err);
-        }
-      }
-    } catch (err) {
-      console.error("File dialog error:", err);
-    }
-  }, [activeAssistantId, activeProjectPath, addAssistantAttachment]);
-
-  const handleCommandSelect = useCallback((cmd: SlashCommand) => {
-    setShowCommandPalette(false);
-    setInput("");
-    handleSlashCommand("/" + cmd.name);
-  }, [handleSlashCommand]);
+  const handleSelect = useCallback((sessionId: string) => {
+    if (!activeSessionId) return;
+    setActiveAssistant(activeSessionId, sessionId);
+  }, [activeSessionId, setActiveAssistant]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, text: string) => {
     setContextMenu({ x: e.clientX, y: e.clientY, text });
+  }, []);
+
+  const handleInputChange = useCallback((value: string) => {
+    setInput(value);
   }, []);
 
   // No project open
@@ -555,45 +179,28 @@ export default function AssistantPanel() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Sub-tabs */}
-      <AssistantTabs
+      <AssistantHeader
         assistants={assistants}
         activeAssistantId={activeAssistantId}
-        busyMap={allBusy}
-        costMap={allCost}
+        allBusy={allBusy}
+        allCost={allCost}
         onSelect={handleSelect}
         onClose={handleClose}
-        onCreate={() => setShowProviderMenu(true)}
+        onOpenProviderMenu={() => setShowProviderMenu(true)}
+        showProviderMenu={showProviderMenu}
+        providerMenuRef={providerMenuRef}
+        apiKeys={apiKeys}
+        expandedProvider={expandedProvider}
+        creating={creating}
+        onExpandProvider={setExpandedProvider}
+        onCreate={handleCreate}
+        isApiProvider={isApiProvider}
+        activeInstance={activeInstance}
+        messages={messages}
+        streaming={streaming}
       />
 
-      {/* Provider selection popover */}
-      {showProviderMenu && (
-        <AssistantProviderMenu
-          variant="popover"
-          menuRef={providerMenuRef}
-          apiKeys={apiKeys}
-          expandedProvider={expandedProvider}
-          creating={creating}
-          onExpandProvider={setExpandedProvider}
-          onCreate={handleCreate}
-        />
-      )}
-
-      {/* Capability indicator for API providers */}
-      {isApiProvider && messages.length === 0 && !streaming?.isStreaming && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-text-ghost border-b border-border-light" style={{ background: "var(--bg-secondary)" }}>
-          <Info size={10} />
-          <span>
-            Chat only — no file access or tool use.
-            {activeInstance!.provider === "openrouter"
-              ? ` Model: ${activeInstance!.model ?? "none"}.${!supportsAttachments ? " Text only — no image/file attachments." : ""}`
-              : ` Uses your ${activeInstance!.provider} API key.`}
-          </span>
-        </div>
-      )}
-
-      {/* Messages area */}
-      <AssistantChatMessages
+      <AssistantMessageList
         messages={messages}
         streaming={streaming}
         showThinking={showThinking}
@@ -601,102 +208,29 @@ export default function AssistantPanel() {
         isClaudeCode={isClaudeCode}
         onContextMenu={handleContextMenu}
         onRetry={retryLastMessage}
-        messagesEndRef={messagesEndRef}
       />
 
-      {/* Input area */}
-      <div
-        ref={inputContainerRef}
-        className={`shrink-0 border-t relative ${dragOver ? "bg-accent/5" : ""}`}
-        style={{ borderColor: "var(--border-light)" }}
-      >
-        {/* Slash command palette — positioned in outer container for z-index layering */}
-        {showCommandPalette && isClaudeCode && filteredCommands.length > 0 && (
-          <AssistantCommandPalette
-            commands={filteredCommands}
-            commandIndex={commandIndex}
-            onSelect={handleCommandSelect}
-            onHover={setCommandIndex}
-            commandPaletteRef={commandPaletteRef}
-          />
-        )}
-        {shortcuts.length > 0 && !showCommandPalette && (
-          <div className="flex flex-wrap gap-1 px-2 pt-1.5">
-            {shortcuts.map((sc) => (
-              <button
-                key={sc.id}
-                onClick={() => setInput(sc.prompt)}
-                className="px-2 py-0.5 rounded-full text-label text-text-dim hover:text-text-primary bg-bg-elevated hover:bg-accent/10 border border-border-light hover:border-accent/30 transition-colors"
-                title={sc.prompt}
-              >
-                {sc.name}
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Attachment bar */}
-        {activeAssistantId && (
-          <AssistantAttachmentBar
-            attachments={currentAttachments}
-            onRemove={(id) => removeAssistantAttachment(activeAssistantId, id)}
-          />
-        )}
-        {/* Drop zone overlay */}
-        {dragOver && (
-          <div className="px-4 py-2 text-center text-accent text-ui">
-            Drop files to attach
-          </div>
-        )}
-        <div className="p-2 flex gap-2 items-end">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={isClaudeCode ? "Ask the assistant... (/ for commands)" : "Ask the assistant..."}
-            disabled={!activeAssistantId}
-            rows={4}
-            className="flex-1 resize-none rounded-lg px-3 py-2 text-chat text-text-primary placeholder-text-faint focus:outline-none focus:ring-1 focus:ring-accent"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-light)",
-              minHeight: 96,
-              maxHeight: 200,
-            }}
-          />
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={handleFileDialog}
-              disabled={!activeAssistantId || busy || !supportsAttachments}
-              className="p-1.5 rounded-lg text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title={!supportsAttachments ? "This model only accepts text. Switch to a vision model to attach files." : "Attach file"}
-            >
-              <Plus size={16} />
-            </button>
-            {busy ? (
-              <button
-                onClick={handleStop}
-                className="p-1.5 rounded-lg text-red hover:bg-red/10 transition-colors"
-                title="Stop generation (Esc)"
-              >
-                <Square size={14} />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId}
-                className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Send (Cmd+Enter)"
-              >
-                <Send size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <AssistantInputArea
+        activeAssistantId={activeAssistantId}
+        activeProjectPath={activeProjectPath}
+        busy={busy}
+        isClaudeCode={isClaudeCode}
+        currentAttachments={currentAttachments}
+        removeAssistantAttachment={removeAssistantAttachment}
+        clearAssistantAttachments={clearAssistantAttachments}
+        sendMessage={sendMessage}
+        cancelAssistant={cancelAssistant}
+        closeAssistant={closeAssistant}
+        shortcuts={shortcuts}
+        inputContainerRef={inputContainerRef}
+        dragOver={dragOver}
+        handlePaste={handlePaste}
+        handleFileDialog={handleFileDialog}
+        onInputChange={handleInputChange}
+        input={input}
+        textareaRef={textareaRef}
+      />
 
-      {/* Context menu */}
       {contextMenu && (
         <AssistantMessageMenu
           x={contextMenu.x}
@@ -707,7 +241,6 @@ export default function AssistantPanel() {
         />
       )}
 
-      {/* Add as Shortcut modal */}
       <Dialog.Root
         open={shortcutDraft !== null}
         onOpenChange={(open) => {

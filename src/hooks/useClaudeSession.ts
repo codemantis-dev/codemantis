@@ -77,9 +77,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     startStaleDetection(session.id);
 
     // Discover CLI capabilities (models, commands, account info)
-    initializeSession(session.id).catch((e) =>
-      console.error("Failed to discover session capabilities:", e)
-    );
+    initializeSession(session.id).catch((e) => {
+      console.error("Failed to discover session capabilities:", e);
+      showToast("Failed to discover session capabilities", "error");
+    });
 
     return session.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
@@ -142,6 +143,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         await closeTerminalCmd(terminal.id);
       } catch (e) {
         console.error("Failed to close terminal:", e);
+        showToast("Failed to close terminal", "error");
       }
     }
     terminalStore.getState().clearSession(sessionId);

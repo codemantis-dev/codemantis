@@ -471,4 +471,108 @@ mod tests {
         let result = scan_for_dev_server_url(line);
         assert!(result.is_none());
     }
+
+    // ── Additional edge cases ──
+
+    #[test]
+    fn test_multiple_urls_returns_first() {
+        // When a line has multiple ports, the first valid match wins
+        let line = "Local: http://localhost:3000  Network: http://192.168.1.1:3000";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    #[test]
+    fn test_port_65535_boundary() {
+        let line = "http://localhost:65535";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((65535, "http://localhost:65535".to_string())));
+    }
+
+    #[test]
+    fn test_port_1023_filtered() {
+        // Port 1023 is below the 1024 threshold
+        let line = "http://localhost:1023";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_is_occupied_rejected() {
+        let line = "port is occupied on 5173";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_already_running_on_port_rejected() {
+        let line = "Server is already running on port 3000";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_astro_output() {
+        let line = "  🚀  astro  v5.0.0 started in 300ms\n\n  ┃ Local    http://localhost:4321/";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((4321, "http://localhost:4321".to_string())));
+    }
+
+    #[test]
+    fn test_go_server_output() {
+        let line = "Server started on http://localhost:8090";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((8090, "http://localhost:8090".to_string())));
+    }
+
+    #[test]
+    fn test_listening_without_keyword() {
+        // Just a bare number without server context should not match
+        let line = "Total: 8080 items processed";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    // ── ANSI stripping additional tests ──
+
+    #[test]
+    fn test_ansi_cursor_position_codes() {
+        // CSI cursor movement codes (e.g. \e[2A = move up 2 lines)
+        let line = "\x1b[2Ahttp://localhost:3000\x1b[0m";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((3000, "http://localhost:3000".to_string())));
+    }
+
+    #[test]
+    fn test_character_set_selection_codes() {
+        let line = "\x1b(Bhttp://localhost:4000\x1b(0";
+        let result = scan_for_dev_server_url(line);
+        assert_eq!(result, Some((4000, "http://localhost:4000".to_string())));
+    }
+
+    // ── lsof regex tests ──
+
+    #[test]
+    fn test_lsof_port_regex() {
+        let output = "node    12345  user  21u  IPv4  0x123  0t0  TCP *:3000 (LISTEN)\n\
+                       node    12345  user  22u  IPv4  0x456  0t0  TCP *:9229 (LISTEN)\n";
+        let ports: Vec<u16> = LSOF_PORT_RE
+            .captures_iter(output)
+            .filter_map(|caps| caps.get(1)?.as_str().parse().ok())
+            .filter(|&p| p >= 1024)
+            .collect();
+        assert_eq!(ports, vec![3000, 9229]);
+    }
+
+    #[test]
+    fn test_lsof_port_regex_filters_low_ports() {
+        let output = "nginx   100  root  6u  IPv4  0x789  0t0  TCP *:80 (LISTEN)\n\
+                       nginx   100  root  7u  IPv4  0xabc  0t0  TCP *:443 (LISTEN)\n";
+        let ports: Vec<u16> = LSOF_PORT_RE
+            .captures_iter(output)
+            .filter_map(|caps| caps.get(1)?.as_str().parse().ok())
+            .filter(|&p| p >= 1024)
+            .collect();
+        assert!(ports.is_empty());
+    }
 }

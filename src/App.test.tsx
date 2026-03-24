@@ -99,6 +99,26 @@ vi.mock("./hooks/useToolApprovalListener", () => ({
 // @ts-expect-error Vite global define
 globalThis.__APP_VERSION__ = "0.5.0";
 
+import type { AppSettings } from "./types/settings";
+
+function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+  return {
+    theme: "dark" as AppSettings["theme"], fontSize: 14, sendShortcut: "enter",
+    terminalShell: null, terminalFontSize: 13, quickCommands: [],
+    changelogEnabled: false, changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
+    apiKeys: {}, modelPricing: {}, changelogPrompt: "",
+    assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
+    previewDefaultWidth: 1024, previewDefaultHeight: 768, previewAutoStart: false,
+    previewCustomDevCommand: null, previewConsoleAutoOpen: true,
+    taskBoardPlanningModel: "gemini-3.1-flash-lite-preview", taskBoardMaxTokens: 64000,
+    taskBoardMaxRetries: 3, taskBoardAutoStartNext: true, taskBoardAutoOpenSlideOver: true,
+    triviaEnabled: true, defaultContextWindow: 1000000, autoOpenFiles: false,
+    claudeBinaryOverride: null, onboardingCompleted: false, apiKeyBannerDismissed: false,
+    lastCloneDirectory: null,
+    ...overrides,
+  };
+}
+
 describe("App welcome screen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -211,30 +231,14 @@ describe("App onboarding flow", () => {
   });
 
   it("shows WelcomeScreen on first launch when onboarding not completed", async () => {
-    mockGetSettings.mockResolvedValueOnce({
-      theme: "dark", fontSize: 14, sendShortcut: "enter", terminalShell: null,
-      terminalFontSize: 13, quickCommands: [], changelogEnabled: false,
-      changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
-      apiKeys: {}, modelPricing: {}, changelogPrompt: "",
-      assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
-      triviaEnabled: true, onboardingCompleted: false,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    mockGetSettings.mockResolvedValueOnce(mockSettings({ onboardingCompleted: false }));
     render(<App />);
     expect(await screen.findByTestId("welcome-screen")).toBeInTheDocument();
     expect(screen.getByText("Welcome to CodeMantis")).toBeInTheDocument();
   });
 
   it("dismisses WelcomeScreen and shows home after Get Started", async () => {
-    mockGetSettings.mockResolvedValueOnce({
-      theme: "dark", fontSize: 14, sendShortcut: "enter", terminalShell: null,
-      terminalFontSize: 13, quickCommands: [], changelogEnabled: false,
-      changelogProvider: "gemini", changelogModel: "gemini-2.5-flash-lite",
-      apiKeys: {}, modelPricing: {}, changelogPrompt: "",
-      assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
-      triviaEnabled: true, onboardingCompleted: false,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    mockGetSettings.mockResolvedValueOnce(mockSettings({ onboardingCompleted: false }));
     render(<App />);
     const getStartedBtn = await screen.findByText("Get Started");
     fireEvent.click(getStartedBtn);

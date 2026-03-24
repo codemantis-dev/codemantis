@@ -13,8 +13,10 @@ afterEach(() => {
 describe("useTriviaRotation", () => {
   it("returns a fact immediately when active", () => {
     const { result } = renderHook(() => useTriviaRotation(true));
-    expect(result.current.topic).toBeTruthy();
-    expect(result.current.fact).toBeTruthy();
+    expect(result.current.topic).toBeDefined();
+    expect(typeof result.current.topic).toBe("string");
+    expect(result.current.fact).toBeDefined();
+    expect(typeof result.current.fact).toBe("string");
     expect(result.current.factKey).toBe(0);
   });
 

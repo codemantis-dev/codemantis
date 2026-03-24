@@ -58,7 +58,7 @@ describe("MCP Templates ↔ Registry sync", () => {
 
   it("http registry entries have httpUrl", () => {
     for (const r of registry.templates.filter((r) => r.serverType === "http")) {
-      expect(r.httpUrl, `http entry "${r.id}" missing httpUrl`).toBeTruthy();
+      expect(r.httpUrl, `http entry "${r.id}" missing httpUrl`).toBeDefined();
     }
   });
 

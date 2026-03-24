@@ -1,0 +1,137 @@
+import { X, Send, Play, PenTool, RotateCcw, Lightbulb } from "lucide-react";
+
+interface Props {
+  lastSavedFile: string | null;
+  activeSessionId: string | null;
+  canWrite: boolean;
+  hasMessages: boolean;
+  isStreaming: boolean;
+  conversationMode: string | undefined;
+  onSendToChat: () => void;
+  onImplement: () => void;
+  onWriteSpec: () => void;
+  onReset: () => void;
+  onSuggestFeatures: () => void;
+  onClose: () => void;
+}
+
+export default function SpecWriterToolbar({
+  lastSavedFile,
+  activeSessionId,
+  canWrite,
+  hasMessages,
+  isStreaming,
+  conversationMode,
+  onSendToChat,
+  onImplement,
+  onWriteSpec,
+  onReset,
+  onSuggestFeatures,
+  onClose,
+}: Props) {
+  return (
+    <div
+      className="h-10 flex items-center gap-2 px-4 border-b shrink-0"
+      style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+    >
+      <span className="text-sm font-medium mr-1" style={{ color: "var(--text-primary)" }}>
+        SpecWriter
+      </span>
+
+      {/* Send to Chat + Implement — visible after spec is saved */}
+      {lastSavedFile && (
+        <>
+          <button
+            onClick={onSendToChat}
+            disabled={!activeSessionId}
+            title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <Send size={11} />
+            Send to Chat
+          </button>
+          <button
+            onClick={onImplement}
+            disabled={!activeSessionId}
+            title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+            style={{ background: "var(--accent)", color: "white" }}
+          >
+            <Play size={11} />
+            Implement
+          </button>
+        </>
+      )}
+
+      {/* Generate Spec */}
+      <button
+        onClick={onWriteSpec}
+        disabled={!canWrite}
+        title="Tell the AI to generate the specification document"
+        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+        style={{
+          background: canWrite ? "var(--accent)" : "var(--bg-elevated)",
+          color: canWrite ? "white" : "var(--text-dim)",
+          border: canWrite ? "none" : "1px solid var(--border)",
+        }}
+      >
+        <PenTool size={11} />
+        Generate Spec
+      </button>
+
+      {/* Reset */}
+      {hasMessages && (
+        <button
+          onClick={onReset}
+          disabled={isStreaming}
+          title="Reset — clear conversation and start fresh"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+          style={{
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <RotateCcw size={11} />
+          Reset
+        </button>
+      )}
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Suggest Features */}
+      {conversationMode === 'feature' && (
+        <button
+          onClick={onSuggestFeatures}
+          disabled={isStreaming}
+          title="Ask the AI to suggest features for this project"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+          style={{
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <Lightbulb size={12} />
+          Suggest Features
+        </button>
+      )}
+
+      {/* Close */}
+      <button
+        onClick={onClose}
+        title="Close SpecWriter"
+        className="p-1 rounded hover:bg-bg-elevated transition-colors"
+        style={{ color: "var(--text-ghost)" }}
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+}

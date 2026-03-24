@@ -5,6 +5,7 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
@@ -98,7 +99,12 @@ impl TerminalPool {
 
         let mut cmd = if let Some(ref custom_program) = shell {
             // Custom command (claude CLI, npm, etc.) — wrap in login shell
-            // so user's profile is sourced and PATH is available
+            // so user's profile is sourced and PATH is available.
+            //
+            // SECURITY: We use `sh -c` here because login-shell profile sourcing
+            // requires shell interpretation. All arguments MUST be passed through
+            // `shell_quote()` to prevent injection. Do NOT bypass shell_quote or
+            // concatenate raw user input into full_cmd.
             let mut full_cmd = shell_quote(custom_program);
             if let Some(ref extra_args) = args {
                 for arg in extra_args {
@@ -124,6 +130,12 @@ impl TerminalPool {
         };
 
         cmd.env("TERM", "xterm-256color");
+        if !Path::new(cwd).is_dir() {
+            return Err(AppError::TerminalError(format!(
+                "Working directory does not exist: {}",
+                cwd
+            )));
+        }
         cmd.cwd(cwd);
 
         let _child = pair.slave.spawn_command(cmd).map_err(|e| {

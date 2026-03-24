@@ -21,7 +21,7 @@ describe("ExternalLink", () => {
       createElement(ExternalLink, { href: "https://example.com" }, "Click me"),
     );
     const a = container.querySelector("a");
-    expect(a).toBeTruthy();
+    expect(a).not.toBeNull();
     expect(a!.getAttribute("href")).toBe("https://example.com");
     expect(a!.textContent).toBe("Click me");
   });

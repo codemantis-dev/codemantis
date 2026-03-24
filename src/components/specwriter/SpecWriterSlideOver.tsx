@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { X, Pencil, Eye, Send, Play, Lightbulb, RotateCcw, PenTool, ClipboardCheck } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -7,9 +6,11 @@ import { showToast } from "../../stores/toastStore";
 import { listSpecDocuments, gatherSpecContext, saveTaskBoardState, addVerificationWorkflowToClaudeMd } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
+import { useDividerResize } from "../../hooks/useDividerResize";
+import { useSavedSpecs } from "../../hooks/useSavedSpecs";
 import SpecChat from "./SpecChat";
-import SpecPreview from "./SpecPreview";
-import SavedSpecsList from "./SavedSpecsList";
+import SpecWriterToolbar from "./SpecWriterToolbar";
+import SpecPreviewPanel from "./SpecPreviewPanel";
 import SaveSpecDialog from "./SaveSpecDialog";
 
 export default function SpecWriterSlideOver() {
@@ -44,8 +45,6 @@ export default function SpecWriterSlideOver() {
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
 
-  const dividerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveDialogType, setSaveDialogType] = useState<'spec' | 'audit'>('spec');
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
@@ -64,6 +63,22 @@ export default function SpecWriterSlideOver() {
   const contextAbortRef = useRef(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
+
+  const handleWidthChange = useCallback(
+    (newPct: number) => {
+      if (activeProjectPath) {
+        setChatWidth(activeProjectPath, newPct);
+      }
+    },
+    [activeProjectPath, setChatWidth]
+  );
+
+  const { dividerRef, isDragging, handleDividerMouseDown } = useDividerResize({
+    initialWidth: chatWidth,
+    onWidthChange: handleWidthChange,
+  });
+
+  const { refreshSavedSpecs } = useSavedSpecs(activeProjectPath);
 
   // When slide-over opens, load state and context
   useEffect(() => {
@@ -131,48 +146,6 @@ export default function SpecWriterSlideOver() {
     return () => window.removeEventListener("keydown", handler);
   }, [isOpen, handleClose]);
 
-  // Divider drag (RAF-throttled to ~16 updates/sec)
-  const handleDividerMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-      const startX = e.clientX;
-      const containerEl = dividerRef.current?.parentElement;
-      if (!containerEl) return;
-      const containerWidth = containerEl.getBoundingClientRect().width;
-      const startPct = chatWidth;
-      let rafId: number | null = null;
-
-      const onMouseMove = (ev: MouseEvent) => {
-        if (rafId !== null) return;
-        rafId = requestAnimationFrame(() => {
-          rafId = null;
-          const dx = ev.clientX - startX;
-          const dPct = (dx / containerWidth) * 100;
-          const newPct = Math.max(25, Math.min(65, startPct + dPct));
-          if (activeProjectPath) {
-            setChatWidth(activeProjectPath, newPct);
-          }
-        });
-      };
-
-      const onMouseUp = () => {
-        setIsDragging(false);
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
-    },
-    [chatWidth, activeProjectPath, setChatWidth]
-  );
-
   const handleSpecEdit = useCallback((newContent: string) => {
     if (activeProjectPath) {
       setCurrentSpecContent(activeProjectPath, newContent);
@@ -220,14 +193,6 @@ export default function SpecWriterSlideOver() {
   const handleGenerateAudit = useCallback(() => {
     if (activeProjectPath) generateAudit(activeProjectPath);
   }, [activeProjectPath, generateAudit]);
-
-  const refreshSavedSpecs = useCallback(() => {
-    if (activeProjectPath) {
-      listSpecDocuments(activeProjectPath).then((specs) => {
-        setSavedSpecs(activeProjectPath, specs);
-      }).catch(() => {});
-    }
-  }, [activeProjectPath, setSavedSpecs]);
 
   // ── Spec save handler ───────
   const handleSpecSaved = useCallback((filename: string) => {
@@ -371,6 +336,10 @@ export default function SpecWriterSlideOver() {
     });
   }, [activeProjectPath, setCurrentSpecContent, addMessage]);
 
+  const handleToggleEdit = useCallback(() => {
+    setIsEditing((prev) => !prev);
+  }, []);
+
   if (!activeProjectPath) return null;
 
   // Determine save dialog content
@@ -401,109 +370,20 @@ export default function SpecWriterSlideOver() {
         }}
       >
         {/* Header */}
-        <div
-          className="h-10 flex items-center gap-2 px-4 border-b shrink-0"
-          style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
-        >
-          <span className="text-sm font-medium mr-1" style={{ color: "var(--text-primary)" }}>
-            SpecWriter
-          </span>
-
-          {/* Send to Chat + Implement — visible after spec is saved */}
-          {lastSavedFile && (
-            <>
-              <button
-                onClick={handleSendToChat}
-                disabled={!activeSessionId}
-                title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
-                style={{
-                  background: "var(--bg-elevated)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <Send size={11} />
-                Send to Chat
-              </button>
-              <button
-                onClick={handleImplement}
-                disabled={!activeSessionId}
-                title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
-                style={{ background: "var(--accent)", color: "white" }}
-              >
-                <Play size={11} />
-                Implement
-              </button>
-            </>
-          )}
-
-          {/* Generate Spec */}
-          <button
-            onClick={handleWriteSpec}
-            disabled={!canWrite}
-            title="Tell the AI to generate the specification document"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
-            style={{
-              background: canWrite ? "var(--accent)" : "var(--bg-elevated)",
-              color: canWrite ? "white" : "var(--text-dim)",
-              border: canWrite ? "none" : "1px solid var(--border)",
-            }}
-          >
-            <PenTool size={11} />
-            Generate Spec
-          </button>
-
-          {/* Reset */}
-          {hasMessages && (
-            <button
-              onClick={handleReset}
-              disabled={isStreaming}
-              title="Reset — clear conversation and start fresh"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
-              style={{
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <RotateCcw size={11} />
-              Reset
-            </button>
-          )}
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Suggest Features */}
-          {conversationMode === 'feature' && (
-            <button
-              onClick={handleSuggestFeatures}
-              disabled={isStreaming}
-              title="Ask the AI to suggest features for this project"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
-              style={{
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <Lightbulb size={12} />
-              Suggest Features
-            </button>
-          )}
-
-          {/* Close */}
-          <button
-            onClick={handleClose}
-            title="Close SpecWriter"
-            className="p-1 rounded hover:bg-bg-elevated transition-colors"
-            style={{ color: "var(--text-ghost)" }}
-          >
-            <X size={16} />
-          </button>
-        </div>
+        <SpecWriterToolbar
+          lastSavedFile={lastSavedFile}
+          activeSessionId={activeSessionId}
+          canWrite={canWrite}
+          hasMessages={hasMessages}
+          isStreaming={isStreaming}
+          conversationMode={conversationMode}
+          onSendToChat={handleSendToChat}
+          onImplement={handleImplement}
+          onWriteSpec={handleWriteSpec}
+          onReset={handleReset}
+          onSuggestFeatures={handleSuggestFeatures}
+          onClose={handleClose}
+        />
 
         {/* Two-column content — only mount children when open */}
         {isOpen && (
@@ -562,102 +442,24 @@ export default function SpecWriterSlideOver() {
               </div>
 
               {/* Right: Spec Preview + Actions + Saved Specs */}
-              <div className="flex-1 overflow-hidden flex flex-col">
-                {/* Spec Preview */}
-                <div className="flex-1 overflow-hidden">
-                  <SpecPreview
-                    content={currentSpecContent}
-                    auditContent={currentAuditContent}
-                    isEditing={isEditing}
-                    onContentChange={handleSpecEdit}
-                    onClose={handleCloseSpec}
-                  />
-                </div>
-
-                {/* Action buttons — Edit + Copy left, Audit/Save right */}
-                {currentSpecContent && (
-                  <div className="flex items-center gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
-                    <button
-                      onClick={() => setIsEditing((prev) => !prev)}
-                      disabled={isStreaming}
-                      title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
-                      style={isEditing ? {
-                        background: "var(--accent)",
-                        color: "white",
-                      } : {
-                        background: "var(--bg-elevated)",
-                        color: "var(--text-secondary)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
-                      {isEditing ? "Preview" : "Edit"}
-                    </button>
-                    <button
-                      onClick={handleCopySpec}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
-                      style={{
-                        background: "var(--bg-elevated)",
-                        color: "var(--text-secondary)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      Copy to Clipboard
-                    </button>
-
-                    {/* Spacer pushes audit + save buttons right */}
-                    <div className="flex-1" />
-
-                    {/* Generate Audit / Save Audit */}
-                    {canGenerateAudit && (
-                      <button
-                        onClick={handleGenerateAudit}
-                        disabled={isStreaming}
-                        title="Generate a Verification Audit companion document for the spec"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
-                        style={{
-                          background: "var(--bg-elevated)",
-                          color: "var(--text-secondary)",
-                          border: "1px solid var(--border)",
-                        }}
-                      >
-                        <ClipboardCheck size={13} />
-                        Generate Audit
-                      </button>
-                    )}
-                    {canSaveAudit && (
-                      <button
-                        onClick={openSaveAuditDialog}
-                        title="Save verification audit to project"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-                        style={{ background: "var(--accent)", color: "white" }}
-                      >
-                        <ClipboardCheck size={13} />
-                        Save Audit
-                      </button>
-                    )}
-
-                    {/* Save to Project */}
-                    {canSave && (
-                      <button
-                        onClick={openSaveSpecDialog}
-                        title="Save specification to project"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-                        style={{ background: "var(--accent)", color: "white" }}
-                      >
-                        Save to Project
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Saved Specs List */}
-                <SavedSpecsList
-                  projectPath={activeProjectPath}
-                  onLoadSpec={handleLoadSpec}
-                />
-              </div>
+              <SpecPreviewPanel
+                activeProjectPath={activeProjectPath}
+                currentSpecContent={currentSpecContent}
+                currentAuditContent={currentAuditContent}
+                isEditing={isEditing}
+                isStreaming={isStreaming}
+                canGenerateAudit={canGenerateAudit}
+                canSaveAudit={canSaveAudit}
+                canSave={canSave}
+                onSpecEdit={handleSpecEdit}
+                onCloseSpec={handleCloseSpec}
+                onToggleEdit={handleToggleEdit}
+                onCopySpec={handleCopySpec}
+                onGenerateAudit={handleGenerateAudit}
+                onOpenSaveAuditDialog={openSaveAuditDialog}
+                onOpenSaveSpecDialog={openSaveSpecDialog}
+                onLoadSpec={handleLoadSpec}
+              />
             </div>
           </>
         )}

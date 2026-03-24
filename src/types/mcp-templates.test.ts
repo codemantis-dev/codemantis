@@ -15,7 +15,8 @@ describe("MCP Templates data integrity", () => {
 
   it("stdio templates have command", () => {
     for (const t of MCP_TEMPLATES.filter((t) => t.serverType === "stdio")) {
-      expect(t.command).toBeTruthy();
+      expect(t.command).toBeDefined();
+      expect(t.command!.length).toBeGreaterThan(0);
     }
   });
 
@@ -23,7 +24,8 @@ describe("MCP Templates data integrity", () => {
     for (const t of MCP_TEMPLATES.filter(
       (t) => t.serverType === "http" || t.serverType === "sse"
     )) {
-      expect(t.url).toBeTruthy();
+      expect(t.url).toBeDefined();
+      expect(t.url!.length).toBeGreaterThan(0);
     }
   });
 
@@ -47,7 +49,7 @@ describe("MCP Templates data integrity", () => {
 
   it("all templates have a docsUrl", () => {
     for (const t of MCP_TEMPLATES) {
-      expect(t.docsUrl, `Template "${t.id}" missing docsUrl`).toBeTruthy();
+      expect(t.docsUrl, `Template "${t.id}" missing docsUrl`).toBeDefined();
     }
   });
 

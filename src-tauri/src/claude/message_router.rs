@@ -123,6 +123,564 @@ async fn sync_session_mode(
     }
 }
 
+// ── Mutable state threaded through the event loop ──
+
+struct RouterState {
+    accumulated_text: String,
+    cli_session_id_emitted: bool,
+    emitted_tool_ids: std::collections::HashSet<String>,
+    pending_tools: HashMap<u32, PendingToolBlock>,
+}
+
+// ── Emit helper to reduce boilerplate ──
+
+fn emit_or_warn(app_handle: &AppHandle, channel: &str, event: &FrontendEvent, label: &str) {
+    if let Err(e) = app_handle.emit(channel, event) {
+        warn!("[message-router] Failed to emit {}: {}", label, e);
+    }
+}
+
+/// Helper: emit CliSessionId if not yet emitted, and store in AppState.
+async fn maybe_emit_cli_session_id(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    cli_sid: &str,
+    state: &mut RouterState,
+) {
+    if !state.cli_session_id_emitted {
+        state.cli_session_id_emitted = true;
+        store_cli_session_id(app_handle, session_id, cli_sid).await;
+        let fe = FrontendEvent::CliSessionId {
+            session_id: session_id.to_string(),
+            cli_session_id: cli_sid.to_string(),
+        };
+        emit_or_warn(app_handle, chat_event, &fe, "cli-session-id");
+    }
+}
+
+// ── Extracted handler functions ──
+
+async fn handle_system_init(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    model: &Option<String>,
+    cli_sid: &Option<String>,
+    extra: &serde_json::Value,
+    state: &mut RouterState,
+) {
+    debug!("System init extra fields: {}", extra);
+
+    if let Some(model_name) = model {
+        update_session_model(app_handle, session_id, model_name).await;
+    }
+
+    let thinking_effort = extract_thinking_effort(extra);
+    let fe = FrontendEvent::SessionInit {
+        session_id: session_id.to_string(),
+        model: model.clone(),
+        thinking_effort,
+    };
+    emit_or_warn(app_handle, chat_event, &fe, "session-init");
+
+    if let Some(sid) = cli_sid {
+        maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
+    }
+
+    if let Some(cli_perm_mode) = extra.get("permissionMode").and_then(|v| v.as_str()) {
+        sync_session_mode(app_handle, session_id, cli_perm_mode).await;
+    }
+}
+
+fn handle_assistant_message(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    activity_event: &str,
+    content_blocks: &[ContentBlock],
+    state: &mut RouterState,
+) {
+    for block in content_blocks {
+        match block {
+            ContentBlock::Text { text } => {
+                state.accumulated_text.clone_from(text);
+                let fe = FrontendEvent::TextComplete {
+                    session_id: session_id.to_string(),
+                    full_text: text.clone(),
+                };
+                emit_or_warn(app_handle, chat_event, &fe, "text-complete");
+            }
+            ContentBlock::ToolUse { id, name, input } => {
+                let is_pending = state.pending_tools.values().any(|p| p.id == *id);
+                if !is_pending && state.emitted_tool_ids.insert(id.clone()) {
+                    let fe = FrontendEvent::ToolUseStart {
+                        session_id: session_id.to_string(),
+                        tool_use_id: id.clone(),
+                        tool_name: name.clone(),
+                        tool_input: input.clone(),
+                    };
+                    emit_or_warn(app_handle, activity_event, &fe, "tool-use-start");
+                }
+            }
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                let content_str = tool_result_content_to_string(content);
+                let fe = FrontendEvent::ToolResult {
+                    session_id: session_id.to_string(),
+                    tool_use_id: tool_use_id.clone(),
+                    content: content_str,
+                    is_error: is_error.unwrap_or(false),
+                };
+                emit_or_warn(app_handle, activity_event, &fe, "tool-result");
+            }
+            ContentBlock::Thinking { .. } => {}
+            ContentBlock::Unknown => {
+                debug!("Unknown content block type");
+            }
+        }
+    }
+}
+
+fn handle_content_block_delta(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    index: Option<u32>,
+    delta: Option<StreamDelta>,
+    state: &mut RouterState,
+) {
+    match delta {
+        Some(StreamDelta::TextDelta { text }) => {
+            state.accumulated_text.push_str(&text);
+            let fe = FrontendEvent::TextDelta {
+                session_id: session_id.to_string(),
+                text,
+            };
+            emit_or_warn(app_handle, chat_event, &fe, "text-delta");
+        }
+        Some(StreamDelta::InputJsonDelta { partial_json }) => {
+            if let (Some(idx), Some(fragment)) = (index, partial_json) {
+                if let Some(pending) = state.pending_tools.get_mut(&idx) {
+                    pending.input_json.push_str(&fragment);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn handle_content_block_start(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    activity_event: &str,
+    index: Option<u32>,
+    content_block: Option<ContentBlock>,
+    state: &mut RouterState,
+) {
+    if let Some(block) = content_block {
+        match block {
+            ContentBlock::ToolUse { id, name, .. } => {
+                if let Some(idx) = index {
+                    if name == "Agent" {
+                        let fe = FrontendEvent::AgentPreparing {
+                            session_id: session_id.to_string(),
+                            tool_use_id: id.clone(),
+                        };
+                        emit_or_warn(app_handle, activity_event, &fe, "agent-preparing");
+                    }
+                    state.pending_tools.insert(idx, PendingToolBlock {
+                        id,
+                        name,
+                        input_json: String::new(),
+                    });
+                }
+            }
+            ContentBlock::Text { text } => {
+                if !text.is_empty() {
+                    state.accumulated_text.push_str(&text);
+                    let fe = FrontendEvent::TextDelta {
+                        session_id: session_id.to_string(),
+                        text,
+                    };
+                    emit_or_warn(app_handle, chat_event, &fe, "text-delta");
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn handle_content_block_stop(
+    app_handle: &AppHandle,
+    session_id: &str,
+    activity_event: &str,
+    index: Option<u32>,
+    state: &mut RouterState,
+) {
+    if let Some(idx) = index {
+        if let Some(pending) = state.pending_tools.remove(&idx) {
+            let input = serde_json::from_str(&pending.input_json)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            if state.emitted_tool_ids.insert(pending.id.clone()) {
+                let fe = FrontendEvent::ToolUseStart {
+                    session_id: session_id.to_string(),
+                    tool_use_id: pending.id,
+                    tool_name: pending.name,
+                    tool_input: input,
+                };
+                emit_or_warn(app_handle, activity_event, &fe, "tool-use-start");
+            }
+        }
+    }
+}
+
+async fn handle_result(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    cli_sid: &Option<String>,
+    is_error: Option<bool>,
+    result: Option<String>,
+    duration_ms: Option<u64>,
+    usage: Option<crate::claude::event_types::UsageInfo>,
+    cost_usd: Option<f64>,
+    duration_api_ms: Option<u64>,
+    num_turns: Option<u32>,
+    stop_reason: Option<String>,
+    model_usage: &Option<serde_json::Value>,
+    state: &mut RouterState,
+) {
+    if let Some(sid) = cli_sid {
+        maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
+    }
+
+    if is_error == Some(true) {
+        let error_msg = result.unwrap_or_else(|| "Unknown error".to_string());
+        let fe = FrontendEvent::ProcessError {
+            session_id: session_id.to_string(),
+            error: error_msg,
+        };
+        emit_or_warn(app_handle, chat_event, &fe, "process-error");
+    } else {
+        let (model_name, context_window, max_output_tokens) =
+            extract_model_usage_info(model_usage);
+
+        let fe = FrontendEvent::TurnComplete {
+            session_id: session_id.to_string(),
+            duration_ms,
+            usage,
+            cost_usd,
+            duration_api_ms,
+            num_turns,
+            stop_reason,
+            model_name,
+            context_window,
+            max_output_tokens,
+        };
+        emit_or_warn(app_handle, chat_event, &fe, "turn-complete");
+    }
+    state.accumulated_text.clear();
+}
+
+fn handle_system_status(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    extra: &serde_json::Value,
+) {
+    let status = extra.get("status").and_then(|v| v.as_str());
+    let is_compacting = status == Some("compacting");
+    let fe = FrontendEvent::CompactingStatus {
+        session_id: session_id.to_string(),
+        is_compacting,
+    };
+    emit_or_warn(app_handle, chat_event, &fe, "compacting-status");
+}
+
+fn handle_system_compact_boundary(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    extra: &serde_json::Value,
+) {
+    let metadata = extra.get("compact_metadata");
+    let trigger = metadata
+        .and_then(|m| m.get("trigger"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let pre_tokens = metadata
+        .and_then(|m| m.get("pre_tokens"))
+        .and_then(|v| v.as_u64());
+    let fe = FrontendEvent::CompactComplete {
+        session_id: session_id.to_string(),
+        trigger,
+        pre_tokens,
+    };
+    emit_or_warn(app_handle, chat_event, &fe, "compact-complete");
+}
+
+fn handle_tool_progress(
+    app_handle: &AppHandle,
+    session_id: &str,
+    activity_event: &str,
+    tool_use_id: &Option<String>,
+    tool_name: &Option<String>,
+    elapsed_time_seconds: Option<f64>,
+    extra: &serde_json::Value,
+) {
+    if let (Some(id), Some(name), Some(elapsed)) =
+        (tool_use_id, tool_name, elapsed_time_seconds)
+    {
+        let fe = FrontendEvent::ToolProgress {
+            session_id: session_id.to_string(),
+            tool_use_id: id.clone(),
+            tool_name: name.clone(),
+            elapsed_seconds: elapsed,
+        };
+        emit_or_warn(app_handle, activity_event, &fe, "tool-progress");
+
+        if name == "Agent" {
+            let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            if tool_count.is_some() || token_count.is_some() {
+                let fe = FrontendEvent::SubAgentProgress {
+                    session_id: session_id.to_string(),
+                    tool_use_id: id.clone(),
+                    tool_count,
+                    token_count,
+                    current_activity: None,
+                };
+                emit_or_warn(app_handle, activity_event, &fe, "sub-agent-progress");
+            }
+        }
+    }
+}
+
+fn handle_rate_limit(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    rate_limit_info: Option<RateLimitInfo>,
+) {
+    if let Some(info) = rate_limit_info {
+        let utilization = info.utilization.unwrap_or(0.0);
+        if should_emit_rate_limit_warning(&info) {
+            let fe = FrontendEvent::RateLimitWarning {
+                session_id: session_id.to_string(),
+                utilization,
+                resets_at: info.resets_at,
+                rate_limit_type: info.rate_limit_type,
+                overage_status: info.overage_status,
+                is_using_overage: info.is_using_overage,
+            };
+            emit_or_warn(app_handle, chat_event, &fe, "rate-limit-warning");
+        }
+    }
+}
+
+fn handle_system_task_lifecycle(
+    app_handle: &AppHandle,
+    session_id: &str,
+    activity_event: &str,
+    subtype: &str,
+    extra: &serde_json::Value,
+) {
+    let tool_use_id = extra.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    debug!(
+        "[message_router] {}: tool_use_id={}, extra_keys={:?}",
+        subtype,
+        tool_use_id,
+        extra.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+
+    match subtype {
+        "task_started" => {
+            let description = extra.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let subagent_type = extra.get("subagent_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let fe = FrontendEvent::SubAgentStarted {
+                session_id: session_id.to_string(),
+                tool_use_id,
+                description,
+                subagent_type,
+            };
+            emit_or_warn(app_handle, activity_event, &fe, "sub-agent-started");
+        }
+        "task_progress" => {
+            let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let current_activity = extra.get("current_activity").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let fe = FrontendEvent::SubAgentProgress {
+                session_id: session_id.to_string(),
+                tool_use_id,
+                tool_count,
+                token_count,
+                current_activity,
+            };
+            emit_or_warn(app_handle, activity_event, &fe, "sub-agent-progress");
+        }
+        "task_complete" => {
+            let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let fe = FrontendEvent::SubAgentComplete {
+                session_id: session_id.to_string(),
+                tool_use_id,
+                tool_count,
+                token_count,
+            };
+            emit_or_warn(app_handle, activity_event, &fe, "sub-agent-complete");
+        }
+        _ => {}
+    }
+}
+
+fn handle_message_delta(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    usage: Option<crate::claude::event_types::UsageInfo>,
+) {
+    if let Some(usage) = usage {
+        let fe = FrontendEvent::UsageUpdate {
+            session_id: session_id.to_string(),
+            usage,
+        };
+        emit_or_warn(app_handle, chat_event, &fe, "usage-update");
+    }
+}
+
+fn handle_user_event(
+    app_handle: &AppHandle,
+    session_id: &str,
+    activity_event: &str,
+    message: &Option<crate::claude::event_types::AssistantMessage>,
+) {
+    if let Some(msg) = message {
+        if let Some(content_blocks) = &msg.content {
+            for block in content_blocks {
+                if let ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } = block
+                {
+                    let content_str = tool_result_content_to_string(content);
+                    let fe = FrontendEvent::ToolResult {
+                        session_id: session_id.to_string(),
+                        tool_use_id: tool_use_id.clone(),
+                        content: content_str,
+                        is_error: is_error.unwrap_or(false),
+                    };
+                    emit_or_warn(app_handle, activity_event, &fe, "tool-result");
+                }
+            }
+        }
+    }
+}
+
+async fn handle_control_response(
+    app_handle: &AppHandle,
+    session_id: &str,
+    chat_event: &str,
+    response: Option<serde_json::Value>,
+) {
+    if let Some(resp_val) = response {
+        let subtype = resp_val.get("subtype").and_then(|v| v.as_str());
+        let req_id = resp_val.get("request_id").and_then(|v| v.as_str());
+
+        if let Some(request_id) = req_id {
+            if let Some(app_state) = app_handle.try_state::<AppState>() {
+                let kind = {
+                    let mut pending = app_state.pending_control_requests.lock().await;
+                    pending.remove(request_id)
+                };
+
+                let is_success = subtype == Some("success");
+                let error_msg = resp_val
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                match kind {
+                    Some((_, ControlRequestKind::Interrupt)) => {
+                        let fe = FrontendEvent::InterruptResult {
+                            session_id: session_id.to_string(),
+                            success: is_success,
+                            error: error_msg,
+                        };
+                        emit_or_warn(app_handle, chat_event, &fe, "interrupt-result");
+                    }
+                    Some((_, ControlRequestKind::SetModel(model))) => {
+                        if is_success {
+                            let mut sessions = app_state.sessions.lock().await;
+                            if let Some(session) = sessions.get_mut(session_id) {
+                                session.model = Some(model.clone());
+                            }
+                        }
+                        let fe = FrontendEvent::ModelChanged {
+                            session_id: session_id.to_string(),
+                            model,
+                            success: is_success,
+                            error: error_msg,
+                        };
+                        emit_or_warn(app_handle, chat_event, &fe, "model-changed");
+                    }
+                    Some((_, ControlRequestKind::SetPermissionMode(mode))) => {
+                        if is_success {
+                            info!("[message_router] set_permission_mode '{}' succeeded", mode);
+                        } else {
+                            warn!(
+                                "[message_router] set_permission_mode '{}' failed: {:?}",
+                                mode, error_msg
+                            );
+                        }
+                    }
+                    Some((_, ControlRequestKind::Initialize)) => {
+                        if is_success {
+                            let caps = resp_val
+                                .get("response")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            let fe = FrontendEvent::CapabilitiesDiscovered {
+                                session_id: session_id.to_string(),
+                                models: caps.get("models").cloned().unwrap_or_default(),
+                                commands: caps.get("commands").cloned().unwrap_or_default(),
+                                agents: caps.get("agents").cloned().unwrap_or_default(),
+                                account: caps.get("account").cloned().unwrap_or_default(),
+                                output_styles: caps
+                                    .get("available_output_styles")
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            };
+                            emit_or_warn(app_handle, chat_event, &fe, "capabilities-discovered");
+                        } else {
+                            warn!(
+                                "[message_router] initialize failed: {:?}",
+                                error_msg
+                            );
+                        }
+                    }
+                    None => {
+                        warn!(
+                            "Control response for unknown request_id: {}",
+                            request_id
+                        );
+                    }
+                }
+            }
+        } else {
+            debug!("Control response missing request_id");
+        }
+    }
+}
+
+// ── Main event router ──
+
 pub async fn route_events(
     app_handle: AppHandle,
     session_id: String,
@@ -131,11 +689,12 @@ pub async fn route_events(
     let chat_event = format!("claude-chat-{}", session_id);
     let activity_event = format!("claude-activity-{}", session_id);
 
-    let mut accumulated_text = String::new();
-    let mut cli_session_id_emitted = false;
-    let mut emitted_tool_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Track tool_use blocks being streamed so we can emit with complete input
-    let mut pending_tools: HashMap<u32, PendingToolBlock> = HashMap::new();
+    let mut state = RouterState {
+        accumulated_text: String::new(),
+        cli_session_id_emitted: false,
+        emitted_tool_ids: std::collections::HashSet::new(),
+        pending_tools: HashMap::new(),
+    };
 
     while let Some(event) = receiver.recv().await {
         match event {
@@ -146,195 +705,40 @@ pub async fn route_events(
                 ref extra,
                 ..
             } if subtype.as_deref() == Some("init") => {
-                    debug!("System init extra fields: {}", extra);
-
-                    // Store model in SessionInfo so it's available at close time
-                    if let Some(ref model_name) = model {
-                        update_session_model(&app_handle, &session_id, model_name).await;
-                    }
-
-                    // Try to extract thinking effort from extra fields
-                    let thinking_effort = extract_thinking_effort(extra);
-                    let fe = FrontendEvent::SessionInit {
-                        session_id: session_id.clone(),
-                        model,
-                        thinking_effort,
-                    };
-                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                        warn!("[message-router] Failed to emit session-init: {}", e);
-                    }
-
-                    // Emit CLI's own session_id if present and store in AppState
-                    if let Some(ref sid) = cli_sid {
-                        if !cli_session_id_emitted {
-                            cli_session_id_emitted = true;
-                            store_cli_session_id(&app_handle, &session_id, sid).await;
-                            let fe = FrontendEvent::CliSessionId {
-                                session_id: session_id.clone(),
-                                cli_session_id: sid.clone(),
-                            };
-                            if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                warn!("[message-router] Failed to emit cli-session-id: {}", e);
-                            }
-                        }
-                    }
-
-                    // Sync permissionMode from CLI init event to backend.
-                    // The CLI is the source of truth — when it exits plan mode
-                    // and starts implementing, the UI badge must update.
-                    if let Some(cli_perm_mode) = extra.get("permissionMode").and_then(|v| v.as_str()) {
-                        sync_session_mode(&app_handle, &session_id, cli_perm_mode).await;
-                    }
+                handle_system_init(
+                    &app_handle, &session_id, &chat_event,
+                    &model, &cli_sid, extra, &mut state,
+                ).await;
             }
 
             RawStreamEvent::Assistant { message, .. } => {
-                // Note: message.usage contains preliminary token counts (often 1 or 19).
-                // The authoritative per-API-call usage comes from MessageDelta events.
-
                 if let Some(content_blocks) = &message.content {
-                    for block in content_blocks {
-                        match block {
-                            ContentBlock::Text { text } => {
-                                accumulated_text.clone_from(text);
-                                let fe = FrontendEvent::TextComplete {
-                                    session_id: session_id.clone(),
-                                    full_text: text.clone(),
-                                };
-                                if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                    warn!("[message-router] Failed to emit text-complete: {}", e);
-                                }
-                            }
-                            ContentBlock::ToolUse { id, name, input } => {
-                                // Skip if this tool is still being streamed via
-                                // ContentBlockStart/Delta/Stop — its input may be
-                                // incomplete. ContentBlockStop will emit with full input.
-                                let is_pending = pending_tools.values().any(|p| p.id == *id);
-                                if !is_pending && emitted_tool_ids.insert(id.clone()) {
-                                    let fe = FrontendEvent::ToolUseStart {
-                                        session_id: session_id.clone(),
-                                        tool_use_id: id.clone(),
-                                        tool_name: name.clone(),
-                                        tool_input: input.clone(),
-                                    };
-                                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                        warn!("[message-router] Failed to emit tool-use-start: {}", e);
-                                    }
-                                }
-                            }
-                            ContentBlock::ToolResult {
-                                tool_use_id,
-                                content,
-                                is_error,
-                            } => {
-                                let content_str = tool_result_content_to_string(content);
-                                let fe = FrontendEvent::ToolResult {
-                                    session_id: session_id.clone(),
-                                    tool_use_id: tool_use_id.clone(),
-                                    content: content_str,
-                                    is_error: is_error.unwrap_or(false),
-                                };
-                                if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                    warn!("[message-router] Failed to emit tool-result: {}", e);
-                                }
-                            }
-                            ContentBlock::Thinking { .. } => {
-                                // Extended thinking — silently skip
-                            }
-                            ContentBlock::Unknown => {
-                                debug!("Unknown content block type");
-                            }
-                        }
-                    }
+                    handle_assistant_message(
+                        &app_handle, &session_id, &chat_event, &activity_event,
+                        content_blocks, &mut state,
+                    );
                 }
             }
 
             RawStreamEvent::ContentBlockDelta { index, delta, .. } => {
-                match delta {
-                    Some(StreamDelta::TextDelta { text }) => {
-                        accumulated_text.push_str(&text);
-                        let fe = FrontendEvent::TextDelta {
-                            session_id: session_id.clone(),
-                            text,
-                        };
-                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                            warn!("[message-router] Failed to emit text-delta: {}", e);
-                        }
-                    }
-                    Some(StreamDelta::InputJsonDelta { partial_json }) => {
-                        // Accumulate tool input JSON fragments
-                        if let (Some(idx), Some(fragment)) = (index, partial_json) {
-                            if let Some(pending) = pending_tools.get_mut(&idx) {
-                                pending.input_json.push_str(&fragment);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                handle_content_block_delta(
+                    &app_handle, &session_id, &chat_event,
+                    index, delta, &mut state,
+                );
             }
 
             RawStreamEvent::ContentBlockStart { index, content_block, .. } => {
-                if let Some(block) = content_block {
-                    match block {
-                        ContentBlock::ToolUse { id, name, .. } => {
-                            // Don't emit yet — input is empty. Track the block and
-                            // emit from ContentBlockStop once all InputJsonDelta
-                            // fragments have been accumulated.
-                            if let Some(idx) = index {
-                                // Emit early visibility event for Agent tools so the
-                                // UI can show a placeholder immediately (before the
-                                // full input JSON is streamed).
-                                if name == "Agent" {
-                                    let fe = FrontendEvent::AgentPreparing {
-                                        session_id: session_id.clone(),
-                                        tool_use_id: id.clone(),
-                                    };
-                                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                        warn!("[message-router] Failed to emit agent-preparing: {}", e);
-                                    }
-                                }
-                                pending_tools.insert(idx, PendingToolBlock {
-                                    id,
-                                    name,
-                                    input_json: String::new(),
-                                });
-                            }
-                        }
-                        ContentBlock::Text { text } => {
-                            if !text.is_empty() {
-                                accumulated_text.push_str(&text);
-                                let fe = FrontendEvent::TextDelta {
-                                    session_id: session_id.clone(),
-                                    text,
-                                };
-                                if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                    warn!("[message-router] Failed to emit text-delta: {}", e);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                handle_content_block_start(
+                    &app_handle, &session_id, &chat_event, &activity_event,
+                    index, content_block, &mut state,
+                );
             }
 
             RawStreamEvent::ContentBlockStop { index, .. } => {
-                // If this was a tool_use block, emit with complete accumulated input
-                if let Some(idx) = index {
-                    if let Some(pending) = pending_tools.remove(&idx) {
-                        let input = serde_json::from_str(&pending.input_json)
-                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-                        if emitted_tool_ids.insert(pending.id.clone()) {
-                            let fe = FrontendEvent::ToolUseStart {
-                                session_id: session_id.clone(),
-                                tool_use_id: pending.id,
-                                tool_name: pending.name,
-                                tool_input: input,
-                            };
-                            if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                warn!("[message-router] Failed to emit tool-use-start: {}", e);
-                            }
-                        }
-                    }
-                }
+                handle_content_block_stop(
+                    &app_handle, &session_id, &activity_event,
+                    index, &mut state,
+                );
             }
 
             RawStreamEvent::Result {
@@ -350,51 +754,12 @@ pub async fn route_events(
                 model_usage,
                 ..
             } => {
-                // Emit CLI session_id if not yet emitted (fallback from Result event)
-                if let Some(ref sid) = cli_sid {
-                    if !cli_session_id_emitted {
-                        cli_session_id_emitted = true;
-                        store_cli_session_id(&app_handle, &session_id, sid).await;
-                        let fe = FrontendEvent::CliSessionId {
-                            session_id: session_id.clone(),
-                            cli_session_id: sid.clone(),
-                        };
-                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                            warn!("[message-router] Failed to emit cli-session-id: {}", e);
-                        }
-                    }
-                }
-                if is_error == Some(true) {
-                    let error_msg = result.unwrap_or_else(|| "Unknown error".to_string());
-                    let fe = FrontendEvent::ProcessError {
-                        session_id: session_id.clone(),
-                        error: error_msg,
-                    };
-                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                        warn!("[message-router] Failed to emit process-error: {}", e);
-                    }
-                } else {
-                    // Extract model name, contextWindow, and maxOutputTokens from modelUsage
-                    let (model_name, context_window, max_output_tokens) =
-                        extract_model_usage_info(&model_usage);
-
-                    let fe = FrontendEvent::TurnComplete {
-                        session_id: session_id.clone(),
-                        duration_ms,
-                        usage,
-                        cost_usd,
-                        duration_api_ms,
-                        num_turns,
-                        stop_reason,
-                        model_name,
-                        context_window,
-                        max_output_tokens,
-                    };
-                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                        warn!("[message-router] Failed to emit turn-complete: {}", e);
-                    }
-                }
-                accumulated_text.clear();
+                handle_result(
+                    &app_handle, &session_id, &chat_event,
+                    &cli_sid, is_error, result, duration_ms, usage, cost_usd,
+                    duration_api_ms, num_turns, stop_reason, &model_usage,
+                    &mut state,
+                ).await;
             }
 
             RawStreamEvent::System {
@@ -402,15 +767,7 @@ pub async fn route_events(
                 ref extra,
                 ..
             } if subtype.as_deref() == Some("status") => {
-                let status = extra.get("status").and_then(|v| v.as_str());
-                let is_compacting = status == Some("compacting");
-                let fe = FrontendEvent::CompactingStatus {
-                    session_id: session_id.clone(),
-                    is_compacting,
-                };
-                if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                    warn!("[message-router] Failed to emit compacting-status: {}", e);
-                }
+                handle_system_status(&app_handle, &session_id, &chat_event, extra);
             }
 
             RawStreamEvent::System {
@@ -418,23 +775,7 @@ pub async fn route_events(
                 ref extra,
                 ..
             } if subtype.as_deref() == Some("compact_boundary") => {
-                let metadata = extra.get("compact_metadata");
-                let trigger = metadata
-                    .and_then(|m| m.get("trigger"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                let pre_tokens = metadata
-                    .and_then(|m| m.get("pre_tokens"))
-                    .and_then(|v| v.as_u64());
-                let fe = FrontendEvent::CompactComplete {
-                    session_id: session_id.clone(),
-                    trigger,
-                    pre_tokens,
-                };
-                if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                    warn!("[message-router] Failed to emit compact-complete: {}", e);
-                }
+                handle_system_compact_boundary(&app_handle, &session_id, &chat_event, extra);
             }
 
             RawStreamEvent::ToolProgress {
@@ -443,120 +784,27 @@ pub async fn route_events(
                 elapsed_time_seconds,
                 ref extra,
             } => {
-                if let (Some(ref id), Some(ref name), Some(elapsed)) =
-                    (&tool_use_id, &tool_name, elapsed_time_seconds)
-                {
-                    let fe = FrontendEvent::ToolProgress {
-                        session_id: session_id.clone(),
-                        tool_use_id: id.clone(),
-                        tool_name: name.clone(),
-                        elapsed_seconds: elapsed,
-                    };
-                    if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                        warn!("[message-router] Failed to emit tool-progress: {}", e);
-                    }
-
-                    // Extract tool_count/token_count from extra for Agent tools
-                    if name == "Agent" {
-                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        if tool_count.is_some() || token_count.is_some() {
-                            let fe = FrontendEvent::SubAgentProgress {
-                                session_id: session_id.clone(),
-                                tool_use_id: id.clone(),
-                                tool_count,
-                                token_count,
-                                current_activity: None,
-                            };
-                            if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                warn!("[message-router] Failed to emit sub-agent-progress: {}", e);
-                            }
-                        }
-                    }
-                }
+                handle_tool_progress(
+                    &app_handle, &session_id, &activity_event,
+                    &tool_use_id, &tool_name, elapsed_time_seconds, extra,
+                );
             }
 
             RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
-                if let Some(info) = rate_limit_info {
-                    let utilization = info.utilization.unwrap_or(0.0);
-                    if should_emit_rate_limit_warning(&info) {
-                        let fe = FrontendEvent::RateLimitWarning {
-                            session_id: session_id.clone(),
-                            utilization,
-                            resets_at: info.resets_at,
-                            rate_limit_type: info.rate_limit_type,
-                            overage_status: info.overage_status,
-                            is_using_overage: info.is_using_overage,
-                        };
-                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                            warn!("[message-router] Failed to emit rate-limit-warning: {}", e);
-                        }
-                    }
-                }
+                handle_rate_limit(&app_handle, &session_id, &chat_event, rate_limit_info);
             }
 
-            // Sub-agent task lifecycle events
             RawStreamEvent::System {
                 subtype,
                 ref extra,
                 ..
             } if matches!(subtype.as_deref(), Some("task_started") | Some("task_progress") | Some("task_complete")) => {
                 let sub = subtype.as_deref().unwrap_or("");
-                let tool_use_id = extra.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                debug!(
-                    "[message_router] {}: tool_use_id={}, extra_keys={:?}",
-                    sub,
-                    tool_use_id,
-                    extra.as_object().map(|o| o.keys().collect::<Vec<_>>())
+                handle_system_task_lifecycle(
+                    &app_handle, &session_id, &activity_event, sub, extra,
                 );
-
-                match sub {
-                    "task_started" => {
-                        let description = extra.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let subagent_type = extra.get("subagent_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let fe = FrontendEvent::SubAgentStarted {
-                            session_id: session_id.clone(),
-                            tool_use_id,
-                            description,
-                            subagent_type,
-                        };
-                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                            warn!("[message-router] Failed to emit sub-agent-started: {}", e);
-                        }
-                    }
-                    "task_progress" => {
-                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let current_activity = extra.get("current_activity").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let fe = FrontendEvent::SubAgentProgress {
-                            session_id: session_id.clone(),
-                            tool_use_id,
-                            tool_count,
-                            token_count,
-                            current_activity,
-                        };
-                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                            warn!("[message-router] Failed to emit sub-agent-progress: {}", e);
-                        }
-                    }
-                    "task_complete" => {
-                        let tool_count = extra.get("tool_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let token_count = extra.get("token_count").and_then(|v| v.as_u64()).map(|v| v as u32);
-                        let fe = FrontendEvent::SubAgentComplete {
-                            session_id: session_id.clone(),
-                            tool_use_id,
-                            tool_count,
-                            token_count,
-                        };
-                        if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                            warn!("[message-router] Failed to emit sub-agent-complete: {}", e);
-                        }
-                    }
-                    _ => {}
-                }
             }
 
-            // Unhandled System subtypes — log for discovery
             RawStreamEvent::System { subtype, ref extra, .. } => {
                 info!(
                     "[message_router] Unhandled system event: subtype={:?}, keys={:?}",
@@ -566,149 +814,18 @@ pub async fn route_events(
             }
 
             RawStreamEvent::MessageDelta { usage, .. } => {
-                // Authoritative per-API-call usage (final token counts)
-                if let Some(usage) = usage {
-                    let fe = FrontendEvent::UsageUpdate {
-                        session_id: session_id.clone(),
-                        usage: usage.clone(),
-                    };
-                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                        warn!("[message-router] Failed to emit usage-update: {}", e);
-                    }
-                }
+                handle_message_delta(&app_handle, &session_id, &chat_event, usage);
             }
 
             RawStreamEvent::MessageStart { .. }
             | RawStreamEvent::MessageStop { .. } => {}
 
             RawStreamEvent::User { message, .. } => {
-                // User events contain tool_result content blocks
-                if let Some(msg) = message {
-                    if let Some(content_blocks) = &msg.content {
-                        for block in content_blocks {
-                            if let ContentBlock::ToolResult {
-                                tool_use_id,
-                                content,
-                                is_error,
-                            } = block
-                            {
-                                let content_str = tool_result_content_to_string(content);
-                                let fe = FrontendEvent::ToolResult {
-                                    session_id: session_id.clone(),
-                                    tool_use_id: tool_use_id.clone(),
-                                    content: content_str,
-                                    is_error: is_error.unwrap_or(false),
-                                };
-                                if let Err(e) = app_handle.emit(&activity_event, &fe) {
-                                    warn!("[message-router] Failed to emit tool-result: {}", e);
-                                }
-                            }
-                        }
-                    }
-                }
+                handle_user_event(&app_handle, &session_id, &activity_event, &message);
             }
 
             RawStreamEvent::ControlResponse { response, .. } => {
-                if let Some(resp_val) = response {
-                    // resp_val is the top-level response object:
-                    //   { "subtype": "success", "request_id": "req_abc", "response": { ... } }
-                    // or for error:
-                    //   { "subtype": "error", "request_id": "req_abc", "error": "Already initialized" }
-                    // subtype and request_id are always at the top level.
-                    let subtype = resp_val.get("subtype").and_then(|v| v.as_str());
-                    let req_id = resp_val.get("request_id").and_then(|v| v.as_str());
-
-                    if let Some(request_id) = req_id {
-                        if let Some(state) = app_handle.try_state::<AppState>() {
-                            let kind = {
-                                let mut pending = state.pending_control_requests.lock().await;
-                                pending.remove(request_id)
-                            };
-
-                            let is_success = subtype == Some("success");
-                            let error_msg = resp_val
-                                .get("error")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-
-                            match kind {
-                                Some((_, ControlRequestKind::Interrupt)) => {
-                                    let fe = FrontendEvent::InterruptResult {
-                                        session_id: session_id.clone(),
-                                        success: is_success,
-                                        error: error_msg,
-                                    };
-                                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                        warn!("[message-router] Failed to emit interrupt-result: {}", e);
-                                    }
-                                }
-                                Some((_, ControlRequestKind::SetModel(model))) => {
-                                    if is_success {
-                                        let mut sessions = state.sessions.lock().await;
-                                        if let Some(session) = sessions.get_mut(&session_id) {
-                                            session.model = Some(model.clone());
-                                        }
-                                    }
-                                    let fe = FrontendEvent::ModelChanged {
-                                        session_id: session_id.clone(),
-                                        model,
-                                        success: is_success,
-                                        error: error_msg,
-                                    };
-                                    if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                        warn!("[message-router] Failed to emit model-changed: {}", e);
-                                    }
-                                }
-                                Some((_, ControlRequestKind::SetPermissionMode(mode))) => {
-                                    if is_success {
-                                        info!("[message_router] set_permission_mode '{}' succeeded", mode);
-                                    } else {
-                                        warn!(
-                                            "[message_router] set_permission_mode '{}' failed: {:?}",
-                                            mode, error_msg
-                                        );
-                                    }
-                                }
-                                Some((_, ControlRequestKind::Initialize)) => {
-                                    if is_success {
-                                        // Capabilities data is in resp_val.response (the nested payload)
-                                        let caps = resp_val
-                                            .get("response")
-                                            .cloned()
-                                            .unwrap_or(serde_json::Value::Null);
-                                        let fe = FrontendEvent::CapabilitiesDiscovered {
-                                            session_id: session_id.clone(),
-                                            models: caps.get("models").cloned().unwrap_or_default(),
-                                            commands: caps.get("commands").cloned().unwrap_or_default(),
-                                            agents: caps.get("agents").cloned().unwrap_or_default(),
-                                            account: caps.get("account").cloned().unwrap_or_default(),
-                                            output_styles: caps
-                                                .get("available_output_styles")
-                                                .cloned()
-                                                .unwrap_or_default(),
-                                        };
-                                        if let Err(e) = app_handle.emit(&chat_event, &fe) {
-                                            warn!("[message-router] Failed to emit capabilities-discovered: {}", e);
-                                        }
-                                    } else {
-                                        warn!(
-                                            "[message_router] initialize failed: {:?}",
-                                            error_msg
-                                        );
-                                    }
-                                }
-                                None => {
-                                    warn!(
-                                        "Control response for unknown request_id: {}",
-                                        request_id
-                                    );
-                                }
-                            }
-                        }
-                    } else {
-                        debug!("Control response missing request_id");
-                    }
-                }
+                handle_control_response(&app_handle, &session_id, &chat_event, response).await;
             }
 
             RawStreamEvent::Unknown => {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
+use url::Url;
 
 use crate::claude::session::SessionMode;
 use crate::commands::preview::capture_screenshot_inner;
@@ -417,13 +418,16 @@ async fn preview_cors_preflight(
     (StatusCode::NO_CONTENT, resp_headers)
 }
 
-/// Returns true if the origin matches localhost or 127.0.0.1 (any port).
+/// Returns true if the origin matches localhost or 127.0.0.1 (any port, http/https only).
+/// Uses proper URL parsing to prevent origin spoofing (e.g. `http://127.0.0.1.attacker.com`).
 fn is_localhost_origin(origin: &str) -> bool {
-    let lower = origin.to_lowercase();
-    lower.starts_with("http://127.0.0.1")
-        || lower.starts_with("http://localhost")
-        || lower.starts_with("https://127.0.0.1")
-        || lower.starts_with("https://localhost")
+    match Url::parse(origin) {
+        Ok(url) => {
+            (url.scheme() == "http" || url.scheme() == "https")
+                && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        }
+        Err(_) => false,
+    }
 }
 
 /// Build CORS header restricted to localhost origins.
@@ -482,17 +486,19 @@ async fn handle_preview_open_browser(
     Json(body): Json<OpenBrowserRequest>,
 ) -> (StatusCode, HeaderMap) {
     let cors = cors_header(&headers);
-    // Only allow http:// and https:// schemes to prevent file://, ssh://, etc.
-    let url_lower = body.url.to_lowercase();
-    if !url_lower.starts_with("http://") && !url_lower.starts_with("https://") {
-        warn!(
-            "[preview-callback] Rejected open request with disallowed scheme: {}",
-            body.url
-        );
-        return (StatusCode::BAD_REQUEST, cors);
-    }
-    info!("[preview-callback] Opening in browser: {}", body.url);
-    if let Err(e) = std::process::Command::new("open").arg(&body.url).spawn() {
+    // Parse and validate the URL — only allow http/https schemes to prevent file://, ssh://, etc.
+    let parsed = match Url::parse(&body.url) {
+        Ok(url) if url.scheme() == "http" || url.scheme() == "https" => url,
+        _ => {
+            warn!(
+                "[preview-callback] Rejected open request with invalid/disallowed URL: {}",
+                body.url
+            );
+            return (StatusCode::BAD_REQUEST, cors);
+        }
+    };
+    info!("[preview-callback] Opening in browser: {}", parsed.as_str());
+    if let Err(e) = std::process::Command::new("open").arg(parsed.as_str()).spawn() {
         warn!("[preview-callback] Failed to open URL: {}", e);
     }
     (StatusCode::OK, cors)
@@ -602,5 +608,178 @@ mod tests {
         assert!(input.forge_session_id.is_none());
         assert!(input.session_id.is_none());
         assert!(input.tool_name.is_none());
+    }
+
+    // ── is_localhost_origin tests ──
+
+    #[test]
+    fn localhost_http_accepted() {
+        assert!(is_localhost_origin("http://localhost"));
+        assert!(is_localhost_origin("http://localhost:3000"));
+        assert!(is_localhost_origin("http://localhost:8080/path"));
+    }
+
+    #[test]
+    fn localhost_https_accepted() {
+        assert!(is_localhost_origin("https://localhost"));
+        assert!(is_localhost_origin("https://localhost:443"));
+    }
+
+    #[test]
+    fn ip_127_accepted() {
+        assert!(is_localhost_origin("http://127.0.0.1"));
+        assert!(is_localhost_origin("http://127.0.0.1:5000"));
+        assert!(is_localhost_origin("https://127.0.0.1:8443"));
+    }
+
+    #[test]
+    fn external_origins_rejected() {
+        assert!(!is_localhost_origin("http://example.com"));
+        assert!(!is_localhost_origin("https://evil.com:3000"));
+        assert!(!is_localhost_origin("http://192.168.1.1:8080"));
+        assert!(!is_localhost_origin(""));
+        assert!(!is_localhost_origin("ftp://localhost"));
+        assert!(!is_localhost_origin("not-a-url"));
+        assert!(!is_localhost_origin("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn spoofed_origins_rejected() {
+        assert!(!is_localhost_origin("http://127.0.0.1.attacker.com"));
+        assert!(!is_localhost_origin("http://localhost.attacker.com"));
+        assert!(!is_localhost_origin("http://127.0.0.1evil.com"));
+    }
+
+    #[test]
+    fn localhost_origin_case_insensitive() {
+        assert!(is_localhost_origin("HTTP://LOCALHOST:3000"));
+        assert!(is_localhost_origin("Http://Localhost"));
+        assert!(is_localhost_origin("HTTPS://127.0.0.1"));
+    }
+
+    // ── HookResponse serialization tests ──
+
+    #[test]
+    fn hook_response_allow_serializes_correctly() {
+        let resp = HookResponse::allow();
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecision"],
+            "allow"
+        );
+        assert_eq!(
+            json["hookSpecificOutput"]["hookEventName"],
+            "PreToolUse"
+        );
+        assert!(json["hookSpecificOutput"]["permissionDecisionReason"].is_null());
+    }
+
+    #[test]
+    fn hook_response_deny_serializes_with_reason() {
+        let resp = HookResponse::deny(Some("Not allowed".to_string()));
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecision"],
+            "deny"
+        );
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecisionReason"],
+            "Not allowed"
+        );
+    }
+
+    #[test]
+    fn hook_response_deny_without_reason_omits_field() {
+        let resp = HookResponse::deny(None);
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecision"],
+            "deny"
+        );
+        // permissionDecisionReason should be absent (skip_serializing_if = "Option::is_none")
+        assert!(!json["hookSpecificOutput"]
+            .as_object()
+            .unwrap()
+            .contains_key("permissionDecisionReason"));
+    }
+
+    // ── AUTO_APPROVED_TOOLS tests ──
+
+    #[test]
+    fn read_tools_are_auto_approved() {
+        assert!(AUTO_APPROVED_TOOLS.contains(&"Read"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"Glob"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"Grep"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"ListDirectory"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"LS"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"TodoRead"));
+    }
+
+    #[test]
+    fn write_tools_are_not_auto_approved() {
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"Write"));
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"Edit"));
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"Bash"));
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"Delete"));
+    }
+
+    // ── HookInput extra fields ──
+
+    #[test]
+    fn hook_input_preserves_extra_fields() {
+        let json = r#"{
+            "tool_name": "Edit",
+            "custom_field": "custom_value",
+            "nested": {"key": "val"}
+        }"#;
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.tool_name.as_deref(), Some("Edit"));
+        // Extra fields are captured in _extra
+        assert_eq!(input._extra["custom_field"], "custom_value");
+    }
+
+    // ── ToolApprovalRequest serialization ──
+
+    #[test]
+    fn tool_approval_request_serializes_camel_case() {
+        let req = ToolApprovalRequest {
+            request_id: "req-1".to_string(),
+            forge_session_id: "fs-1".to_string(),
+            tool_name: "Edit".to_string(),
+            tool_input: serde_json::json!({"file": "main.rs"}),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["requestId"], "req-1");
+        assert_eq!(json["forgeSessionId"], "fs-1");
+        assert_eq!(json["toolName"], "Edit");
+        assert_eq!(json["toolInput"]["file"], "main.rs");
+    }
+
+    // ── ApprovalServerState tests ──
+
+    #[tokio::test]
+    async fn resolve_nonexistent_request_returns_false() {
+        let state = ApprovalServerState::new();
+        let result = state.resolve("nonexistent-id", true, None).await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn deny_all_clears_pending() {
+        let state = ApprovalServerState::new();
+        let (tx, _rx) = oneshot::channel::<ApprovalDecision>();
+        {
+            let mut pending = state.pending.lock().await;
+            pending.insert("test-1".to_string(), tx);
+        }
+        state.deny_all().await;
+        let pending = state.pending.lock().await;
+        assert!(pending.is_empty());
+    }
+
+    #[tokio::test]
+    async fn app_handle_is_none_by_default() {
+        let state = ApprovalServerState::new();
+        assert!(state.app_handle().await.is_none());
     }
 }
