@@ -116,13 +116,20 @@ export function useSpecConversationClaude(): {
         store.initConversation(projectPath, "claude-code", model, mode, templateCatalog);
       }
 
-      // Build prompt with attachment references (Claude Code receives text only via stdin)
+      // Build prompt with inlined file content (Claude Code receives text only via stdin)
       let prompt = content;
       if (attachments && attachments.length > 0) {
-        const attachmentRefs = attachments
-          .map((a) => `[Attached file: ${a.file_path ?? a.name}]`)
-          .join("\n");
-        prompt = attachmentRefs + (content ? "\n\n" + content : "");
+        const parts: string[] = [];
+        for (const att of attachments) {
+          if (att.type === "image") {
+            parts.push(`[Attached image: ${att.file_path ?? att.name}]`);
+          } else if (att.text_content) {
+            parts.push(`--- ${att.name} ---\n${att.text_content}`);
+          } else {
+            parts.push(`[Attached file: ${att.file_path ?? att.name}]`);
+          }
+        }
+        prompt = parts.join("\n\n") + (content ? "\n\n" + content : "");
       }
 
       // Add user message to store

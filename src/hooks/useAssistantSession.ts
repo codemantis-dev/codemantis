@@ -110,7 +110,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     }
   }, []);
 
-  const sendMessage = useCallback((sessionId: string, prompt: string, attachments?: Attachment[]) => {
+  const sendMessage = useCallback(async (sessionId: string, prompt: string, attachments?: Attachment[]) => {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
     if (!instance) return;
@@ -118,18 +118,33 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     // Guard against concurrent sends (UI checks busy, but retryLastMessage and other paths may not)
     if (store.busy.get(sessionId)) return;
 
-    // For Claude Code with attachments, prepend file references
+    // For Claude Code with attachments, inline text content (CLI only accepts text)
     let finalPrompt = prompt;
     if (instance.provider === "claude-code" && attachments && attachments.length > 0) {
-      const refs = attachments.map((a) => `[Attached file: ${a.filePath}]`).join("\n");
-      finalPrompt = refs + (prompt ? "\n\n" + prompt : "");
+      const parts: string[] = [];
+      for (const att of attachments) {
+        if (att.isImage) {
+          parts.push(`[Attached image: ${att.filePath}]`);
+        } else if (isTextMime(att.mimeType)) {
+          const text = await readFileContentSafe(att.filePath);
+          if (text) {
+            const truncated = text.slice(0, 30000) + (text.length > 30000 ? "\n..." : "");
+            parts.push(`--- ${att.fileName} ---\n${truncated}`);
+          } else {
+            parts.push(`[Could not read: ${att.fileName}]`);
+          }
+        } else {
+          parts.push(`[Attached file: ${att.filePath} (${att.mimeType})]`);
+        }
+      }
+      finalPrompt = parts.join("\n\n") + (prompt ? "\n\n" + prompt : "");
     }
 
     const msgId = `asst-user-${Date.now()}`;
     store.addMessage(sessionId, {
       id: msgId,
       role: "user",
-      content: finalPrompt,
+      content: prompt,
       timestamp: new Date().toISOString(),
       activityIds: [],
       isStreaming: false,
