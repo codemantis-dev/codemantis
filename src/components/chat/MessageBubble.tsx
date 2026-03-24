@@ -7,6 +7,7 @@ import { formatDuration } from "../../lib/format-utils";
 import ActivityChip from "./ActivityChip";
 import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
+import { ExternalLink } from "../../lib/external-links";
 import TurnStatsPopover from "./TurnStatsPopover";
 
 function formatMessageTime(timestamp: string): string {
@@ -83,6 +84,7 @@ export default React.memo(function MessageBubble({
             remarkPlugins={[remarkGfm]}
             components={{
               code: CodeBlock,
+              a: ExternalLink,
             }}
           >
             {displayContent}

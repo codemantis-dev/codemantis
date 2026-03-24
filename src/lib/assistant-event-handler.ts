@@ -1,6 +1,6 @@
 import type { FrontendEvent } from "../types/claude-events";
 import { useAssistantStore } from "../stores/assistantStore";
-import { translateError } from "./error-messages";
+import { translateError, formatErrorAsMarkdown } from "./error-messages";
 
 let messageCounter = 0;
 
@@ -110,7 +110,7 @@ export function handleAssistantChatEvent(sessionId: string, event: FrontendEvent
       store.addMessage(sessionId, {
         id: errorMsgId,
         role: "assistant",
-        content: `**Error:** ${event.error}`,
+        content: formatErrorAsMarkdown(translateError(event.error)),
         timestamp: now,
         activityIds: [],
         isStreaming: false,

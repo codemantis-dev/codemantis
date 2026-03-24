@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
 import StreamingCursor from "../chat/StreamingCursor";
 import CodeBlock from "../chat/CodeBlock";
+import { ExternalLink } from "../../lib/external-links";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
 
 /** Number of initial messages to hide (system prompt + acknowledgment). */
@@ -112,7 +113,7 @@ export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
             return (
               <div key={msg.id} className="flex justify-start">
                 <div className="max-w-[95%] text-sm markdown-content" style={{ color: "var(--text-secondary)" }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock, a: ExternalLink }}>
                     {displayContent}
                   </ReactMarkdown>
                   {msg.isStreaming && <StreamingCursor />}

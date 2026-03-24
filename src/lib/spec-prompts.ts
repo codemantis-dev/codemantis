@@ -20,9 +20,18 @@ CONVERSATION PHASE (gather requirements before writing ANYTHING)
 
 START by acknowledging what the user described. Identify what's clear and what needs clarification.
 
-Ask ONE focused question at a time. After each question, provide 2-5 selectable options using this format (one per line):
-  ?> Option text here
-  ?> Another option
+Ask ONE focused question at a time. After EVERY question (including your very first response), provide 2-5 selectable options using ONLY this exact format:
+?> Option text here
+?> Another option
+
+WRONG — these will NOT create interactive options in the UI:
+- Option A
+- Option B
+1. Option A
+2. Option B
+- [ ] Option A
+
+ONLY the ?> prefix creates clickable buttons. This is a hard UI constraint, not a preference.
 
 QUESTION QUALITY MATTERS MORE THAN QUANTITY. Don't ask surface-level questions. Ask questions that reveal hidden complexity:
 
@@ -758,10 +767,17 @@ CONVERSATION PHASE
    📂 REQUEST_FILES: prisma/schema.prisma, src/app/layout.tsx
 
 3. THEN ask questions that account for the existing architecture.
-   Ask ONE focused question at a time with selectable options:
-     ?> Option A
-     ?> Option B
-     ?> Option C
+   Ask ONE focused question at a time. After EVERY question (including your very first response), provide 2-5 selectable options using ONLY this exact format:
+   ?> Option A
+   ?> Option B
+   ?> Option C
+
+   WRONG — these will NOT create interactive options in the UI:
+   - Option A
+   1. Option A
+   - [ ] Option A
+   ONLY the ?> prefix creates clickable buttons. This is a hard UI constraint.
+
    Reference what you've read: "I've read your schema. You have User, Project, and Task models..."
 
 4. ASK about integration points:
@@ -1297,6 +1313,16 @@ You MUST use these exact formats:
    - Do NOT group options under sub-headers
    - Use a single flat list
    - Use ★ to mark recommended options
+
+   WRONG — these will NOT render as interactive options:
+   - Option A
+   - Option B
+   1. Option A
+   2. Option B
+   - [ ] Option A
+
+   Only the ?> format creates interactive checkboxes in the UI.
+   This applies to EVERY response, including your very first one.
 
 2. FEATURE SELECTION: Before writing a spec, present features as
    selectable options:

@@ -21,7 +21,206 @@ interface ErrorPattern {
 
 const lower = (s: string): string => s.toLowerCase();
 
+/** Extracts the provider name (e.g. "OpenRouter") from a Rust-formatted API error string. */
+function extractProviderName(raw: string): string | null {
+  const match = raw.match(/^(OpenAI|Gemini|Anthropic|OpenRouter)\s/);
+  return match?.[1] ?? null;
+}
+
+/** Attempts to extract a human-readable message from the JSON body embedded in an API error. */
+function extractApiErrorMessage(raw: string): string | null {
+  const jsonStart = raw.indexOf("{");
+  if (jsonStart === -1) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(jsonStart));
+    if (typeof parsed?.error?.message === "string") return parsed.error.message;
+    if (typeof parsed?.message === "string") return parsed.message;
+    if (Array.isArray(parsed?.error) && typeof parsed.error[0]?.message === "string") {
+      return parsed.error[0].message;
+    }
+  } catch {
+    // Not valid JSON
+  }
+  return null;
+}
+
+/**
+ * Formats a UserError into markdown suitable for display in a chat message bubble.
+ */
+export function formatErrorAsMarkdown(userError: UserError): string {
+  let content = `**${userError.title}**\n\n${userError.message}`;
+  if (userError.remediation) {
+    content += `\n\n**How to fix:** ${userError.remediation}`;
+  }
+  return content;
+}
+
 const ERROR_CATALOG: ErrorPattern[] = [
+  // ═══════════════════════════════════════════════════════════
+  // API provider errors (OpenAI, Gemini, Anthropic, OpenRouter)
+  // ═══════════════════════════════════════════════════════════
+
+  // ── OpenRouter guardrail / data policy 404 ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") && l.includes("404") &&
+        (l.includes("guardrail") || l.includes("data policy"));
+    },
+    map: () => ({
+      title: "Model unavailable due to privacy settings",
+      message:
+        "No endpoints are available for this model given your current OpenRouter guardrail and data policy restrictions.",
+      remediation:
+        "Go to https://openrouter.ai/settings/privacy and adjust your data policy settings, then try again. Alternatively, switch to a different model.",
+      toastMessage: "Model blocked by OpenRouter privacy settings",
+    }),
+  },
+
+  // ── 401 Unauthorized / Invalid API key ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") &&
+        (l.includes("401") || l.includes("unauthorized") || (l.includes("invalid") && l.includes("key")));
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: "Invalid API key",
+        message: `${provider} rejected your API key. It may be incorrect, expired, or revoked.`,
+        remediation: "Go to Settings \u203a AI Providers, verify your API key is correct, and save it again.",
+        toastMessage: `${provider}: invalid API key`,
+      };
+    },
+  },
+
+  // ── 402 Payment required / insufficient credits ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") &&
+        (l.includes("402") || l.includes("payment required") ||
+          (l.includes("insufficient") && (l.includes("credit") || l.includes("fund") || l.includes("balance") || l.includes("quota"))));
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: "Insufficient credits",
+        message: `${provider} requires payment or additional credits to process this request.`,
+        remediation: "Check your account balance and billing settings on the provider's website, then try again.",
+        toastMessage: `${provider}: insufficient credits`,
+      };
+    },
+  },
+
+  // ── 403 Forbidden ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") && (l.includes("403") || l.includes("forbidden"));
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: "Access denied",
+        message: `${provider} denied access to this resource. Your API key may not have the required permissions.`,
+        remediation: "Verify your API key has the correct scopes/permissions, or check if the model requires a specific plan or access tier.",
+        toastMessage: `${provider}: access denied`,
+      };
+    },
+  },
+
+  // ── 404 Not found (generic, after guardrail-specific) ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") && l.includes("404");
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      const apiMsg = extractApiErrorMessage(r);
+      return {
+        title: "Model not found",
+        message: apiMsg ?? `${provider} could not find the requested model or endpoint.`,
+        remediation: "Check that you've selected a valid model. The model may have been deprecated or renamed.",
+        toastMessage: `${provider}: model not found`,
+      };
+    },
+  },
+
+  // ── 429 Rate limit ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") &&
+        (l.includes("429") || l.includes("rate limit") || l.includes("too many requests"));
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: "Rate limited",
+        message: `${provider} rate-limited this request. You've sent too many requests in a short period.`,
+        remediation: "Wait a moment and try again. If this persists, consider using a different model or upgrading your API plan.",
+        toastMessage: `${provider}: rate limited — try again shortly`,
+      };
+    },
+  },
+
+  // ── 5xx Server errors ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("api error") && /\b5\d{2}\b/.test(l);
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: `${provider} server error`,
+        message: `${provider} is experiencing server issues. This is not a problem on your end.`,
+        remediation: "Wait a minute and try again. Check the provider's status page if the problem persists.",
+        toastMessage: `${provider}: server error — try again later`,
+      };
+    },
+  },
+
+  // ── Network / connection failure ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("request failed") &&
+        (l.includes("openai") || l.includes("gemini") || l.includes("anthropic") || l.includes("openrouter"));
+    },
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The provider";
+      return {
+        title: "Connection failed",
+        message: `Could not connect to ${provider}. The service may be down or your network may be unavailable.`,
+        remediation: "Check your internet connection and try again. If the problem persists, the provider may be experiencing an outage.",
+        toastMessage: `${provider}: connection failed`,
+      };
+    },
+  },
+
+  // ── Generic API error catch-all ──
+  {
+    test: (r) => lower(r).includes("api error"),
+    map: (r) => {
+      const provider = extractProviderName(r) ?? "The API provider";
+      const apiMsg = extractApiErrorMessage(r);
+      return {
+        title: `${provider} error`,
+        message: apiMsg ?? `An error occurred while communicating with ${provider}.`,
+        remediation: "Try again. If the problem persists, check your API key and model selection in Settings.",
+        toastMessage: `${provider}: request failed`,
+      };
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════
+  // Claude CLI errors
+  // ═══════════════════════════════════════════════════════════
+
   // ── Claude CLI not found / spawn failure (file not found) ──
   {
     test: (r) => {

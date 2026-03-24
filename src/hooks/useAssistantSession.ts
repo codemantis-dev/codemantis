@@ -21,6 +21,7 @@ import { handleAssistantChatEvent, cleanupAssistantBuffers } from "../lib/assist
 import { handleActivityEvent } from "../lib/event-classifier";
 import { fileToBase64, readFileContentSafe, isTextMime } from "../lib/file-utils";
 import { handleError } from "../lib/error-handler";
+import { translateError, formatErrorAsMarkdown } from "../lib/error-messages";
 import { useOpenRouterStore } from "../stores/openRouterStore";
 
 // Module-level listener map for assistant sessions
@@ -149,7 +150,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
         store.addMessage(sessionId, {
           id: `asst-err-${Date.now()}`,
           role: "assistant",
-          content: `**Error:** ${String(e)}`,
+          content: formatErrorAsMarkdown(translateError(String(e))),
           timestamp: new Date().toISOString(),
           activityIds: [],
           isStreaming: false,
@@ -186,7 +187,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       store.addMessage(sessionId, {
         id: `asst-err-${Date.now()}`,
         role: "assistant",
-        content: `**Error:** ${String(e)}`,
+        content: formatErrorAsMarkdown(translateError(String(e))),
         timestamp: new Date().toISOString(),
         activityIds: [],
         isStreaming: false,
@@ -427,7 +428,7 @@ async function sendApiMessage(
         s.addMessage(sessionId, {
           id: `asst-err-${Date.now()}`,
           role: "assistant",
-          content: `**Error:** ${event.message ?? "Unknown error"}`,
+          content: formatErrorAsMarkdown(translateError(event.message ?? "Unknown error")),
           timestamp: new Date().toISOString(),
           activityIds: [],
           isStreaming: false,

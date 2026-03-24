@@ -81,20 +81,21 @@ export default function ChangelogSettingsTab({
                     value={orSearch}
                     onChange={(e) => setOrSearch(e.target.value)}
                     placeholder="Search OpenRouter models..."
-                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 placeholder:text-text-ghost w-64"
+                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 placeholder:text-text-ghost w-80"
                   />
-                  <select
-                    value={model}
-                    onChange={(e) => onModelChange(e.target.value)}
-                    size={6}
-                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 w-64"
-                  >
+                  <div className="w-80 max-h-[200px] overflow-y-auto rounded border border-border bg-bg-elevated">
                     {filteredOrModels.slice(0, 50).map((m) => (
-                      <option key={m.id} value={m.id}>
+                      <button
+                        key={m.id}
+                        onClick={() => onModelChange(m.id)}
+                        className={`w-full text-left px-2 py-1 text-label truncate hover:bg-accent/10 ${
+                          model === m.id ? "bg-accent/15 text-accent" : "text-text-primary"
+                        }`}
+                      >
                         {m.isFree ? "[FREE] " : ""}{m.name}
-                      </option>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
               ) : (
                 <select

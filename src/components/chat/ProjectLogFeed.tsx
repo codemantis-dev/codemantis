@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ScrollText, RefreshCw, Loader2, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownLinkComponents } from "../../lib/external-links";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
@@ -64,12 +65,12 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
 
           {/* Headline */}
           <div className="changelog-markdown text-ui text-text-primary font-medium leading-tight mb-0.5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.headline}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{entry.headline}</ReactMarkdown>
           </div>
 
           {/* Description */}
           <div className="changelog-markdown text-label text-text-dim leading-snug">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.description}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{entry.description}</ReactMarkdown>
           </div>
 
           {/* Files changed */}

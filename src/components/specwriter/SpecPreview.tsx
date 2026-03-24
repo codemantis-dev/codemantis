@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useMemo } from "react";
 import { X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownLinkComponents } from "../../lib/external-links";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -29,7 +30,7 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
 
   // Memoize markdown rendering — only re-parse when content changes
   const renderedMarkdown = useMemo(
-    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{displayContent ?? ""}</ReactMarkdown>,
+    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownLinkComponents}>{displayContent ?? ""}</ReactMarkdown>,
     [displayContent]
   );
 

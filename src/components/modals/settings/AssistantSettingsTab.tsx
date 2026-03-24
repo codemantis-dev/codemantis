@@ -84,22 +84,25 @@ export default function AssistantSettingsTab({
                       onChange={(e) => setOrSearch(e.target.value)}
                       placeholder="Search..."
                       disabled={!hasKey}
-                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 placeholder:text-text-ghost w-52"
+                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 placeholder:text-text-ghost w-80"
                     />
-                    <select
-                      value={currentModel}
-                      onChange={(e) => onModelChange(p.id, e.target.value)}
-                      disabled={!hasKey}
-                      size={4}
-                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 w-52"
+                    <div
+                      className="w-80 max-h-[160px] overflow-y-auto rounded border border-border bg-bg-elevated"
                       title={!hasKey ? `Set API key in Settings > AI Providers` : undefined}
                     >
                       {filteredOrModels.slice(0, 50).map((m) => (
-                        <option key={m.id} value={m.id}>
+                        <button
+                          key={m.id}
+                          disabled={!hasKey}
+                          onClick={() => onModelChange(p.id, m.id)}
+                          className={`w-full text-left px-2 py-1 text-label truncate disabled:opacity-40 hover:bg-accent/10 ${
+                            currentModel === m.id ? "bg-accent/15 text-accent" : "text-text-primary"
+                          }`}
+                        >
                           {m.isFree ? "[FREE] " : ""}{m.name}
-                        </option>
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 </FieldRow>
               );

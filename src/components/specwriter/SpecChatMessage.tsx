@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownLinkComponents } from "../../lib/external-links";
 import type { SpecMessage } from "../../types/spec-writer";
 import { Copy, Check, Send, Info, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -21,7 +22,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
 
   // Memoize markdown rendering — only re-parse when content changes
   const renderedMarkdown = useMemo(
-    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{message.content}</ReactMarkdown>,
+    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownLinkComponents}>{message.content}</ReactMarkdown>,
     [message.content]
   );
 

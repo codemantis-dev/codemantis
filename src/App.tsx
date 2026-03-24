@@ -23,6 +23,7 @@ import { showToast } from "./stores/toastStore";
 import { translateError, translateErrorForToast } from "./lib/error-messages";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
+import { useExternalLinkGuard } from "./hooks/useExternalLinkGuard";
 
 export default function App() {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
@@ -41,6 +42,7 @@ export default function App() {
 
   useKeyboardShortcuts();
   useToolApprovalListener();
+  useExternalLinkGuard();
 
   useEffect(() => {
     checkClaudeStatus()

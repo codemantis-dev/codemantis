@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Sparkles, Loader2, Trash2, ChevronDown, ChevronRight, Search, X, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownLinkComponents } from "../../lib/external-links";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import type { ChangelogEntry } from "../../types/changelog";
@@ -87,12 +88,12 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
 
           {/* Headline */}
           <div className="changelog-markdown text-ui text-text-primary font-medium leading-tight mb-0.5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.headline}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{entry.headline}</ReactMarkdown>
           </div>
 
           {/* Description */}
           <div className="changelog-markdown text-label text-text-dim leading-snug">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.description}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{entry.description}</ReactMarkdown>
           </div>
 
           {/* Tools summary badge */}
@@ -117,7 +118,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
                   {detailBullets.map((bullet) => (
                     <li key={bullet} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
                       <span className="text-text-ghost mt-px shrink-0">&#x2022;</span>
-                      <span className="changelog-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{bullet}</ReactMarkdown></span>
+                      <span className="changelog-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{bullet}</ReactMarkdown></span>
                     </li>
                   ))}
                 </ul>

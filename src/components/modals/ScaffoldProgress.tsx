@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Check, X, Loader2, AlertTriangle, Copy, Send, Square, Wrench } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ExternalLink } from "../../lib/external-links";
 import {
   listenScaffoldProgress,
   createSession,
@@ -402,6 +403,7 @@ export default function ScaffoldProgress({
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
+                        a: ExternalLink,
                         p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
                         code: ({ children }) => (
                           <code className="bg-bg-subtle px-1 rounded text-[11px] font-mono">{children}</code>
@@ -426,6 +428,7 @@ export default function ScaffoldProgress({
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
+                      a: ExternalLink,
                       p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
                       code: ({ children }) => (
                         <code className="bg-bg-subtle px-1 rounded text-[11px] font-mono">{children}</code>

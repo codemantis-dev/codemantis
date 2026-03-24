@@ -7,6 +7,7 @@ import { useOpenRouterStore } from "../stores/openRouterStore";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
 import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
+import { parseSelectableOptions } from "../lib/spec-option-parser";
 import { handleFileRequests } from "../lib/spec-file-requests";
 import { fileToBase64, isTextMime } from "../lib/file-utils";
 
@@ -252,17 +253,11 @@ export function useSpecConversation(): {
           currentStore.setPlanningStreaming(projectPath, false);
           const finalContent = streamBufferRef.current;
 
-          // Parse selectable options from ?> markers (allow leading whitespace)
-          const optionPattern = /^\s*\?>\s*(.+)$/gm;
-          const options: string[] = [];
-          let m;
-          while ((m = optionPattern.exec(finalContent)) !== null) {
-            options.push(m[1].trim());
-          }
-          if (options.length > 0) {
-            const cleanContent = finalContent.replace(/^\s*\?>\s*.+$/gm, '').trim();
-            currentStore.updateLastAssistantMessage(projectPath, cleanContent);
-            currentStore.setMessageOptions(projectPath, options);
+          // Parse selectable options (?> markers with fallback for markdown lists)
+          const parsed = parseSelectableOptions(finalContent);
+          if (parsed) {
+            currentStore.updateLastAssistantMessage(projectPath, parsed.cleanContent);
+            currentStore.setMessageOptions(projectPath, parsed.options);
           }
 
           // Check if AI is ready to write spec
