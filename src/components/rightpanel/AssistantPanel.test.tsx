@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import * as React from "react";
 import AssistantPanel from "./AssistantPanel";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAssistantStore } from "../../stores/assistantStore";
@@ -89,7 +90,6 @@ vi.mock("../../lib/file-utils", () => ({
 }));
 
 vi.mock("@radix-ui/react-dialog", () => {
-  const React = require("react");
   return {
     Root: ({ children }: { children: React.ReactNode }) => children,
     Portal: ({ children }: { children: React.ReactNode }) => children,

@@ -46,6 +46,7 @@ describe("usePreviewServer", () => {
       consoleDrawerOpen: false,
       viewportPreset: "desktop",
       unreadErrors: new Map(),
+      previewUrlPrompt: null,
     });
     useTerminalStore.setState({
       sessionTerminals: new Map(),
@@ -268,6 +269,43 @@ describe("usePreviewServer", () => {
     expect(devServer!.errorMessage).toContain("exited unexpectedly");
     expect(mockClosePreviewWindow).toHaveBeenCalled();
     expect(usePreviewStore.getState().previewOpen.get(PROJECT)).toBe(false);
+  });
+
+  it("dev-server-error event sets previewUrlPrompt for fallback dialog", async () => {
+    let errorHandler: ((e: { payload: unknown }) => void) | null = null;
+    (listen as Mock).mockImplementation((event: string, handler: (e: { payload: unknown }) => void) => {
+      if (event === "dev-server-error") {
+        errorHandler = handler;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    renderHook(() => usePreviewServer());
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(errorHandler).not.toBeNull();
+
+    await act(async () => {
+      errorHandler!({
+        payload: {
+          message: "Could not detect dev server port.",
+          projectPath: PROJECT,
+        },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const prompt = usePreviewStore.getState().previewUrlPrompt;
+    expect(prompt).toEqual({
+      projectPath: PROJECT,
+      errorMessage: "Could not detect dev server port.",
+    });
+
+    const devServer = usePreviewStore.getState().devServer.get(PROJECT);
+    expect(devServer!.status).toBe("error");
   });
 
   it("dev-server-ready event triggers auto-open preview", async () => {

@@ -89,10 +89,8 @@ describe("McpModal", () => {
 
   it("renders when showMcpModal is true", async () => {
     openModal();
-    await act(async () => {
-      render(<McpModal />);
-    });
-    expect(screen.getByText("MCP Servers")).toBeInTheDocument();
+    render(<McpModal />);
+    expect(await screen.findByText("MCP Servers")).toBeInTheDocument();
   });
 
   // ────── Empty / Loading States ──────

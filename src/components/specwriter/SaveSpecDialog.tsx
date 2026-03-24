@@ -120,7 +120,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
     } finally {
       setSaving(false);
     }
-  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, mode, isAudit, onSaved]);
+  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, mode, isAudit, onSaved, onGuideCreated]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>

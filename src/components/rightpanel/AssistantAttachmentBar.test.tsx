@@ -1,21 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import * as React from "react";
 import AssistantAttachmentBar from "./AssistantAttachmentBar";
 import type { Attachment } from "../../types/attachment";
 
 // Mock Radix Dialog portal to render inline
 vi.mock("@radix-ui/react-dialog", () => {
-  const React = require("react");
   return {
     Root: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
       open !== false ? children : null,
     Portal: ({ children }: { children: React.ReactNode }) => children,
-    Overlay: ({ children, ...props }: Record<string, unknown>) =>
-      React.createElement("div", { "data-testid": "dialog-overlay", ...props }, children),
-    Content: ({ children, ...props }: Record<string, unknown>) =>
-      React.createElement("div", { "data-testid": "dialog-content", ...props }, children),
-    Title: ({ children, ...props }: Record<string, unknown>) =>
-      React.createElement("h2", props, children),
+    Overlay: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("div", { "data-testid": "dialog-overlay" }, children),
+    Content: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("div", { "data-testid": "dialog-content" }, children),
+    Title: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("h2", null, children),
   };
 });
 

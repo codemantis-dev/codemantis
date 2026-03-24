@@ -10,6 +10,7 @@ function resetStore(): void {
     consoleDrawerOpen: false,
     viewportPreset: "desktop",
     unreadErrors: new Map(),
+    previewUrlPrompt: null,
   });
 }
 
@@ -310,6 +311,47 @@ describe("previewStore", () => {
       usePreviewStore.getState().resetUnreadErrors(PROJECT_A);
       expect(usePreviewStore.getState().unreadErrors.get(PROJECT_A)).toBe(0);
       expect(usePreviewStore.getState().unreadErrors.get(PROJECT_B)).toBe(1);
+    });
+  });
+
+  describe("previewUrlPrompt", () => {
+    it("is null by default", () => {
+      expect(usePreviewStore.getState().previewUrlPrompt).toBeNull();
+    });
+
+    it("setPreviewUrlPrompt sets the prompt", () => {
+      usePreviewStore.getState().setPreviewUrlPrompt({
+        projectPath: PROJECT_A,
+        errorMessage: "Failed to start dev server",
+      });
+      expect(usePreviewStore.getState().previewUrlPrompt).toEqual({
+        projectPath: PROJECT_A,
+        errorMessage: "Failed to start dev server",
+      });
+    });
+
+    it("setPreviewUrlPrompt(null) clears the prompt", () => {
+      usePreviewStore.getState().setPreviewUrlPrompt({
+        projectPath: PROJECT_A,
+        errorMessage: "Error",
+      });
+      usePreviewStore.getState().setPreviewUrlPrompt(null);
+      expect(usePreviewStore.getState().previewUrlPrompt).toBeNull();
+    });
+
+    it("replaces existing prompt with new one", () => {
+      usePreviewStore.getState().setPreviewUrlPrompt({
+        projectPath: PROJECT_A,
+        errorMessage: "First error",
+      });
+      usePreviewStore.getState().setPreviewUrlPrompt({
+        projectPath: PROJECT_B,
+        errorMessage: "Second error",
+      });
+      expect(usePreviewStore.getState().previewUrlPrompt).toEqual({
+        projectPath: PROJECT_B,
+        errorMessage: "Second error",
+      });
     });
   });
 });
