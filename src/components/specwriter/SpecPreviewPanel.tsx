@@ -1,4 +1,5 @@
-import { Pencil, Eye, ClipboardCheck } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Pencil, Eye, ClipboardCheck, FileDown } from "lucide-react";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 
@@ -39,6 +40,13 @@ export default function SpecPreviewPanel({
   onOpenSaveSpecDialog,
   onLoadSpec,
 }: Props) {
+  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
+
+  // Auto-switch to audit tab when audit content first appears
+  useEffect(() => {
+    if (currentAuditContent) setActiveTab('audit');
+  }, [currentAuditContent]);
+
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       {/* Spec Preview */}
@@ -46,6 +54,8 @@ export default function SpecPreviewPanel({
         <SpecPreview
           content={currentSpecContent}
           auditContent={currentAuditContent}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
           isEditing={isEditing}
           onContentChange={onSpecEdit}
           onClose={onCloseSpec}
@@ -87,8 +97,8 @@ export default function SpecPreviewPanel({
           {/* Spacer pushes audit + save buttons right */}
           <div className="flex-1" />
 
-          {/* Generate Audit / Save Audit */}
-          {canGenerateAudit && (
+          {/* Generate Audit — only from Spec tab */}
+          {activeTab === 'spec' && canGenerateAudit && (
             <button
               onClick={onGenerateAudit}
               disabled={isStreaming}
@@ -104,27 +114,28 @@ export default function SpecPreviewPanel({
               Generate Audit
             </button>
           )}
-          {canSaveAudit && (
-            <button
-              onClick={onOpenSaveAuditDialog}
-              title="Save verification audit to project"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "var(--accent)", color: "white" }}
-            >
-              <ClipboardCheck size={13} />
-              Save Audit
-            </button>
-          )}
 
-          {/* Save to Project */}
-          {canSave && (
+          {/* Context-aware Save — saves whichever document is active */}
+          {activeTab === 'spec' && canSave && (
             <button
               onClick={onOpenSaveSpecDialog}
               title="Save specification to project"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
               style={{ background: "var(--accent)", color: "white" }}
             >
-              Save to Project
+              <FileDown size={13} />
+              Save Spec
+            </button>
+          )}
+          {activeTab === 'audit' && canSaveAudit && (
+            <button
+              onClick={onOpenSaveAuditDialog}
+              title="Save verification audit to project"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white" }}
+            >
+              <FileDown size={13} />
+              Save Audit
             </button>
           )}
         </div>

@@ -16,6 +16,7 @@ interface Props {
   lastSavedFile?: string | null;
   onClose: () => void;
   onSaved: (filename: string) => void;
+  onGuideCreated?: () => void;
 }
 
 function slugify(text: string): string {
@@ -26,7 +27,7 @@ function slugify(text: string): string {
     .slice(0, 60);
 }
 
-export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
+export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved, onGuideCreated }: Props) {
   const [filename, setFilename] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -106,6 +107,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
                 "info",
               );
               useUiStore.getState().setRightTab("guide");
+              onGuideCreated?.();
             }
           }
         } catch (guideErr) {

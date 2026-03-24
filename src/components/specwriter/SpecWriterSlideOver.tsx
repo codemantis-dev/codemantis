@@ -4,6 +4,7 @@ import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { showToast } from "../../stores/toastStore";
 import { listSpecDocuments, gatherSpecContext, saveTaskBoardState, addVerificationWorkflowToClaudeMd } from "../../lib/tauri-commands";
+import { useUiStore } from "../../stores/uiStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import { useDividerResize } from "../../hooks/useDividerResize";
@@ -50,6 +51,7 @@ export default function SpecWriterSlideOver() {
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [hasGuide, setHasGuide] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
   const { sendMessage: sendSpecMessage, writeSpec, generateAudit } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -174,6 +176,7 @@ export default function SpecWriterSlideOver() {
       setLastSavedFile(null);
       setLastSavedAuditFile(null);
       setIsEditing(false);
+      setHasGuide(false);
       // Clear persisted state from database so stale data doesn't reload
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
@@ -193,6 +196,15 @@ export default function SpecWriterSlideOver() {
   const handleGenerateAudit = useCallback(() => {
     if (activeProjectPath) generateAudit(activeProjectPath);
   }, [activeProjectPath, generateAudit]);
+
+  const handleGuideCreated = useCallback(() => {
+    setHasGuide(true);
+  }, []);
+
+  const handleUseGuide = useCallback(() => {
+    useUiStore.getState().setRightTab("guide");
+    handleClose();
+  }, [handleClose]);
 
   // ── Spec save handler ───────
   const handleSpecSaved = useCallback((filename: string) => {
@@ -377,8 +389,10 @@ export default function SpecWriterSlideOver() {
           hasMessages={hasMessages}
           isStreaming={isStreaming}
           conversationMode={conversationMode}
+          hasGuide={hasGuide}
           onSendToChat={handleSendToChat}
           onImplement={handleImplement}
+          onUseGuide={handleUseGuide}
           onWriteSpec={handleWriteSpec}
           onReset={handleReset}
           onSuggestFeatures={handleSuggestFeatures}
@@ -476,6 +490,7 @@ export default function SpecWriterSlideOver() {
           lastSavedFile={lastSavedFile}
           onClose={() => setShowSaveDialog(false)}
           onSaved={handleSaved}
+          onGuideCreated={handleGuideCreated}
         />
       )}
     </>

@@ -8,14 +8,16 @@ vi.mock("../../stores/toastStore", () => ({
   showToast: vi.fn(),
 }));
 
+const mockSetDraftInput = vi.fn();
+
 vi.mock("../../stores/uiStore", () => ({
   useUiStore: Object.assign(
     vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
-      selector({ rightTab: "guide", setRightTab: vi.fn(), setDraftInput: vi.fn() }),
+      selector({ rightTab: "guide", setRightTab: vi.fn(), setDraftInput: mockSetDraftInput }),
     ),
     {
       getState: vi.fn(() => ({
-        setDraftInput: vi.fn(),
+        setDraftInput: mockSetDraftInput,
         setRightTab: vi.fn(),
       })),
     },
@@ -70,6 +72,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession()}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -85,6 +88,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -105,6 +109,7 @@ describe("GuideSessionCard", () => {
             { id: "v-1-1", label: "Tests pass", checked: true },
           ],
         })}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -117,6 +122,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -131,6 +137,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession()}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -144,6 +151,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession()}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -158,6 +166,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession()}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -177,6 +186,7 @@ describe("GuideSessionCard", () => {
             { id: "v-1-1", label: "Tests pass", checked: true },
           ],
         })}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -192,6 +202,7 @@ describe("GuideSessionCard", () => {
     render(
       <GuideSessionCard
         session={makeSession()}
+        specFilename="test.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -202,5 +213,65 @@ describe("GuideSessionCard", () => {
     fireEvent.click(filesBtn);
     expect(screen.getByText("src/db.ts")).toBeTruthy();
     expect(screen.getByText("src/models.ts")).toBeTruthy();
+  });
+
+  it("renders 'Verify for me' button for active session with verify checks", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession()}
+        specFilename="test.md"
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+      />,
+    );
+
+    expect(screen.getByText("Verify for me")).toBeTruthy();
+  });
+
+  it("does not render 'Verify for me' for pending sessions", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession({ status: "pending" })}
+        specFilename="test.md"
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+      />,
+    );
+
+    // Expand to see content
+    fireEvent.click(screen.getByText("Session 1: Foundation"));
+    expect(screen.queryByText("Verify for me")).toBeNull();
+  });
+
+  it("does not render 'Verify for me' when no verify checks", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession({ verifyChecks: [] })}
+        specFilename="test.md"
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+      />,
+    );
+
+    expect(screen.queryByText("Verify for me")).toBeNull();
+  });
+
+  it("calls setDraftInput with verification prompt on 'Verify for me' click", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession()}
+        specFilename="my-feature.md"
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Verify for me"));
+    expect(mockSetDraftInput).toHaveBeenCalledOnce();
+    const prompt = mockSetDraftInput.mock.calls[0][0] as string;
+    expect(prompt).toContain("Session 1: Foundation");
+    expect(prompt).toContain("docs/specs/my-feature.md");
+    expect(prompt).toContain("TypeScript compiles");
+    expect(prompt).toContain("Tests pass");
   });
 });

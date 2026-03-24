@@ -1,4 +1,4 @@
-import { X, Send, Play, PenTool, RotateCcw, Lightbulb } from "lucide-react";
+import { X, Send, Play, PenTool, RotateCcw, Lightbulb, BookOpen } from "lucide-react";
 
 interface Props {
   lastSavedFile: string | null;
@@ -7,8 +7,10 @@ interface Props {
   hasMessages: boolean;
   isStreaming: boolean;
   conversationMode: string | undefined;
+  hasGuide: boolean;
   onSendToChat: () => void;
   onImplement: () => void;
+  onUseGuide: () => void;
   onWriteSpec: () => void;
   onReset: () => void;
   onSuggestFeatures: () => void;
@@ -22,8 +24,10 @@ export default function SpecWriterToolbar({
   hasMessages,
   isStreaming,
   conversationMode,
+  hasGuide,
   onSendToChat,
   onImplement,
+  onUseGuide,
   onWriteSpec,
   onReset,
   onSuggestFeatures,
@@ -58,13 +62,28 @@ export default function SpecWriterToolbar({
           <button
             onClick={onImplement}
             disabled={!activeSessionId}
-            title={activeSessionId ? "Send implementation request to active chat" : "No active chat session"}
+            title={activeSessionId ? "Send to main chat for all-at-once implementation" : "No active chat session"}
             className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
             style={{ background: "var(--accent)", color: "white" }}
           >
             <Play size={11} />
             Implement
           </button>
+          {hasGuide && (
+            <button
+              onClick={onUseGuide}
+              title="Close SpecWriter and follow the step-by-step guide (recommended for complex specs)"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <BookOpen size={11} />
+              Use Guide
+            </button>
+          )}
         </>
       )}
 

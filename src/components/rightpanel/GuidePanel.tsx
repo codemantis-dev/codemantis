@@ -127,6 +127,7 @@ export default function GuidePanel() {
           <GuideSessionCard
             key={session.index}
             session={session}
+            specFilename={guide.specFilename}
             onToggleVerifyCheck={(checkId) =>
               toggleVerifyCheck(session.index, checkId)
             }

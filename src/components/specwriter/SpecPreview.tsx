@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,22 +9,18 @@ const REMARK_PLUGINS = [remarkGfm];
 interface Props {
   content: string | null;
   auditContent?: string | null;
+  activeTab: 'spec' | 'audit';
+  onTabChange: (tab: 'spec' | 'audit') => void;
   isEditing?: boolean;
   onContentChange?: (content: string) => void;
   onClose?: () => void;
 }
 
-export default function SpecPreview({ content, auditContent, isEditing, onContentChange, onClose }: Props) {
+export default function SpecPreview({ content, auditContent, activeTab, onTabChange, isEditing, onContentChange, onClose }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
-  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
 
   const hasBothDocuments = !!content && !!auditContent;
-
-  // Auto-switch to audit tab when audit content first appears
-  useEffect(() => {
-    if (auditContent) setActiveTab('audit');
-  }, [auditContent]);
 
   const displayContent = activeTab === 'audit' && auditContent ? auditContent : content;
 
@@ -77,7 +73,7 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
           style={{ borderColor: "var(--border)" }}
         >
           <button
-            onClick={() => setActiveTab('spec')}
+            onClick={() => onTabChange('spec')}
             className="px-4 py-2 text-xs font-medium transition-colors"
             style={{
               color: activeTab === 'spec' ? "var(--accent)" : "var(--text-secondary)",
@@ -88,7 +84,7 @@ export default function SpecPreview({ content, auditContent, isEditing, onConten
             Specification
           </button>
           <button
-            onClick={() => setActiveTab('audit')}
+            onClick={() => onTabChange('audit')}
             className="px-4 py-2 text-xs font-medium transition-colors"
             style={{
               color: activeTab === 'audit' ? "var(--accent)" : "var(--text-secondary)",

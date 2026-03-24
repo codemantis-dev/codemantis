@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Circle,
   FileText,
+  ShieldCheck,
 } from "lucide-react";
 import type { GuideSession } from "../../types/implementation-guide";
 import { showToast } from "../../stores/toastStore";
@@ -15,12 +16,14 @@ import { useSessionStore } from "../../stores/sessionStore";
 
 interface Props {
   session: GuideSession;
+  specFilename: string;
   onToggleVerifyCheck: (checkId: string) => void;
   onMarkComplete: () => void;
 }
 
 export default function GuideSessionCard({
   session,
+  specFilename,
   onToggleVerifyCheck,
   onMarkComplete,
 }: Props) {
@@ -51,6 +54,28 @@ export default function GuideSessionCard({
     }
     useUiStore.getState().setDraftInput(session.prompt);
     showToast("Prompt pasted into chat. Review and press Enter to send.", "info");
+  };
+
+  const handleVerifyForMe = () => {
+    const activeSessionId = useSessionStore.getState().activeSessionId;
+    if (!activeSessionId) {
+      showToast("No active Claude Code session. Start one first.", "info");
+      return;
+    }
+
+    const checksText = session.verifyChecks
+      .map((c) => `- ${c.label}`)
+      .join("\n");
+
+    const verifyPrompt = `Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
+
+Check each of the following items and report PASS or FAIL for each:
+${checksText}
+
+For each item, open the relevant files, read the actual code, and verify. Report your findings.`;
+
+    useUiStore.getState().setDraftInput(verifyPrompt);
+    showToast("Verification prompt pasted into chat. Review and press Enter to send.", "info");
   };
 
   // Border color by status
@@ -230,6 +255,22 @@ export default function GuideSessionCard({
                 </label>
               ))}
             </div>
+          )}
+
+          {/* Verify for me */}
+          {isActive && session.verifyChecks.length > 0 && (
+            <button
+              onClick={handleVerifyForMe}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <ShieldCheck size={11} />
+              Verify for me
+            </button>
           )}
 
           {/* Mark complete button */}

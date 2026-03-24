@@ -9,6 +9,8 @@ const {
   mockHandleAssistantChatEvent,
   mockHandleActivityEvent,
   mockFileToBase64,
+  mockIsTextMime,
+  mockReadFileContentSafe,
   mockCreateSession,
   mockSendMessage,
   mockCloseSession,
@@ -22,6 +24,8 @@ const {
   mockFileToBase64: vi.fn(() =>
     Promise.resolve({ data: "base64data", mimeType: "image/png" })
   ),
+  mockIsTextMime: vi.fn((mime: string) => mime.startsWith("text/")),
+  mockReadFileContentSafe: vi.fn(() => Promise.resolve("file content here")),
   mockCreateSession: vi.fn<(...args: unknown[]) => Promise<Session>>(),
   mockSendMessage: vi.fn(() => Promise.resolve()),
   mockCloseSession: vi.fn(() => Promise.resolve()),
@@ -42,6 +46,8 @@ vi.mock("../lib/event-classifier", () => ({
 
 vi.mock("../lib/file-utils", () => ({
   fileToBase64: mockFileToBase64,
+  isTextMime: mockIsTextMime,
+  readFileContentSafe: mockReadFileContentSafe,
 }));
 
 vi.mock("../lib/input-drafts", () => ({
@@ -269,7 +275,7 @@ describe("useAssistantSession", () => {
     await vi.waitFor(() => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         "asst-1",
-        expect.stringContaining("[Attached file: /tmp/file.ts]")
+        expect.stringContaining("--- file.ts ---")
       );
     });
   });
