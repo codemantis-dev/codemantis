@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 0.8.10
+
+- Add implementation guide sessions and right-panel guide UI
+- Add shared OpenRouter model picker and fix meta-model pricing
+
 ## 0.8.9
 
 - Route SpecWriter through provider-aware conversation pipeline
