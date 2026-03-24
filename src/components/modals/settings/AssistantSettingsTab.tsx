@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
 import type { AssistantShortcut } from "../../../types/settings";
 import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../../types/assistant-provider";
 import { useOpenRouterStore } from "../../../stores/openRouterStore";
+import OpenRouterModelSelect from "../../shared/OpenRouterModelSelect";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 
 export default function AssistantSettingsTab({
@@ -19,16 +19,6 @@ export default function AssistantSettingsTab({
 }) {
   const apiProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
   const orModels = useOpenRouterStore((s) => s.models);
-  const [orSearch, setOrSearch] = useState("");
-
-  const filteredOrModels = useMemo(() => {
-    const q = orSearch.toLowerCase();
-    const models = q ? orModels.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : orModels;
-    return [...models].sort((a, b) => {
-      if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [orModels, orSearch]);
 
   const handleShortcutUpdate = (index: number, field: "name" | "prompt", value: string) => {
     const updated = [...shortcuts];
@@ -77,32 +67,13 @@ export default function AssistantSettingsTab({
             if (isOpenRouter) {
               return (
                 <FieldRow key={p.id} label={p.label}>
-                  <div className="flex flex-col gap-1">
-                    <input
-                      type="text"
-                      value={orSearch}
-                      onChange={(e) => setOrSearch(e.target.value)}
-                      placeholder="Search..."
+                  <div className="w-80">
+                    <OpenRouterModelSelect
+                      value={currentModel}
+                      onChange={(id) => onModelChange(p.id, id)}
                       disabled={!hasKey}
-                      className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 disabled:opacity-40 placeholder:text-text-ghost w-80"
+                      placeholder={!hasKey ? "Set API key first" : "Select model..."}
                     />
-                    <div
-                      className="w-80 max-h-[160px] overflow-y-auto rounded border border-border bg-bg-elevated"
-                      title={!hasKey ? `Set API key in Settings > AI Providers` : undefined}
-                    >
-                      {filteredOrModels.slice(0, 50).map((m) => (
-                        <button
-                          key={m.id}
-                          disabled={!hasKey}
-                          onClick={() => onModelChange(p.id, m.id)}
-                          className={`w-full text-left px-2 py-1 text-label truncate disabled:opacity-40 hover:bg-accent/10 ${
-                            currentModel === m.id ? "bg-accent/15 text-accent" : "text-text-primary"
-                          }`}
-                        >
-                          {m.isFree ? "[FREE] " : ""}{m.name}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </FieldRow>
               );

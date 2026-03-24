@@ -53,8 +53,12 @@ struct ApiArchitecture {
 
 fn parse_pricing_to_per_million(price_str: &str) -> f64 {
     // OpenRouter pricing is per-token as a string (e.g. "0.00000025")
-    // Convert to per-1M-tokens to match our internal format
+    // Convert to per-1M-tokens to match our internal format.
+    // Some meta-models (Auto Router, Body Builder) return "-1" — clamp to 0.
     let per_token: f64 = price_str.parse().unwrap_or(0.0);
+    if per_token < 0.0 {
+        return 0.0;
+    }
     per_token * 1_000_000.0
 }
 
@@ -63,7 +67,8 @@ fn parse_model(m: ApiModel) -> OpenRouterModelResult {
     let prompt_str = pricing.and_then(|p| p.prompt.as_deref()).unwrap_or("0");
     let completion_str = pricing.and_then(|p| p.completion.as_deref()).unwrap_or("0");
 
-    let is_free = prompt_str == "0" && completion_str == "0";
+    let is_free = parse_pricing_to_per_million(prompt_str) == 0.0
+        && parse_pricing_to_per_million(completion_str) == 0.0;
 
     let arch = m.architecture.as_ref();
     let input_modalities = arch
@@ -175,6 +180,35 @@ mod tests {
     #[test]
     fn parse_pricing_invalid_string() {
         assert_eq!(parse_pricing_to_per_million("invalid"), 0.0);
+    }
+
+    #[test]
+    fn parse_pricing_negative_one_clamps_to_zero() {
+        // OpenRouter returns "-1" for meta-models like Auto Router
+        assert_eq!(parse_pricing_to_per_million("-1"), 0.0);
+    }
+
+    #[test]
+    fn parse_pricing_negative_small_clamps_to_zero() {
+        assert_eq!(parse_pricing_to_per_million("-0.000001"), 0.0);
+    }
+
+    #[test]
+    fn parse_model_negative_pricing_treated_as_free() {
+        let model = ApiModel {
+            id: "openrouter/auto".to_string(),
+            name: "Auto Router".to_string(),
+            pricing: Some(ApiPricing {
+                prompt: Some("-1".to_string()),
+                completion: Some("-1".to_string()),
+            }),
+            context_length: Some(200000),
+            architecture: None,
+        };
+        let result = parse_model(model);
+        assert!(result.is_free);
+        assert_eq!(result.pricing_input, 0.0);
+        assert_eq!(result.pricing_output, 0.0);
     }
 
     #[test]
@@ -300,6 +334,44 @@ mod tests {
         let result = parse_model(model);
         assert!(result.input_modalities.is_empty());
         assert!(result.output_modalities.is_empty());
+    }
+
+    #[test]
+    fn parse_model_mixed_negative_zero_pricing_is_free() {
+        // prompt = "-1", completion = "0" → both clamp to 0 → is_free = true
+        let model = ApiModel {
+            id: "test/mixed".to_string(),
+            name: "Mixed".to_string(),
+            pricing: Some(ApiPricing {
+                prompt: Some("-1".to_string()),
+                completion: Some("0".to_string()),
+            }),
+            context_length: None,
+            architecture: None,
+        };
+        let result = parse_model(model);
+        assert!(result.is_free);
+        assert_eq!(result.pricing_input, 0.0);
+        assert_eq!(result.pricing_output, 0.0);
+    }
+
+    #[test]
+    fn parse_model_zero_prompt_paid_completion_is_not_free() {
+        // prompt = "0", completion = "0.00001" → not free
+        let model = ApiModel {
+            id: "test/half-paid".to_string(),
+            name: "Half Paid".to_string(),
+            pricing: Some(ApiPricing {
+                prompt: Some("0".to_string()),
+                completion: Some("0.00001".to_string()),
+            }),
+            context_length: None,
+            architecture: None,
+        };
+        let result = parse_model(model);
+        assert!(!result.is_free);
+        assert_eq!(result.pricing_input, 0.0);
+        assert!((result.pricing_output - 10.0).abs() < 0.001);
     }
 
     #[test]

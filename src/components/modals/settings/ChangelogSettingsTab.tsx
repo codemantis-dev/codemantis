@@ -1,10 +1,9 @@
-import { useState, useMemo } from "react";
 import { RotateCcw } from "lucide-react";
 import type { ChangelogProvider } from "../../../types/settings";
 import { DEFAULT_CHANGELOG_PROMPT } from "../../../types/settings";
 import { AI_MODELS } from "../../../types/assistant-provider";
 import type { APIProvider } from "../../../types/assistant-provider";
-import { useOpenRouterStore } from "../../../stores/openRouterStore";
+import OpenRouterModelSelect from "../../shared/OpenRouterModelSelect";
 import { SectionTitle, FieldRow, CHANGELOG_PROVIDERS } from "./SettingsShared";
 
 export default function ChangelogSettingsTab({
@@ -15,24 +14,8 @@ export default function ChangelogSettingsTab({
   onEnabledChange: (v: boolean) => void; onProviderChange: (p: ChangelogProvider) => void;
   onModelChange: (m: string) => void; onPromptChange: (v: string) => void;
 }) {
-  const orModels = useOpenRouterStore((s) => s.models);
-  const [orSearch, setOrSearch] = useState("");
   const isOpenRouter = provider === "openrouter";
-
-  const availableModels = isOpenRouter
-    ? [] // OpenRouter uses a custom dropdown below
-    : (AI_MODELS[provider as APIProvider] ?? []);
-
-  const filteredOrModels = useMemo(() => {
-    if (!isOpenRouter) return [];
-    const q = orSearch.toLowerCase();
-    const models = q ? orModels.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)) : orModels;
-    // Free first, then by name
-    return [...models].sort((a, b) => {
-      if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [isOpenRouter, orModels, orSearch]);
+  const availableModels = isOpenRouter ? [] : (AI_MODELS[provider as APIProvider] ?? []);
 
   return (
     <div>
@@ -75,27 +58,8 @@ export default function ChangelogSettingsTab({
 
             <FieldRow label="Model">
               {isOpenRouter ? (
-                <div className="flex flex-col gap-1.5">
-                  <input
-                    type="text"
-                    value={orSearch}
-                    onChange={(e) => setOrSearch(e.target.value)}
-                    placeholder="Search OpenRouter models..."
-                    className="px-2 py-1 rounded bg-bg-elevated border border-border text-text-primary text-label outline-none focus:border-accent/40 placeholder:text-text-ghost w-80"
-                  />
-                  <div className="w-80 max-h-[200px] overflow-y-auto rounded border border-border bg-bg-elevated">
-                    {filteredOrModels.slice(0, 50).map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => onModelChange(m.id)}
-                        className={`w-full text-left px-2 py-1 text-label truncate hover:bg-accent/10 ${
-                          model === m.id ? "bg-accent/15 text-accent" : "text-text-primary"
-                        }`}
-                      >
-                        {m.isFree ? "[FREE] " : ""}{m.name}
-                      </button>
-                    ))}
-                  </div>
+                <div className="w-80">
+                  <OpenRouterModelSelect value={model} onChange={onModelChange} />
                 </div>
               ) : (
                 <select

@@ -72,14 +72,15 @@ function OpenRouterModelPicker({
         {freeModels.length > 0 && (
           <>
             <div className="px-3 py-1 text-[9px] text-text-ghost uppercase tracking-wider">
-              Free Models ({freeModels.length})
+              Free ({freeModels.length})
             </div>
-            {freeModels.slice(0, 30).map((m) => (
+            {freeModels.map((m) => (
               <button
                 key={m.id}
                 onClick={() => onCreate("openrouter", m.id)}
                 disabled={creating}
                 className={itemClass}
+                title={m.id}
               >
                 <span className="text-text-secondary truncate">{m.name}</span>
                 <ModelCapabilityBadges model={m} />
@@ -90,14 +91,15 @@ function OpenRouterModelPicker({
         {paidModels.length > 0 && (
           <>
             <div className="px-3 py-1 text-[9px] text-text-ghost uppercase tracking-wider mt-1">
-              Paid Models ({paidModels.length})
+              Paid ({paidModels.length})
             </div>
-            {paidModels.slice(0, 20).map((m) => (
+            {paidModels.map((m) => (
               <button
                 key={m.id}
                 onClick={() => onCreate("openrouter", m.id)}
                 disabled={creating}
                 className={itemClass}
+                title={m.id}
               >
                 <span className="text-text-secondary truncate">{m.name}</span>
                 <ModelCapabilityBadges model={m} />

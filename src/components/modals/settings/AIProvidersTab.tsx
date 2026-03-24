@@ -219,28 +219,31 @@ export default function AIProvidersTab({
             </div>
           ))}
 
-          {/* OpenRouter pricing (auto-fetched, read-only display of top models) */}
+          {/* OpenRouter pricing (auto-fetched, read-only) */}
           {openRouterModels.length > 0 && (
             <div>
               <h4 className="text-label text-text-dim uppercase tracking-wider mb-1.5 mt-2">
-                OpenRouter (auto-fetched)
+                OpenRouter ({openRouterModels.length} models)
               </h4>
+              <p className="text-[10px] text-text-ghost mb-1.5">
+                Pricing is auto-fetched from the OpenRouter API. Free models have $0 cost.
+              </p>
               {openRouterModels
                 .filter((m) => m.isFree)
-                .slice(0, 10)
+                .slice(0, 8)
                 .map((m) => (
                   <div key={m.id} className="flex items-center gap-3 py-1">
-                    <span className="text-ui text-text-ghost w-40 shrink-0 truncate" title={m.id}>{m.name}</span>
-                    <span className="text-label text-text-ghost">Free</span>
+                    <span className="text-ui text-text-ghost w-56 shrink-0 truncate" title={m.id}>{m.name}</span>
+                    <span className="text-label" style={{ color: "var(--accent)" }}>Free</span>
                   </div>
                 ))}
               {openRouterModels
-                .filter((m) => !m.isFree)
+                .filter((m) => !m.isFree && m.pricing.input > 0)
                 .sort((a, b) => a.pricing.input - b.pricing.input)
                 .slice(0, 5)
                 .map((m) => (
                   <div key={m.id} className="flex items-center gap-3 py-1">
-                    <span className="text-ui text-text-ghost w-40 shrink-0 truncate" title={m.id}>{m.name}</span>
+                    <span className="text-ui text-text-ghost w-56 shrink-0 truncate" title={m.id}>{m.name}</span>
                     <span className="text-label text-text-ghost">
                       ${m.pricing.input.toFixed(2)} / ${m.pricing.output.toFixed(2)}
                     </span>
