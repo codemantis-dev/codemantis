@@ -124,6 +124,9 @@ impl Database {
             let _ = conn.execute_batch(migrations::MIGRATE_TASK_PLANS_V2);
         }
 
+        // Implementation guides table
+        let _ = conn.execute_batch(migrations::MIGRATE_IMPLEMENTATION_GUIDES);
+
         // Always drop planning_messages if it exists.
         // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
         // CREATE TABLE IF NOT EXISTS, but V2 dropped it and changed task_plans
@@ -628,6 +631,58 @@ impl Database {
             "UPDATE task_plans SET status = 'archived', updated_at = datetime('now') WHERE id = ?1",
             rusqlite::params![id],
         ).map_err(|e| AppError::DatabaseError(format!("Archive task plan failed: {}", e)))?;
+        Ok(())
+    }
+
+    // ── Implementation Guides ───────────────────────────────────────────
+
+    pub fn insert_guide(&self, id: &str, project_path: &str, data_json: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "INSERT INTO implementation_guides (id, project_path, data_json, created_at, updated_at) VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+            rusqlite::params![id, project_path, data_json],
+        ).map_err(|e| AppError::DatabaseError(format!("Insert guide failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn get_guide_for_project(&self, project_path: &str) -> Result<Option<(String, String)>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let result = conn.query_row(
+            "SELECT id, data_json FROM implementation_guides WHERE project_path = ?1 ORDER BY updated_at DESC LIMIT 1",
+            rusqlite::params![project_path],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        );
+        match result {
+            Ok(pair) => Ok(Some(pair)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!("Get guide failed: {}", e))),
+        }
+    }
+
+    pub fn update_guide(&self, id: &str, data_json: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "UPDATE implementation_guides SET data_json = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![data_json, id],
+        ).map_err(|e| AppError::DatabaseError(format!("Update guide failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn delete_guide(&self, id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "DELETE FROM implementation_guides WHERE id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| AppError::DatabaseError(format!("Delete guide failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn delete_guides_for_project(&self, project_path: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "DELETE FROM implementation_guides WHERE project_path = ?1",
+            rusqlite::params![project_path],
+        ).map_err(|e| AppError::DatabaseError(format!("Delete guides for project failed: {}", e)))?;
         Ok(())
     }
 

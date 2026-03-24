@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { ActivityEntry } from "../types/activity";
 import type { SettingsTab } from "../components/modals/settings/constants";
 
-export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant";
+export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant" | "guide";
 export type ProjectPickerTab = "templates" | "open" | "recent" | "clone";
 export type ActivityFeedScope = "session" | "project";
 

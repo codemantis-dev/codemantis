@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
-import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare, ListChecks } from "lucide-react";
 import { useUiStore, type RightTab } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
+import { useGuideStore } from "../../stores/guideStore";
 import { useTerminal } from "../../hooks/useTerminal";
 import ActivityFeed from "./ActivityFeed";
 import ActivityDetailPanel from "./ActivityDetailPanel";
@@ -12,6 +13,7 @@ import QuickCommands from "./QuickCommands";
 import FileViewer from "./FileViewer";
 import ChangelogFeed from "./ChangelogFeed";
 import AssistantPanel from "./AssistantPanel";
+import GuidePanel from "./GuidePanel";
 import DevServerBanner from "./DevServerBanner";
 
 export default function RightPanel() {
@@ -27,9 +29,14 @@ export default function RightPanel() {
   const terminals = allTerminals.filter((t) => t.kind !== "cli-overlay");
   const activeTerminalId = activeSessionId ? activeTerminalIdMap.get(activeSessionId) ?? null : null;
 
+  const hasGuide = useGuideStore((s) => s.guide !== null);
+
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const setRightPanelMinWidth = useUiStore((s) => s.setRightPanelMinWidth);
   const { createTerminal, closeTerminal } = useTerminal();
+
+  // Adaptive icon-only mode: when tabs overflow the container, show icons only
+  const [compactMode, setCompactMode] = useState(false);
 
   // Measure tab buttons' intrinsic width and enforce as right panel minimum.
   // We sum individual button widths rather than reading container scrollWidth,
@@ -45,6 +52,8 @@ export default function RightPanel() {
     }
     // Add container horizontal padding (px-1 = 4px each side = 8px) + buffer
     const needed = total + 10;
+    // Check if tabs overflow the container
+    setCompactMode(total > el.clientWidth);
     // Only update if changed to avoid render loops
     if (needed !== lastMinWidth.current) {
       lastMinWidth.current = needed;
@@ -62,6 +71,8 @@ export default function RightPanel() {
     for (const child of el.children) {
       ro.observe(child);
     }
+    // Also observe the container itself for panel resize
+    ro.observe(el);
     return () => ro.disconnect();
   }, [measureTabWidth]);
 
@@ -69,6 +80,13 @@ export default function RightPanel() {
   useEffect(() => {
     setSelectedActivityEntry(null);
   }, [rightTab, setSelectedActivityEntry]);
+
+  // Fallback: if on "guide" tab but guide was dismissed, switch to activity
+  useEffect(() => {
+    if (rightTab === "guide" && !hasGuide) {
+      setRightTab("activity");
+    }
+  }, [rightTab, hasGuide, setRightTab]);
 
   const handleCreateTerminal = async () => {
     if (!activeSessionId) return;
@@ -80,13 +98,19 @@ export default function RightPanel() {
     await closeTerminal(activeSessionId, terminalId);
   };
 
-  const tabs: { id: RightTab; label: string; icon: typeof Activity }[] = [
-    { id: "activity", label: "Activity", icon: Activity },
-    { id: "terminal", label: "Terminal", icon: TerminalSquare },
-    { id: "files", label: "Files", icon: FileCode },
-    { id: "changelog", label: "Changelog", icon: ScrollText },
-    { id: "assistant", label: "Assistant", icon: MessageSquare },
-  ];
+  const tabs = useMemo(() => {
+    const base: { id: RightTab; label: string; icon: typeof Activity }[] = [
+      { id: "activity", label: "Activity", icon: Activity },
+      { id: "terminal", label: "Terminal", icon: TerminalSquare },
+      { id: "files", label: "Files", icon: FileCode },
+      { id: "changelog", label: "Changelog", icon: ScrollText },
+      { id: "assistant", label: "Assistant", icon: MessageSquare },
+    ];
+    if (hasGuide) {
+      base.push({ id: "guide", label: "Guide", icon: ListChecks });
+    }
+    return base;
+  }, [hasGuide]);
 
   return (
     <div className="h-full flex flex-col relative" style={{ background: "var(--bg-subtle)" }}>
@@ -94,18 +118,21 @@ export default function RightPanel() {
       <div ref={tabHeaderRef} className="h-9 flex items-center px-1 border-b border-border-light shrink-0 whitespace-nowrap">
         {tabs.map((tab) => {
           const Icon = tab.icon;
+          const isActive = rightTab === tab.id;
+          const showLabel = !compactMode || isActive;
           return (
             <button
               key={tab.id}
               onClick={() => setRightTab(tab.id)}
+              title={tab.label}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-ui transition-colors shrink-0 ${
-                rightTab === tab.id
+                isActive
                   ? "text-text-primary bg-bg-elevated font-medium"
                   : "text-text-dim hover:text-text-secondary"
               }`}
             >
               <Icon size={13} />
-              <span>{tab.label}</span>
+              {showLabel && <span>{tab.label}</span>}
             </button>
           );
         })}
@@ -191,6 +218,14 @@ export default function RightPanel() {
         style={{ display: rightTab === "assistant" ? "flex" : "none" }}
       >
         <AssistantPanel />
+      </div>
+
+      {/* Guide panel */}
+      <div
+        className="flex-1 overflow-hidden flex flex-col"
+        style={{ display: rightTab === "guide" ? "flex" : "none" }}
+      >
+        <GuidePanel />
       </div>
 
       {/* Activity detail overlay */}

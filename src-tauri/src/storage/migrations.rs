@@ -105,3 +105,14 @@ ALTER TABLE task_plans_v2 RENAME TO task_plans;
 CREATE INDEX IF NOT EXISTS idx_task_plans_project ON task_plans(project_path);
 CREATE INDEX IF NOT EXISTS idx_task_plans_status ON task_plans(status);
 "#;
+
+pub const MIGRATE_IMPLEMENTATION_GUIDES: &str = r#"
+CREATE TABLE IF NOT EXISTS implementation_guides (
+    id TEXT PRIMARY KEY,
+    project_path TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_impl_guides_project ON implementation_guides(project_path);
+"#;

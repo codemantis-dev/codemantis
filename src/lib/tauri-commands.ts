@@ -788,3 +788,40 @@ export function listenPreviewConsoleEntry(
 ): Promise<UnlistenFn> {
   return listen("preview-console-entry", (e: { payload: { level: string; ts: string; msg: string; url: string; stack?: string } }) => callback(e.payload));
 }
+
+// ── Implementation Guides ───────────────────────────────────────────
+
+export interface GuidePayload {
+  id: string;
+  dataJson: string;
+}
+
+export async function saveGuide(
+  projectPath: string,
+  dataJson: string,
+): Promise<string> {
+  return invoke<string>("save_guide", { projectPath, dataJson });
+}
+
+export async function loadGuide(
+  projectPath: string,
+): Promise<GuidePayload | null> {
+  return invoke<GuidePayload | null>("load_guide", { projectPath });
+}
+
+export async function updateGuideData(
+  guideId: string,
+  dataJson: string,
+): Promise<void> {
+  return invoke("update_guide_data", { guideId, dataJson });
+}
+
+export async function deleteGuide(guideId: string): Promise<void> {
+  return invoke("delete_guide_cmd", { guideId });
+}
+
+export async function deleteGuidesForProject(
+  projectPath: string,
+): Promise<void> {
+  return invoke("delete_guides_for_project_cmd", { projectPath });
+}

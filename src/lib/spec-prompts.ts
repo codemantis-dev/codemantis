@@ -363,7 +363,54 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Click → navigates to {route}
   - [ ] Active state styling when on {route} (and removed when navigating away)
 
-## 10. Open Questions & Assumptions
+## 10. Session Plan — Multi-Session Implementation Breakdown
+
+If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
+3+ phases, decompose the work into separate Claude Code sessions. Each session is
+one focused conversation with Claude Code that delivers a verifiable slice.
+
+If the spec is small (< 15 checklist items, ≤ 2 phases), write instead:
+"This spec is small enough for a single Claude Code session. No session plan needed."
+and then proceed to Section 11.
+
+For EACH session, use this EXACT format:
+
+### Session {N}: {Short Title} (~{N} files)
+**Scope:** {one-line description of what this session covers}
+**Read sections:** {which spec sections Claude Code should reference}
+**Files:**
+- \`{filepath}\` ({create|modify})
+- \`{filepath}\` ({create|modify})
+
+**Prompt for Claude Code:**
+\`\`\`
+{The complete, copy-pasteable prompt. Must reference the spec file path.
+Must list what to focus on AND what NOT to do yet.}
+\`\`\`
+
+**Verify before next session:**
+- [ ] {concrete verification step}
+- [ ] {concrete verification step}
+- [ ] TypeScript compiles: pnpm tsc --noEmit
+
+FORMAT PRECISION — THE GUIDE PARSER DEPENDS ON THIS:
+CodeMantis automatically extracts the Session Plan into an interactive
+Implementation Guide. For this to work, you MUST follow this exact format
+for EVERY session. Deviation will cause the guide to fail silently.
+
+RULES:
+- The ### heading MUST start with "### Session " followed by a number
+- **Prompt for Claude Code:** MUST be followed by a fenced code block (\`\`\`)
+- The fenced code block MUST contain the actual prompt text
+- **Verify** items MUST use "- [ ]" checkbox format
+- Do NOT use alternative formats (numbered lists, >, etc.)
+- Do NOT omit the prompt code block for any session
+- The LAST session's verify section may use "**Verify (full audit):**"
+  followed by a fenced code block containing the audit prompt
+- First session always includes project setup/scaffolding
+- Last session always includes polish items from Section 9 Phase 4
+
+## 11. Open Questions & Assumptions
 List everything you assumed or couldn't verify.
 The implementer should review this section before starting.
 
@@ -1002,7 +1049,54 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Click → navigates to {route}
   - [ ] Active state styling when on {route} (removed when leaving)
 
-## 10. Open Questions & Assumptions
+## 10. Session Plan — Multi-Session Implementation Breakdown
+
+If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
+3+ phases, decompose the work into separate Claude Code sessions. Each session is
+one focused conversation with Claude Code that delivers a verifiable slice.
+
+If the spec is small (< 15 checklist items, ≤ 2 phases), write instead:
+"This spec is small enough for a single Claude Code session. No session plan needed."
+and then proceed to Section 11.
+
+For EACH session, use this EXACT format:
+
+### Session {N}: {Short Title} (~{N} files)
+**Scope:** {one-line description of what this session covers}
+**Read sections:** {which spec sections Claude Code should reference}
+**Files:**
+- \`{filepath}\` ({create|modify})
+- \`{filepath}\` ({create|modify})
+
+**Prompt for Claude Code:**
+\`\`\`
+{The complete, copy-pasteable prompt. Must reference the spec file path.
+Must list what to focus on AND what NOT to do yet.}
+\`\`\`
+
+**Verify before next session:**
+- [ ] {concrete verification step}
+- [ ] {concrete verification step}
+- [ ] TypeScript compiles: pnpm tsc --noEmit
+
+FORMAT PRECISION — THE GUIDE PARSER DEPENDS ON THIS:
+CodeMantis automatically extracts the Session Plan into an interactive
+Implementation Guide. For this to work, you MUST follow this exact format
+for EVERY session. Deviation will cause the guide to fail silently.
+
+RULES:
+- The ### heading MUST start with "### Session " followed by a number
+- **Prompt for Claude Code:** MUST be followed by a fenced code block (\`\`\`)
+- The fenced code block MUST contain the actual prompt text
+- **Verify** items MUST use "- [ ]" checkbox format
+- Do NOT use alternative formats (numbered lists, >, etc.)
+- Do NOT omit the prompt code block for any session
+- The LAST session's verify section may use "**Verify (full audit):**"
+  followed by a fenced code block containing the audit prompt
+- First session always includes project setup/scaffolding
+- Last session always includes polish items from Section 9 Phase 4
+
+## 11. Open Questions & Assumptions
 List EVERY ⚠️ INFERRED and ❓ ASSUMED item from the spec.
 The implementer MUST review this before starting.
 (These also appear as Phase 0 gates in the Implementation Checklist.)

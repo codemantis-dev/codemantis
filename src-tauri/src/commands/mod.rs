@@ -6,6 +6,7 @@ pub mod claude_md;
 pub mod clone;
 pub mod files;
 pub mod git;
+pub mod guide;
 pub mod help;
 pub mod mcp;
 pub mod openrouter;

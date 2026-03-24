@@ -3,6 +3,9 @@ import { X } from "lucide-react";
 import { saveSpecDocument } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
+import { useGuideStore } from "../../stores/guideStore";
+import { useUiStore } from "../../stores/uiStore";
+import { parseSessionPlan } from "../../lib/parse-session-plan";
 
 interface Props {
   projectPath: string;
@@ -88,6 +91,28 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
       await saveSpecDocument(projectPath, filename, fullContent, overwrite || !fileExists);
       showToast(`${isAudit ? 'Audit' : 'Spec'} saved to docs/specs/${filename}`, "success");
       onSaved(filename);
+
+      // After spec save, try to create an implementation guide from Session Plan
+      if (!isAudit) {
+        try {
+          const parsed = parseSessionPlan(specContent);
+          if (parsed) {
+            const created = await useGuideStore.getState().createGuide(
+              projectPath, filename, null, parsed,
+            );
+            if (created) {
+              showToast(
+                `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
+                "info",
+              );
+              useUiStore.getState().setRightTab("guide");
+            }
+          }
+        } catch (guideErr) {
+          // Non-fatal: guide creation failure shouldn't block spec save
+          console.warn("[SaveSpecDialog] Failed to create implementation guide:", guideErr);
+        }
+      }
     } catch (e) {
       showToast(`Failed to save: ${e}`, "error");
     } finally {
