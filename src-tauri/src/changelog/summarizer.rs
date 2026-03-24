@@ -1,5 +1,40 @@
 use serde::{Deserialize, Serialize};
 
+/// Extract a clean error message from an API error response body.
+/// Handles JSON error objects, HTML WAF pages, and raw text.
+fn extract_api_error(provider: &str, status: reqwest::StatusCode, body: &str) -> String {
+    // Try OpenRouter/OpenAI JSON error format: {"error":{"message":"...","code":...}}
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(msg) = json["error"]["message"].as_str() {
+            let code = json["error"]["code"]
+                .as_u64()
+                .unwrap_or(status.as_u16() as u64);
+            let clean = if msg.len() > 300 { &msg[..300] } else { msg };
+            return format!("{} API error {}: {}", provider, code, clean);
+        }
+    }
+    // If body looks like HTML (e.g. WAF error page), extract <title>
+    let lower = body.to_lowercase();
+    if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+        if let Some(start) = lower.find("<title>") {
+            if let Some(end) = lower[start..].find("</title>") {
+                let title = &body[start + 7..start + end];
+                return format!(
+                    "{} API error {}: Provider returned error page ({})",
+                    provider, status, title.trim()
+                );
+            }
+        }
+        return format!(
+            "{} API error {}: Provider returned HTML error page",
+            provider, status
+        );
+    }
+    // Fallback: truncate raw body
+    let truncated = if body.len() > 500 { &body[..500] } else { body };
+    format!("{} API error {}: {}", provider, status, truncated)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummarizeRequest {
     pub user_prompt: String,
@@ -285,8 +320,7 @@ async fn call_openrouter(
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
-        "max_completion_tokens": 1024,
-        "response_format": {"type": "json_object"}
+        "max_completion_tokens": 1024
     });
 
     let resp = client
@@ -302,7 +336,7 @@ async fn call_openrouter(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("OpenRouter API error {}: {}", status, text));
+        return Err(extract_api_error("OpenRouter", status, &text));
     }
 
     let json: serde_json::Value = resp

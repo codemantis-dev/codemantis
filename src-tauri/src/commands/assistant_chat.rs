@@ -4,6 +4,37 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::watch;
 
+/// Extract a clean error message from an API error response body.
+fn extract_api_error(provider: &str, status: reqwest::StatusCode, body: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(msg) = json["error"]["message"].as_str() {
+            let code = json["error"]["code"]
+                .as_u64()
+                .unwrap_or(status.as_u16() as u64);
+            let clean = if msg.len() > 300 { &msg[..300] } else { msg };
+            return format!("{} API error {}: {}", provider, code, clean);
+        }
+    }
+    let lower = body.to_lowercase();
+    if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+        if let Some(start) = lower.find("<title>") {
+            if let Some(end) = lower[start..].find("</title>") {
+                let title = &body[start + 7..start + end];
+                return format!(
+                    "{} API error {}: Provider returned error page ({})",
+                    provider, status, title.trim()
+                );
+            }
+        }
+        return format!(
+            "{} API error {}: Provider returned HTML error page",
+            provider, status
+        );
+    }
+    let truncated = if body.len() > 500 { &body[..500] } else { body };
+    format!("{} API error {}: {}", provider, status, truncated)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
@@ -616,7 +647,7 @@ async fn stream_openrouter(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("OpenRouter API error {}: {}", status, text));
+        return Err(extract_api_error("OpenRouter", status, &text));
     }
 
     let mut full_text = String::new();

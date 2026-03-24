@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { BarChart3, AlertTriangle, FileText, Check } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Check, Copy } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
 import { formatCost, formatTimestamp } from "../../../lib/format-utils";
@@ -16,6 +16,7 @@ export default function ApiLogsTab() {
   const [activeTab, setActiveTab] = useState<TabId>("cost");
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
   const [logPathCopied, setLogPathCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const errorLogs = useMemo(() => logs.filter((l) => !l.success), [logs]);
 
@@ -124,7 +125,7 @@ export default function ApiLogsTab() {
               {logs.map((log) => (
                 <div
                   key={log.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border-light text-label"
+                  className="group flex items-center gap-3 px-3 py-2 rounded-lg border border-border-light text-label select-text"
                   style={{ background: "var(--bg-elevated)" }}
                 >
                   <span
@@ -139,6 +140,20 @@ export default function ApiLogsTab() {
                   <span className="text-text-primary w-16 shrink-0 text-right font-medium">
                     {formatCost(log.costUsd)}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `${formatTimestamp(log.timestamp)} | ${log.provider} | ${log.model} | ${log.inputTokens + log.outputTokens} tokens | ${formatCost(log.costUsd)}`;
+                      navigator.clipboard.writeText(text).then(() => {
+                        setCopiedId(log.id);
+                        setTimeout(() => setCopiedId(null), 1500);
+                      });
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all shrink-0 select-none"
+                    title="Copy entry"
+                  >
+                    {copiedId === log.id ? <Check size={12} className="text-green" /> : <Copy size={12} />}
+                  </button>
                 </div>
               ))}
             </div>
@@ -179,10 +194,17 @@ export default function ApiLogsTab() {
             <div className="space-y-1 flex-1 min-h-0 overflow-y-auto">
               {errorLogs.map((log) => (
                 <div key={log.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedErrorId(expandedErrorId === log.id ? null : log.id)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border-light text-label w-full text-left hover:border-border transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setExpandedErrorId(expandedErrorId === log.id ? null : log.id);
+                      }
+                    }}
+                    className="group flex items-center gap-3 px-3 py-2 rounded-lg border border-border-light text-label w-full text-left hover:border-border transition-colors cursor-pointer select-text"
                     style={{ background: "var(--bg-elevated)" }}
                   >
                     <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-red" />
@@ -192,12 +214,42 @@ export default function ApiLogsTab() {
                     <span className="text-red flex-1 truncate font-mono text-[11px]">
                       {log.errorMessage || "Unknown error"}
                     </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const text = `${formatTimestamp(log.timestamp)} | ${log.provider} | ${log.model} | Error: ${log.errorMessage || "Unknown error"}`;
+                        navigator.clipboard.writeText(text).then(() => {
+                          setCopiedId(log.id);
+                          setTimeout(() => setCopiedId(null), 1500);
+                        });
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all shrink-0 select-none"
+                      title="Copy entry"
+                    >
+                      {copiedId === log.id ? <Check size={12} className="text-green" /> : <Copy size={12} />}
+                    </button>
+                  </div>
                   {expandedErrorId === log.id && log.errorMessage && (
                     <div
-                      className="mx-3 mt-1 mb-2 px-3 py-2 rounded border border-border-light font-mono text-[11px] text-red whitespace-pre-wrap break-all"
+                      className="group/detail mx-3 mt-1 mb-2 px-3 py-2 rounded border border-border-light font-mono text-[11px] text-red whitespace-pre-wrap break-all select-text relative"
                       style={{ background: "var(--bg-primary)" }}
                     >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(log.errorMessage || "").then(() => {
+                            setCopiedId(`${log.id}-detail`);
+                            setTimeout(() => setCopiedId(null), 1500);
+                          });
+                        }}
+                        className="absolute top-1.5 right-1.5 opacity-0 group-hover/detail:opacity-100 p-1 rounded text-text-ghost hover:text-text-secondary transition-all select-none"
+                        style={{ background: "var(--bg-elevated)" }}
+                        title="Copy error message"
+                      >
+                        {copiedId === `${log.id}-detail` ? <Check size={11} className="text-green" /> : <Copy size={11} />}
+                      </button>
                       {log.errorMessage}
                     </div>
                   )}

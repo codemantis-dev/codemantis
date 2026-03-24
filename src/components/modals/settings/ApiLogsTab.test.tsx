@@ -293,4 +293,55 @@ describe("ApiLogsTab", () => {
     await renderAndWait();
     expect(screen.getByText("Logs older than 5 days are automatically deleted.")).toBeInTheDocument();
   });
+
+  // ── Copy buttons ──
+
+  it("copies cost log entry to clipboard", async () => {
+    setupMocks([sampleLog], summary);
+    await renderAndWait();
+
+    const copyBtn = screen.getByTitle("Copy entry");
+    await act(async () => {
+      fireEvent.click(copyBtn);
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    const call = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(call).toContain("anthropic");
+    expect(call).toContain("claude-opus-4-6");
+  });
+
+  it("copies error log entry to clipboard", async () => {
+    setupMocks([errorLog], summary);
+    await renderAndWait();
+
+    fireEvent.click(screen.getByText("Error Log (1)"));
+
+    const copyBtn = screen.getByTitle("Copy entry");
+    await act(async () => {
+      fireEvent.click(copyBtn);
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    const call = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(call).toContain("Rate limit exceeded");
+  });
+
+  it("copies expanded error detail to clipboard", async () => {
+    setupMocks([errorLog], summary);
+    await renderAndWait();
+
+    fireEvent.click(screen.getByText("Error Log (1)"));
+
+    // Expand the error
+    const errorRow = screen.getByRole("button", { name: /Rate limit exceeded/i });
+    fireEvent.click(errorRow);
+
+    const detailCopyBtn = screen.getByTitle("Copy error message");
+    await act(async () => {
+      fireEvent.click(detailCopyBtn);
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Rate limit exceeded");
+  });
 });

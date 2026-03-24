@@ -18,7 +18,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    const { container } = render(<GitStatusCard gitStatus={gitStatus} />);
+    const { container } = render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     expect(container.innerHTML).toBe("");
   });
 
@@ -30,7 +30,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    render(<GitStatusCard gitStatus={gitStatus} />);
+    render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     expect(screen.getByText("main")).toBeInTheDocument();
   });
 
@@ -42,7 +42,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    render(<GitStatusCard gitStatus={gitStatus} />);
+    render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     expect(screen.getByText("detached")).toBeInTheDocument();
   });
 
@@ -54,7 +54,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    render(<GitStatusCard gitStatus={gitStatus} />);
+    render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getByTitle("Uncommitted changes")).toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    render(<GitStatusCard gitStatus={gitStatus} />);
+    render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     expect(screen.queryByTitle("Uncommitted changes")).not.toBeInTheDocument();
   });
 
@@ -79,7 +79,7 @@ describe("GitStatusCard", () => {
       last_commit_time: null,
       last_push_time: null,
     };
-    render(<GitStatusCard gitStatus={gitStatus} />);
+    render(<GitStatusCard gitStatus={gitStatus} projectPath="/test" />);
     // Both should show "never" when null
     const neverElements = screen.getAllByText("never");
     expect(neverElements).toHaveLength(2);
