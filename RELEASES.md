@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 0.8.11
+
+- Modular assistant/spec UI, Rust stream routing, and test sweep
+- Parse OpenRouter API errors and improve API logs UI
+
 ## 0.8.10
 
 - Add implementation guide sessions and right-panel guide UI
