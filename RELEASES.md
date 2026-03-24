@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.8.9
+
+- Route SpecWriter through provider-aware conversation pipeline
+- Unify popover layering with shared Portal wrapper
+- Add external link guard and richer error/spec parsing helpers
+
 ## 0.8.8
 
 - Add OpenRouter provider support across settings and assistant flows
