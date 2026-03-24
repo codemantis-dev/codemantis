@@ -109,7 +109,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     apiKeys: {}, modelPricing: {}, changelogPrompt: "",
     assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
     previewDefaultWidth: 1024, previewDefaultHeight: 768, previewAutoStart: false,
-    previewCustomDevCommand: null, previewConsoleAutoOpen: true,
+    previewCustomDevCommand: null, previewConsoleAutoOpen: true, previewLastUrls: {},
     taskBoardPlanningModel: "gemini-3.1-flash-lite-preview", taskBoardMaxTokens: 64000,
     taskBoardMaxRetries: 3, taskBoardAutoStartNext: true, taskBoardAutoOpenSlideOver: true,
     triviaEnabled: true, defaultContextWindow: 1000000, autoOpenFiles: false,

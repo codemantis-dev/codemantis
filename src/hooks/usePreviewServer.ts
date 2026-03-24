@@ -71,6 +71,11 @@ export function usePreviewServer(): {
         status: "error",
         errorMessage: message,
       });
+      // Show URL fallback dialog so the user can enter their dev server URL
+      usePreviewStore.getState().setPreviewUrlPrompt({
+        projectPath,
+        errorMessage: message,
+      });
     }).then((fn) => {
       if (cancelled) {
         fn();

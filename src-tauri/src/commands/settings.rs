@@ -54,6 +54,8 @@ pub struct AppSettings {
     pub preview_custom_dev_command: Option<String>,
     #[serde(default = "default_true")]
     pub preview_console_auto_open: bool,
+    #[serde(default)]
+    pub preview_last_urls: std::collections::HashMap<String, String>,
 
     // --- Task Board ---
     #[serde(default = "default_task_board_model")]
@@ -213,6 +215,7 @@ impl Default for AppSettings {
             preview_auto_start: false,
             preview_custom_dev_command: None,
             preview_console_auto_open: true,
+            preview_last_urls: std::collections::HashMap::new(),
             task_board_planning_model: default_task_board_model(),
             task_board_max_tokens: default_task_board_max_tokens(),
             task_board_max_retries: default_task_board_retries(),

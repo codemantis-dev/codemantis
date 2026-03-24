@@ -154,6 +154,7 @@ export function useSettingsFormState() {
       previewAutoStart,
       previewCustomDevCommand: previewCustomDevCommand.trim() || null,
       previewConsoleAutoOpen,
+      previewLastUrls: settings.previewLastUrls,
       taskBoardPlanningModel,
       taskBoardMaxTokens,
       taskBoardMaxRetries,

@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import type { DevServerState, ConsoleLogEntry, ViewportPreset } from "../types/preview";
 
+export interface PreviewUrlPrompt {
+  projectPath: string;
+  errorMessage: string;
+}
+
 interface PreviewState {
   devServer: Map<string, DevServerState>;
   previewOpen: Map<string, boolean>;
@@ -8,6 +13,7 @@ interface PreviewState {
   consoleDrawerOpen: boolean;
   viewportPreset: ViewportPreset;
   unreadErrors: Map<string, number>;
+  previewUrlPrompt: PreviewUrlPrompt | null;
 
   setDevServer: (projectPath: string, partial: Partial<DevServerState>) => void;
   clearDevServer: (projectPath: string) => void;
@@ -17,6 +23,7 @@ interface PreviewState {
   setViewportPreset: (preset: ViewportPreset) => void;
   toggleConsoleDrawer: () => void;
   resetUnreadErrors: (projectPath: string) => void;
+  setPreviewUrlPrompt: (prompt: PreviewUrlPrompt | null) => void;
 }
 
 export const usePreviewStore = create<PreviewState>((set) => ({
@@ -82,4 +89,7 @@ export const usePreviewStore = create<PreviewState>((set) => ({
       unreadErrors.set(projectPath, 0);
       return { unreadErrors };
     }),
+
+  previewUrlPrompt: null,
+  setPreviewUrlPrompt: (prompt) => set({ previewUrlPrompt: prompt }),
 }));

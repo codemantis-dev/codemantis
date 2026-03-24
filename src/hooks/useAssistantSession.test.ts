@@ -125,6 +125,7 @@ function resetStores(): void {
       apiKeyBannerDismissed: false,
       lastCloneDirectory: null,
       previewConsoleAutoOpen: true,
+      previewLastUrls: {},
       taskBoardPlanningModel: "gemini-2.5-flash",
       taskBoardMaxTokens: 64000,
       taskBoardMaxRetries: 3,

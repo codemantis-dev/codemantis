@@ -6,6 +6,7 @@ import { usePreviewStore } from "../../stores/previewStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { usePreviewServer } from "../../hooks/usePreviewServer";
 import { focusPreviewWindow, openPreviewWindow, capturePreviewScreenshot, readFileBytes } from "../../lib/tauri-commands";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
 import ProjectTab from "./ProjectTab";
@@ -106,11 +107,15 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
 
     // Start dev server (will auto-open preview when ready)
     try {
-      await startServer();
-      // Check if startServer set an error state
+      const { previewCustomDevCommand } = useSettingsStore.getState().settings;
+      await startServer(previewCustomDevCommand ?? undefined);
+      // Check if startServer set an error state — show URL dialog as fallback
       const ds = usePreviewStore.getState().devServer.get(activeProjectPath);
       if (ds?.status === "error") {
-        showToast(ds.errorMessage ?? "Failed to start dev server", "error");
+        usePreviewStore.getState().setPreviewUrlPrompt({
+          projectPath: activeProjectPath,
+          errorMessage: ds.errorMessage ?? "Failed to start dev server",
+        });
       }
     } catch (err) {
       handleError("TitleBar.startServer", err);

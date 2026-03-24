@@ -65,6 +65,7 @@ export interface AppSettings {
   previewAutoStart: boolean;
   previewCustomDevCommand: string | null;
   previewConsoleAutoOpen: boolean;
+  previewLastUrls: Record<string, string>;
 
   // Task Board
   taskBoardPlanningModel: string;
