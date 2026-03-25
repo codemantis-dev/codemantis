@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { BarChart3, AlertTriangle, FileText, Check, Copy } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Check, Copy, FolderOpen } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
 import { formatCost, formatTimestamp } from "../../../lib/format-utils";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { homeDir } from "@tauri-apps/api/path";
 import { SectionTitle } from "./SettingsShared";
 
 const LOG_FILE_PATH = "~/Library/Logs/dev.codemantis.myapp/codemantis.log";
@@ -280,6 +282,23 @@ export default function ApiLogsTab() {
           >
             {logPathCopied ? <Check size={14} className="text-green" /> : <FileText size={14} />}
             {logPathCopied ? "Copied!" : "Copy Log Path"}
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const home = await homeDir();
+                const absPath = LOG_FILE_PATH.replace("~", home);
+                await revealItemInDir(absPath);
+              } catch {
+                // silently ignore — user can still copy the path
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-label text-text-secondary hover:text-text-primary hover:border-border-light transition-colors"
+            style={{ background: "var(--bg-elevated)" }}
+          >
+            <FolderOpen size={14} />
+            Open in Finder
           </button>
           <span className="text-[11px] text-text-ghost font-mono truncate">{LOG_FILE_PATH}</span>
         </div>

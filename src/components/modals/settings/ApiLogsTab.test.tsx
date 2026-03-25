@@ -1,16 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
-const { mockGetApiLogs, mockGetApiCostSummary, mockCleanupApiLogs } = vi.hoisted(() => ({
+const { mockGetApiLogs, mockGetApiCostSummary, mockCleanupApiLogs, mockRevealItemInDir, mockHomeDir } = vi.hoisted(() => ({
   mockGetApiLogs: vi.fn(),
   mockGetApiCostSummary: vi.fn(),
   mockCleanupApiLogs: vi.fn(),
+  mockRevealItemInDir: vi.fn(),
+  mockHomeDir: vi.fn(),
 }));
 
 vi.mock("../../../lib/tauri-commands", () => ({
   getApiLogs: mockGetApiLogs,
   getApiCostSummary: mockGetApiCostSummary,
   cleanupApiLogs: mockCleanupApiLogs,
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  revealItemInDir: mockRevealItemInDir,
+}));
+
+vi.mock("@tauri-apps/api/path", () => ({
+  homeDir: mockHomeDir,
 }));
 
 import ApiLogsTab from "./ApiLogsTab";
@@ -165,8 +175,9 @@ describe("ApiLogsTab", () => {
     const errorTab = screen.getByText("Error Log (1)");
     fireEvent.click(errorTab);
 
-    // Click the error row to expand
-    const errorRow = screen.getByRole("button", { name: /Rate limit exceeded/i });
+    // Click the error row to expand (use text + closest to avoid slow getByRole name computation)
+    const errorText = screen.getByText("Rate limit exceeded");
+    const errorRow = errorText.closest('[role="button"]')!;
     fireEvent.click(errorRow);
 
     // The expanded detail should show the full error message
@@ -179,7 +190,8 @@ describe("ApiLogsTab", () => {
     await renderAndWait();
 
     fireEvent.click(screen.getByText("Error Log (1)"));
-    const errorRow = screen.getByRole("button", { name: /Rate limit exceeded/i });
+    const errorText = screen.getByText("Rate limit exceeded");
+    const errorRow = errorText.closest('[role="button"]')!;
 
     // First click expands
     fireEvent.click(errorRow);
@@ -231,6 +243,43 @@ describe("ApiLogsTab", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       "~/Library/Logs/dev.codemantis.myapp/codemantis.log"
     );
+  });
+
+  it("renders Open in Finder button", async () => {
+    setupMocks();
+    await renderAndWait();
+    expect(screen.getByText("Open in Finder")).toBeInTheDocument();
+  });
+
+  it("calls revealItemInDir with resolved path on Open in Finder click", async () => {
+    setupMocks();
+    mockHomeDir.mockResolvedValue("/Users/test");
+    mockRevealItemInDir.mockResolvedValue(undefined);
+    await renderAndWait();
+
+    const btn = screen.getByText("Open in Finder");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    expect(mockHomeDir).toHaveBeenCalled();
+    expect(mockRevealItemInDir).toHaveBeenCalledWith(
+      "/Users/test/Library/Logs/dev.codemantis.myapp/codemantis.log"
+    );
+  });
+
+  it("handles Open in Finder failure gracefully", async () => {
+    setupMocks();
+    mockHomeDir.mockRejectedValue(new Error("no home"));
+    await renderAndWait();
+
+    const btn = screen.getByText("Open in Finder");
+    // Should not throw
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    expect(screen.getByText("Open in Finder")).toBeInTheDocument();
   });
 
   it("shows Copied! feedback after clicking Copy Log Path", async () => {
