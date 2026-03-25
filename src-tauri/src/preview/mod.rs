@@ -413,4 +413,130 @@ mod tests {
         let active = arc_clone.lock().await;
         assert_eq!(active.as_deref(), Some("/project"));
     }
+
+    // ── Callback port injection contract tests ──
+    // Regression: the callback port was injected via eval() which is blocked
+    // by pages with restrictive CSP. It must now be injected via
+    // initialization_script by prepending to the bridge JS.
+
+    #[test]
+    fn bridge_script_contains_callback_port_variable() {
+        // The bridge JS must reference __CM_CALLBACK_PORT so toolbar buttons
+        // can call the approval server. If this variable name changes, the
+        // port injection in open_preview_window must be updated too.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("window.__CM_CALLBACK_PORT"),
+            "Bridge script must reference window.__CM_CALLBACK_PORT for toolbar buttons"
+        );
+    }
+
+    #[test]
+    fn bridge_port_injection_format_is_valid_js() {
+        // Simulate the format string used in open_preview_window to prepend
+        // the port to the initialization_script. Verify it produces valid JS.
+        let port: u16 = 54321;
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        let injected = format!("window.__CM_CALLBACK_PORT = {};\n{}", port, bridge);
+
+        // Must start with the port assignment
+        assert!(injected.starts_with("window.__CM_CALLBACK_PORT = 54321;\n"));
+        // Bridge content must follow immediately
+        assert!(injected.contains("(function() {"));
+        // The full bridge must still be present
+        assert!(injected.contains("__CM_CONSOLE_BRIDGE"));
+    }
+
+    #[test]
+    fn bridge_screenshot_button_uses_callback_port() {
+        // Regression: screenshot button must fetch to /screenshot using the port.
+        // If this fetch call is removed or changed, screenshots break silently.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("/screenshot"),
+            "Bridge must contain fetch to /screenshot endpoint"
+        );
+        assert!(
+            bridge.contains("__CM_CALLBACK_PORT"),
+            "Screenshot fetch must use __CM_CALLBACK_PORT"
+        );
+    }
+
+    #[test]
+    fn bridge_close_button_uses_callback_port() {
+        // Regression: close button must fetch to /close using the port.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("/close"),
+            "Bridge must contain fetch to /close endpoint"
+        );
+    }
+
+    #[test]
+    fn bridge_console_to_chat_uses_callback_port() {
+        // Regression: console-to-chat button must fetch to /console-to-chat.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("/console-to-chat"),
+            "Bridge must contain fetch to /console-to-chat endpoint"
+        );
+    }
+
+    #[test]
+    fn bridge_close_button_has_fallback() {
+        // The close button must have a window.close() fallback for when
+        // the callback port is unavailable.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("window.close()"),
+            "Close button must have window.close() fallback"
+        );
+    }
+
+    #[test]
+    fn bridge_toolbar_is_created() {
+        // The toolbar must be created for any of the buttons to exist.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("__cm_toolbar"),
+            "Bridge must create the toolbar element"
+        );
+    }
+
+    #[test]
+    fn bridge_console_drawer_is_created() {
+        // The console drawer provides the "Send to Chat" button.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("__cm_console_drawer"),
+            "Bridge must create the console drawer element"
+        );
+        assert!(
+            bridge.contains("Send to Chat"),
+            "Console drawer must contain 'Send to Chat' button"
+        );
+    }
+
+    #[test]
+    fn bridge_uses_127_0_0_1_for_fetch() {
+        // All fetch calls must target 127.0.0.1 (not localhost) to match
+        // the approval server's bind address.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("http://127.0.0.1"),
+            "Fetch calls must target http://127.0.0.1"
+        );
+        // Must NOT use http://localhost for callbacks — the server binds to 127.0.0.1
+        let fetch_lines: Vec<&str> = bridge
+            .lines()
+            .filter(|l| l.contains("fetch(") && l.contains("port"))
+            .collect();
+        for line in &fetch_lines {
+            assert!(
+                line.contains("127.0.0.1"),
+                "Fetch to callback server must use 127.0.0.1, found: {}",
+                line.trim()
+            );
+        }
+    }
 }

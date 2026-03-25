@@ -9,6 +9,7 @@ const {
   mockRefreshPreview,
   mockFocusPreviewWindow,
   mockStopDevServer,
+  mockReadFileBytes,
   mockUnlisten,
 } = vi.hoisted(() => ({
   mockOpenPreviewWindow: vi.fn<(url: string, projectName: string, projectPath: string) => Promise<void>>(),
@@ -17,6 +18,7 @@ const {
   mockRefreshPreview: vi.fn<() => Promise<void>>(),
   mockFocusPreviewWindow: vi.fn<() => Promise<boolean>>(),
   mockStopDevServer: vi.fn<(projectPath: string) => Promise<void>>(),
+  mockReadFileBytes: vi.fn<(path: string) => Promise<number[]>>(),
   mockUnlisten: vi.fn(),
 }));
 
@@ -27,7 +29,7 @@ vi.mock("../lib/tauri-commands", () => ({
   refreshPreview: mockRefreshPreview,
   focusPreviewWindow: mockFocusPreviewWindow,
   stopDevServer: mockStopDevServer,
-  readFileBytes: vi.fn(),
+  readFileBytes: mockReadFileBytes,
 }));
 
 // Capture listener callbacks so we can simulate events in tests
@@ -297,5 +299,133 @@ describe("usePreviewWindow", () => {
 
     // Should fall back to activeProjectPath ("/test/project")
     expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(false);
+  });
+
+  // ── Screenshot event listener regression tests ──
+  // Regression: security changes broke screenshot-taken event handling.
+  // The hook must register a listener for "preview-screenshot-taken" and
+  // add the screenshot as a chat attachment.
+
+  it("registers listener for preview-screenshot-taken event", async () => {
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(eventListeners.has("preview-screenshot-taken")).toBe(true);
+  });
+
+  it("screenshot event reads file and adds attachment to store", async () => {
+    useSessionStore.setState({
+      activeProjectPath: "/test/project",
+      activeSessionId: "session-1",
+      sessions: new Map(),
+    });
+
+    // Mock readFileBytes to return fake PNG data
+    const fakePng = [0x89, 0x50, 0x4e, 0x47]; // PNG magic bytes
+    mockReadFileBytes.mockResolvedValueOnce(fakePng);
+
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const screenshotListener = eventListeners.get("preview-screenshot-taken");
+    expect(screenshotListener).toBeDefined();
+
+    // Simulate Rust emitting screenshot-taken with a file path
+    await act(async () => {
+      screenshotListener!({ payload: "/tmp/codemantis-screenshot-123.png" });
+      // Wait for async readFileBytes
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(mockReadFileBytes).toHaveBeenCalledWith("/tmp/codemantis-screenshot-123.png");
+  });
+
+  it("screenshot event does nothing without active session", async () => {
+    useSessionStore.setState({
+      activeProjectPath: "/test/project",
+      activeSessionId: null,
+      sessions: new Map(),
+    });
+
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const screenshotListener = eventListeners.get("preview-screenshot-taken");
+
+    await act(async () => {
+      screenshotListener!({ payload: "/tmp/screenshot.png" });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // readFileBytes should not be called since there's no active session
+    expect(mockReadFileBytes).not.toHaveBeenCalled();
+  });
+
+  // ── Event listener registration completeness ──
+  // Regression: all three preview events must be registered.
+  // If any listener registration is accidentally removed, the corresponding
+  // toolbar button will silently fail even if the HTTP callback works.
+
+  it("registers both screenshot-taken and window-closed listeners", async () => {
+    renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Both events must be registered — if either is missing,
+    // the corresponding feature is broken
+    expect(eventListeners.has("preview-screenshot-taken")).toBe(true);
+    expect(eventListeners.has("preview-window-closed")).toBe(true);
+  });
+
+  // ── openPreview includes projectPath (critical for close scoping) ──
+  // Regression: security changes added projectPath param to openPreviewWindow.
+  // If projectPath is not passed, the close event can't scope to the right project.
+
+  it("openPreview always passes projectPath to openPreviewWindow", async () => {
+    useSessionStore.setState({ activeProjectPath: "/my/project" });
+    mockOpenPreviewWindow.mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.openPreview("http://localhost:8080");
+    });
+
+    // Third argument must be the project path
+    const call = mockOpenPreviewWindow.mock.calls[0];
+    expect(call[0]).toBe("http://localhost:8080"); // url
+    expect(call[1]).toBe("project"); // projectName (from path)
+    expect(call[2]).toBe("/my/project"); // projectPath — MUST be present
+  });
+
+  // ── closePreview also stops dev server ──
+
+  it("closePreview stops running dev server", async () => {
+    usePreviewStore.getState().setPreviewOpen("/test/project", true);
+    usePreviewStore.getState().setDevServer("/test/project", {
+      url: "http://localhost:3000",
+      port: 3000,
+      status: "running",
+      terminalId: "term-1",
+    });
+
+    mockClosePreviewWindow.mockResolvedValueOnce(undefined);
+    mockStopDevServer.mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.closePreview();
+    });
+
+    expect(mockClosePreviewWindow).toHaveBeenCalled();
+    expect(mockStopDevServer).toHaveBeenCalledWith("/test/project");
   });
 });

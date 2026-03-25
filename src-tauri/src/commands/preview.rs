@@ -73,14 +73,42 @@ pub fn capture_screenshot_inner(app_handle: &AppHandle) -> Result<String, String
         .get_webview_window("preview")
         .ok_or("Preview window not open")?;
 
+    // Check if the window is minimized — screencapture cannot capture minimized windows
+    if let Ok(true) = window.is_minimized() {
+        return Err("Cannot screenshot minimized window".to_string());
+    }
+
     let position = window.outer_position().map_err(|e| e.to_string())?;
     let size = window.outer_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
 
-    let x = (position.x as f64 / scale) as i32;
-    let y = (position.y as f64 / scale) as i32;
+    // Convert physical coords to logical/point coords for screencapture -R
+    let mut x = (position.x as f64 / scale) as i32;
+    let mut y = (position.y as f64 / scale) as i32;
     let w = (size.width as f64 / scale) as u32;
     let h = (size.height as f64 / scale) as u32;
+
+    info!(
+        "[preview] Screenshot: physical=({},{}) {}x{}, scale={}, logical=({},{}) {}x{}",
+        position.x, position.y, size.width, size.height, scale, x, y, w, h
+    );
+
+    if w == 0 || h == 0 {
+        return Err(format!(
+            "Invalid screenshot dimensions: {}x{} (physical: {}x{}, scale: {})",
+            w, h, size.width, size.height, scale
+        ));
+    }
+
+    // Clamp negative positions — window may be partially off-screen
+    if x < 0 {
+        warn!("[preview] Screenshot x position negative ({}), clamping to 0", x);
+        x = 0;
+    }
+    if y < 0 {
+        warn!("[preview] Screenshot y position negative ({}), clamping to 0", y);
+        y = 0;
+    }
 
     let tmp_path = std::env::temp_dir().join(format!(
         "codemantis-screenshot-{}.png",
@@ -91,14 +119,16 @@ pub fn capture_screenshot_inner(app_handle: &AppHandle) -> Result<String, String
     ));
     let path_str = tmp_path.to_str().ok_or("Invalid temp path")?.to_string();
 
+    let rect = format!("{},{},{},{}", x, y, w, h);
     let output = std::process::Command::new("screencapture")
-        .args(["-R", &format!("{},{},{},{}", x, y, w, h), "-x", &path_str])
+        .args(["-R", &rect, "-x", &path_str])
         .output()
         .map_err(|e| format!("screencapture failed: {}", e))?;
 
     if !output.status.success() {
         return Err(format!(
-            "screencapture error: {}",
+            "screencapture error (rect={}): {}",
+            rect,
             String::from_utf8_lossy(&output.stderr)
         ));
     }
@@ -154,7 +184,22 @@ pub async fn open_preview_window(
 
     let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
 
+    // Read the approval server port BEFORE creating the window so we can
+    // inject it via initialization_script (WKUserScript), which is immune
+    // to the loaded page's Content Security Policy.  Using eval() for this
+    // is fragile — pages with restrictive CSP silently block it, leaving
+    // the toolbar buttons with no callback port.
+    let callback_port = {
+        let app_state = app_handle.state::<AppState>();
+        let port = app_state.approval_server_port.lock().await;
+        *port
+    };
+
     let console_bridge = include_str!("../../resources/preview-console-bridge.js");
+    let bridge_with_port = match callback_port {
+        Some(port) => format!("window.__CM_CALLBACK_PORT = {};\n{}", port, console_bridge),
+        None => console_bridge.to_string(),
+    };
 
     let window = WebviewWindowBuilder::new(
         &app_handle,
@@ -162,7 +207,7 @@ pub async fn open_preview_window(
         WebviewUrl::External(parsed_url),
     )
     .title(format!("CodeMantis Preview — {}", project_name))
-    .initialization_script(console_bridge)
+    .initialization_script(&bridge_with_port)
     .inner_size(w, h)
     .min_inner_size(400.0, 300.0)
     .resizable(true)
@@ -184,15 +229,6 @@ pub async fn open_preview_window(
         }
     });
 
-    // Read the approval server port — preview toolbar buttons call fetch()
-    // to its /screenshot and /open endpoints (document.title trick doesn't
-    // work for external-URL WKWebViews).
-    let callback_port = {
-        let app_state = app_handle.state::<AppState>();
-        let port = app_state.approval_server_port.lock().await;
-        *port
-    };
-
     // Grab a clone of the current cancellation token for this polling task.
     let poll_token = {
         let cancel = preview_state.poll_cancel.lock().await;
@@ -207,14 +243,17 @@ pub async fn open_preview_window(
         // Wait briefly for the window to load
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        // Inject the callback server port into the preview window so JS
-        // buttons can call fetch('http://127.0.0.1:{port}/...').
+        // Re-inject the callback server port via eval() as a safety net.
+        // The primary injection happens via initialization_script, but eval()
+        // covers SPA navigations that reload the JS context.
         if let (Some(win), Some(port)) = (poll_ah.get_webview_window("preview"), callback_port) {
             let inject_port_js = format!(
                 "window.__CM_CALLBACK_PORT = {};",
                 port
             );
-            let _ = win.eval(&inject_port_js);
+            if let Err(e) = win.eval(&inject_port_js) {
+                warn!("[preview] Failed to inject callback port via eval: {}", e);
+            }
         }
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
@@ -254,7 +293,9 @@ pub async fn open_preview_window(
                     }
                 })();
             "#;
-            let _ = preview_win.eval(reinject_js);
+            if let Err(e) = preview_win.eval(reinject_js) {
+                debug!("[preview] Bridge presence check eval failed: {}", e);
+            }
 
             // If bridge is missing, re-inject it via eval()
             tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
@@ -270,7 +311,9 @@ pub async fn open_preview_window(
                 include_str!("../../resources/preview-console-bridge.js")
                     .replace("if (window.__CM_CONSOLE_BRIDGE) return;", "")
             );
-            let _ = preview_win.eval(&check_reinject_js);
+            if let Err(e) = preview_win.eval(&check_reinject_js) {
+                warn!("[preview] Bridge re-injection eval failed: {}", e);
+            }
 
             // Re-inject callback port (may have been lost after SPA navigation / re-inject)
             if let Some(port) = callback_port {
@@ -278,7 +321,9 @@ pub async fn open_preview_window(
                     "if (typeof window.__CM_CALLBACK_PORT === 'undefined') window.__CM_CALLBACK_PORT = {};",
                     port
                 );
-                let _ = preview_win.eval(&inject_port_js);
+                if let Err(e) = preview_win.eval(&inject_port_js) {
+                    warn!("[preview] Callback port re-injection eval failed: {}", e);
+                }
             }
 
             // Step 1: Drain the buffer and encode into document.title with a prefix
@@ -331,7 +376,9 @@ pub async fn open_preview_window(
                                 }
                             })();
                         "#;
-                        let _ = preview_win.eval(restore_js);
+                        if let Err(e) = preview_win.eval(restore_js) {
+                            debug!("[preview] Title restoration eval failed: {}", e);
+                        }
 
                         if let Ok(entries) = serde_json::from_str::<Vec<ConsoleLogEntry>>(json_str) {
                             if !entries.is_empty() {

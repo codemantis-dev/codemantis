@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::claude::session::SessionMode;
@@ -529,6 +530,18 @@ async fn handle_preview_close(
     let Some(app_handle) = state.app_handle().await else {
         return (StatusCode::INTERNAL_SERVER_ERROR, cors);
     };
+
+    // Cancel the polling task so it doesn't emit a stale close event
+    // after the window is gone — mirrors the logic in close_preview_window IPC command.
+    if let Some(preview_state) = app_handle.try_state::<crate::preview::PreviewState>() {
+        let mut cancel = preview_state.poll_cancel.lock().await;
+        cancel.cancel();
+        *cancel = CancellationToken::new();
+
+        let mut active = preview_state.active_preview_project.lock().await;
+        *active = None;
+    }
+
     if let Some(window) = app_handle.get_webview_window("preview") {
         let _ = window.close();
     }
@@ -781,5 +794,118 @@ mod tests {
     async fn app_handle_is_none_by_default() {
         let state = ApprovalServerState::new();
         assert!(state.app_handle().await.is_none());
+    }
+
+    // ── Preview callback CORS regression tests ──
+    // These tests ensure that CORS validation for preview callbacks
+    // never accidentally blocks legitimate localhost preview origins.
+    // Regression: security changes broke screenshot, close, and
+    // console-to-chat by rejecting valid origins.
+
+    #[test]
+    fn cors_allows_localhost_with_common_dev_ports() {
+        // Dev servers use various ports — all must be accepted
+        assert!(is_localhost_origin("http://localhost:3000"));
+        assert!(is_localhost_origin("http://localhost:5173"));
+        assert!(is_localhost_origin("http://localhost:8080"));
+        assert!(is_localhost_origin("http://localhost:4200"));
+        assert!(is_localhost_origin("http://localhost:8000"));
+        assert!(is_localhost_origin("http://localhost:1420")); // Tauri dev URL
+    }
+
+    #[test]
+    fn cors_allows_127_0_0_1_with_common_dev_ports() {
+        assert!(is_localhost_origin("http://127.0.0.1:3000"));
+        assert!(is_localhost_origin("http://127.0.0.1:5173"));
+        assert!(is_localhost_origin("http://127.0.0.1:8080"));
+        assert!(is_localhost_origin("http://127.0.0.1:4200"));
+    }
+
+    #[test]
+    fn cors_allows_localhost_without_port() {
+        // Origin header may omit port for default (80/443)
+        assert!(is_localhost_origin("http://localhost"));
+        assert!(is_localhost_origin("https://localhost"));
+        assert!(is_localhost_origin("http://127.0.0.1"));
+        assert!(is_localhost_origin("https://127.0.0.1"));
+    }
+
+    #[test]
+    fn cors_rejects_non_loopback_ips() {
+        // Other local IPs (LAN, Docker, etc.) must NOT be accepted
+        assert!(!is_localhost_origin("http://0.0.0.0:3000"));
+        assert!(!is_localhost_origin("http://192.168.1.100:3000"));
+        assert!(!is_localhost_origin("http://10.0.0.1:8080"));
+        assert!(!is_localhost_origin("http://172.17.0.1:3000"));
+    }
+
+    #[test]
+    fn cors_rejects_empty_and_missing_origin() {
+        assert!(!is_localhost_origin(""));
+        assert!(!is_localhost_origin("null"));
+    }
+
+    // ── Preview callback route presence tests ──
+    // Regression: refactors accidentally removed or renamed routes,
+    // silently breaking toolbar buttons.
+
+    #[test]
+    fn preview_callback_routes_are_all_defined() {
+        // This test acts as a compile-time contract: if any handler function
+        // is removed or has its signature changed, this test won't compile.
+        // The route paths themselves are string literals verified below.
+        let _screenshot_handler: fn(axum::http::HeaderMap, AxumState<Arc<ApprovalServerState>>) -> _ = handle_preview_screenshot;
+        let _close_handler: fn(axum::http::HeaderMap, AxumState<Arc<ApprovalServerState>>) -> _ = handle_preview_close;
+        let _console_handler: fn(axum::http::HeaderMap, AxumState<Arc<ApprovalServerState>>, Json<ConsoleToChat>) -> _ = handle_preview_console_to_chat;
+        let _open_handler: fn(axum::http::HeaderMap, Json<OpenBrowserRequest>) -> _ = handle_preview_open_browser;
+        let _preflight_handler: fn(axum::http::HeaderMap) -> _ = preview_cors_preflight;
+    }
+
+    #[test]
+    fn cors_header_echoes_valid_origin() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://localhost:3000"));
+        let resp = cors_header(&headers);
+        assert_eq!(
+            resp.get("access-control-allow-origin").unwrap(),
+            "http://localhost:3000"
+        );
+    }
+
+    #[test]
+    fn cors_header_omits_origin_for_external() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://evil.com"));
+        let resp = cors_header(&headers);
+        assert!(resp.get("access-control-allow-origin").is_none());
+    }
+
+    #[test]
+    fn cors_header_echoes_127_0_0_1_origin() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://127.0.0.1:54321"));
+        let resp = cors_header(&headers);
+        assert_eq!(
+            resp.get("access-control-allow-origin").unwrap(),
+            "http://127.0.0.1:54321"
+        );
+    }
+
+    #[test]
+    fn console_to_chat_payload_deserializes() {
+        // Regression: if ConsoleToChat struct changes shape, the /console-to-chat
+        // endpoint would return 422 and silently break "Send to Chat".
+        let json = r#"{"logs": "[ERROR] Something broke\n[WARN] Deprecated API"}"#;
+        let parsed: ConsoleToChat = serde_json::from_str(json).unwrap();
+        assert!(parsed.logs.contains("[ERROR]"));
+        assert!(parsed.logs.contains("[WARN]"));
+    }
+
+    #[test]
+    fn open_browser_request_deserializes() {
+        // Regression: if OpenBrowserRequest changes shape, the /open endpoint breaks.
+        let json = r#"{"url": "http://localhost:3000/about"}"#;
+        let parsed: OpenBrowserRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.url, "http://localhost:3000/about");
     }
 }

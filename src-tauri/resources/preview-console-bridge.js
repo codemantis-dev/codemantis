@@ -168,7 +168,20 @@
   // Screenshot to Chat — calls local Rust HTTP callback server
   toolbar.appendChild(tbBtn('\uD83D\uDCF7', 'Screenshot to Chat', function() {
     var port = window.__CM_CALLBACK_PORT;
-    if (!port) { ORIG.warn('Preview callback port not set yet'); return; }
+    if (!port) {
+      ORIG.warn('[CodeMantis] Screenshot: callback port not available, retrying...');
+      setTimeout(function() {
+        var retryPort = window.__CM_CALLBACK_PORT;
+        if (!retryPort) {
+          ORIG.error('[CodeMantis] Screenshot unavailable — callback port not set');
+          return;
+        }
+        fetch('http://127.0.0.1:' + retryPort + '/screenshot', {
+          method: 'POST',
+        }).catch(function(err) { ORIG.error('Screenshot failed:', err); });
+      }, 500);
+      return;
+    }
     fetch('http://127.0.0.1:' + port + '/screenshot', {
       method: 'POST',
     }).catch(function(err) { ORIG.error('Screenshot failed:', err); });
@@ -191,6 +204,7 @@
       fetch('http://127.0.0.1:' + port + '/close', { method: 'POST' })
         .catch(function() { window.close(); });
     } else {
+      ORIG.warn('[CodeMantis] Close: no callback port, using window.close() fallback');
       window.close();
     }
   }));
@@ -383,7 +397,7 @@
 
   drawerActions.appendChild(drawerBtn('Send to Chat', 'Send logs to chat input', function() {
     var port = window.__CM_CALLBACK_PORT;
-    if (!port) { ORIG.warn('No callback port'); return; }
+    if (!port) { ORIG.warn('[CodeMantis] Send to Chat: callback port not available'); return; }
     var entries = window.__CM_CONSOLE_LOG.filter(function(e) {
       return e.level === 'error' || e.level === 'warn';
     });
