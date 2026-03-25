@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, type KeyboardEvent } from "react";
 import { Send, Square } from "lucide-react";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 
 interface HelpChatInputProps {
   onSend: (message: string) => void;
@@ -10,6 +12,7 @@ interface HelpChatInputProps {
 
 export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: HelpChatInputProps) {
   const [value, setValue] = useState("");
+  const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(() => {
@@ -21,12 +24,12 @@ export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: Help
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && e.metaKey) {
+      if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend, sendShortcut]
   );
 
   const isActive = value.trim().length > 0 && !disabled;
@@ -42,7 +45,7 @@ export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: Help
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask a question about CodeMantis... (⌘Enter to send)"
+          placeholder={`Ask a question about CodeMantis... (${sendShortcutHint(sendShortcut)})`}
           disabled={disabled}
           rows={6}
           className="w-full resize-none bg-transparent px-4 py-3 text-chat text-text-primary placeholder:text-text-ghost outline-none"
@@ -72,7 +75,7 @@ export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: Help
             >
               <Send size={13} />
               <span>Send</span>
-              <span className="text-label opacity-60">⌘↵</span>
+              <span className="text-label opacity-60">{sendShortcutLabel(sendShortcut)}</span>
             </button>
           )}
         </div>

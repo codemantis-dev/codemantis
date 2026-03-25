@@ -5,6 +5,8 @@ import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { processDroppedPathsForSpec } from "../../lib/file-utils";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { shouldSend, sendShortcutHint } from "../../lib/keyboard";
 
 interface Props {
   projectPath: string;
@@ -52,6 +54,7 @@ export default function SpecChatInput({ projectPath }: Props) {
   const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
   const { sendMessage, cancelStream } = useSpecConversationRouter();
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
+  const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,12 +85,12 @@ export default function SpecChatInput({ projectPath }: Props) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [handleSend, sendShortcut]
   );
 
   const handlePaste = useCallback(
@@ -245,7 +248,7 @@ export default function SpecChatInput({ projectPath }: Props) {
           <button
             onClick={handleSend}
             disabled={!text.trim() && attachments.length === 0}
-            title="Send (Cmd+Enter)"
+            title={`Send (${sendShortcut === "enter" ? "Enter" : "Cmd+Enter"})`}
             className="p-1.5 rounded transition-colors shrink-0 disabled:opacity-30"
             style={{ color: "var(--accent)" }}
           >
@@ -255,7 +258,7 @@ export default function SpecChatInput({ projectPath }: Props) {
       </div>
 
       <div className="text-[10px] mt-1 text-center select-none" style={{ color: "var(--text-ghost)" }}>
-        Cmd+Enter to send
+        {sendShortcutHint(sendShortcut)}
       </div>
     </div>
   );

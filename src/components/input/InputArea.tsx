@@ -13,6 +13,8 @@ import ModelSelector from "./ModelSelector";
 import type { Attachment } from "../../types/attachment";
 import { handleError } from "../../lib/error-handler";
 import { useFileDrop } from "../../hooks/useFileDrop";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
@@ -51,6 +53,7 @@ export default function InputArea() {
   const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
   const isStreaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId)?.isStreaming ?? false : false);
   const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
+  const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
 
   // Save/restore input drafts per session
   useEffect(() => {
@@ -191,12 +194,12 @@ export default function InputArea() {
           return;
         }
       }
-      if (e.key === "Enter" && e.metaKey) {
+      if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, showCommandPalette]
+    [handleSend, showCommandPalette, sendShortcut]
   );
 
   const handleInput = useCallback(() => {
@@ -379,8 +382,8 @@ export default function InputArea() {
             placeholder={
               session
                 ? isBusy
-                  ? "Ask Claude anything... even while Claude is busy! (\u2318+Enter to send)"
-                  : "Ask Claude anything... (\u2318+Enter to send)"
+                  ? `Ask Claude anything... even while Claude is busy! (${sendShortcutHint(sendShortcut)})`
+                  : `Ask Claude anything... (${sendShortcutHint(sendShortcut)})`
                 : "Open a project to start..."
             }
             disabled={!session}
@@ -460,7 +463,7 @@ export default function InputArea() {
                 >
                   <Send size={13} />
                   <span>Send</span>
-                  <span className="text-label opacity-60">{"⌘↵"}</span>
+                  <span className="text-label opacity-60">{sendShortcutLabel(sendShortcut)}</span>
                 </button>
               )}
             </div>

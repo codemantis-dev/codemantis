@@ -1,5 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Send, Plus, Square } from "lucide-react";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { shouldSend } from "../../lib/keyboard";
 import type { SlashCommand } from "../../types/slash-commands";
 import type { Attachment } from "../../types/attachment";
 import type { AssistantShortcut } from "../../types/settings";
@@ -63,6 +65,7 @@ export default function AssistantInputArea({
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [commandIndex, setCommandIndex] = useState(0);
 
+  const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
   const closeCommandPalette = useCallback(() => setShowCommandPalette(false), []);
   const commandPaletteRef = useClickOutside<HTMLDivElement>(showCommandPalette, closeCommandPalette);
 
@@ -275,12 +278,12 @@ export default function AssistantInputArea({
         }
       }
 
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands, onInputChange, textareaRef]
+    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands, onInputChange, textareaRef, sendShortcut]
   );
 
   const handleInputChange = useCallback(
@@ -389,7 +392,7 @@ export default function AssistantInputArea({
               onClick={handleSend}
               disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId}
               className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Send (Cmd+Enter)"
+              title={`Send (${sendShortcut === "enter" ? "Enter" : "Cmd+Enter"})`}
             >
               <Send size={16} />
             </button>

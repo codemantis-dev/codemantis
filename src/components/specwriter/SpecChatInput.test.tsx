@@ -94,8 +94,8 @@ describe("SpecChatInput", () => {
     expect(screen.getByTitle("Attach file")).toBeInTheDocument();
   });
 
-  it("renders Cmd+Enter hint text", () => {
+  it("renders send shortcut hint text", () => {
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
-    expect(screen.getByText("Cmd+Enter to send")).toBeInTheDocument();
+    expect(screen.getByText("⌘+Enter to send")).toBeInTheDocument();
   });
 });

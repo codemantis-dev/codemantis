@@ -31,7 +31,7 @@ interface SettingsState {
 const DEFAULT_SETTINGS: AppSettings = {
   theme: "sand",
   fontSize: 13,
-  sendShortcut: "cmd+enter",
+  sendShortcut: "enter",
   terminalShell: null,
   terminalFontSize: 13,
   quickCommands: [
