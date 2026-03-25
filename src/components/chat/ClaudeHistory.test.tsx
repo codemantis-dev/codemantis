@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useUiStore } from "../../stores/uiStore";
 import ClaudeHistory from "./ClaudeHistory";
 import type { SessionHistoryEntry } from "../../types/session";
 
@@ -42,6 +43,7 @@ describe("ClaudeHistory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSessionStore.setState({ activeProjectPath: "/test/project" });
+    useUiStore.setState({ showClaudeHistory: true });
     mockListSessionHistory.mockResolvedValue([]);
   });
 
@@ -138,5 +140,17 @@ describe("ClaudeHistory", () => {
       expect(screen.getByText("Fixed a bug")).toBeInTheDocument();
       expect(screen.getByText("Added tests")).toBeInTheDocument();
     });
+  });
+
+  it("closes history view when Back button is clicked", async () => {
+    mockListSessionHistory.mockResolvedValue([]);
+    render(<ClaudeHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Back to Project")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Back to Project"));
+    expect(useUiStore.getState().showClaudeHistory).toBe(false);
   });
 });

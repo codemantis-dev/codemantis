@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
-import { History, RefreshCw, Loader2, Play } from "lucide-react";
+import { History, RefreshCw, Loader2, Play, ArrowLeft } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { listSessionHistory } from "../../lib/tauri-commands";
+import { useUiStore } from "../../stores/uiStore";
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
 import type { SessionHistoryEntry } from "../../types/session";
@@ -93,6 +94,7 @@ function HistoryCard({
 
 export default function ClaudeHistory() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
   const { resumeFromHistory } = useClaudeSession();
   const [entries, setEntries] = useState<SessionHistoryEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,6 +154,14 @@ export default function ClaudeHistory() {
           </span>
         )}
         <div className="flex-1" />
+        <button
+          onClick={() => setShowClaudeHistory(false)}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+          title="Back to Project"
+        >
+          <ArrowLeft size={12} />
+          <span>Back</span>
+        </button>
         <button
           onClick={loadHistory}
           disabled={loading}
