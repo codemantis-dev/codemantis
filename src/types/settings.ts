@@ -94,6 +94,10 @@ export interface AppSettings {
 
   // Clone from GitHub
   lastCloneDirectory: string | null;
+
+  // Session Logs
+  sessionLogsEnabled: boolean;
+  sessionLogsRetentionDays: number;
 }
 
 export { getDefaultModelPricing };

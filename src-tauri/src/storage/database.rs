@@ -1,7 +1,7 @@
 use crate::errors::AppError;
 use crate::storage::migrations;
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
 pub struct Database {
@@ -66,6 +66,29 @@ pub struct ApiCostSummaryRow {
 }
 
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMessageRow {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+    pub thinking_content: Option<String>,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMessageSearchResult {
+    pub session_id: String,
+    pub session_name: String,
+    pub message_id: String,
+    pub role: String,
+    pub content_snippet: String,
+    pub timestamp: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PersistedSession {
     pub id: String,
@@ -77,6 +100,7 @@ pub struct PersistedSession {
     pub icon_index: i32,
     pub cli_session_id: Option<String>,
     pub closed_at: Option<String>,
+    pub has_stored_messages: bool,
 }
 
 impl Database {
@@ -123,6 +147,9 @@ impl Database {
             log::info!("[database] Running task_plans V2 migration (add status column)");
             let _ = conn.execute_batch(migrations::MIGRATE_TASK_PLANS_V2);
         }
+
+        // Session messages table
+        let _ = conn.execute_batch(migrations::MIGRATE_SESSION_MESSAGES);
 
         // Implementation guides table
         let _ = conn.execute_batch(migrations::MIGRATE_IMPLEMENTATION_GUIDES);
@@ -223,7 +250,11 @@ impl Database {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
         let mut stmt = conn
-            .prepare("SELECT id, name, project_path, status, created_at, model, icon_index, cli_session_id, closed_at FROM sessions ORDER BY created_at DESC")
+            .prepare(
+                "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 FROM sessions s ORDER BY s.created_at DESC"
+            )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
         let rows = stmt
@@ -238,6 +269,7 @@ impl Database {
                     icon_index: row.get(6)?,
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
+                    has_stored_messages: row.get::<_, i32>(9)? != 0,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -412,9 +444,10 @@ impl Database {
         })?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, project_path, status, created_at, model, icon_index, cli_session_id, closed_at \
-                 FROM sessions WHERE project_path = ?1 AND status = 'closed' AND cli_session_id IS NOT NULL \
-                 ORDER BY closed_at DESC LIMIT ?2"
+                "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 FROM sessions s WHERE s.project_path = ?1 AND s.status = 'closed' AND s.cli_session_id IS NOT NULL \
+                 ORDER BY s.closed_at DESC LIMIT ?2"
             )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
@@ -430,6 +463,7 @@ impl Database {
                     icon_index: row.get(6)?,
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
+                    has_stored_messages: row.get::<_, i32>(9)? != 0,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -555,6 +589,172 @@ impl Database {
             total_calls: total_calls as u32,
             by_provider,
         })
+    }
+
+    // ── Session Messages ──────────────────────────────────────────────
+
+    pub fn save_session_messages(
+        &self,
+        session_id: &str,
+        messages: &[SessionMessageRow],
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let tx = conn.unchecked_transaction().map_err(|e| {
+            AppError::DatabaseError(format!("Begin transaction failed: {}", e))
+        })?;
+        // Delete existing messages for idempotent re-save
+        tx.execute(
+            "DELETE FROM session_messages WHERE session_id = ?1",
+            rusqlite::params![session_id],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Delete old messages failed: {}", e)))?;
+
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO session_messages (id, session_id, role, content, timestamp, thinking_content, sort_order) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                )
+                .map_err(|e| AppError::DatabaseError(format!("Prepare insert failed: {}", e)))?;
+
+            for msg in messages {
+                stmt.execute(rusqlite::params![
+                    msg.id,
+                    session_id,
+                    msg.role,
+                    msg.content,
+                    msg.timestamp,
+                    msg.thinking_content,
+                    msg.sort_order,
+                ])
+                .map_err(|e| AppError::DatabaseError(format!("Insert message failed: {}", e)))?;
+            }
+        }
+
+        tx.commit()
+            .map_err(|e| AppError::DatabaseError(format!("Commit failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn load_session_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SessionMessageRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, session_id, role, content, timestamp, thinking_content, sort_order \
+                 FROM session_messages WHERE session_id = ?1 ORDER BY sort_order ASC",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(SessionMessageRow {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    timestamp: row.get(4)?,
+                    thinking_content: row.get(5)?,
+                    sort_order: row.get(6)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(messages)
+    }
+
+    pub fn session_has_messages(&self, session_id: &str) -> Result<bool, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM session_messages WHERE session_id = ?1)",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+        Ok(exists)
+    }
+
+    pub fn delete_expired_session_messages(&self, retention_days: u32) -> Result<u32, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = conn
+            .execute(
+                "DELETE FROM session_messages WHERE session_id IN \
+                 (SELECT id FROM sessions WHERE closed_at IS NOT NULL AND closed_at < ?1)",
+                rusqlite::params![cutoff_str],
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Delete expired messages failed: {}", e)))?;
+        Ok(deleted as u32)
+    }
+
+    pub fn search_session_messages(
+        &self,
+        project_path: &str,
+        query: &str,
+        limit: i32,
+    ) -> Result<Vec<SessionMessageSearchResult>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let like_pattern = format!(
+            "%{}%",
+            query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+        );
+        let mut stmt = conn
+            .prepare(
+                "SELECT sm.session_id, s.name, sm.id, sm.role, sm.content, sm.timestamp \
+                 FROM session_messages sm \
+                 JOIN sessions s ON sm.session_id = s.id \
+                 WHERE s.project_path = ?1 AND s.status = 'closed' \
+                   AND sm.content LIKE ?2 ESCAPE '\\' \
+                 ORDER BY sm.timestamp DESC LIMIT ?3",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![project_path, like_pattern, limit], |row| {
+                let content: String = row.get(4)?;
+                let snippet = if content.len() > 200 {
+                    format!("{}...", &content[..200])
+                } else {
+                    content
+                };
+                Ok(SessionMessageSearchResult {
+                    session_id: row.get(0)?,
+                    session_name: row.get(1)?,
+                    message_id: row.get(2)?,
+                    role: row.get(3)?,
+                    content_snippet: snippet,
+                    timestamp: row.get(5)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(results)
     }
 
     #[allow(dead_code)]
@@ -777,5 +977,376 @@ mod tests {
         let other = db.list_changelog_entries_by_project("/other").unwrap();
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].id, "e3");
+    }
+
+    // ── Session Messages ──
+
+    fn make_test_messages(session_id: &str, count: usize) -> Vec<SessionMessageRow> {
+        (0..count)
+            .map(|i| SessionMessageRow {
+                id: format!("msg-{}-{}", session_id, i),
+                session_id: session_id.to_string(),
+                role: if i % 2 == 0 { "user".to_string() } else { "assistant".to_string() },
+                content: format!("Message {} content", i),
+                timestamp: format!("2026-01-01T{:02}:00:00Z", i),
+                thinking_content: if i % 2 == 1 { Some("thinking...".to_string()) } else { None },
+                sort_order: i as i32,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_save_and_load_session_messages() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        let messages = make_test_messages("s1", 5);
+        db.save_session_messages("s1", &messages).unwrap();
+
+        let loaded = db.load_session_messages("s1").unwrap();
+        assert_eq!(loaded.len(), 5);
+        assert_eq!(loaded[0].id, "msg-s1-0");
+        assert_eq!(loaded[0].role, "user");
+        assert_eq!(loaded[4].id, "msg-s1-4");
+        assert_eq!(loaded[1].thinking_content, Some("thinking...".to_string()));
+        assert_eq!(loaded[0].thinking_content, None);
+    }
+
+    #[test]
+    fn test_save_messages_overwrite() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        let messages1 = make_test_messages("s1", 3);
+        db.save_session_messages("s1", &messages1).unwrap();
+
+        let messages2 = make_test_messages("s1", 2);
+        db.save_session_messages("s1", &messages2).unwrap();
+
+        let loaded = db.load_session_messages("s1").unwrap();
+        assert_eq!(loaded.len(), 2); // overwritten, not appended
+    }
+
+    #[test]
+    fn test_session_messages_cascade_delete() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        let messages = make_test_messages("s1", 5);
+        db.save_session_messages("s1", &messages).unwrap();
+        assert!(db.session_has_messages("s1").unwrap());
+
+        db.delete_session("s1").unwrap();
+        assert!(!db.session_has_messages("s1").unwrap());
+        assert_eq!(db.load_session_messages("s1").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_session_has_messages() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        assert!(!db.session_has_messages("s1").unwrap());
+
+        let messages = make_test_messages("s1", 1);
+        db.save_session_messages("s1", &messages).unwrap();
+
+        assert!(db.session_has_messages("s1").unwrap());
+    }
+
+    #[test]
+    fn test_has_stored_messages_in_listing() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "With msgs", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s2", "Without msgs", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+
+        let messages = make_test_messages("s1", 2);
+        db.save_session_messages("s1", &messages).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        let s1 = sessions.iter().find(|s| s.id == "s1").unwrap();
+        let s2 = sessions.iter().find(|s| s.id == "s2").unwrap();
+        assert!(s1.has_stored_messages);
+        assert!(!s2.has_stored_messages);
+    }
+
+    #[test]
+    fn test_search_session_messages() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Auth session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.insert_session("s2", "Other session", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+
+        let msgs1 = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "Fix the authentication bug".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+            SessionMessageRow { id: "m2".into(), session_id: "s1".into(), role: "assistant".into(), content: "I'll fix the auth flow".into(), timestamp: "2026-01-01T00:02:00Z".into(), thinking_content: None, sort_order: 1 },
+        ];
+        db.save_session_messages("s1", &msgs1).unwrap();
+
+        let msgs2 = vec![
+            SessionMessageRow { id: "m3".into(), session_id: "s2".into(), role: "user".into(), content: "Add a new button".into(), timestamp: "2026-01-02T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s2", &msgs2).unwrap();
+
+        // Search for "auth" — should find messages in s1 only
+        let results = db.search_session_messages("/project", "auth", 50).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.session_id == "s1"));
+
+        // Search for "button" — should find in s2 only
+        let results = db.search_session_messages("/project", "button", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s2");
+
+        // Search for nonexistent term
+        let results = db.search_session_messages("/project", "xyznotfound", 50).unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_save_empty_messages_list() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        // Save 3 messages first
+        let messages = make_test_messages("s1", 3);
+        db.save_session_messages("s1", &messages).unwrap();
+        assert_eq!(db.load_session_messages("s1").unwrap().len(), 3);
+
+        // Saving empty list clears all messages
+        db.save_session_messages("s1", &[]).unwrap();
+        assert_eq!(db.load_session_messages("s1").unwrap().len(), 0);
+        assert!(!db.session_has_messages("s1").unwrap());
+    }
+
+    #[test]
+    fn test_load_messages_preserves_sort_order() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        // Insert messages with non-sequential sort_orders
+        let messages = vec![
+            SessionMessageRow { id: "m-c".into(), session_id: "s1".into(), role: "user".into(), content: "Third".into(), timestamp: "2026-01-01T00:03:00Z".into(), thinking_content: None, sort_order: 20 },
+            SessionMessageRow { id: "m-a".into(), session_id: "s1".into(), role: "user".into(), content: "First".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+            SessionMessageRow { id: "m-b".into(), session_id: "s1".into(), role: "assistant".into(), content: "Second".into(), timestamp: "2026-01-01T00:02:00Z".into(), thinking_content: Some("I'm thinking".into()), sort_order: 10 },
+        ];
+        db.save_session_messages("s1", &messages).unwrap();
+
+        let loaded = db.load_session_messages("s1").unwrap();
+        assert_eq!(loaded.len(), 3);
+        // Should be ordered by sort_order ASC, not by insertion order
+        assert_eq!(loaded[0].content, "First");
+        assert_eq!(loaded[1].content, "Second");
+        assert_eq!(loaded[2].content, "Third");
+        // Verify thinking_content preserved
+        assert_eq!(loaded[1].thinking_content, Some("I'm thinking".to_string()));
+    }
+
+    #[test]
+    fn test_delete_expired_session_messages() {
+        let db = Database::new(":memory:").unwrap();
+
+        // Old session — closed 60 days ago
+        db.insert_session("old", "Old Session", "/project", "closed", "2025-01-01T00:00:00Z", None, 0).unwrap();
+        let old_closed = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
+        db.close_session_with_details("old", Some("cli-old"), None, &old_closed).unwrap();
+
+        // Recent session — closed 5 days ago
+        db.insert_session("recent", "Recent Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 1).unwrap();
+        let recent_closed = (chrono::Utc::now() - chrono::Duration::days(5)).to_rfc3339();
+        db.close_session_with_details("recent", Some("cli-recent"), None, &recent_closed).unwrap();
+
+        // Active session — no closed_at
+        db.insert_session("active", "Active Session", "/project", "connected", "2026-01-01T00:00:00Z", None, 2).unwrap();
+
+        // Save messages for all three
+        db.save_session_messages("old", &make_test_messages("old", 3)).unwrap();
+        db.save_session_messages("recent", &make_test_messages("recent", 4)).unwrap();
+        db.save_session_messages("active", &make_test_messages("active", 2)).unwrap();
+
+        // Delete messages older than 30 days
+        let deleted = db.delete_expired_session_messages(30).unwrap();
+        assert_eq!(deleted, 3); // 3 messages from "old" session
+
+        // Old session messages gone
+        assert!(!db.session_has_messages("old").unwrap());
+        // Recent session messages preserved
+        assert!(db.session_has_messages("recent").unwrap());
+        assert_eq!(db.load_session_messages("recent").unwrap().len(), 4);
+        // Active session messages preserved (no closed_at)
+        assert!(db.session_has_messages("active").unwrap());
+        assert_eq!(db.load_session_messages("active").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_delete_expired_keeps_all_when_none_expired() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Recent", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        let closed_at = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        db.close_session_with_details("s1", Some("cli1"), None, &closed_at).unwrap();
+        db.save_session_messages("s1", &make_test_messages("s1", 5)).unwrap();
+
+        let deleted = db.delete_expired_session_messages(30).unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(db.load_session_messages("s1").unwrap().len(), 5);
+    }
+
+    #[test]
+    fn test_search_scoped_to_project() {
+        let db = Database::new(":memory:").unwrap();
+
+        // Session in project A
+        db.insert_session("s1", "Project A", "/project-a", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        let msgs = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "deploy the thing".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        // Session in project B with same content
+        db.insert_session("s2", "Project B", "/project-b", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+        let msgs2 = vec![
+            SessionMessageRow { id: "m2".into(), session_id: "s2".into(), role: "user".into(), content: "deploy the thing too".into(), timestamp: "2026-01-02T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s2", &msgs2).unwrap();
+
+        // Search in project A only
+        let results = db.search_session_messages("/project-a", "deploy", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s1");
+
+        // Search in project B only
+        let results = db.search_session_messages("/project-b", "deploy", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s2");
+    }
+
+    #[test]
+    fn test_search_only_finds_closed_sessions() {
+        let db = Database::new(":memory:").unwrap();
+
+        // Active session (not closed)
+        db.insert_session("s1", "Active", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        let msgs = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "secret keyword".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        // Search should NOT find messages from active sessions
+        let results = db.search_session_messages("/project", "secret", 50).unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_search_respects_limit() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+
+        let msgs: Vec<SessionMessageRow> = (0..10)
+            .map(|i| SessionMessageRow {
+                id: format!("m{}", i),
+                session_id: "s1".into(),
+                role: "user".into(),
+                content: format!("matching keyword {}", i),
+                timestamp: format!("2026-01-01T00:{:02}:00Z", i),
+                thinking_content: None,
+                sort_order: i,
+            })
+            .collect();
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        let results = db.search_session_messages("/project", "keyword", 3).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_search_returns_session_name() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "My Named Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        let msgs = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "findme".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        let results = db.search_session_messages("/project", "findme", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_name, "My Named Session");
+        assert_eq!(results[0].role, "user");
+    }
+
+    #[test]
+    fn test_search_truncates_long_content_to_snippet() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+
+        let long_content = "x".repeat(500);
+        let msgs = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "assistant".into(), content: long_content, timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        let results = db.search_session_messages("/project", "xxx", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        // Snippet should be truncated to ~200 chars + "..."
+        assert!(results[0].content_snippet.len() <= 204);
+        assert!(results[0].content_snippet.ends_with("..."));
+    }
+
+    #[test]
+    fn test_search_escapes_sql_wildcards() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+
+        let msgs = vec![
+            SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "100% complete".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
+            SessionMessageRow { id: "m2".into(), session_id: "s1".into(), role: "user".into(), content: "just a normal message".into(), timestamp: "2026-01-01T00:02:00Z".into(), thinking_content: None, sort_order: 1 },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        // Searching for "%" should only match the message that literally contains %
+        let results = db.search_session_messages("/project", "100%", 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].content_snippet.contains("100%"));
+    }
+
+    #[test]
+    fn test_has_stored_messages_in_closed_sessions_listing() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "With msgs", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.insert_session("s2", "Without msgs", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+
+        db.save_session_messages("s1", &make_test_messages("s1", 2)).unwrap();
+
+        let sessions = db.list_closed_sessions_for_project("/project", 20).unwrap();
+        let s1 = sessions.iter().find(|s| s.id == "s1").unwrap();
+        let s2 = sessions.iter().find(|s| s.id == "s2").unwrap();
+        assert!(s1.has_stored_messages);
+        assert!(!s2.has_stored_messages);
+    }
+
+    #[test]
+    fn test_messages_isolated_between_sessions() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Session 1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s2", "Session 2", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+
+        db.save_session_messages("s1", &make_test_messages("s1", 3)).unwrap();
+        db.save_session_messages("s2", &make_test_messages("s2", 5)).unwrap();
+
+        // Each session has its own messages
+        assert_eq!(db.load_session_messages("s1").unwrap().len(), 3);
+        assert_eq!(db.load_session_messages("s2").unwrap().len(), 5);
+
+        // Deleting one session's messages doesn't affect the other
+        db.delete_session("s1").unwrap();
+        assert_eq!(db.load_session_messages("s2").unwrap().len(), 5);
     }
 }

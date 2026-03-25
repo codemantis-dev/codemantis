@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Session, PersistedSession, SessionHistoryEntry } from "../types/session";
+import type { Session, PersistedSession, SessionHistoryEntry, SessionMessagePayload, SessionMessageSearchResult } from "../types/session";
 import type { FileNode } from "../types/file-tree";
 import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-events";
 import type { AppSettings } from "../types/settings";
@@ -149,6 +149,26 @@ export async function listSessionHistory(
   projectPath: string
 ): Promise<SessionHistoryEntry[]> {
   return invoke<SessionHistoryEntry[]>("list_session_history", { projectPath });
+}
+
+export async function saveSessionMessages(
+  sessionId: string,
+  messages: SessionMessagePayload[]
+): Promise<void> {
+  return invoke("save_session_messages", { sessionId, messages });
+}
+
+export async function loadSessionMessages(
+  sessionId: string
+): Promise<SessionMessagePayload[]> {
+  return invoke<SessionMessagePayload[]>("load_session_messages", { sessionId });
+}
+
+export async function searchSessionMessages(
+  projectPath: string,
+  query: string
+): Promise<SessionMessageSearchResult[]> {
+  return invoke<SessionMessageSearchResult[]>("search_session_messages", { projectPath, query });
 }
 
 // --- Help ---

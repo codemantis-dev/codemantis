@@ -132,4 +132,75 @@ describe("useSettingsFormState", () => {
     const { result } = renderHook(() => useSettingsFormState());
     expect(result.current.activeTab).toBe("changelog");
   });
+
+  // ── Session Logs fields ──
+
+  it("returns session logs state fields", () => {
+    const { result } = renderHook(() => useSettingsFormState());
+    expect(result.current).toHaveProperty("sessionLogsEnabled");
+    expect(result.current).toHaveProperty("sessionLogsRetentionDays");
+    expect(result.current).toHaveProperty("setSessionLogsEnabled");
+    expect(result.current).toHaveProperty("setSessionLogsRetentionDays");
+  });
+
+  it("sessionLogsEnabled defaults to true", () => {
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+    expect(result.current.sessionLogsEnabled).toBe(true);
+  });
+
+  it("sessionLogsRetentionDays defaults to 30", () => {
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+    expect(result.current.sessionLogsRetentionDays).toBe(30);
+  });
+
+  it("syncs session logs fields from store on modal open", async () => {
+    await useSettingsStore.getState().updateSettings({
+      sessionLogsEnabled: false,
+      sessionLogsRetentionDays: 90,
+    });
+
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+    expect(result.current.sessionLogsEnabled).toBe(false);
+    expect(result.current.sessionLogsRetentionDays).toBe(90);
+  });
+
+  it("setSessionLogsEnabled updates local state", () => {
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+
+    act(() => {
+      result.current.setSessionLogsEnabled(false);
+    });
+
+    expect(result.current.sessionLogsEnabled).toBe(false);
+  });
+
+  it("setSessionLogsRetentionDays updates local state", () => {
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+
+    act(() => {
+      result.current.setSessionLogsRetentionDays(7);
+    });
+
+    expect(result.current.sessionLogsRetentionDays).toBe(7);
+  });
 });

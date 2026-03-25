@@ -39,6 +39,7 @@ export interface Message {
   restartable?: boolean;
   retryable?: boolean;
   thinkingContent?: string;
+  isRestored?: boolean;
 }
 
 export interface SessionStats {
@@ -71,4 +72,23 @@ export interface SessionHistoryEntry {
   cli_session_id: string;
   icon_index: number;
   recent_headlines: string[];
+  has_stored_messages: boolean;
+}
+
+export interface SessionMessagePayload {
+  id: string;
+  role: string;
+  content: string;
+  timestamp: string;
+  thinkingContent: string | null;
+  sortOrder: number;
+}
+
+export interface SessionMessageSearchResult {
+  sessionId: string;
+  sessionName: string;
+  messageId: string;
+  role: string;
+  contentSnippet: string;
+  timestamp: string;
 }

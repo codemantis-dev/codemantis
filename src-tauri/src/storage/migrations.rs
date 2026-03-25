@@ -106,6 +106,21 @@ CREATE INDEX IF NOT EXISTS idx_task_plans_project ON task_plans(project_path);
 CREATE INDEX IF NOT EXISTS idx_task_plans_status ON task_plans(status);
 "#;
 
+pub const MIGRATE_SESSION_MESSAGES: &str = r#"
+CREATE TABLE IF NOT EXISTS session_messages (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    timestamp   TEXT NOT NULL,
+    thinking_content TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_session_messages_session
+  ON session_messages(session_id);
+"#;
+
 pub const MIGRATE_IMPLEMENTATION_GUIDES: &str = r#"
 CREATE TABLE IF NOT EXISTS implementation_guides (
     id TEXT PRIMARY KEY,

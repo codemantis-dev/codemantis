@@ -63,6 +63,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   apiKeyBannerDismissed: false,
   lastCloneDirectory: null,
+  sessionLogsEnabled: true,
+  sessionLogsRetentionDays: 30,
 };
 
 function resetStore(): void {

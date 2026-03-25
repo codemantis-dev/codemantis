@@ -115,6 +115,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     triviaEnabled: true, defaultContextWindow: 1000000, autoOpenFiles: false,
     claudeBinaryOverride: null, onboardingCompleted: false, apiKeyBannerDismissed: false,
     lastCloneDirectory: null,
+    sessionLogsEnabled: true, sessionLogsRetentionDays: 30,
     ...overrides,
   };
 }

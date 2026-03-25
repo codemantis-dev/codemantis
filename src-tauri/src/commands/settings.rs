@@ -96,6 +96,12 @@ pub struct AppSettings {
     // --- Clone from GitHub ---
     #[serde(default)]
     pub last_clone_directory: Option<String>,
+
+    // --- Session Logs ---
+    #[serde(default = "default_true")]
+    pub session_logs_enabled: bool,
+    #[serde(default = "default_session_logs_retention_days")]
+    pub session_logs_retention_days: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +182,9 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
     m
 }
+fn default_session_logs_retention_days() -> u32 {
+    30
+}
 fn default_changelog_prompt() -> String {
     r#"Summarize this coding session turn as a changelog entry. Return JSON only, markdown ONLY in the description field (5-6 sentences).
 Make sure to briefly describe in general, what was changed, the most important topics.
@@ -228,6 +237,8 @@ impl Default for AppSettings {
             onboarding_completed: false,
             api_key_banner_dismissed: false,
             last_clone_directory: None,
+            session_logs_enabled: true,
+            session_logs_retention_days: default_session_logs_retention_days(),
         }
     }
 }
@@ -384,6 +395,14 @@ mod tests {
         assert!(!settings.auto_open_files);
         assert!(!settings.onboarding_completed);
         assert!(!settings.api_key_banner_dismissed);
+        assert!(settings.session_logs_enabled);
+    }
+
+    #[test]
+    fn default_session_logs_retention_is_30() {
+        assert_eq!(default_session_logs_retention_days(), 30);
+        let settings = AppSettings::default();
+        assert_eq!(settings.session_logs_retention_days, 30);
     }
 
     #[test]

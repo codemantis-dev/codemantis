@@ -67,6 +67,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   apiKeyBannerDismissed: false,
   lastCloneDirectory: null,
+  sessionLogsEnabled: true,
+  sessionLogsRetentionDays: 30,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

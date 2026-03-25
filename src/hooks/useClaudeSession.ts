@@ -16,7 +16,11 @@ import {
   listenActivityEvents,
   closeTerminal as closeTerminalCmd,
   initializeSession,
+  saveSessionMessages,
+  loadSessionMessages,
 } from "../lib/tauri-commands";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { SessionMessagePayload, Message } from "../types/session";
 import { useUiStore } from "../stores/uiStore";
 import {
   handleChatEvent,
@@ -42,7 +46,7 @@ interface UseClaudeSessionReturn {
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
-  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string) => Promise<string>;
+  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string) => Promise<string>;
 }
 
 export function useClaudeSession(): UseClaudeSessionReturn {
@@ -125,6 +129,27 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   }, []);
 
   const closeSessionFn = useCallback(async (sessionId: string) => {
+    // Save session messages if session logs enabled (before messages are cleared)
+    const { sessionLogsEnabled } = useSettingsStore.getState().settings;
+    if (sessionLogsEnabled) {
+      const messages = sessionStore.getState().sessionMessages.get(sessionId) ?? [];
+      if (messages.length > 0) {
+        const payloads: SessionMessagePayload[] = messages.map((m, i) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          thinkingContent: m.thinkingContent ?? null,
+          sortOrder: i,
+        }));
+        try {
+          await saveSessionMessages(sessionId, payloads);
+        } catch (e) {
+          console.error("[closeSession] Failed to save session messages:", e);
+        }
+      }
+    }
+
     // Unlisten all event listeners for this session
     const listeners = sessionListeners.get(sessionId);
     if (listeners) {
@@ -211,7 +236,8 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   const resumeFromHistory = useCallback(async (
     projectPath: string,
     cliSessionId: string,
-    originalName: string
+    originalName: string,
+    originalSessionId?: string
   ): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
@@ -222,6 +248,34 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       const session = await createSession(projectPath, originalName, cliSessionId);
       sessionStore.getState().addSession(session);
+
+      // Load stored messages if session logs are enabled
+      if (originalSessionId) {
+        const { sessionLogsEnabled } = useSettingsStore.getState().settings;
+        if (sessionLogsEnabled) {
+          try {
+            const stored = await loadSessionMessages(originalSessionId);
+            if (stored.length > 0) {
+              const restoredMessages: Message[] = stored.map((m) => ({
+                id: m.id,
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                timestamp: m.timestamp,
+                activityIds: [],
+                isStreaming: false,
+                thinkingContent: m.thinkingContent ?? undefined,
+                isRestored: true,
+              }));
+              const storeState = sessionStore.getState();
+              const sessionMessages = new Map(storeState.sessionMessages);
+              sessionMessages.set(session.id, restoredMessages);
+              sessionStore.setState({ sessionMessages });
+            }
+          } catch (e) {
+            console.error("[resumeFromHistory] Failed to load stored messages:", e);
+          }
+        }
+      }
 
       const unlistenChat = await listenChatEvents(session.id, (event) =>
         handleChatEvent(session.id, event)

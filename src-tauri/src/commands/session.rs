@@ -2,11 +2,11 @@ use crate::claude::event_types::ControlRequestPayload;
 use crate::claude::process::ClaudeProcess;
 use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionMode, SessionStatus};
 use crate::errors::AppError;
-use crate::storage::database::PersistedSession;
+use crate::storage::database::{PersistedSession, SessionMessageRow, SessionMessageSearchResult};
 use crate::terminal::pty_manager::TerminalPool;
 use chrono::Utc;
 use log::{error, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -20,6 +20,18 @@ pub struct SessionHistoryEntry {
     pub cli_session_id: String,
     pub icon_index: i32,
     pub recent_headlines: Vec<String>,
+    pub has_stored_messages: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMessagePayload {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+    pub thinking_content: Option<String>,
+    pub sort_order: i32,
 }
 
 #[tauri::command]
@@ -482,6 +494,7 @@ pub async fn list_session_history(
                 cli_session_id: cli_sid,
                 icon_index: session.icon_index,
                 recent_headlines: headlines,
+                has_stored_messages: session.has_stored_messages,
             });
         }
     }
@@ -588,6 +601,83 @@ pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
         SessionMode::AutoAccept => "acceptEdits",
         SessionMode::Plan => "plan",
     }
+}
+
+// ── Session Messages (Session Logs) ─────────────────────────────────
+
+#[tauri::command]
+pub async fn save_session_messages(
+    state: State<'_, AppState>,
+    session_id: String,
+    messages: Vec<SessionMessagePayload>,
+) -> Result<(), String> {
+    let rows: Vec<SessionMessageRow> = messages
+        .into_iter()
+        .map(|m| SessionMessageRow {
+            id: m.id,
+            session_id: session_id.clone(),
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp,
+            thinking_content: m.thinking_content,
+            sort_order: m.sort_order,
+        })
+        .collect();
+    state
+        .database
+        .save_session_messages(&session_id, &rows)
+        .map_err(|e| e.to_string())?;
+    info!(
+        "Saved {} session messages for session {}",
+        rows.len(),
+        session_id
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn load_session_messages(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<SessionMessagePayload>, String> {
+    let rows = state
+        .database
+        .load_session_messages(&session_id)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SessionMessagePayload {
+            id: r.id,
+            role: r.role,
+            content: r.content,
+            timestamp: r.timestamp,
+            thinking_content: r.thinking_content,
+            sort_order: r.sort_order,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn search_session_messages(
+    state: State<'_, AppState>,
+    project_path: String,
+    query: String,
+) -> Result<Vec<SessionMessageSearchResult>, String> {
+    state
+        .database
+        .search_session_messages(&project_path, &query, 100)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn cleanup_expired_session_logs(
+    state: State<'_, AppState>,
+    retention_days: u32,
+) -> Result<u32, String> {
+    state
+        .database
+        .delete_expired_session_messages(retention_days)
+        .map_err(|e| e.to_string())
 }
 
 // ── SpecWriter sessions ─────────────────────────────────────────────
@@ -773,6 +863,7 @@ mod tests {
             cli_session_id: "cli-456".to_string(),
             icon_index: 3,
             recent_headlines: vec!["Added login".to_string(), "Fixed bug".to_string()],
+            has_stored_messages: true,
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["session_id"], "abc-123");
@@ -780,6 +871,7 @@ mod tests {
         assert_eq!(json["model"], "claude-sonnet-4-6");
         assert_eq!(json["icon_index"], 3);
         assert_eq!(json["recent_headlines"].as_array().unwrap().len(), 2);
+        assert_eq!(json["has_stored_messages"], true);
     }
 
     #[test]
@@ -792,9 +884,32 @@ mod tests {
             cli_session_id: "cli".to_string(),
             icon_index: 0,
             recent_headlines: vec![],
+            has_stored_messages: false,
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert!(json["model"].is_null());
         assert!(json["recent_headlines"].as_array().unwrap().is_empty());
+        assert_eq!(json["has_stored_messages"], false);
+    }
+
+    #[test]
+    fn session_message_payload_roundtrip() {
+        let payload = SessionMessagePayload {
+            id: "msg-1".to_string(),
+            role: "user".to_string(),
+            content: "Hello world".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            thinking_content: Some("thinking".to_string()),
+            sort_order: 0,
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["id"], "msg-1");
+        assert_eq!(json["role"], "user");
+        assert_eq!(json["thinkingContent"], "thinking");
+        assert_eq!(json["sortOrder"], 0);
+        // Roundtrip
+        let restored: SessionMessagePayload = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.id, "msg-1");
+        assert_eq!(restored.thinking_content, Some("thinking".to_string()));
     }
 }

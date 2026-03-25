@@ -71,4 +71,47 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Second message")).toBeInTheDocument();
     expect(screen.getByText("Third message")).toBeInTheDocument();
   });
+
+  it("shows 'Previous session' separator between restored and new messages", () => {
+    setSessionState(SESSION, [
+      { id: "m1", role: "user", content: "Old user question", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m2", role: "assistant", content: "Old assistant reply", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m3", role: "user", content: "New question after resume", timestamp: "", activityIds: [], isStreaming: false },
+    ]);
+    render(<ChatPanel />);
+    expect(screen.getByText("Previous session")).toBeInTheDocument();
+    expect(screen.getByText("Old user question")).toBeInTheDocument();
+    expect(screen.getByText("New question after resume")).toBeInTheDocument();
+  });
+
+  it("does not show separator when all messages are restored", () => {
+    setSessionState(SESSION, [
+      { id: "m1", role: "user", content: "Restored msg 1", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m2", role: "assistant", content: "Restored msg 2", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+    ]);
+    render(<ChatPanel />);
+    expect(screen.queryByText("Previous session")).not.toBeInTheDocument();
+  });
+
+  it("does not show separator when no messages are restored", () => {
+    setSessionState(SESSION, [
+      { id: "m1", role: "user", content: "Normal msg", timestamp: "", activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "Normal reply", timestamp: "", activityIds: [], isStreaming: false },
+    ]);
+    render(<ChatPanel />);
+    expect(screen.queryByText("Previous session")).not.toBeInTheDocument();
+  });
+
+  it("shows separator at correct boundary with multiple restored messages", () => {
+    setSessionState(SESSION, [
+      { id: "m1", role: "user", content: "Restored 1", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m2", role: "assistant", content: "Restored 2", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m3", role: "user", content: "Restored 3", timestamp: "", activityIds: [], isStreaming: false, isRestored: true },
+      { id: "m4", role: "assistant", content: "New message", timestamp: "", activityIds: [], isStreaming: false },
+    ]);
+    render(<ChatPanel />);
+    // Only one separator should exist
+    const separators = screen.getAllByText("Previous session");
+    expect(separators).toHaveLength(1);
+  });
 });

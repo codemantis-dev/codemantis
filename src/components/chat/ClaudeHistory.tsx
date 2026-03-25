@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
-import { History, RefreshCw, Loader2, Play, ArrowLeft } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { History, RefreshCw, Loader2, Play, ArrowLeft, Search, X } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
-import { listSessionHistory } from "../../lib/tauri-commands";
+import { listSessionHistory, searchSessionMessages } from "../../lib/tauri-commands";
 import { useUiStore } from "../../stores/uiStore";
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
-import type { SessionHistoryEntry } from "../../types/session";
+import type { SessionHistoryEntry, SessionMessageSearchResult } from "../../types/session";
 
 const SESSION_ICONS = ["\u2B21", "\u25C8", "\u25B3", "\u25CB", "\u25A1", "\u25C7", "\u2B22", "\u25BD", "\u25CE", "\u2B1F"];
 
@@ -29,10 +29,12 @@ function HistoryCard({
   entry,
   onResume,
   resuming,
+  searchSnippets,
 }: {
   entry: SessionHistoryEntry;
   onResume: () => void;
   resuming: boolean;
+  searchSnippets?: string[];
 }) {
   const icon = SESSION_ICONS[entry.icon_index % SESSION_ICONS.length];
   const modelLabel = entry.model
@@ -56,12 +58,27 @@ function HistoryCard({
                 {capitalizedModel}
               </span>
             )}
+            {entry.has_stored_messages && (
+              <span className="text-[9px] font-medium rounded px-1 py-px shrink-0" style={{ color: "var(--green, #22c55e)", background: "color-mix(in srgb, var(--green, #22c55e) 12%, transparent)" }}>
+                Saved
+              </span>
+            )}
             <span className="text-[10px] text-text-ghost ml-auto shrink-0">
               {formatRelativeTime(entry.closed_at)}
             </span>
           </div>
 
-          {entry.recent_headlines.length > 0 && (
+          {/* Show search snippets when searching, otherwise show headlines */}
+          {searchSnippets && searchSnippets.length > 0 ? (
+            <ul className="mt-1 space-y-0.5">
+              {searchSnippets.map((snippet, i) => (
+                <li key={i} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
+                  <span className="text-accent mt-[3px] shrink-0">&#x2022;</span>
+                  <span className="truncate">{snippet}</span>
+                </li>
+              ))}
+            </ul>
+          ) : entry.recent_headlines.length > 0 ? (
             <ul className="mt-1 space-y-0.5">
               {entry.recent_headlines.map((headline, i) => (
                 <li key={`${headline}-${i}`} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
@@ -70,7 +87,7 @@ function HistoryCard({
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
         </div>
 
         <button
@@ -100,6 +117,11 @@ export default function ClaudeHistory() {
   const [loading, setLoading] = useState(false);
   const [resumingId, setResumingId] = useState<string | null>(null);
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SessionMessageSearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
   const loadHistory = useCallback(async () => {
     if (!activeProjectPath) return;
     setLoading(true);
@@ -118,11 +140,59 @@ export default function ClaudeHistory() {
     loadHistory();
   }, [loadHistory]);
 
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim() || !activeProjectPath) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchSessionMessages(activeProjectPath, searchQuery.trim());
+        setSearchResults(results);
+      } catch (e) {
+        console.error("[ClaudeHistory.search]", e);
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, activeProjectPath]);
+
+  // Group search results by session for display
+  const searchSnippetsBySession = useMemo(() => {
+    if (!searchResults) return null;
+    const map = new Map<string, string[]>();
+    for (const r of searchResults) {
+      const existing = map.get(r.sessionId) ?? [];
+      if (existing.length < 3) {
+        existing.push(r.contentSnippet);
+      }
+      map.set(r.sessionId, existing);
+    }
+    return map;
+  }, [searchResults]);
+
+  // Filter entries to only those with search matches when searching
+  const visibleEntries = useMemo(() => {
+    if (!entries) return null;
+    if (!searchSnippetsBySession) return entries;
+    return entries.filter((e) => searchSnippetsBySession.has(e.session_id));
+  }, [entries, searchSnippetsBySession]);
+
   const handleResume = useCallback(async (entry: SessionHistoryEntry) => {
     if (!activeProjectPath) return;
     setResumingId(entry.cli_session_id);
     try {
-      await resumeFromHistory(activeProjectPath, entry.cli_session_id, entry.name);
+      await resumeFromHistory(
+        activeProjectPath,
+        entry.cli_session_id,
+        entry.name,
+        entry.session_id
+      );
     } catch (e) {
       console.error("[ClaudeHistory.handleResume]", e);
       showToast("Session no longer available — try creating a new session", "error");
@@ -138,6 +208,8 @@ export default function ClaudeHistory() {
       </div>
     );
   }
+
+  const isFiltering = searchQuery.trim().length > 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -172,6 +244,37 @@ export default function ClaudeHistory() {
         </button>
       </div>
 
+      {/* Search bar */}
+      {entries && entries.length > 0 && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border-light shrink-0">
+          <Search size={12} className="text-text-ghost shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search session conversations..."
+            className="flex-1 bg-transparent text-label text-text-secondary placeholder:text-text-ghost outline-none min-w-0"
+          />
+          {isFiltering && (
+            <>
+              {searching && <Loader2 size={12} className="text-text-ghost animate-spin shrink-0" />}
+              {searchResults && (
+                <span className="text-[10px] text-text-ghost shrink-0">
+                  {visibleEntries?.length ?? 0} of {entries.length}
+                </span>
+              )}
+              <button
+                onClick={() => setSearchQuery("")}
+                className="p-0.5 rounded text-text-ghost hover:text-text-secondary transition-colors shrink-0"
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
         {loading && !entries && (
@@ -191,12 +294,26 @@ export default function ClaudeHistory() {
           </div>
         )}
 
-        {entries && entries.length > 0 && entries.map((entry) => (
+        {/* Search: no matches */}
+        {isFiltering && !searching && visibleEntries && visibleEntries.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <p className="text-text-faint text-ui mb-1">No sessions match your search</p>
+            <button
+              onClick={() => setSearchQuery("")}
+              className="text-accent text-label hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+
+        {visibleEntries && visibleEntries.length > 0 && visibleEntries.map((entry) => (
           <HistoryCard
             key={entry.cli_session_id}
             entry={entry}
             onResume={() => handleResume(entry)}
             resuming={resumingId === entry.cli_session_id}
+            searchSnippets={searchSnippetsBySession?.get(entry.session_id)}
           />
         ))}
       </div>

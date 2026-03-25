@@ -110,6 +110,21 @@ pub fn run() {
         }
     };
 
+    // Clean up expired session messages based on retention settings
+    if let Ok(settings) = commands::settings::get_settings() {
+        if settings.session_logs_enabled && settings.session_logs_retention_days > 0 {
+            match database.delete_expired_session_messages(settings.session_logs_retention_days) {
+                Ok(deleted) if deleted > 0 => {
+                    eprintln!("[startup] Cleaned up {} expired session message(s)", deleted);
+                }
+                Err(e) => {
+                    eprintln!("[startup] Failed to clean up expired session messages: {}", e);
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Kill any orphan claude/node processes left behind by a previous crash
     utils::pid_tracker::kill_stale_orphans();
 
@@ -339,6 +354,10 @@ pub fn run() {
             commands::preview::get_dev_server_status,
             commands::preview::get_preview_console_logs,
             commands::preview::capture_preview_screenshot,
+            commands::session::save_session_messages,
+            commands::session::load_session_messages,
+            commands::session::search_session_messages,
+            commands::session::cleanup_expired_session_logs,
             commands::session::create_specwriter_session,
             commands::session::close_specwriter_session,
             commands::specwriter::save_task_board_state,

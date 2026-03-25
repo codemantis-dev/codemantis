@@ -198,16 +198,33 @@ export default function ChatPanel() {
             {hasOlder && (
               <div ref={sentinelRef} className="h-1" />
             )}
-            {visibleMessages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                streamingContent={
-                  message.isStreaming ? streaming.streamingContent : undefined
-                }
-                onRestart={message.restartable ? handleRestart : undefined}
-              />
-            ))}
+            {visibleMessages.map((message, index) => {
+              const isRestoredBoundary =
+                message.isRestored &&
+                index < visibleMessages.length - 1 &&
+                !visibleMessages[index + 1].isRestored;
+
+              return (
+                <div key={message.id}>
+                  <MessageBubble
+                    message={message}
+                    streamingContent={
+                      message.isStreaming ? streaming.streamingContent : undefined
+                    }
+                    onRestart={message.restartable ? handleRestart : undefined}
+                  />
+                  {isRestoredBoundary && (
+                    <div className="flex items-center gap-3 my-4">
+                      <div className="flex-1 border-t border-border-light" />
+                      <span className="text-[10px] text-text-ghost font-medium uppercase tracking-wider">
+                        Previous session
+                      </span>
+                      <div className="flex-1 border-t border-border-light" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

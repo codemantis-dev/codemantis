@@ -43,6 +43,8 @@ function resetStore(): void {
       taskBoardMaxRetries: 3,
       taskBoardAutoStartNext: true,
       taskBoardAutoOpenSlideOver: true,
+      sessionLogsEnabled: true,
+      sessionLogsRetentionDays: 30,
     },
     loaded: false,
   });

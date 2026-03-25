@@ -13,6 +13,7 @@ import ChangelogSettingsTab from "./settings/ChangelogSettingsTab";
 import AssistantSettingsTab from "./settings/AssistantSettingsTab";
 import ShortcutsTab from "./settings/ShortcutsTab";
 import ApiLogsTab from "./settings/ApiLogsTab";
+import SessionLogsTab from "./settings/SessionLogsTab";
 import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
 export default function SettingsModal() {
@@ -180,6 +181,15 @@ export default function SettingsModal() {
                 apiKeys={state.apiKeys}
                 onPlanningModelChange={state.setTaskBoardPlanningModel}
                 onMaxTokensChange={state.setTaskBoardMaxTokens}
+              />
+            )}
+
+            {state.activeTab === "session-logs" && (
+              <SessionLogsTab
+                enabled={state.sessionLogsEnabled}
+                retentionDays={state.sessionLogsRetentionDays}
+                onEnabledChange={state.setSessionLogsEnabled}
+                onRetentionDaysChange={state.setSessionLogsRetentionDays}
               />
             )}
 

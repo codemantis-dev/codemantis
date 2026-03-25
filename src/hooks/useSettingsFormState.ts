@@ -65,6 +65,10 @@ export function useSettingsFormState() {
   const [previewCustomDevCommand, setPreviewCustomDevCommand] = useState(settings.previewCustomDevCommand ?? "");
   const [previewConsoleAutoOpen, setPreviewConsoleAutoOpen] = useState(settings.previewConsoleAutoOpen);
 
+  // --- Session Logs ---
+  const [sessionLogsEnabled, setSessionLogsEnabled] = useState(settings.sessionLogsEnabled);
+  const [sessionLogsRetentionDays, setSessionLogsRetentionDays] = useState(settings.sessionLogsRetentionDays);
+
   // --- Task Board ---
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
   const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 64000);
@@ -108,6 +112,8 @@ export function useSettingsFormState() {
       setPreviewAutoStart(settings.previewAutoStart);
       setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
+      setSessionLogsEnabled(settings.sessionLogsEnabled);
+      setSessionLogsRetentionDays(settings.sessionLogsRetentionDays);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
       setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
@@ -160,6 +166,8 @@ export function useSettingsFormState() {
       taskBoardMaxRetries,
       taskBoardAutoStartNext,
       taskBoardAutoOpenSlideOver,
+      sessionLogsEnabled,
+      sessionLogsRetentionDays,
     });
 
     // Trigger OpenRouter model fetch if key changed
@@ -318,6 +326,12 @@ export function useSettingsFormState() {
     setPreviewCustomDevCommand,
     previewConsoleAutoOpen,
     setPreviewConsoleAutoOpen,
+
+    // Session Logs tab
+    sessionLogsEnabled,
+    setSessionLogsEnabled,
+    sessionLogsRetentionDays,
+    setSessionLogsRetentionDays,
 
     // Task Board tab
     taskBoardPlanningModel,
