@@ -14,6 +14,7 @@ export interface SpecMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  displayContent?: string;
   attachments?: SpecAttachment[];
   message_type: 'conversation' | 'spec_document' | 'context_summary' | 'file_context';
   timestamp: string;

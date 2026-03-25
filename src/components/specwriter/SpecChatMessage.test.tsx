@@ -80,6 +80,72 @@ describe("SpecChatMessage", () => {
     expect(buttons).toHaveLength(0);
   });
 
+  // ── displayContent tests ──────────────────────────────────────
+
+  it("renders displayContent when present instead of raw content", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      content: "Full content\n?> Option A\n?> Option B",
+      displayContent: "Full content",
+      parsedOptions: ["Option A", "Option B"],
+    };
+    render(<SpecChatMessage message={msg} isLastAssistant />);
+    expect(screen.getByText("Full content")).toBeTruthy();
+    // The raw option markers should NOT appear in rendered output
+    expect(screen.queryByText("?> Option A")).toBeNull();
+  });
+
+  it("falls back to content when displayContent is absent", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      content: "Regular content without displayContent",
+    };
+    render(<SpecChatMessage message={msg} />);
+    expect(screen.getByText("Regular content without displayContent")).toBeTruthy();
+  });
+
+  // ── Multi-select answer format tests ─────────────────────────
+
+  it("sends multi-select answers as bulleted lines (4+ options = checkbox mode)", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["Option A", "Option B", "Option C", "Option D"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={msg} isLastAssistant onSelectOption={onSelect} />);
+    // 4+ options = multi-select mode with checkboxes, click toggles
+    fireEvent.click(screen.getByText(/Option A/));
+    fireEvent.click(screen.getByText(/Option C/));
+    // Click the send button
+    fireEvent.click(screen.getByText(/Send 2 selected/));
+    expect(onSelect).toHaveBeenCalledWith("- Option A\n- Option C");
+  });
+
+  it("sends single selection as bullet when using multi-select mode", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["Alpha", "Beta", "Gamma", "Delta"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={msg} isLastAssistant onSelectOption={onSelect} />);
+    // Select only one in multi-select mode
+    fireEvent.click(screen.getByText(/Beta/));
+    fireEvent.click(screen.getByText(/Send 1 selected/));
+    expect(onSelect).toHaveBeenCalledWith("- Beta");
+  });
+
+  it("single-click on <4 options still sends raw option text (instant send)", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["Yes", "No"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={msg} isLastAssistant onSelectOption={onSelect} />);
+    fireEvent.click(screen.getByText("Yes"));
+    // <4 options with no multi-select = instant send with raw text
+    expect(onSelect).toHaveBeenCalledWith("Yes");
+  });
+
   it("renders markdown in system messages", () => {
     const sysMsg: SpecMessage = {
       ...baseMsg,

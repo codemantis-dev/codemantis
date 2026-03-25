@@ -48,6 +48,7 @@ interface SpecWriterState {
   setConversationStatus: (projectPath: string, status: SpecConversation['status']) => void;
   setPlanningStreaming: (projectPath: string, streaming: boolean) => void;
   setMessageOptions: (projectPath: string, options: string[]) => void;
+  setMessageDisplayContent: (projectPath: string, displayContent: string) => void;
   updateConversationProvider: (projectPath: string, provider: string, model: string) => void;
   setContextLoaded: (projectPath: string, loaded: boolean) => void;
   setConversationMode: (projectPath: string, mode: SpecConversation['mode']) => void;
@@ -180,6 +181,21 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         const lastIdx = messages.length - 1;
         if (messages[lastIdx].role === 'assistant') {
           messages[lastIdx] = { ...messages[lastIdx], parsedOptions: options };
+        }
+        conversations.set(projectPath, { ...conv, messages });
+      }
+      return { conversations };
+    }),
+
+  setMessageDisplayContent: (projectPath, displayContent) =>
+    set((state) => {
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (conv && conv.messages.length > 0) {
+        const messages = [...conv.messages];
+        const lastIdx = messages.length - 1;
+        if (messages[lastIdx].role === 'assistant') {
+          messages[lastIdx] = { ...messages[lastIdx], displayContent };
         }
         conversations.set(projectPath, { ...conv, messages });
       }

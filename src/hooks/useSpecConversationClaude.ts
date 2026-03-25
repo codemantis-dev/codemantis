@@ -222,7 +222,7 @@ export function useSpecConversationClaude(): {
           // Parse selectable options (?> markers with fallback for markdown lists)
           const parsed = parseSelectableOptions(finalContent);
           if (parsed) {
-            currentStore.updateLastAssistantMessage(projectPath, parsed.cleanContent);
+            currentStore.setMessageDisplayContent(projectPath, parsed.cleanContent);
             currentStore.setMessageOptions(projectPath, parsed.options);
           }
 

@@ -21,9 +21,11 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
   const [selectedOptions, setSelectedOptions] = useState<Set<number>>(new Set());
 
   // Memoize markdown rendering — only re-parse when content changes
+  // Use displayContent (options stripped for clean UI) when available, fall back to full content
+  const renderText = message.displayContent ?? message.content;
   const renderedMarkdown = useMemo(
-    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownLinkComponents}>{message.content}</ReactMarkdown>,
-    [message.content]
+    () => <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownLinkComponents}>{renderText}</ReactMarkdown>,
+    [renderText]
   );
 
   const handleCopy = useCallback(() => {
@@ -45,8 +47,8 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
     if (!message.parsedOptions || selectedOptions.size === 0) return;
     const chosen = [...selectedOptions]
       .sort()
-      .map((i) => message.parsedOptions![i])
-      .join(", ");
+      .map((i) => `- ${message.parsedOptions![i]}`)
+      .join("\n");
     onSelectOption?.(chosen);
     setSelectedOptions(new Set());
   }, [message.parsedOptions, selectedOptions, onSelectOption]);

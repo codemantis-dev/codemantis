@@ -168,6 +168,67 @@ describe("specWriterStore", () => {
     expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
   });
 
+  // ── displayContent tests ──────────────────────────────────────
+
+  it("sets displayContent on last assistant message", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "assistant",
+      content: "Full content with options\n?> Option A\n?> Option B",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    useSpecWriterStore.getState().setMessageDisplayContent(PROJECT, "Full content with options");
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+    expect(conv!.messages[0].displayContent).toBe("Full content with options");
+  });
+
+  it("preserves original content when setting displayContent", () => {
+    const originalContent = "Questions:\n?> Option A\n?> Option B";
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "assistant",
+      content: originalContent,
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    useSpecWriterStore.getState().setMessageDisplayContent(PROJECT, "Questions:");
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+    expect(conv!.messages[0].content).toBe(originalContent);
+    expect(conv!.messages[0].displayContent).toBe("Questions:");
+  });
+
+  it("setMessageDisplayContent only targets assistant messages", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "user",
+      content: "User message",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    useSpecWriterStore.getState().setMessageDisplayContent(PROJECT, "Should not apply");
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+    expect(conv!.messages[0].displayContent).toBeUndefined();
+    expect(conv!.messages[0].content).toBe("User message");
+  });
+
+  it("setMessageDisplayContent is no-op when no messages exist", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    // Should not throw
+    useSpecWriterStore.getState().setMessageDisplayContent(PROJECT, "No target");
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+    expect(conv!.messages).toHaveLength(0);
+  });
+
+  it("setMessageDisplayContent is no-op for unknown project", () => {
+    // Should not throw
+    useSpecWriterStore.getState().setMessageDisplayContent("/tmp/nonexistent", "No target");
+    expect(useSpecWriterStore.getState().conversations.has("/tmp/nonexistent")).toBe(false);
+  });
+
   it("isolates CLI session IDs between projects", () => {
     const PROJECT_2 = "/tmp/other-project";
     useSpecWriterStore.getState().setCliSessionId(PROJECT, "cli-session-1");
