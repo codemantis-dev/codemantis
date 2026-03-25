@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const APP_ID: &str = "dev.codemantis.app";
+const APP_ID: &str = "dev.codemantis.myapp";
 
 // ── Login shell PATH resolution ──
 //
@@ -59,8 +59,8 @@ pub fn tool_exists_in_login_shell(tool: &str, path: &str) -> bool {
 
 /// Returns the application data directory, separated by build profile.
 ///
-/// - Release builds: `~/Library/Application Support/dev.codemantis.app/`
-/// - Debug  builds: `~/Library/Application Support/dev.codemantis.app.dev/`
+/// - Release builds: `~/Library/Application Support/dev.codemantis.myapp/`
+/// - Debug  builds: `~/Library/Application Support/dev.codemantis.myapp.dev/`
 ///
 /// This ensures development sessions never leak settings, API keys,
 /// or onboarding state into production builds.
@@ -176,6 +176,40 @@ mod tests {
         assert!(
             !tool_exists_in_login_shell("__nonexistent_tool_99999__", &path),
             "nonexistent tool should not be found"
+        );
+    }
+
+    #[test]
+    fn app_data_dir_returns_some() {
+        let dir = app_data_dir();
+        assert!(dir.is_some(), "app_data_dir() should return Some on macOS");
+    }
+
+    #[test]
+    fn app_data_dir_uses_correct_app_id() {
+        let dir = app_data_dir().unwrap();
+        let dir_name = dir.file_name().unwrap().to_str().unwrap();
+        if cfg!(debug_assertions) {
+            assert_eq!(
+                dir_name, "dev.codemantis.myapp.dev",
+                "debug builds should use APP_ID.dev suffix"
+            );
+        } else {
+            assert_eq!(
+                dir_name, "dev.codemantis.myapp",
+                "release builds should use APP_ID directly"
+            );
+        }
+    }
+
+    #[test]
+    fn app_data_dir_is_under_library_application_support() {
+        let dir = app_data_dir().unwrap();
+        let parent = dir.parent().unwrap();
+        assert!(
+            parent.ends_with("Application Support"),
+            "app_data_dir should be under Application Support, got: {:?}",
+            parent
         );
     }
 }

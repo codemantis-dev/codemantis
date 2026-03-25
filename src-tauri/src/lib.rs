@@ -15,8 +15,60 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Manager, RunEvent};
 use tauri_plugin_opener::OpenerExt;
 
+/// Recursively copy a directory and all its contents.
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── Migrate data from old app identifier (dev.codemantis.app → dev.codemantis.myapp) ──
+    // The APP_ID was updated to match tauri.conf.json's bundle identifier.
+    // Move all files from the old data directory so existing users keep their
+    // settings, database, API keys, and attachments.
+    if let Some(data_root) = dirs::data_dir() {
+        // Migrate both production and dev directories
+        for (old_name, new_name) in [
+            ("dev.codemantis.app", "dev.codemantis.myapp"),
+            ("dev.codemantis.app.dev", "dev.codemantis.myapp.dev"),
+        ] {
+            let old_dir = data_root.join(old_name);
+            let new_dir = data_root.join(new_name);
+            if old_dir.is_dir() && !new_dir.exists() {
+                eprintln!(
+                    "[migration] Moving data from {:?} to {:?}",
+                    old_dir, new_dir
+                );
+                if let Err(e) = std::fs::rename(&old_dir, &new_dir) {
+                    eprintln!(
+                        "[migration] rename failed ({}), trying copy fallback",
+                        e
+                    );
+                    if let Err(e2) = copy_dir_all(&old_dir, &new_dir) {
+                        eprintln!(
+                            "WARNING: Could not migrate data directory: {}. \
+                             Old data remains at {:?}",
+                            e2, old_dir
+                        );
+                    } else {
+                        let _ = std::fs::remove_dir_all(&old_dir);
+                    }
+                }
+            }
+        }
+    }
+
     let db_path = match utils::paths::app_data_dir() {
         Some(d) => d.join("codemantis.db"),
         None => {
@@ -350,4 +402,77 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_dir_all_copies_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        std::fs::write(src.join("b.txt"), "world").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "hello");
+        assert_eq!(std::fs::read_to_string(dst.join("b.txt")).unwrap(), "world");
+    }
+
+    #[test]
+    fn copy_dir_all_copies_nested_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let nested = src.join("sub").join("deep");
+        let dst = tmp.path().join("dst");
+
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("file.db"), "data").unwrap();
+        std::fs::write(src.join("root.json"), "{}").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dst.join("sub/deep/file.db")).unwrap(),
+            "data"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("root.json")).unwrap(),
+            "{}"
+        );
+    }
+
+    #[test]
+    fn copy_dir_all_creates_destination() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("a/b/c");
+
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("f.txt"), "ok").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert!(dst.exists());
+        assert_eq!(std::fs::read_to_string(dst.join("f.txt")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn copy_dir_all_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("empty");
+        let dst = tmp.path().join("dst");
+
+        std::fs::create_dir_all(&src).unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert!(dst.is_dir());
+        assert_eq!(std::fs::read_dir(&dst).unwrap().count(), 0);
+    }
 }
