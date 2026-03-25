@@ -207,7 +207,7 @@ export default function SessionSubTabs({
         `}
       >
         <History size={12} />
-        <span>History</span>
+        <span>Session History</span>
       </button>
 
       {/* Project Log tab */}

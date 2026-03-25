@@ -77,7 +77,7 @@ describe("SessionSubTabs", () => {
     });
     render(<SessionSubTabs {...defaultProps} />);
     expect(screen.getByText("Project Log")).toBeInTheDocument();
-    expect(screen.getByText("History")).toBeInTheDocument();
+    expect(screen.getByText("Session History")).toBeInTheDocument();
   });
 
   it("activates History tab when clicked", () => {
@@ -91,7 +91,7 @@ describe("SessionSubTabs", () => {
       sessionStreaming: new Map(),
     });
     render(<SessionSubTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText("History"));
+    fireEvent.click(screen.getByText("Session History"));
     expect(setShowClaudeHistory).toHaveBeenCalledWith(true);
   });
 });
