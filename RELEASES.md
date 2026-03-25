@@ -1,5 +1,16 @@
 # CodeMantis Releases
 
+## 0.9.0
+
+- Stream and display extended thinking in chat
+- Centralize send-shortcut handling and default to Enter to send
+- Add Back button to Session History view
+- Rename History tab to Session History
+- Open API log file in Finder from settings
+- Fix focus main window shortly after launch
+- Simplify MCP modal headers and surface template info in form
+- Preview console bridge tests, local preview improvements, and approval server enhancements
+
 ## 0.8.12
 
 - SpecWriter displayContent for option prompts and bullet multi-select
