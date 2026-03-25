@@ -1,9 +1,11 @@
 import { useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X } from "lucide-react";
+import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, ArrowLeft, FolderOpen } from "lucide-react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { ScopeFilter } from "./types";
 import { useMcpServerForm } from "./useMcpServerForm";
 import { showToast } from "../../../stores/toastStore";
+import { getMcpConfigPath } from "../../../lib/tauri-commands";
 import TypeBadge from "./TypeBadge";
 import ScopeBadge from "./ScopeBadge";
 import TemplatePicker from "./TemplatePicker";
@@ -64,7 +66,16 @@ export default function McpModal(): React.JSX.Element {
     [handleShowConfigFile, form.scope],
   );
 
-  const hasUnsavedWork = editingServer !== null || configEditor !== null;
+  const isOnSubView = editingServer !== null || configEditor !== null;
+  const hasUnsavedWork = (editingServer !== null && editingServer !== "__picking__") || configEditor !== null;
+
+  const handleBack = useCallback((): void => {
+    if (configEditor) {
+      setConfigEditor(null);
+      return;
+    }
+    handleCancelEdit();
+  }, [configEditor, setConfigEditor, handleCancelEdit]);
 
   const handleClose = useCallback((): void => {
     if (hasUnsavedWork) {
@@ -73,6 +84,25 @@ export default function McpModal(): React.JSX.Element {
     }
     setShowModal(false);
   }, [hasUnsavedWork, setShowModal]);
+
+  const headerTitle = configEditor
+    ? "Edit Config File"
+    : editingServer === "__picking__"
+      ? "Add MCP Server"
+      : editingServer === "__new__"
+        ? "Add MCP Server"
+        : editingServer
+          ? "Edit MCP Server"
+          : "MCP Servers";
+
+  const handleRevealConfig = useCallback(async (scope: "global" | "project"): Promise<void> => {
+    try {
+      const path = await getMcpConfigPath(scope, activeProjectPath ?? undefined);
+      await revealItemInDir(path);
+    } catch (e) {
+      showToast(`Failed to open folder: ${e}`, "error");
+    }
+  }, [activeProjectPath]);
 
   return (
     <Dialog.Root open={showModal} onOpenChange={(open) => { if (!open) handleClose(); }}>
@@ -91,17 +121,24 @@ export default function McpModal(): React.JSX.Element {
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border shrink-0">
             <Dialog.Title className="flex items-center gap-2 text-text-primary font-semibold">
+              {isOnSubView && (
+                <button
+                  onClick={handleBack}
+                  className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated -ml-1"
+                  aria-label="Go back"
+                >
+                  <ArrowLeft size={15} />
+                </button>
+              )}
               <Blocks size={16} className="text-accent" />
-              MCP Servers
+              {headerTitle}
             </Dialog.Title>
-            {!hasUnsavedWork && (
-              <Dialog.Close
-                aria-label="Close MCP servers dialog"
-                className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
-              >
-                <X size={15} />
-              </Dialog.Close>
-            )}
+            <Dialog.Close
+              aria-label="Close MCP servers dialog"
+              className="text-text-ghost hover:text-text-primary transition-colors p-1 rounded hover:bg-bg-elevated"
+            >
+              <X size={15} />
+            </Dialog.Close>
           </div>
           <Dialog.Description className="sr-only">
             Manage MCP server configurations
@@ -121,6 +158,7 @@ export default function McpModal(): React.JSX.Element {
               <TemplatePicker
                 onSelect={handleSelectTemplate}
                 onManual={handleManualAdd}
+                onBack={handleBack}
               />
             ) : editingServer ? (
               <ServerForm
@@ -275,14 +313,29 @@ export default function McpModal(): React.JSX.Element {
           </div>
 
           {/* Footer */}
-          {!editingServer && (
-            <div className="px-5 py-3 border-t border-border text-[11px] text-text-ghost shrink-0">
-              Global servers: ~/.claude.json
-              {hasProject && (
-                <>
-                  {" "}
-                  &middot; Project servers: {activeProjectPath}/.mcp.json
-                </>
+          {!editingServer && !configEditor && (
+            <div className="px-5 py-3 border-t border-border text-[11px] text-text-ghost shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1">
+                Global: ~/.claude.json
+                <button
+                  onClick={() => handleRevealConfig("global")}
+                  className="text-text-ghost hover:text-text-secondary transition-colors p-0.5 rounded hover:bg-bg-elevated"
+                  title="Reveal in Finder"
+                >
+                  <FolderOpen size={11} />
+                </button>
+              </span>
+              {hasProject && activeProjectPath && (
+                <span className="inline-flex items-center gap-1">
+                  Project: {activeProjectPath}/.mcp.json
+                  <button
+                    onClick={() => handleRevealConfig("project")}
+                    className="text-text-ghost hover:text-text-secondary transition-colors p-0.5 rounded hover:bg-bg-elevated"
+                    title="Reveal in Finder"
+                  >
+                    <FolderOpen size={11} />
+                  </button>
+                </span>
               )}
             </div>
           )}

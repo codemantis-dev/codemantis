@@ -59,20 +59,24 @@ export default function ServerForm({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-text-primary font-medium">
-          {isEdit ? "Edit MCP Server" : templateDisplayName ? `Add MCP Server — ${templateDisplayName}` : "Add MCP Server"}
-        </h3>
-        {docsUrl && (
-          <button
-            onClick={() => openUrl(docsUrl)}
-            className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-light transition-colors"
-          >
-            <ExternalLink size={11} />
-            Docs
-          </button>
-        )}
-      </div>
+      {(templateDisplayName || docsUrl) && (
+        <div className="flex items-center justify-between">
+          {templateDisplayName && (
+            <span className="text-ui text-text-dim">
+              Template: {templateDisplayName}
+            </span>
+          )}
+          {docsUrl && (
+            <button
+              onClick={() => openUrl(docsUrl)}
+              className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-light transition-colors ml-auto"
+            >
+              <ExternalLink size={11} />
+              Docs
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Setup hint from template */}
       {setupHint && (

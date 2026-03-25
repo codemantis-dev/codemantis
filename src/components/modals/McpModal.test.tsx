@@ -717,14 +717,15 @@ describe("McpModal", () => {
 
   // ────── Bug 1: Template displayName in title ──────
 
-  it("shows template displayName in form title when template selected", async () => {
+  it("shows template displayName in form when template selected", async () => {
     openModal([]);
     render(<McpModal />);
     await screen.findByText("No MCP servers configured");
     fireEvent.click(screen.getByText("Add Server"));
     fireEvent.click(screen.getByText("Fetch"));
 
-    expect(screen.getByText(/Add MCP Server — Fetch/)).toBeInTheDocument();
+    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
+    expect(screen.getByText(/Template: Fetch/)).toBeInTheDocument();
   });
 
   it("shows generic title for manual configuration", async () => {
@@ -734,7 +735,7 @@ describe("McpModal", () => {
     clickAddManual();
 
     expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
-    expect(screen.queryByText(/—/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Template:/)).not.toBeInTheDocument();
   });
 
   // ────── Bug 2: Show config file with missing file ──────

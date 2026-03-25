@@ -8,18 +8,17 @@ import {
 export default function TemplatePicker({
   onSelect,
   onManual,
+  onBack,
 }: {
   onSelect: (template: McpTemplate) => void;
   onManual: () => void;
+  onBack: () => void;
 }): React.JSX.Element {
   return (
     <div className="space-y-5">
-      <div>
-        <h3 className="text-text-primary font-medium">Add MCP Server</h3>
-        <p className="text-ui text-text-dim mt-0.5">
-          Choose a template or configure manually
-        </p>
-      </div>
+      <p className="text-ui text-text-dim">
+        Choose a template or configure manually
+      </p>
 
       {MCP_TEMPLATE_CATEGORIES.map((cat) => {
         const templates = MCP_TEMPLATES.filter((t) => t.category === cat.id);
@@ -74,6 +73,15 @@ export default function TemplatePicker({
           </p>
         </div>
       </button>
+
+      <div className="flex justify-center pt-1">
+        <button
+          onClick={onBack}
+          className="text-ui text-text-dim hover:text-text-secondary transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

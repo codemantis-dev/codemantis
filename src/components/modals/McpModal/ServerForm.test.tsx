@@ -33,14 +33,14 @@ describe("ServerForm", () => {
     vi.clearAllMocks();
   });
 
-  it("renders 'Add MCP Server' title for new server", () => {
+  it("does not render a title for new server (title is in modal header)", () => {
     render(<ServerForm {...defaultProps} />);
-    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
+    expect(screen.queryByText("Add MCP Server")).not.toBeInTheDocument();
   });
 
-  it("renders 'Edit MCP Server' title when editing", () => {
-    render(<ServerForm {...defaultProps} isEdit={true} />);
-    expect(screen.getByText("Edit MCP Server")).toBeInTheDocument();
+  it("shows template name when templateDisplayName is set", () => {
+    render(<ServerForm {...defaultProps} templateDisplayName="Fetch" />);
+    expect(screen.getByText(/Template: Fetch/)).toBeInTheDocument();
   });
 
   it("renders name, scope, and type fields", () => {

@@ -31,15 +31,15 @@ describe("TemplatePicker", () => {
   const defaultProps = {
     onSelect: vi.fn(),
     onManual: vi.fn(),
+    onBack: vi.fn(),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders the title and description", () => {
+  it("renders the description", () => {
     render(<TemplatePicker {...defaultProps} />);
-    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
     expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
   });
 
