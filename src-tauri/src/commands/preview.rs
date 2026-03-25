@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
+use url::Url;
+
+/// Actions pushed by preview toolbar buttons via the JS action queue.
+/// Replaces fetch()-based callbacks which are blocked by pages with restrictive CSP.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ToolbarAction {
+    pub action: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub logs: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -284,6 +296,88 @@ pub async fn open_preview_window(
                     break;
                 }
             };
+
+            // ── Toolbar action processing ──────────────────────────────────
+            // Bridge JS buttons push actions to window.__CM_PENDING_ACTIONS
+            // instead of calling fetch() (which is blocked by pages with
+            // restrictive CSP like connect-src 'self').  We drain the queue
+            // into document.title (same CSP-immune trick as console polling)
+            // and dispatch each action from Rust.
+            let action_drain_js = r#"
+                (function() {
+                    var q = window.__CM_PENDING_ACTIONS;
+                    if (q && q.length > 0) {
+                        var batch = q.splice(0);
+                        window.__CM_TITLE_BEFORE_ACTION = document.title;
+                        document.title = '__CM_ACTIONS__' + JSON.stringify(batch);
+                    }
+                })();
+            "#;
+            if let Err(e) = preview_win.eval(action_drain_js) {
+                debug!("[preview] Action drain eval failed: {}", e);
+            } else {
+                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+                if let Ok(title) = preview_win.title() {
+                    if let Some(json_str) = title.strip_prefix("__CM_ACTIONS__") {
+                        // Restore the original title immediately
+                        let _ = preview_win.eval(r#"
+                            (function() {
+                                if (window.__CM_TITLE_BEFORE_ACTION !== undefined) {
+                                    document.title = window.__CM_TITLE_BEFORE_ACTION;
+                                    delete window.__CM_TITLE_BEFORE_ACTION;
+                                }
+                            })();
+                        "#);
+
+                        if let Ok(actions) = serde_json::from_str::<Vec<ToolbarAction>>(json_str) {
+                            for action in actions {
+                                info!("[preview] Toolbar action: {}", action.action);
+                                match action.action.as_str() {
+                                    "screenshot" => {
+                                        match capture_screenshot_inner(&poll_ah) {
+                                            Ok(path) => {
+                                                info!("[preview] Screenshot captured: {}", path);
+                                                if let Err(e) = poll_ah.emit("preview-screenshot-taken", path) {
+                                                    warn!("[preview] Failed to emit screenshot event: {}", e);
+                                                }
+                                            }
+                                            Err(e) => warn!("[preview] Screenshot failed: {}", e),
+                                        }
+                                    }
+                                    "close" => {
+                                        // window.close() in JS provides immediate feedback;
+                                        // this is a belt-and-suspenders close from Rust.
+                                        if let Some(win) = poll_ah.get_webview_window("preview") {
+                                            let _ = win.close();
+                                        }
+                                    }
+                                    "open" => {
+                                        if let Some(url_str) = &action.url {
+                                            match Url::parse(url_str) {
+                                                Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {
+                                                    info!("[preview] Opening in browser: {}", url.as_str());
+                                                    let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
+                                                }
+                                                _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
+                                            }
+                                        }
+                                    }
+                                    "console_to_chat" => {
+                                        if let Some(logs) = &action.logs {
+                                            info!("[preview] Sending console logs to chat ({} bytes)", logs.len());
+                                            if let Err(e) = poll_ah.emit("preview-console-to-chat", logs.clone()) {
+                                                warn!("[preview] Failed to emit console-to-chat: {}", e);
+                                            }
+                                        }
+                                    }
+                                    other => debug!("[preview] Unknown toolbar action: {}", other),
+                                }
+                            }
+                        }
+                        continue; // skip console drain this iteration to avoid title conflicts
+                    }
+                }
+            }
 
             // Step 0: Re-inject console bridge if not present (SPA navigation / external URL fallback)
             let reinject_js = r#"

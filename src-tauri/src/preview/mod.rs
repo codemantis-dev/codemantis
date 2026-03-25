@@ -419,83 +419,78 @@ mod tests {
     // by pages with restrictive CSP. It must now be injected via
     // initialization_script by prepending to the bridge JS.
 
+    // ── Action queue contract tests ──
+    // Regression: fetch()-based callbacks are blocked by pages with restrictive
+    // CSP (connect-src 'self'). All toolbar actions now use a JS action queue
+    // (__CM_PENDING_ACTIONS) that the Rust polling loop drains via document.title.
+
     #[test]
-    fn bridge_script_contains_callback_port_variable() {
-        // The bridge JS must reference __CM_CALLBACK_PORT so toolbar buttons
-        // can call the approval server. If this variable name changes, the
-        // port injection in open_preview_window must be updated too.
+    fn bridge_initializes_pending_actions_queue() {
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
-            bridge.contains("window.__CM_CALLBACK_PORT"),
-            "Bridge script must reference window.__CM_CALLBACK_PORT for toolbar buttons"
+            bridge.contains("__CM_PENDING_ACTIONS"),
+            "Bridge must initialize window.__CM_PENDING_ACTIONS action queue"
         );
     }
 
     #[test]
-    fn bridge_port_injection_format_is_valid_js() {
-        // Simulate the format string used in open_preview_window to prepend
-        // the port to the initialization_script. Verify it produces valid JS.
-        let port: u16 = 54321;
-        let bridge = include_str!("../../resources/preview-console-bridge.js");
-        let injected = format!("window.__CM_CALLBACK_PORT = {};\n{}", port, bridge);
-
-        // Must start with the port assignment
-        assert!(injected.starts_with("window.__CM_CALLBACK_PORT = 54321;\n"));
-        // Bridge content must follow immediately
-        assert!(injected.contains("(function() {"));
-        // The full bridge must still be present
-        assert!(injected.contains("__CM_CONSOLE_BRIDGE"));
-    }
-
-    #[test]
-    fn bridge_screenshot_button_uses_callback_port() {
-        // Regression: screenshot button must fetch to /screenshot using the port.
-        // If this fetch call is removed or changed, screenshots break silently.
+    fn bridge_screenshot_pushes_action() {
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
-            bridge.contains("/screenshot"),
-            "Bridge must contain fetch to /screenshot endpoint"
-        );
-        assert!(
-            bridge.contains("__CM_CALLBACK_PORT"),
-            "Screenshot fetch must use __CM_CALLBACK_PORT"
+            bridge.contains("action: 'screenshot'"),
+            "Screenshot button must push action:'screenshot' to action queue"
         );
     }
 
     #[test]
-    fn bridge_close_button_uses_callback_port() {
-        // Regression: close button must fetch to /close using the port.
+    fn bridge_close_pushes_action_and_calls_window_close() {
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
-            bridge.contains("/close"),
-            "Bridge must contain fetch to /close endpoint"
+            bridge.contains("action: 'close'"),
+            "Close button must push action:'close' to action queue"
         );
-    }
-
-    #[test]
-    fn bridge_console_to_chat_uses_callback_port() {
-        // Regression: console-to-chat button must fetch to /console-to-chat.
-        let bridge = include_str!("../../resources/preview-console-bridge.js");
-        assert!(
-            bridge.contains("/console-to-chat"),
-            "Bridge must contain fetch to /console-to-chat endpoint"
-        );
-    }
-
-    #[test]
-    fn bridge_close_button_has_fallback() {
-        // The close button must have a window.close() fallback for when
-        // the callback port is unavailable.
-        let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
             bridge.contains("window.close()"),
-            "Close button must have window.close() fallback"
+            "Close button must also call window.close() for immediate feedback"
+        );
+    }
+
+    #[test]
+    fn bridge_open_pushes_action_with_url() {
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("action: 'open'"),
+            "Open button must push action:'open' to action queue"
+        );
+    }
+
+    #[test]
+    fn bridge_console_to_chat_pushes_action_with_logs() {
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(
+            bridge.contains("action: 'console_to_chat'"),
+            "Send to Chat must push action:'console_to_chat' to action queue"
+        );
+    }
+
+    #[test]
+    fn bridge_does_not_use_fetch_for_toolbar_actions() {
+        // Regression guard: fetch() to 127.0.0.1 is blocked by CSP.
+        // The bridge must NOT use fetch for screenshot/close/console-to-chat.
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        let fetch_to_callback: Vec<&str> = bridge
+            .lines()
+            .filter(|l| l.contains("fetch(") && l.contains("127.0.0.1"))
+            .collect();
+        assert!(
+            fetch_to_callback.is_empty(),
+            "Bridge must NOT use fetch() to 127.0.0.1 — blocked by CSP. Found {} fetch calls",
+            fetch_to_callback.len()
         );
     }
 
     #[test]
     fn bridge_toolbar_is_created() {
-        // The toolbar must be created for any of the buttons to exist.
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
             bridge.contains("__cm_toolbar"),
@@ -505,7 +500,6 @@ mod tests {
 
     #[test]
     fn bridge_console_drawer_is_created() {
-        // The console drawer provides the "Send to Chat" button.
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
             bridge.contains("__cm_console_drawer"),
@@ -518,25 +512,38 @@ mod tests {
     }
 
     #[test]
-    fn bridge_uses_127_0_0_1_for_fetch() {
-        // All fetch calls must target 127.0.0.1 (not localhost) to match
-        // the approval server's bind address.
-        let bridge = include_str!("../../resources/preview-console-bridge.js");
-        assert!(
-            bridge.contains("http://127.0.0.1"),
-            "Fetch calls must target http://127.0.0.1"
-        );
-        // Must NOT use http://localhost for callbacks — the server binds to 127.0.0.1
-        let fetch_lines: Vec<&str> = bridge
-            .lines()
-            .filter(|l| l.contains("fetch(") && l.contains("port"))
-            .collect();
-        for line in &fetch_lines {
-            assert!(
-                line.contains("127.0.0.1"),
-                "Fetch to callback server must use 127.0.0.1, found: {}",
-                line.trim()
-            );
-        }
+    fn toolbar_action_deserializes_screenshot() {
+        let json = r#"{"action":"screenshot"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "screenshot");
+        assert!(action.url.is_none());
+        assert!(action.logs.is_none());
+    }
+
+    #[test]
+    fn toolbar_action_deserializes_open_with_url() {
+        let json = r#"{"action":"open","url":"http://localhost:3000/about"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "open");
+        assert_eq!(action.url.as_deref(), Some("http://localhost:3000/about"));
+    }
+
+    #[test]
+    fn toolbar_action_deserializes_console_to_chat_with_logs() {
+        let json = r#"{"action":"console_to_chat","logs":"[ERROR] Something broke"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "console_to_chat");
+        assert_eq!(action.logs.as_deref(), Some("[ERROR] Something broke"));
+    }
+
+    #[test]
+    fn toolbar_action_deserializes_close() {
+        let json = r#"{"action":"close"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "close");
     }
 }

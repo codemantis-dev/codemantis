@@ -3,6 +3,10 @@
   window.__CM_CONSOLE_BRIDGE = true;
   window.__CM_CONSOLE_BUFFER = [];
   window.__CM_CONSOLE_LOG = [];
+  // Action queue: toolbar buttons push actions here instead of using fetch(),
+  // which is blocked by pages with restrictive CSP (connect-src 'self').
+  // The Rust polling loop drains this queue via document.title IPC.
+  window.__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || [];
 
   var MAX_ENTRIES = 500;
   var ORIG = {
@@ -154,37 +158,14 @@
   });
   toolbar.appendChild(vpContainer);
 
-  // Open in Browser — calls local Rust HTTP callback server
+  // Open in Browser — pushes action to queue, Rust opens via system 'open' command
   toolbar.appendChild(tbBtn('\u2197', 'Open in Browser', function() {
-    var port = window.__CM_CALLBACK_PORT;
-    if (!port) { ORIG.warn('Preview callback port not set yet'); return; }
-    fetch('http://127.0.0.1:' + port + '/open', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: window.location.href }),
-    }).catch(function(err) { ORIG.error('Open in browser failed:', err); });
+    window.__CM_PENDING_ACTIONS.push({ action: 'open', url: window.location.href });
   }));
 
-  // Screenshot to Chat — calls local Rust HTTP callback server
+  // Screenshot to Chat — pushes action to queue, Rust captures via screencapture
   toolbar.appendChild(tbBtn('\uD83D\uDCF7', 'Screenshot to Chat', function() {
-    var port = window.__CM_CALLBACK_PORT;
-    if (!port) {
-      ORIG.warn('[CodeMantis] Screenshot: callback port not available, retrying...');
-      setTimeout(function() {
-        var retryPort = window.__CM_CALLBACK_PORT;
-        if (!retryPort) {
-          ORIG.error('[CodeMantis] Screenshot unavailable — callback port not set');
-          return;
-        }
-        fetch('http://127.0.0.1:' + retryPort + '/screenshot', {
-          method: 'POST',
-        }).catch(function(err) { ORIG.error('Screenshot failed:', err); });
-      }, 500);
-      return;
-    }
-    fetch('http://127.0.0.1:' + port + '/screenshot', {
-      method: 'POST',
-    }).catch(function(err) { ORIG.error('Screenshot failed:', err); });
+    window.__CM_PENDING_ACTIONS.push({ action: 'screenshot' });
   }));
 
   // Console badge
@@ -197,16 +178,10 @@
   consoleBadge.addEventListener('click', function() { toggleConsoleDrawer(); });
   toolbar.appendChild(consoleBadge);
 
-  // Close preview button
+  // Close preview button — immediate window.close() + Rust-side close via action queue
   toolbar.appendChild(tbBtn('\u2715', 'Close Preview', function() {
-    var port = window.__CM_CALLBACK_PORT;
-    if (port) {
-      fetch('http://127.0.0.1:' + port + '/close', { method: 'POST' })
-        .catch(function() { window.close(); });
-    } else {
-      ORIG.warn('[CodeMantis] Close: no callback port, using window.close() fallback');
-      window.close();
-    }
+    window.__CM_PENDING_ACTIONS.push({ action: 'close' });
+    window.close();
   }));
 
   function updateConsoleBadge() {
@@ -396,8 +371,6 @@
   }));
 
   drawerActions.appendChild(drawerBtn('Send to Chat', 'Send logs to chat input', function() {
-    var port = window.__CM_CALLBACK_PORT;
-    if (!port) { ORIG.warn('[CodeMantis] Send to Chat: callback port not available'); return; }
     var entries = window.__CM_CONSOLE_LOG.filter(function(e) {
       return e.level === 'error' || e.level === 'warn';
     });
@@ -405,11 +378,7 @@
     var text = entries.map(function(e) {
       return '[' + e.level.toUpperCase() + '] ' + e.msg;
     }).join('\n');
-    fetch('http://127.0.0.1:' + port + '/console-to-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ logs: text }),
-    }).catch(function(err) { ORIG.error('Send to chat failed:', err); });
+    window.__CM_PENDING_ACTIONS.push({ action: 'console_to_chat', logs: text });
   }));
 
   drawerActions.appendChild(drawerBtn('\u2715', 'Close console', function() {

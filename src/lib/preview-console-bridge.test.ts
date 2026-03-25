@@ -3,11 +3,13 @@
  *
  * These tests verify the structural contract of the injected preview toolbar
  * script. They read the bridge JS source and assert that critical elements
- * are present — fetch endpoints, variable names, and fallback behavior.
+ * are present — action queue, variable names, and communication mechanisms.
  *
  * Regression: security changes repeatedly broke the preview toolbar because
- * the callback port injection, fetch endpoints, or CORS headers were
- * silently changed. These tests catch such regressions at build time.
+ * fetch()-based callbacks were silently blocked by pages with restrictive CSP
+ * (connect-src 'self'). The bridge now uses a JS action queue
+ * (__CM_PENDING_ACTIONS) that the Rust polling loop drains via document.title,
+ * which is immune to CSP restrictions.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
@@ -18,60 +20,44 @@ const bridgePath = resolve(__dirname, "../../src-tauri/resources/preview-console
 const bridgeSource = readFileSync(bridgePath, "utf-8");
 
 describe("preview-console-bridge.js contract", () => {
-  // ── Callback port variable ──
+  // ── Action queue (CSP-immune IPC) ──
 
-  it("references window.__CM_CALLBACK_PORT for toolbar buttons", () => {
-    // All toolbar buttons check this variable before making fetch calls.
-    // If the variable name changes, the port injection in open_preview_window
-    // (which prepends "window.__CM_CALLBACK_PORT = {port}") will silently break.
-    expect(bridgeSource).toContain("window.__CM_CALLBACK_PORT");
+  it("initializes __CM_PENDING_ACTIONS queue", () => {
+    // All toolbar actions push to this queue instead of calling fetch(),
+    // which is blocked by CSP connect-src restrictions on loaded pages.
+    expect(bridgeSource).toContain("__CM_PENDING_ACTIONS");
   });
 
-  it("checks __CM_CALLBACK_PORT before every fetch call", () => {
-    // Each button handler must guard on the port being set
-    const portChecks = bridgeSource.match(/window\.__CM_CALLBACK_PORT/g);
-    // At minimum: screenshot button (2: check + retry), close button (1),
-    // console-to-chat (1), open-in-browser (1) = 5+ references
-    expect(portChecks!.length).toBeGreaterThanOrEqual(5);
+  it("screenshot button pushes action to queue", () => {
+    expect(bridgeSource).toContain("action: 'screenshot'");
   });
 
-  // ── HTTP callback endpoints ──
-
-  it("contains fetch to /screenshot endpoint", () => {
-    expect(bridgeSource).toContain("'/screenshot'");
+  it("close button pushes action to queue", () => {
+    expect(bridgeSource).toContain("action: 'close'");
   });
 
-  it("contains fetch to /close endpoint", () => {
-    expect(bridgeSource).toContain("'/close'");
+  it("open-in-browser button pushes action with URL", () => {
+    expect(bridgeSource).toContain("action: 'open'");
   });
 
-  it("contains fetch to /console-to-chat endpoint", () => {
-    expect(bridgeSource).toContain("'/console-to-chat'");
+  it("console-to-chat button pushes action with logs", () => {
+    expect(bridgeSource).toContain("action: 'console_to_chat'");
   });
 
-  it("contains fetch to /open endpoint", () => {
-    expect(bridgeSource).toContain("'/open'");
-  });
+  // ── No fetch() to callback server ──
 
-  // ── Fetch target address ──
-
-  it("all fetch calls target 127.0.0.1 (not localhost)", () => {
-    // The approval server binds to 127.0.0.1:0. If fetches target "localhost"
-    // instead, CORS or DNS resolution issues can break the callbacks.
-    const fetchLines = bridgeSource.split("\n").filter(
-      (line) => line.includes("fetch(") && line.includes("port"),
+  it("does NOT use fetch() to 127.0.0.1 for toolbar actions", () => {
+    // CSP blocks fetch to non-self origins. The bridge must use the action
+    // queue mechanism, not fetch(). This is THE critical regression guard.
+    const fetchToCallback = bridgeSource.split("\n").filter(
+      (line) => line.includes("fetch(") && line.includes("127.0.0.1"),
     );
-    expect(fetchLines.length).toBeGreaterThan(0);
-    for (const line of fetchLines) {
-      expect(line).toContain("127.0.0.1");
-    }
+    expect(fetchToCallback).toHaveLength(0);
   });
 
-  // ── Close button fallback ──
+  // ── Close button ──
 
-  it("close button falls back to window.close() when port unavailable", () => {
-    // When __CM_CALLBACK_PORT is undefined, the close button must still
-    // close the window via the direct window.close() API.
+  it("close button calls window.close() for immediate feedback", () => {
     expect(bridgeSource).toContain("window.close()");
   });
 
@@ -106,38 +92,17 @@ describe("preview-console-bridge.js contract", () => {
   // ── IIFE guard ──
 
   it("uses IIFE guard to prevent double injection", () => {
-    // The bridge must check __CM_CONSOLE_BRIDGE to avoid injecting twice
-    // on SPA navigation or re-injection.
     expect(bridgeSource).toContain("if (window.__CM_CONSOLE_BRIDGE) return;");
   });
 
-  // ── POST method on all callback fetches ──
+  // ── Action queue push pattern ──
 
-  it("uses POST method for all callback fetches", () => {
-    // The approval server only accepts POST for callback endpoints.
-    // GET would return 405 and silently break the buttons.
-    const fetchCalls = bridgeSource.split("\n").filter(
-      (line) => line.includes("fetch(") && line.includes("127.0.0.1"),
+  it("all four action types push to __CM_PENDING_ACTIONS", () => {
+    // Each toolbar button must use the same push pattern
+    const pushLines = bridgeSource.split("\n").filter(
+      (line) => line.includes("__CM_PENDING_ACTIONS.push"),
     );
-    for (const line of fetchCalls) {
-      // The method: 'POST' is on the same or next line
-      const idx = bridgeSource.indexOf(line);
-      const context = bridgeSource.substring(idx, idx + 200);
-      expect(context).toContain("POST");
-    }
-  });
-
-  // ── console-to-chat sends JSON body ──
-
-  it("console-to-chat sends JSON Content-Type with logs payload", () => {
-    // The /console-to-chat endpoint expects { logs: string } as JSON.
-    // Missing Content-Type triggers a CORS preflight that would fail
-    // if the server doesn't handle OPTIONS for this endpoint.
-    const consoleToChat = bridgeSource.substring(
-      bridgeSource.indexOf("'/console-to-chat'") - 200,
-      bridgeSource.indexOf("'/console-to-chat'") + 200,
-    );
-    expect(consoleToChat).toContain("application/json");
-    expect(consoleToChat).toContain("JSON.stringify");
+    // screenshot, close, open, console_to_chat = 4 push calls
+    expect(pushLines.length).toBeGreaterThanOrEqual(4);
   });
 });
