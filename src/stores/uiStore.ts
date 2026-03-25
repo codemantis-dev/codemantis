@@ -39,6 +39,7 @@ interface UiState {
   showPlanCompleteModal: boolean;
   planCompleteSessionId: string | null;
   activityFeedScope: ActivityFeedScope;
+  showReasoningPanel: boolean;
   imagePreview: ImagePreview | null;
   helpSessionId: string | null;
   helpPanelOpen: boolean;
@@ -75,6 +76,7 @@ interface UiState {
   setShowPlanCompleteModal: (show: boolean) => void;
   setPlanCompleteSessionId: (id: string | null) => void;
   toggleActivityFeedScope: () => void;
+  toggleReasoningPanel: () => void;
   setImagePreview: (preview: ImagePreview | null) => void;
   setHelpSessionId: (id: string | null) => void;
   setHelpPanelOpen: (open: boolean) => void;
@@ -112,6 +114,7 @@ export const useUiStore = create<UiState>((set) => ({
   showPlanCompleteModal: false,
   planCompleteSessionId: null,
   activityFeedScope: "session",
+  showReasoningPanel: false,
   imagePreview: null,
   helpSessionId: null,
   helpPanelOpen: false,
@@ -154,6 +157,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null } : {}) }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
   toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
+  toggleReasoningPanel: () => set((s) => ({ showReasoningPanel: !s.showReasoningPanel })),
   setImagePreview: (preview) => set((s) => {
     // Revoke previous blob URL to avoid memory leaks
     if (s.imagePreview?.blobUrl) URL.revokeObjectURL(s.imagePreview.blobUrl);

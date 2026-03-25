@@ -146,6 +146,24 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
           const isMultiSelectDefault = (message.parsedOptions?.length ?? 0) >= 4;
           return (
             <div className="flex flex-col gap-1.5 mt-2">
+              {isMultiSelectDefault && (
+                <button
+                  onClick={() => {
+                    setSelectedOptions((prev) => {
+                      if (prev.size === message.parsedOptions!.length) {
+                        return new Set<number>();
+                      }
+                      return new Set(message.parsedOptions!.map((_, idx) => idx));
+                    });
+                  }}
+                  className="text-left px-2 py-1 rounded text-[11px] font-medium transition-colors hover:opacity-80"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {selectedOptions.size === (message.parsedOptions?.length ?? 0)
+                    ? "Deselect all"
+                    : `Select all (${message.parsedOptions?.length})`}
+                </button>
+              )}
               {message.parsedOptions!.map((opt, i) => {
                 const isSelected = selectedOptions.has(i);
                 return (

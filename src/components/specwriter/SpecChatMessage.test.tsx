@@ -156,4 +156,44 @@ describe("SpecChatMessage", () => {
     expect(screen.getByText("Spec saved to")).toBeTruthy();
     expect(screen.getByText("docs/specs/test.md")).toBeTruthy();
   });
+
+  // ── Select All / Deselect All tests ──────────────────────────
+
+  it("shows Select All button for 4+ options (multi-select mode)", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["A", "B", "C", "D", "E"],
+    };
+    render(<SpecChatMessage message={msg} isLastAssistant />);
+    expect(screen.getByText("Select all (5)")).toBeTruthy();
+  });
+
+  it("does NOT show Select All for <4 options", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["Yes", "No"],
+    };
+    render(<SpecChatMessage message={msg} isLastAssistant />);
+    expect(screen.queryByText(/Select all/)).toBeNull();
+  });
+
+  it("Select All toggles all options on and off", () => {
+    const msg: SpecMessage = {
+      ...baseMsg,
+      parsedOptions: ["A", "B", "C", "D"],
+    };
+    const onSelect = vi.fn();
+    render(<SpecChatMessage message={msg} isLastAssistant onSelectOption={onSelect} />);
+
+    // Click Select All
+    fireEvent.click(screen.getByText("Select all (4)"));
+    expect(screen.getByText(/Send 4 selected/)).toBeTruthy();
+
+    // Now it should show Deselect all
+    expect(screen.getByText("Deselect all")).toBeTruthy();
+
+    // Click Deselect all
+    fireEvent.click(screen.getByText("Deselect all"));
+    expect(screen.queryByText(/Send \d+ selected/)).toBeNull();
+  });
 });

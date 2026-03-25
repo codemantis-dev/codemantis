@@ -6,7 +6,6 @@ import type { SessionActivityInfo } from "../../stores/sessionStore";
 import type { SubAgentInfo } from "../../types/activity";
 import { formatDuration, formatSecondsElapsed } from "../../lib/format-utils";
 import TriviaCard from "./TriviaCard";
-import ThinkingContent from "./ThinkingContent";
 
 const TRIVIA_DELAY_MS = 3000;
 const COLLAPSE_THRESHOLD = 3;
@@ -109,7 +108,6 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
   const busySince = useSessionStore((s) => s.busySince.get(sessionId));
   const subAgents = useSessionStore((s) => s.activeSubAgents.get(sessionId)) ?? [];
-  const thinking = useSessionStore((s) => s.sessionThinking.get(sessionId));
 
   const [showTrivia, setShowTrivia] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -171,11 +169,6 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
           </span>
         )}
       </div>
-
-      {/* Thinking content panel */}
-      {thinking?.content && (
-        <ThinkingContent content={thinking.content} isStreaming={thinking.isThinking} />
-      )}
 
       {/* Sub-agent detail panel */}
       {runningAgents.length > 0 && (

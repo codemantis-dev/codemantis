@@ -30,7 +30,7 @@ describe("parseSelectableOptions — primary ?> markers", () => {
   it("strips ?> lines from clean content", () => {
     const content = `Intro text\n\n?> A\n?> B\n\nTrailing text`;
     const result = parseSelectableOptions(content);
-    expect(result!.cleanContent).toBe("Intro text\n\n\n\nTrailing text");
+    expect(result!.cleanContent).toBe("Intro text\n\n\nTrailing text");
   });
 
   it("returns null when no patterns match", () => {
@@ -38,8 +38,14 @@ describe("parseSelectableOptions — primary ?> markers", () => {
     expect(parseSelectableOptions(content)).toBeNull();
   });
 
-  it("takes priority over fallback formats", () => {
-    const content = `Select which features to include:\n?> Auth\n?> Dashboard\n- Bullet that should be ignored`;
+  it("sweeps adjacent bullets alongside ?> markers (format drift)", () => {
+    const content = `Select which features to include:\n?> Auth\n?> Dashboard\n- Settings page`;
+    const result = parseSelectableOptions(content);
+    expect(result!.options).toEqual(["Auth", "Dashboard", "Settings page"]);
+  });
+
+  it("does NOT sweep distant bullets into ?> results", () => {
+    const content = `?> Auth\n?> Dashboard\n\nHere are the implementation details:\n\nThe architecture uses:\n- API Gateway\n- Auth Service\n- Database`;
     const result = parseSelectableOptions(content);
     expect(result!.options).toEqual(["Auth", "Dashboard"]);
   });
@@ -188,5 +194,102 @@ Generating a maturity model with up to 1000 questions will take significant time
     expect(result).not.toBeNull();
     expect(result!.options).toHaveLength(4);
     expect(result!.options[0]).toBe("Background task queue (Celery/Redis)");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Format drift: mixed ?> and markdown items (the reported bug)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("parseSelectableOptions — format drift (mixed ?> + markdown)", () => {
+  it("collects all 18 items when AI mixes ?> and bullets", () => {
+    const content = `Here are all the features I'll include. Select which to include:
+
+?> ★ QCModel entity — new DB table
+?> ★ Quality Check landing page — stats overview
+?> ★ Cancel QC job — hard stop
+?> ★ Resume paused QC job — continues
+?> ★ Side-by-side diff view — original vs QC-ed
+?> ★ Download QC-ed model as JSON
+?> ★ Promote to Models Workspace — one-way export
+?> "Quality Check" sidebar nav item
+?> Landing page stats cards — total uploaded
+?> Job progress banner on dashboard
+?> ★ Upload maturity model JSON — parse on upload
+?> ★ QCModel table columns — status badge, name
+?> ★ Active job progress widget on landing page
+?> ★ QC model detail page — metadata panel
+- ★ Start QC job dialog — select AI provider
+- ★ Question-by-question Celery worker
+- ★ Real-time progress in detail page
+- ★ Pause QC job — graceful`;
+    const result = parseSelectableOptions(content);
+    expect(result).not.toBeNull();
+    expect(result!.options).toHaveLength(18);
+    expect(result!.options[0]).toBe("★ QCModel entity — new DB table");
+    expect(result!.options[13]).toBe("★ QC model detail page — metadata panel");
+    expect(result!.options[14]).toBe("★ Start QC job dialog — select AI provider");
+    expect(result!.options[17]).toBe("★ Pause QC job — graceful");
+  });
+
+  it("collects all items when AI drifts from ?> to numbered", () => {
+    const content = `Select which features to include:
+
+?> ★ Authentication
+?> ★ Dashboard
+?> ★ Settings
+1. API endpoints
+2. Database migrations`;
+    const result = parseSelectableOptions(content);
+    expect(result).not.toBeNull();
+    expect(result!.options).toHaveLength(5);
+    expect(result!.options[3]).toBe("API endpoints");
+    expect(result!.options[4]).toBe("Database migrations");
+  });
+
+  it("handles large list of 18+ pure ?> markers without truncation", () => {
+    const items = Array.from({ length: 20 }, (_, i) => `?> Feature ${i + 1}`);
+    const content = `Select features:\n\n${items.join("\n")}`;
+    const result = parseSelectableOptions(content);
+    expect(result).not.toBeNull();
+    expect(result!.options).toHaveLength(20);
+    expect(result!.options[0]).toBe("Feature 1");
+    expect(result!.options[19]).toBe("Feature 20");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Fallback parser resilience (sub-headers, interruptions)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("parseSelectableOptions — fallback parser resilience", () => {
+  it("collects items across a sub-header interruption", () => {
+    const content = `Here are the features I'll include. Select which to include:
+
+- Authentication
+- Dashboard
+**Nice to have:**
+- Settings page
+- Notifications`;
+    const result = parseSelectableOptions(content);
+    expect(result).not.toBeNull();
+    expect(result!.options).toHaveLength(4);
+    expect(result!.options).toEqual([
+      "Authentication", "Dashboard", "Settings page", "Notifications",
+    ]);
+  });
+
+  it("stops collecting when list truly ends (2+ non-matching lines)", () => {
+    const content = `Select which features to include:
+
+- Auth
+- Dashboard
+
+That covers the main features. Let me know if you want to add more.
+
+Also, regarding the timeline, we should plan for 3 sprints.`;
+    const result = parseSelectableOptions(content);
+    expect(result).not.toBeNull();
+    expect(result!.options).toEqual(["Auth", "Dashboard"]);
   });
 });

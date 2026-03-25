@@ -5,9 +5,10 @@ import StreamingCursor from "./StreamingCursor";
 interface ThinkingContentProps {
   content: string;
   isStreaming: boolean;
+  maxHeight?: number;
 }
 
-export default function ThinkingContent({ content, isStreaming }: ThinkingContentProps) {
+export default function ThinkingContent({ content, isStreaming, maxHeight = 300 }: ThinkingContentProps) {
   const [expanded, setExpanded] = useState(isStreaming);
   const scrollRef = useRef<HTMLPreElement>(null);
 
@@ -58,7 +59,7 @@ export default function ThinkingContent({ content, isStreaming }: ThinkingConten
         <pre
           ref={scrollRef}
           className="px-3 pb-2 text-chat text-text-ghost whitespace-pre-wrap break-words overflow-y-auto [overflow-wrap:anywhere]"
-          style={{ maxHeight: 300, fontSize: "0.85em", lineHeight: 1.5 }}
+          style={{ ...(maxHeight != null ? { maxHeight } : {}), fontSize: "0.85em", lineHeight: 1.5 }}
         >
           {content}
           {isStreaming && <StreamingCursor />}

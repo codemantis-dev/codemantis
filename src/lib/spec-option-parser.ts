@@ -2,9 +2,6 @@
 // Spec Writer — Selectable option parser (primary ?> + fallback formats)
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Primary marker pattern: `?> Option text` */
-const OPTION_MARKER = /^\s*\?>\s*(.+)$/gm;
-
 /** Markdown checkboxes: `- [ ] Option` or `- [x] Option` */
 const CHECKBOX = /^[ \t]*-\s+\[[ xX]\]\s+(.+)$/;
 
@@ -64,18 +61,64 @@ export function parseSelectableOptions(content: string): ParseResult | null {
 
 // ── Primary parser ─────────────────────────────────────────────────
 
-function parsePrimaryMarkers(content: string): ParseResult | null {
-  const options: string[] = [];
-  // Reset lastIndex for safety (global regex)
-  OPTION_MARKER.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = OPTION_MARKER.exec(content)) !== null) {
-    options.push(m[1].trim());
-  }
-  if (options.length === 0) return null;
+/** Single-line ?> pattern (no global flag — used per-line) */
+const OPTION_MARKER_LINE = /^\s*\?>\s*(.+)$/;
 
-  const cleanContent = content.replace(/^\s*\?>\s*.+$/gm, '').trim();
-  return { options, cleanContent };
+/**
+ * Maximum distance (in lines) between a known option line and a candidate
+ * markdown list item for the candidate to be swept into the options set.
+ */
+const ADJACENCY_RADIUS = 2;
+
+function parsePrimaryMarkers(content: string): ParseResult | null {
+  const lines = content.split('\n');
+
+  // Pass 1: collect all ?> lines
+  const optionLineIndices = new Set<number>();
+  const allOptions: { index: number; text: string }[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const m = OPTION_MARKER_LINE.exec(lines[i]);
+    if (m) {
+      allOptions.push({ index: i, text: m[1].trim() });
+      optionLineIndices.add(i);
+    }
+  }
+  if (allOptions.length === 0) return null;
+
+  // Pass 2: sweep for adjacent markdown list items that the AI formatted
+  // without ?> (format drift). Only collect items within ADJACENCY_RADIUS
+  // of an existing option line OR contiguous with an already-collected item.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (optionLineIndices.has(i)) continue;
+      const line = lines[i];
+      const cbm = CHECKBOX.exec(line) || NUMBERED.exec(line) || BULLET.exec(line);
+      if (!cbm) continue;
+
+      const isAdjacent = [...optionLineIndices].some(
+        (idx) => Math.abs(idx - i) <= ADJACENCY_RADIUS,
+      );
+      if (isAdjacent) {
+        allOptions.push({ index: i, text: cbm[1].trim() });
+        optionLineIndices.add(i);
+        changed = true; // re-scan to expand contiguously
+      }
+    }
+  }
+
+  // Sort by line index to preserve original order
+  allOptions.sort((a, b) => a.index - b.index);
+
+  // Build clean content by stripping all matched option lines
+  const cleanContent = lines
+    .filter((_, idx) => !optionLineIndices.has(idx))
+    .join('\n')
+    .trim();
+
+  return { options: allOptions.map((o) => o.text), cleanContent };
 }
 
 // ── Fallback parser ────────────────────────────────────────────────
@@ -121,7 +164,8 @@ function tryListAfterTrigger(lines: string[], triggerLineIdx: number): ParseResu
   else if (BULLET.test(firstLine)) pattern = BULLET;
   else return null;
 
-  // Collect consecutive matching items (allow single blank lines between items)
+  // Collect matching items, tolerating blank lines and up to 1 non-matching
+  // interruption (sub-header, annotation) if the list pattern resumes nearby.
   const options: string[] = [];
   const matchedLineIndices = new Set<number>();
   let i = listStart;
@@ -133,14 +177,24 @@ function tryListAfterTrigger(lines: string[], triggerLineIdx: number): ParseResu
       matchedLineIndices.add(i);
       i++;
     } else if (!line.trim()) {
-      // Allow one blank line inside the list (models sometimes space out items)
-      if (i + 1 < lines.length && pattern.test(lines[i + 1])) {
+      // Blank line — check if list resumes within 2 lines
+      const resumesAt1 = i + 1 < lines.length && pattern.test(lines[i + 1]);
+      const resumesAt2 = i + 2 < lines.length && !lines[i + 1]?.trim() && pattern.test(lines[i + 2]);
+      if (resumesAt1 || resumesAt2) {
         i++;
       } else {
         break;
       }
     } else {
-      break;
+      // Non-matching, non-blank line (sub-header, annotation, etc.)
+      // Allow skipping it if the list pattern resumes within 2 lines
+      const resumesAt1 = i + 1 < lines.length && pattern.test(lines[i + 1]);
+      const resumesAt2 = i + 2 < lines.length && pattern.test(lines[i + 2]);
+      if (resumesAt1 || resumesAt2) {
+        i++;
+      } else {
+        break;
+      }
     }
   }
 

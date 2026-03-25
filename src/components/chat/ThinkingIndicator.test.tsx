@@ -136,7 +136,7 @@ describe("ThinkingIndicator", () => {
     expect(screen.getByText("A test trivia fact.")).toBeInTheDocument();
   });
 
-  it("shows thinking content when sessionThinking has content", () => {
+  it("does not render reasoning content (moved to Activity tab)", () => {
     setupBusySession();
     useSessionStore.setState((s) => {
       const sessionThinking = new Map(s.sessionThinking);
@@ -144,26 +144,8 @@ describe("ThinkingIndicator", () => {
       return { sessionThinking };
     });
     render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
-    // ThinkingContent auto-expands when streaming
-    expect(screen.getByText("Reasoning")).toBeInTheDocument();
-    expect(screen.getByText("Let me analyze this carefully...")).toBeInTheDocument();
-  });
-
-  it("does not show thinking content when content is empty", () => {
-    setupBusySession();
-    useSessionStore.setState((s) => {
-      const sessionThinking = new Map(s.sessionThinking);
-      sessionThinking.set(TEST_SESSION_ID, { isThinking: true, content: "" });
-      return { sessionThinking };
-    });
-    render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
     expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
-  });
-
-  it("does not show thinking content when no thinking state exists", () => {
-    setupBusySession();
-    render(<ThinkingIndicator sessionId={TEST_SESSION_ID} />);
-    expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
+    expect(screen.queryByText("Let me analyze this carefully...")).not.toBeInTheDocument();
   });
 
   it("renders trivia card with topic badge after delay", () => {

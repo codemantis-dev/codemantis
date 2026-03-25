@@ -143,36 +143,9 @@ describe("MessageBubble", () => {
     expect(screen.getByTestId("markdown")).toHaveTextContent("new streaming content");
   });
 
-  it("shows ThinkingContent for assistant messages with thinkingContent", () => {
+  it("does not render ThinkingContent (moved to Activity tab)", () => {
     const msg = makeMessage({ thinkingContent: "Step 1: analyze the problem." });
     render(<MessageBubble message={msg} />);
-    expect(screen.getByText("Reasoning")).toBeInTheDocument();
-  });
-
-  it("does not show ThinkingContent for user messages", () => {
-    const msg = makeMessage({ role: "user", thinkingContent: "should not appear" });
-    render(<MessageBubble message={msg} />);
     expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
-  });
-
-  it("does not show ThinkingContent when thinkingContent is undefined", () => {
-    const msg = makeMessage({});
-    render(<MessageBubble message={msg} />);
-    expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
-  });
-
-  it("ThinkingContent is collapsed by default on completed messages", () => {
-    const msg = makeMessage({ thinkingContent: "Hidden reasoning text" });
-    render(<MessageBubble message={msg} />);
-    // Reasoning header should be visible but content should be collapsed
-    expect(screen.getByText("Reasoning")).toBeInTheDocument();
-    expect(screen.queryByText("Hidden reasoning text")).not.toBeInTheDocument();
-  });
-
-  it("ThinkingContent expands on click in MessageBubble", () => {
-    const msg = makeMessage({ thinkingContent: "Expanded reasoning" });
-    render(<MessageBubble message={msg} />);
-    fireEvent.click(screen.getByText("Reasoning"));
-    expect(screen.getByText("Expanded reasoning")).toBeInTheDocument();
   });
 });

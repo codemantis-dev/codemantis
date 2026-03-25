@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useMemo } from "react";
-import { Layers, MessageSquareShare } from "lucide-react";
+import { Brain, Layers, MessageSquareShare } from "lucide-react";
+import ThinkingContent from "../chat/ThinkingContent";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useAssistantStore } from "../../stores/assistantStore";
@@ -86,6 +87,22 @@ export default function ActivityFeed() {
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const activityFeedScope = useUiStore((s) => s.activityFeedScope);
   const toggleActivityFeedScope = useUiStore((s) => s.toggleActivityFeedScope);
+  const showReasoningPanel = useUiStore((s) => s.showReasoningPanel);
+  const toggleReasoningPanel = useUiStore((s) => s.toggleReasoningPanel);
+  const thinking = useSessionStore((s) =>
+    activeSessionId ? s.sessionThinking.get(activeSessionId) : undefined
+  );
+  const lastThinkingContent = useSessionStore((s) => {
+    if (!activeSessionId) return undefined;
+    const msgs = s.sessionMessages.get(activeSessionId);
+    if (!msgs) return undefined;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].thinkingContent) return msgs[i].thinkingContent;
+    }
+    return undefined;
+  });
+  const reasoningContent = thinking?.content || lastThinkingContent || "";
+  const reasoningIsStreaming = thinking?.isThinking ?? false;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Build entries based on scope: session-only or merged from all project sessions
@@ -153,6 +170,21 @@ export default function ActivityFeed() {
     [setSelectedActivityEntry]
   );
 
+  const reasoningToggle = (
+    <button
+      onClick={toggleReasoningPanel}
+      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+        showReasoningPanel
+          ? "text-accent bg-accent/10"
+          : "text-text-ghost hover:text-text-secondary hover:bg-bg-elevated"
+      }`}
+      title={showReasoningPanel ? "Hide reasoning panel" : "Show Claude reasoning"}
+    >
+      <Brain size={12} />
+      Reasoning
+    </button>
+  );
+
   const scopeToggle = (
     <button
       onClick={toggleActivityFeedScope}
@@ -164,6 +196,22 @@ export default function ActivityFeed() {
     </button>
   );
 
+  const reasoningPane = showReasoningPanel && (
+    <div className="shrink-0 max-h-[33%] flex flex-col border-b border-border-light">
+      <div className="flex items-center justify-between px-3 pt-1.5 pb-1 shrink-0">
+        <span className="text-ui text-text-dim font-medium">Claude Code Reasoning</span>
+        {reasoningToggle}
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 pb-2 min-h-0">
+        {reasoningContent ? (
+          <ThinkingContent content={reasoningContent} isStreaming={reasoningIsStreaming} maxHeight={undefined} />
+        ) : (
+          <p className="text-text-faint text-ui text-center py-4">No reasoning yet</p>
+        )}
+      </div>
+    </div>
+  );
+
   const { visibleCount, hasMore, sentinelRef } = useIncrementalList({
     totalCount: sortedEntries.length,
     resetKey: (activeSessionId ?? "") + activityFeedScope,
@@ -173,17 +221,39 @@ export default function ActivityFeed() {
   if (sortedEntries.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="flex justify-end px-3 pt-1.5">{scopeToggle}</div>
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-text-faint text-ui">No activity yet</p>
+        {reasoningPane}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex items-center justify-between px-3 pt-1.5">
+            {showReasoningPanel && (
+              <span className="text-ui text-text-dim font-medium">Activity Details</span>
+            )}
+            <div className="flex items-center gap-1.5 ml-auto">
+              {!showReasoningPanel && reasoningToggle}
+              {scopeToggle}
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-text-faint text-ui">No activity yet</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-3 pt-1.5 pb-8 select-text">
-      <div className="flex justify-end mb-1">{scopeToggle}</div>
+    <div className="h-full flex flex-col">
+      {reasoningPane}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center justify-between px-3 pt-1.5 mb-1 shrink-0">
+          {showReasoningPanel && (
+            <span className="text-ui text-text-dim font-medium">Activity Details</span>
+          )}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {!showReasoningPanel && reasoningToggle}
+            {scopeToggle}
+          </div>
+        </div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pb-8 select-text min-h-0">
       {visibleEntries.map((entry, i) => {
         const activityType = getActivityType(entry.toolName);
         const color = typeColors[activityType] ?? "accent";
@@ -303,6 +373,8 @@ export default function ActivityFeed() {
         );
       })}
       {hasMore && <div ref={sentinelRef} className="h-1" />}
+        </div>
+      </div>
     </div>
   );
 }
