@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ScrollText, RefreshCw, Loader2, Copy, Check } from "lucide-react";
+import { ScrollText, RefreshCw, Loader2, Copy, Check, ArrowLeft } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownLinkComponents } from "../../lib/external-links";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
+import { useUiStore } from "../../stores/uiStore";
 import type { ProjectChangelogEntry } from "../../types/changelog";
 
 function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
@@ -100,6 +101,7 @@ export default function ProjectLogFeed() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const projectEntries = useChangelogStore((s) => s.projectEntries);
   const loadProjectEntries = useChangelogStore((s) => s.loadProjectEntries);
+  const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
   const [loading, setLoading] = useState(false);
 
   const entries = activeProjectPath ? projectEntries.get(activeProjectPath) : undefined;
@@ -136,6 +138,14 @@ export default function ProjectLogFeed() {
           </span>
         )}
         <div className="flex-1" />
+        <button
+          onClick={() => setShowProjectLog(false)}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+          title="Back to Project"
+        >
+          <ArrowLeft size={12} />
+          <span>Back</span>
+        </button>
         <button
           onClick={handleRefresh}
           disabled={loading}
