@@ -73,11 +73,11 @@ describe("HelpChatInput", () => {
     expect(textarea.disabled).toBe(true);
   });
 
-  it("sends on Cmd+Enter", () => {
+  it("sends on Enter (default shortcut)", () => {
     render(<HelpChatInput {...defaultProps} />);
     const textarea = screen.getByPlaceholderText(/Ask a question/);
     fireEvent.change(textarea, { target: { value: "test" } });
-    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(textarea, { key: "Enter" });
     expect(defaultProps.onSend).toHaveBeenCalledWith("test");
   });
 });

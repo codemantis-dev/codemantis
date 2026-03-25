@@ -37,12 +37,12 @@ describe("SpecChatInput", () => {
     expect(
       screen.getByPlaceholderText("Describe what you want to build...")
     ).toBeInTheDocument();
-    expect(screen.getByTitle("Send (Cmd+Enter)")).toBeInTheDocument();
+    expect(screen.getByTitle("Send (Enter)")).toBeInTheDocument();
   });
 
   it("disables send button when input is empty", () => {
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
-    const sendBtn = screen.getByTitle("Send (Cmd+Enter)");
+    const sendBtn = screen.getByTitle("Send (Enter)");
     expect(sendBtn).toBeDisabled();
   });
 
@@ -50,7 +50,7 @@ describe("SpecChatInput", () => {
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
     const textarea = screen.getByPlaceholderText("Describe what you want to build...");
     fireEvent.change(textarea, { target: { value: "Build a feature" } });
-    const sendBtn = screen.getByTitle("Send (Cmd+Enter)");
+    const sendBtn = screen.getByTitle("Send (Enter)");
     expect(sendBtn).not.toBeDisabled();
   });
 
@@ -58,7 +58,7 @@ describe("SpecChatInput", () => {
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
     const textarea = screen.getByPlaceholderText("Describe what you want to build...");
     fireEvent.change(textarea, { target: { value: "Build it" } });
-    fireEvent.click(screen.getByTitle("Send (Cmd+Enter)"));
+    fireEvent.click(screen.getByTitle("Send (Enter)"));
 
     expect(mockSendMessage).toHaveBeenCalledWith(PROJECT_PATH, "Build it", undefined);
   });
@@ -96,6 +96,6 @@ describe("SpecChatInput", () => {
 
   it("renders send shortcut hint text", () => {
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
-    expect(screen.getByText("⌘+Enter to send")).toBeInTheDocument();
+    expect(screen.getByText("Enter to send")).toBeInTheDocument();
   });
 });

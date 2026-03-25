@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { useSessionStore } from "../../stores/sessionStore";
-import { useSettingsStore } from "../../stores/settingsStore";
 import type { Session } from "../../types/session";
 import type { FrontendEvent } from "../../types/claude-events";
 import {
@@ -8,7 +7,6 @@ import {
   flushThinkingBuffer,
   thinkingBuffers,
   thinkingFrames,
-  flushStreamingBuffer,
   streamingBuffers,
   pendingFrames,
 } from "./chat";
@@ -45,7 +43,6 @@ function resetStore(): void {
     activeSubAgents: new Map(),
     sessionThinking: new Map(),
     tabOrder: [],
-    activeSessionId: null,
     activeProjectPath: null,
     projectOrder: [],
     projectActiveSession: new Map(),
