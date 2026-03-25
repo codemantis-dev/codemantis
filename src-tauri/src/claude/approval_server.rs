@@ -891,6 +891,36 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn cors_preflight_returns_allow_methods_and_headers() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://localhost:3000"));
+        let (status, resp_headers) = preview_cors_preflight(headers).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(
+            resp_headers.get("access-control-allow-methods").unwrap(),
+            "POST, OPTIONS"
+        );
+        assert_eq!(
+            resp_headers.get("access-control-allow-headers").unwrap(),
+            "content-type"
+        );
+        assert_eq!(
+            resp_headers.get("access-control-allow-origin").unwrap(),
+            "http://localhost:3000"
+        );
+    }
+
+    #[tokio::test]
+    async fn cors_preflight_omits_origin_for_external() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://evil.com"));
+        let (_status, resp_headers) = preview_cors_preflight(headers).await;
+        assert!(resp_headers.get("access-control-allow-origin").is_none());
+        // Methods and headers are still returned (spec allows this)
+        assert!(resp_headers.get("access-control-allow-methods").is_some());
+    }
+
     #[test]
     fn console_to_chat_payload_deserializes() {
         // Regression: if ConsoleToChat struct changes shape, the /console-to-chat

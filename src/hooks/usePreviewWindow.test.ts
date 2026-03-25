@@ -405,7 +405,22 @@ describe("usePreviewWindow", () => {
     expect(call[2]).toBe("/my/project"); // projectPath — MUST be present
   });
 
-  // ── closePreview also stops dev server ──
+  // ── closePreview ──
+
+  it("closePreview without dev server does not call stopDevServer", async () => {
+    usePreviewStore.getState().setPreviewOpen("/test/project", true);
+    mockClosePreviewWindow.mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.closePreview();
+    });
+
+    expect(mockClosePreviewWindow).toHaveBeenCalled();
+    expect(mockStopDevServer).not.toHaveBeenCalled();
+    expect(usePreviewStore.getState().previewOpen.get("/test/project")).toBe(false);
+  });
 
   it("closePreview stops running dev server", async () => {
     usePreviewStore.getState().setPreviewOpen("/test/project", true);
@@ -427,5 +442,31 @@ describe("usePreviewWindow", () => {
 
     expect(mockClosePreviewWindow).toHaveBeenCalled();
     expect(mockStopDevServer).toHaveBeenCalledWith("/test/project");
+  });
+
+  // ── togglePreview edge cases ──
+
+  it("togglePreview does nothing if no activeProjectPath", async () => {
+    useSessionStore.setState({ activeProjectPath: null });
+
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.togglePreview();
+    });
+
+    expect(mockFocusPreviewWindow).not.toHaveBeenCalled();
+    expect(mockOpenPreviewWindow).not.toHaveBeenCalled();
+  });
+
+  it("togglePreview does not open if no dev server URL", async () => {
+    // Preview is not open, but there's no dev server URL to open
+    const { result } = renderHook(() => usePreviewWindow());
+
+    await act(async () => {
+      await result.current.togglePreview();
+    });
+
+    expect(mockOpenPreviewWindow).not.toHaveBeenCalled();
   });
 });

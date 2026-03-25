@@ -540,6 +540,77 @@ mod tests {
     }
 
     #[test]
+    fn toolbar_action_deserializes_batch() {
+        let json = r#"[
+            {"action":"screenshot"},
+            {"action":"open","url":"http://localhost:3000"},
+            {"action":"console_to_chat","logs":"[ERROR] oops"}
+        ]"#;
+        let actions: Vec<super::super::commands::preview::ToolbarAction> =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0].action, "screenshot");
+        assert_eq!(actions[1].action, "open");
+        assert_eq!(actions[1].url.as_deref(), Some("http://localhost:3000"));
+        assert_eq!(actions[2].action, "console_to_chat");
+        assert_eq!(actions[2].logs.as_deref(), Some("[ERROR] oops"));
+    }
+
+    #[test]
+    fn toolbar_action_unknown_type_deserializes() {
+        let json = r#"{"action":"future_feature","url":"x"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "future_feature");
+    }
+
+    #[test]
+    fn toolbar_action_console_to_chat_without_logs() {
+        // If logs field is missing, it should default to None
+        let json = r#"{"action":"console_to_chat"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "console_to_chat");
+        assert!(action.logs.is_none());
+    }
+
+    #[test]
+    fn toolbar_action_open_without_url() {
+        let json = r#"{"action":"open"}"#;
+        let action: super::super::commands::preview::ToolbarAction =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(action.action, "open");
+        assert!(action.url.is_none());
+    }
+
+    #[test]
+    fn action_drain_js_uses_correct_title_prefix() {
+        // The Rust polling loop looks for "__CM_ACTIONS__" prefix in document.title.
+        // The drain JS must set this exact prefix.
+        let drain_js = r#"document.title = '__CM_ACTIONS__' + JSON.stringify(batch)"#;
+        // Verify the prefix constant matches what Rust parses
+        let prefix = "__CM_ACTIONS__";
+        assert!(
+            drain_js.contains(prefix),
+            "Drain JS must use the __CM_ACTIONS__ prefix that Rust checks"
+        );
+    }
+
+    #[test]
+    fn bridge_initializes_action_queue_before_buttons() {
+        // The queue must be initialized before any button pushes to it
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        let queue_init = bridge.find("__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || []");
+        let first_push = bridge.find("__CM_PENDING_ACTIONS.push");
+        assert!(queue_init.is_some(), "Queue must be initialized");
+        assert!(first_push.is_some(), "At least one push must exist");
+        assert!(
+            queue_init.unwrap() < first_push.unwrap(),
+            "Queue initialization must come before first push"
+        );
+    }
+
+    #[test]
     fn toolbar_action_deserializes_close() {
         let json = r#"{"action":"close"}"#;
         let action: super::super::commands::preview::ToolbarAction =

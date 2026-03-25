@@ -15,94 +15,203 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Read the bridge JS source once for all tests
 const bridgePath = resolve(__dirname, "../../src-tauri/resources/preview-console-bridge.js");
 const bridgeSource = readFileSync(bridgePath, "utf-8");
 
 describe("preview-console-bridge.js contract", () => {
   // ── Action queue (CSP-immune IPC) ──
 
-  it("initializes __CM_PENDING_ACTIONS queue", () => {
-    // All toolbar actions push to this queue instead of calling fetch(),
-    // which is blocked by CSP connect-src restrictions on loaded pages.
-    expect(bridgeSource).toContain("__CM_PENDING_ACTIONS");
+  describe("action queue", () => {
+    it("initializes __CM_PENDING_ACTIONS queue", () => {
+      expect(bridgeSource).toContain("__CM_PENDING_ACTIONS");
+    });
+
+    it("screenshot button pushes action to queue", () => {
+      expect(bridgeSource).toContain("action: 'screenshot'");
+    });
+
+    it("close button pushes action to queue", () => {
+      expect(bridgeSource).toContain("action: 'close'");
+    });
+
+    it("open-in-browser button pushes action with URL", () => {
+      expect(bridgeSource).toContain("action: 'open'");
+    });
+
+    it("console-to-chat button pushes action with logs", () => {
+      expect(bridgeSource).toContain("action: 'console_to_chat'");
+    });
+
+    it("all four action types push to __CM_PENDING_ACTIONS", () => {
+      const pushLines = bridgeSource.split("\n").filter(
+        (line) => line.includes("__CM_PENDING_ACTIONS.push"),
+      );
+      expect(pushLines.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it("does NOT use fetch() to 127.0.0.1 for toolbar actions", () => {
+      const fetchToCallback = bridgeSource.split("\n").filter(
+        (line) => line.includes("fetch(") && line.includes("127.0.0.1"),
+      );
+      expect(fetchToCallback).toHaveLength(0);
+    });
+
+    it("close button calls window.close() for immediate feedback", () => {
+      expect(bridgeSource).toContain("window.close()");
+    });
   });
 
-  it("screenshot button pushes action to queue", () => {
-    expect(bridgeSource).toContain("action: 'screenshot'");
-  });
+  // ── Toolbar UI ──
 
-  it("close button pushes action to queue", () => {
-    expect(bridgeSource).toContain("action: 'close'");
-  });
+  describe("toolbar", () => {
+    it("creates the toolbar element", () => {
+      expect(bridgeSource).toContain("__cm_toolbar");
+    });
 
-  it("open-in-browser button pushes action with URL", () => {
-    expect(bridgeSource).toContain("action: 'open'");
-  });
+    it("has Back, Forward, Refresh navigation buttons", () => {
+      expect(bridgeSource).toContain("window.history.back()");
+      expect(bridgeSource).toContain("window.history.forward()");
+      expect(bridgeSource).toContain("window.location.reload()");
+    });
 
-  it("console-to-chat button pushes action with logs", () => {
-    expect(bridgeSource).toContain("action: 'console_to_chat'");
-  });
+    it("has editable URL bar", () => {
+      expect(bridgeSource).toContain("urlBar");
+      expect(bridgeSource).toContain("type = 'text'");
+    });
 
-  // ── No fetch() to callback server ──
+    it("intercepts history.pushState and replaceState for URL bar updates", () => {
+      expect(bridgeSource).toContain("origPushState");
+      expect(bridgeSource).toContain("origReplaceState");
+    });
 
-  it("does NOT use fetch() to 127.0.0.1 for toolbar actions", () => {
-    // CSP blocks fetch to non-self origins. The bridge must use the action
-    // queue mechanism, not fetch(). This is THE critical regression guard.
-    const fetchToCallback = bridgeSource.split("\n").filter(
-      (line) => line.includes("fetch(") && line.includes("127.0.0.1"),
-    );
-    expect(fetchToCallback).toHaveLength(0);
-  });
-
-  // ── Close button ──
-
-  it("close button calls window.close() for immediate feedback", () => {
-    expect(bridgeSource).toContain("window.close()");
-  });
-
-  // ── Toolbar and drawer presence ──
-
-  it("creates the toolbar element", () => {
-    expect(bridgeSource).toContain("__cm_toolbar");
-  });
-
-  it("creates the console drawer element", () => {
-    expect(bridgeSource).toContain("__cm_console_drawer");
-  });
-
-  it("has a 'Send to Chat' button in the console drawer", () => {
-    expect(bridgeSource).toContain("Send to Chat");
+    it("has viewport presets (Mobile, Tablet, Desktop)", () => {
+      expect(bridgeSource).toContain("'Mobile'");
+      expect(bridgeSource).toContain("'Tablet'");
+      expect(bridgeSource).toContain("'Desktop'");
+    });
   });
 
   // ── Console capture ──
 
-  it("captures console.log, warn, error, info, debug", () => {
-    expect(bridgeSource).toContain("console.log =");
-    expect(bridgeSource).toContain("console.warn =");
-    expect(bridgeSource).toContain("console.error =");
-    expect(bridgeSource).toContain("console.info =");
-    expect(bridgeSource).toContain("console.debug =");
+  describe("console capture", () => {
+    it("captures console.log, warn, error, info, debug", () => {
+      expect(bridgeSource).toContain("console.log =");
+      expect(bridgeSource).toContain("console.warn =");
+      expect(bridgeSource).toContain("console.error =");
+      expect(bridgeSource).toContain("console.info =");
+      expect(bridgeSource).toContain("console.debug =");
+    });
+
+    it("uses __CM_CONSOLE_BUFFER for Rust polling", () => {
+      expect(bridgeSource).toContain("__CM_CONSOLE_BUFFER");
+    });
+
+    it("uses __CM_CONSOLE_LOG for local display", () => {
+      expect(bridgeSource).toContain("__CM_CONSOLE_LOG");
+    });
+
+    it("limits buffer to MAX_ENTRIES", () => {
+      expect(bridgeSource).toContain("MAX_ENTRIES");
+      expect(bridgeSource).toContain("__CM_CONSOLE_BUFFER.shift()");
+    });
+
+    it("captures entry shape: level, ts, msg, url", () => {
+      expect(bridgeSource).toContain("level: level");
+      expect(bridgeSource).toContain("ts:");
+      expect(bridgeSource).toContain("msg: serialize(args)");
+      expect(bridgeSource).toContain("url: window.location.href");
+    });
+
+    it("captures stack trace on errors", () => {
+      expect(bridgeSource).toContain("entry.stack = new Error().stack");
+    });
+
+    it("captures uncaught errors", () => {
+      expect(bridgeSource).toContain("window.addEventListener('error'");
+    });
+
+    it("captures unhandled promise rejections", () => {
+      expect(bridgeSource).toContain("window.addEventListener('unhandledrejection'");
+    });
   });
 
-  it("uses __CM_CONSOLE_BUFFER for captured entries", () => {
-    expect(bridgeSource).toContain("__CM_CONSOLE_BUFFER");
+  // ── Console drawer ──
+
+  describe("console drawer", () => {
+    it("creates the console drawer element", () => {
+      expect(bridgeSource).toContain("__cm_console_drawer");
+    });
+
+    it("has a 'Send to Chat' button", () => {
+      expect(bridgeSource).toContain("Send to Chat");
+    });
+
+    it("has a 'Clear' button", () => {
+      expect(bridgeSource).toContain("'Clear'");
+    });
+
+    it("has a 'Copy All' button", () => {
+      expect(bridgeSource).toContain("'Copy All'");
+    });
+
+    it("has a close button", () => {
+      expect(bridgeSource).toContain("'Close console'");
+    });
+
+    it("is resizable via drag handle", () => {
+      expect(bridgeSource).toContain("ns-resize");
+    });
+
+    it("tracks drawer open state", () => {
+      expect(bridgeSource).toContain("__CM_DRAWER_OPEN");
+    });
+
+    it("has level-specific colors for entries", () => {
+      expect(bridgeSource).toContain("LEVEL_COLORS");
+    });
   });
 
-  // ── IIFE guard ──
+  // ── IIFE guard and init ──
 
-  it("uses IIFE guard to prevent double injection", () => {
-    expect(bridgeSource).toContain("if (window.__CM_CONSOLE_BRIDGE) return;");
+  describe("initialization", () => {
+    it("uses IIFE guard to prevent double injection", () => {
+      expect(bridgeSource).toContain("if (window.__CM_CONSOLE_BRIDGE) return;");
+    });
+
+    it("sets __CM_CONSOLE_BRIDGE flag", () => {
+      expect(bridgeSource).toContain("window.__CM_CONSOLE_BRIDGE = true");
+    });
+
+    it("preserves original console methods in ORIG", () => {
+      expect(bridgeSource).toContain("console.log.bind(console)");
+      expect(bridgeSource).toContain("console.warn.bind(console)");
+      expect(bridgeSource).toContain("console.error.bind(console)");
+    });
   });
 
-  // ── Action queue push pattern ──
+  // ── Keyboard shortcuts ──
 
-  it("all four action types push to __CM_PENDING_ACTIONS", () => {
-    // Each toolbar button must use the same push pattern
-    const pushLines = bridgeSource.split("\n").filter(
-      (line) => line.includes("__CM_PENDING_ACTIONS.push"),
-    );
-    // screenshot, close, open, console_to_chat = 4 push calls
-    expect(pushLines.length).toBeGreaterThanOrEqual(4);
+  describe("keyboard shortcuts", () => {
+    it("registers Cmd+Shift+C to toggle console drawer", () => {
+      expect(bridgeSource).toContain("e.key.toLowerCase() === 'c'");
+      expect(bridgeSource).toContain("toggleConsoleDrawer()");
+    });
+  });
+
+  // ── Fixed element handling ──
+
+  describe("layout", () => {
+    it("pushes body content below toolbar", () => {
+      expect(bridgeSource).toContain("__cm_toolbar_style");
+      expect(bridgeSource).toContain("padding-top");
+    });
+
+    it("offsets fixed/sticky elements at top:0", () => {
+      expect(bridgeSource).toContain("offsetFixedElements");
+    });
+
+    it("uses MutationObserver for dynamically added headers", () => {
+      expect(bridgeSource).toContain("MutationObserver");
+    });
   });
 });
