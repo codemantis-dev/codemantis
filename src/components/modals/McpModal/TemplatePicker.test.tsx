@@ -31,7 +31,6 @@ describe("TemplatePicker", () => {
   const defaultProps = {
     onSelect: vi.fn(),
     onManual: vi.fn(),
-    onBack: vi.fn(),
   };
 
   beforeEach(() => {

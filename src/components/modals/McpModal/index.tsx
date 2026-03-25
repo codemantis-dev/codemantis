@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, ArrowLeft, FolderOpen } from "lucide-react";
+import { Blocks, Pencil, Trash2, Eye, EyeOff, Plus, X, ArrowLeft, FolderOpen, FileCode } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { ScopeFilter } from "./types";
+import { NAME_PATTERN } from "./types";
 import { useMcpServerForm } from "./useMcpServerForm";
 import { showToast } from "../../../stores/toastStore";
 import { getMcpConfigPath } from "../../../lib/tauri-commands";
@@ -95,6 +96,12 @@ export default function McpModal(): React.JSX.Element {
           ? "Edit MCP Server"
           : "MCP Servers";
 
+  const isFormView = editingServer !== null && editingServer !== "__picking__";
+  const nameValid = form.name.trim().length > 0 && NAME_PATTERN.test(form.name.trim());
+  const nameUnique = editingServer === "__new__" ? !existingNames.has(form.name.trim()) : true;
+  const hasRequired = form.serverType === "stdio" ? form.command.trim().length > 0 : form.url.trim().length > 0;
+  const canSave = nameValid && nameUnique && hasRequired;
+
   const handleRevealConfig = useCallback(async (scope: "global" | "project"): Promise<void> => {
     try {
       const path = await getMcpConfigPath(scope, activeProjectPath ?? undefined);
@@ -151,22 +158,16 @@ export default function McpModal(): React.JSX.Element {
                 filePath={configEditor.filePath}
                 content={configEditor.editedContent}
                 onChange={handleConfigEditorChange}
-                onSave={handleSaveConfigFile}
-                onCancel={handleConfigEditorCancel}
               />
             ) : editingServer === "__picking__" ? (
               <TemplatePicker
                 onSelect={handleSelectTemplate}
                 onManual={handleManualAdd}
-                onBack={handleBack}
               />
             ) : editingServer ? (
               <ServerForm
                 form={form}
                 onChange={setForm}
-                onSave={handleSave}
-                onCancel={handleCancelEdit}
-                onShowConfigFile={handleShowConfigFileForScope}
                 isEdit={editingServer !== "__new__"}
                 existingNames={existingNames}
                 hasProject={hasProject}
@@ -312,8 +313,50 @@ export default function McpModal(): React.JSX.Element {
             )}
           </div>
 
-          {/* Footer */}
-          {!editingServer && !configEditor && (
+          {/* Footer — pinned at bottom for all views */}
+          {configEditor ? (
+            <div className="px-5 py-3 border-t border-border shrink-0 flex justify-end gap-2">
+              <button
+                onClick={handleConfigEditorCancel}
+                className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveConfigFile}
+                className="px-4 py-1.5 rounded-lg text-ui font-medium text-white bg-accent hover:bg-accent-light transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          ) : isFormView ? (
+            <div className="px-5 py-3 border-t border-border shrink-0 flex items-center gap-2">
+              <button
+                onClick={handleShowConfigFileForScope}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors mr-auto"
+              >
+                <FileCode size={13} />
+                Show config file
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!canSave}
+                className={`px-4 py-1.5 rounded-lg text-ui font-medium transition-colors ${
+                  canSave
+                    ? "text-white bg-accent hover:bg-accent-light"
+                    : "bg-bg-elevated text-text-ghost cursor-not-allowed"
+                }`}
+              >
+                {editingServer !== "__new__" ? "Save Changes" : "Add Server"}
+              </button>
+            </div>
+          ) : !editingServer && (
             <div className="px-5 py-3 border-t border-border text-[11px] text-text-ghost shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="inline-flex items-center gap-1">
                 Global: ~/.claude.json

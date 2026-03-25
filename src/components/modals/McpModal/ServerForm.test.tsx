@@ -22,8 +22,6 @@ describe("ServerForm", () => {
   const defaultProps = {
     form: defaultForm,
     onChange: vi.fn(),
-    onSave: vi.fn(),
-    onCancel: vi.fn(),
     isEdit: false,
     existingNames: new Set<string>(),
     hasProject: true,
@@ -68,36 +66,6 @@ describe("ServerForm", () => {
     expect(screen.getByText("URL")).toBeInTheDocument();
   });
 
-  it("disables Save when name is empty", () => {
-    const emptyNameForm = { ...defaultForm, name: "" };
-    render(<ServerForm {...defaultProps} form={emptyNameForm} />);
-    const saveBtn = screen.getByText("Add Server");
-    expect(saveBtn).toBeDisabled();
-  });
-
-  it("disables Save when name already exists", () => {
-    render(<ServerForm {...defaultProps} existingNames={new Set(["test-server"])} />);
-    const saveBtn = screen.getByText("Add Server");
-    expect(saveBtn).toBeDisabled();
-  });
-
-  it("calls onSave when Save button is clicked with valid form", () => {
-    render(<ServerForm {...defaultProps} />);
-    fireEvent.click(screen.getByText("Add Server"));
-    expect(defaultProps.onSave).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls onCancel when Cancel button is clicked", () => {
-    render(<ServerForm {...defaultProps} />);
-    fireEvent.click(screen.getByText("Cancel"));
-    expect(defaultProps.onCancel).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows 'Save Changes' button when editing", () => {
-    render(<ServerForm {...defaultProps} isEdit={true} />);
-    expect(screen.getByText("Save Changes")).toBeInTheDocument();
-  });
-
   it("disables name input when editing", () => {
     render(<ServerForm {...defaultProps} isEdit={true} />);
     const nameInput = screen.getByDisplayValue("test-server");
@@ -114,14 +82,97 @@ describe("ServerForm", () => {
     expect(screen.getByText("Docs")).toBeInTheDocument();
   });
 
-  it("shows 'Show config file' button when onShowConfigFile is provided", () => {
-    render(<ServerForm {...defaultProps} onShowConfigFile={vi.fn()} />);
-    expect(screen.getByText("Show config file")).toBeInTheDocument();
-  });
-
   it("shows scope radio buttons with Project option when hasProject is true", () => {
     render(<ServerForm {...defaultProps} />);
     expect(screen.getByText("Global")).toBeInTheDocument();
     expect(screen.getByText("Project")).toBeInTheDocument();
+  });
+
+  it("shows type description for http", () => {
+    const httpForm = { ...defaultForm, serverType: "http" as const };
+    render(<ServerForm {...defaultProps} form={httpForm} />);
+    expect(screen.getByText(/Connects to a remote HTTP endpoint/)).toBeInTheDocument();
+  });
+
+  it("shows type description for sse", () => {
+    const sseForm = { ...defaultForm, serverType: "sse" as const };
+    render(<ServerForm {...defaultProps} form={sseForm} />);
+    expect(screen.getByText(/Server-Sent Events \(legacy\)/)).toBeInTheDocument();
+  });
+
+  it("shows validation error for name with invalid characters", () => {
+    const badForm = { ...defaultForm, name: "bad name!" };
+    render(<ServerForm {...defaultProps} form={badForm} />);
+    expect(screen.getByText("Only letters, numbers, hyphens, underscores")).toBeInTheDocument();
+  });
+
+  it("shows validation error for duplicate name", () => {
+    render(<ServerForm {...defaultProps} existingNames={new Set(["test-server"])} />);
+    expect(
+      screen.getByText("A server with this name already exists in this scope"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows hint text for valid name", () => {
+    render(<ServerForm {...defaultProps} />);
+    expect(
+      screen.getByText("Unique identifier used as the key in your config file"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows docs link when docsUrl is provided without templateDisplayName", () => {
+    render(<ServerForm {...defaultProps} docsUrl="https://example.com" />);
+    expect(screen.getByText("Docs")).toBeInTheDocument();
+  });
+
+  it("shows headers section for http type", () => {
+    const httpForm = { ...defaultForm, serverType: "http" as const };
+    render(<ServerForm {...defaultProps} form={httpForm} />);
+    expect(screen.getByText("Headers")).toBeInTheDocument();
+    expect(screen.getByText("+ Add header")).toBeInTheDocument();
+  });
+
+  it("shows headers section for sse type", () => {
+    const sseForm = { ...defaultForm, serverType: "sse" as const };
+    render(<ServerForm {...defaultProps} form={sseForm} />);
+    expect(screen.getByText("Headers")).toBeInTheDocument();
+    expect(screen.getByText("+ Add header")).toBeInTheDocument();
+  });
+
+  it("calls onChange with new env entry when add env button is clicked", () => {
+    const onChange = vi.fn();
+    render(<ServerForm {...defaultProps} onChange={onChange} />);
+    fireEvent.click(screen.getByText("+ Add environment variable"));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: [{ key: "", value: "" }],
+      }),
+    );
+  });
+
+  it("calls onChange with updated scope when Global radio is clicked", () => {
+    const onChange = vi.fn();
+    const projectForm = { ...defaultForm, scope: "project" as const };
+    render(<ServerForm {...defaultProps} form={projectForm} onChange={onChange} />);
+    fireEvent.click(screen.getByText("Global"));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "global" }),
+    );
+  });
+
+  it("calls onChange with updated serverType when type is changed to http", () => {
+    const onChange = vi.fn();
+    render(<ServerForm {...defaultProps} onChange={onChange} />);
+    const select = screen.getByDisplayValue("stdio");
+    fireEvent.change(select, { target: { value: "http" } });
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ serverType: "http" }),
+    );
+  });
+
+  it("hides Project scope when hasProject is false", () => {
+    render(<ServerForm {...defaultProps} hasProject={false} />);
+    expect(screen.getByText("Global")).toBeInTheDocument();
+    expect(screen.queryByText("Project")).not.toBeInTheDocument();
   });
 });

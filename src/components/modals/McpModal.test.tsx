@@ -24,7 +24,10 @@ vi.mock("../../lib/tauri-commands", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
+  revealItemInDir: vi.fn(() => Promise.resolve()),
 }));
+
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 const STDIO_SERVER: McpServerConfig = {
   name: "context7",
@@ -789,5 +792,276 @@ describe("McpModal", () => {
     clickAddManual();
 
     expect(screen.queryByText("Docs")).not.toBeInTheDocument();
+  });
+
+  // ────── Back Arrow Navigation ──────
+
+  it("does not show back arrow on server list view", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    expect(screen.queryByLabelText("Go back")).not.toBeInTheDocument();
+  });
+
+  it("shows back arrow on template picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByLabelText("Go back")).toBeInTheDocument();
+  });
+
+  it("shows back arrow on add form", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByLabelText("Go back")).toBeInTheDocument();
+  });
+
+  it("shows back arrow on edit form", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    fireEvent.click(screen.getByTitle("Edit"));
+
+    expect(screen.getByLabelText("Go back")).toBeInTheDocument();
+  });
+
+  it("back arrow from template picker returns to server list", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Go back"));
+
+    expect(screen.queryByText("Choose a template or configure manually")).not.toBeInTheDocument();
+    expect(screen.getByText("No MCP servers configured")).toBeInTheDocument();
+  });
+
+  it("back arrow from add form returns to template picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByPlaceholderText("my-server")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Go back"));
+
+    expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
+  });
+
+  it("back arrow from edit form returns to server list", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    fireEvent.click(screen.getByTitle("Edit"));
+    expect(screen.getByText("Edit MCP Server")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Go back"));
+
+    expect(screen.queryByText("Edit MCP Server")).not.toBeInTheDocument();
+    expect(screen.getByText("context7")).toBeInTheDocument();
+  });
+
+  // ────── Header Title ──────
+
+  it("shows 'Add MCP Server' title on template picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByText("Add MCP Server")).toBeInTheDocument();
+  });
+
+  // ────── X Close Button ──────
+
+  it("X close button is always visible on template picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    fireEvent.click(screen.getByText("Add Server"));
+
+    expect(screen.getByLabelText("Close MCP servers dialog")).toBeInTheDocument();
+  });
+
+  it("X close button is always visible on form view", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByLabelText("Close MCP servers dialog")).toBeInTheDocument();
+  });
+
+  // ────── Footer Pinned Action Bars ──────
+
+  it("shows pinned Cancel and Save in footer for add form", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Server" })).toBeInTheDocument();
+    expect(screen.getByText("Show config file")).toBeInTheDocument();
+  });
+
+  it("shows pinned Cancel and Save Changes in footer for edit form", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    fireEvent.click(screen.getByTitle("Edit"));
+
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByText("Save Changes")).toBeInTheDocument();
+  });
+
+  it("Add Server button is disabled when form is empty", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    const addBtn = screen.getByRole("button", { name: "Add Server" });
+    expect(addBtn).toBeDisabled();
+  });
+
+  it("Add Server button enabled when form is valid", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    const nameInput = screen.getByPlaceholderText("my-server");
+    fireEvent.change(nameInput, { target: { value: "test-server" } });
+
+    const cmdInput = screen.getByPlaceholderText("npx");
+    fireEvent.change(cmdInput, { target: { value: "node" } });
+
+    const addBtn = screen.getByRole("button", { name: "Add Server" });
+    expect(addBtn).not.toBeDisabled();
+  });
+
+  it("clicking Cancel in form footer returns to template picker", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.getByText("Choose a template or configure manually")).toBeInTheDocument();
+  });
+
+  // ────── Config Editor Footer ──────
+
+  it("config editor shows Cancel and Save in footer", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Show config file"));
+    });
+
+    // Wait for the config editor to load
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByText("Save")).toBeInTheDocument();
+  });
+
+  it("config editor Cancel returns to form", async () => {
+    openModal([]);
+    render(<McpModal />);
+    await screen.findByText("No MCP servers configured");
+    clickAddManual();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Show config file"));
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // Click Cancel in the config editor footer
+    fireEvent.click(screen.getByText("Cancel"));
+
+    // Should be back on the form — Name field should be visible
+    expect(screen.getByPlaceholderText("my-server")).toBeInTheDocument();
+  });
+
+  // ────── Reveal in Finder ──────
+
+  it("clicking global reveal button calls revealItemInDir", async () => {
+    openModal([STDIO_SERVER], "/project");
+    await act(async () => {
+      render(<McpModal />);
+    });
+    await screen.findByText("context7");
+
+    const revealButtons = screen.getAllByTitle("Reveal in Finder");
+    await act(async () => {
+      fireEvent.click(revealButtons[0]);
+    });
+
+    expect(vi.mocked(revealItemInDir)).toHaveBeenCalled();
+  });
+
+  it("shows error toast when reveal fails", async () => {
+    vi.mocked(revealItemInDir).mockRejectedValueOnce(new Error("No such file"));
+    openModal([STDIO_SERVER], "/project");
+    await act(async () => {
+      render(<McpModal />);
+    });
+    await screen.findByText("context7");
+
+    const revealButtons = screen.getAllByTitle("Reveal in Finder");
+    await act(async () => {
+      fireEvent.click(revealButtons[0]);
+    });
+
+    // The toast store should contain the error
+    const { useToastStore } = await import("../../stores/toastStore");
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes("Failed to open folder"))).toBe(true);
+  });
+
+  // ────── Env Var Reveal Toggle ──────
+
+  it("toggles env var visibility on click", async () => {
+    openModal([STDIO_SERVER]);
+    render(<McpModal />);
+    await screen.findByText("context7");
+
+    // Should show masked value by default
+    expect(screen.getByText("••••••")).toBeInTheDocument();
+    expect(screen.queryByText("secret123")).not.toBeInTheDocument();
+
+    // Find the eye toggle button — it's a sibling of "API_KEY=" inside the outer env var span
+    const keySpan = screen.getByText("API_KEY=");
+    const outerSpan = keySpan.parentElement!;
+    const toggleButton = outerSpan.querySelector("button")!;
+    fireEvent.click(toggleButton);
+
+    // Now the value should be revealed
+    expect(screen.getByText("secret123")).toBeInTheDocument();
+    expect(screen.queryByText("••••••")).not.toBeInTheDocument();
   });
 });

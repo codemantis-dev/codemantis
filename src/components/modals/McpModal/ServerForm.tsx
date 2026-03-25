@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Info, FileCode, ExternalLink } from "lucide-react";
+import { Info, ExternalLink } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { McpServerType } from "../../../types/mcp";
 import type { FormState } from "./types";
@@ -9,9 +9,6 @@ import KeyValueRow from "./KeyValueRow";
 export default function ServerForm({
   form,
   onChange,
-  onSave,
-  onCancel,
-  onShowConfigFile,
   isEdit,
   existingNames,
   hasProject,
@@ -22,9 +19,6 @@ export default function ServerForm({
 }: {
   form: FormState;
   onChange: (form: FormState) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  onShowConfigFile?: () => void;
   isEdit: boolean;
   existingNames: Set<string>;
   hasProject: boolean;
@@ -35,11 +29,6 @@ export default function ServerForm({
 }): React.JSX.Element {
   const nameValid = form.name.trim().length > 0 && NAME_PATTERN.test(form.name.trim());
   const nameUnique = isEdit || !existingNames.has(form.name.trim());
-  const hasRequired =
-    form.serverType === "stdio"
-      ? form.command.trim().length > 0
-      : form.url.trim().length > 0;
-  const canSave = nameValid && nameUnique && hasRequired;
 
   const typeDescriptions: Record<McpServerType, string> = {
     stdio: "Runs a local process on your machine. Communicates via stdin/stdout.",
@@ -245,37 +234,6 @@ export default function ServerForm({
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2">
-        {onShowConfigFile && (
-          <button
-            onClick={onShowConfigFile}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors mr-auto"
-          >
-            <FileCode size={13} />
-            Show config file
-          </button>
-        )}
-        <div className="flex gap-2 ml-auto">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 rounded-lg text-ui text-text-secondary border border-border hover:bg-bg-elevated transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onSave}
-            disabled={!canSave}
-            className={`px-4 py-1.5 rounded-lg text-ui font-medium transition-colors ${
-              canSave
-                ? "text-white bg-accent hover:bg-accent-light"
-                : "bg-bg-elevated text-text-ghost cursor-not-allowed"
-            }`}
-          >
-            {isEdit ? "Save Changes" : "Add Server"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

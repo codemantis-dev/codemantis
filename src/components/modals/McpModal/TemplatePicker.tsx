@@ -8,11 +8,9 @@ import {
 export default function TemplatePicker({
   onSelect,
   onManual,
-  onBack,
 }: {
   onSelect: (template: McpTemplate) => void;
   onManual: () => void;
-  onBack: () => void;
 }): React.JSX.Element {
   return (
     <div className="space-y-5">
@@ -74,14 +72,6 @@ export default function TemplatePicker({
         </div>
       </button>
 
-      <div className="flex justify-center pt-1">
-        <button
-          onClick={onBack}
-          className="text-ui text-text-dim hover:text-text-secondary transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   );
 }
