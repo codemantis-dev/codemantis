@@ -1,5 +1,15 @@
 # CodeMantis Releases
 
+## 0.9.1
+
+- Persist session chat logs with retention and restore on resume
+- Add Back control to Project Log view
+- Migrate app data to dev.codemantis.myapp and simplify build
+- Activity-feed reasoning panel and smarter spec options
+- Unify MCP modal chrome and validation in McpModal shell
+- Fix preview toolbar actions without fetch for strict CSP pages
+- Test coverage for preview toolbar, bridge ordering, and CORS preflight
+
 ## 0.9.0
 
 - Stream and display extended thinking in chat
