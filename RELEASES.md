@@ -1,5 +1,13 @@
 # CodeMantis Releases
 
+## 0.8.12
+
+- SpecWriter displayContent for option prompts and bullet multi-select
+- Manual preview URL fallback when dev server fails
+- Guide verify prompt and spec preview toolbar polish
+- Fix inline text attachments for Claude Code assistant and SpecWriter
+- Test coverage for preview URL dialog and prompt flow
+
 ## 0.8.11
 
 - Modular assistant/spec UI, Rust stream routing, and test sweep
