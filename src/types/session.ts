@@ -38,6 +38,7 @@ export interface Message {
   turnStats?: TurnStats;
   restartable?: boolean;
   retryable?: boolean;
+  thinkingContent?: string;
 }
 
 export interface SessionStats {

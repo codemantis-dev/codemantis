@@ -180,6 +180,9 @@ pub enum StreamDelta {
         partial_json: Option<String>,
     },
 
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+
     #[serde(other)]
     Unknown,
 }
@@ -384,6 +387,18 @@ pub enum FrontendEvent {
         tool_use_id: String,
         tool_count: Option<u32>,
         token_count: Option<u32>,
+    },
+
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta {
+        session_id: String,
+        thinking: String,
+    },
+
+    #[serde(rename = "thinking_complete")]
+    ThinkingComplete {
+        session_id: String,
+        full_thinking: String,
     },
 }
 

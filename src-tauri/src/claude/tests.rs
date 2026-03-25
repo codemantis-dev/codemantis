@@ -230,6 +230,79 @@ mod tests {
     }
 
     #[test]
+    fn parse_content_block_delta_thinking() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me analyze this..."}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ContentBlockDelta { delta, index, .. } => {
+                assert_eq!(index, Some(0));
+                match delta.unwrap() {
+                    StreamDelta::ThinkingDelta { thinking } => {
+                        assert_eq!(thinking, "Let me analyze this...");
+                    }
+                    other => panic!("Expected ThinkingDelta, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_signature_delta_falls_through_to_unknown() {
+        let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EqQBCgIYAh..."}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                assert!(matches!(delta, Some(StreamDelta::Unknown)));
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_content_block_start_thinking() {
+        let json = r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::ContentBlockStart { content_block, index, .. } => {
+                assert_eq!(index, Some(0));
+                match content_block.unwrap() {
+                    ContentBlock::Thinking { thinking } => {
+                        assert_eq!(thinking, "");
+                    }
+                    other => panic!("Expected Thinking, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockStart, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_assistant_with_thinking_and_text() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this carefully."},{"type":"text","text":"Here is my answer."}]}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Assistant { message, .. } => {
+                let content = message.content.unwrap();
+                assert_eq!(content.len(), 2);
+                match &content[0] {
+                    ContentBlock::Thinking { thinking } => {
+                        assert_eq!(thinking, "Let me think about this carefully.");
+                    }
+                    other => panic!("Expected Thinking, got {:?}", other),
+                }
+                match &content[1] {
+                    ContentBlock::Text { text } => {
+                        assert_eq!(text, "Here is my answer.");
+                    }
+                    other => panic!("Expected Text, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Assistant, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn parse_unknown_delta_type() {
         let json = r#"{"type":"content_block_delta","index":0,"delta":{"type":"citations_delta","data":{}}}"#;
         let event: RawStreamEvent = serde_json::from_str(json).unwrap();
@@ -396,6 +469,44 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "process_error");
         assert_eq!(parsed["error"], "Something broke");
+    }
+
+    #[test]
+    fn frontend_thinking_delta_serializes() {
+        let fe = FrontendEvent::ThinkingDelta {
+            session_id: "s1".into(),
+            thinking: "Let me think...".into(),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "thinking_delta");
+        assert_eq!(parsed["session_id"], "s1");
+        assert_eq!(parsed["thinking"], "Let me think...");
+    }
+
+    #[test]
+    fn frontend_thinking_complete_serializes() {
+        let fe = FrontendEvent::ThinkingComplete {
+            session_id: "s1".into(),
+            full_thinking: "I analyzed the problem step by step.".into(),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "thinking_complete");
+        assert_eq!(parsed["session_id"], "s1");
+        assert_eq!(parsed["full_thinking"], "I analyzed the problem step by step.");
+    }
+
+    #[test]
+    fn frontend_thinking_complete_empty_text_serializes() {
+        let fe = FrontendEvent::ThinkingComplete {
+            session_id: "s1".into(),
+            full_thinking: "".into(),
+        };
+        let json = serde_json::to_string(&fe).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "thinking_complete");
+        assert_eq!(parsed["full_thinking"], "");
     }
 
     #[test]
@@ -1183,6 +1294,108 @@ mod tests {
         assert!(matches!(events[0], RawStreamEvent::ContentBlockDelta { .. }));
         assert!(matches!(events[1], RawStreamEvent::ContentBlockStart { .. }));
         assert!(matches!(events[2], RawStreamEvent::Result { .. }));
+    }
+
+    #[tokio::test]
+    async fn stream_parser_parses_thinking_deltas() {
+        use crate::claude::stream_parser::parse_stream;
+        use tokio::sync::mpsc;
+
+        let ndjson = r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think..."}}
+{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" step by step."}}
+{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"abc123"}}
+{"type":"content_block_stop","index":0}
+{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Here is my answer."}}
+{"type":"content_block_stop","index":1}
+{"type":"result","duration_ms":100}"#;
+
+        let (tx, mut rx) = mpsc::channel(256);
+
+        let mut child = tokio::process::Command::new("echo")
+            .arg("-n")
+            .arg(ndjson)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let stdout = child.stdout.take().unwrap();
+
+        tokio::spawn(async move {
+            parse_stream(stdout, tx).await;
+        });
+
+        let mut events = vec![];
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+
+        assert_eq!(events.len(), 9, "Should parse all 9 events including thinking");
+        assert!(matches!(events[0], RawStreamEvent::ContentBlockStart { .. }));
+        // First thinking delta
+        match &events[1] {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                assert!(matches!(delta, Some(StreamDelta::ThinkingDelta { .. })));
+            }
+            other => panic!("Expected ContentBlockDelta with ThinkingDelta, got {:?}", other),
+        }
+        // Signature delta should be Unknown
+        match &events[3] {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                assert!(matches!(delta, Some(StreamDelta::Unknown)));
+            }
+            other => panic!("Expected ContentBlockDelta with Unknown (signature), got {:?}", other),
+        }
+        // Text delta
+        match &events[6] {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                assert!(matches!(delta, Some(StreamDelta::TextDelta { .. })));
+            }
+            other => panic!("Expected ContentBlockDelta with TextDelta, got {:?}", other),
+        }
+        assert!(matches!(events[8], RawStreamEvent::Result { .. }));
+    }
+
+    #[tokio::test]
+    async fn stream_parser_unwraps_thinking_in_stream_event_wrapper() {
+        use crate::claude::stream_parser::parse_stream;
+        use tokio::sync::mpsc;
+
+        // Thinking deltas wrapped in stream_event (from --include-partial-messages)
+        let ndjson = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm..."}}}
+{"type":"result","duration_ms":50}"#;
+
+        let (tx, mut rx) = mpsc::channel(256);
+
+        let mut child = tokio::process::Command::new("echo")
+            .arg("-n")
+            .arg(ndjson)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let stdout = child.stdout.take().unwrap();
+
+        tokio::spawn(async move {
+            parse_stream(stdout, tx).await;
+        });
+
+        let mut events = vec![];
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                match delta.as_ref().unwrap() {
+                    StreamDelta::ThinkingDelta { thinking } => assert_eq!(thinking, "hmm..."),
+                    other => panic!("Expected ThinkingDelta, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
     }
 
     #[tokio::test]

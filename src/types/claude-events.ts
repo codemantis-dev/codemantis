@@ -19,7 +19,9 @@ export type FrontendEvent =
   | AgentPreparingEvent
   | SubAgentStartedEvent
   | SubAgentProgressEvent
-  | SubAgentCompleteEvent;
+  | SubAgentCompleteEvent
+  | ThinkingDeltaEvent
+  | ThinkingCompleteEvent;
 
 export interface SessionInitEvent {
   type: "session_init";
@@ -220,6 +222,18 @@ export interface SubAgentCompleteEvent {
   tool_use_id: string;
   tool_count: number | null;
   token_count: number | null;
+}
+
+export interface ThinkingDeltaEvent {
+  type: "thinking_delta";
+  session_id: string;
+  thinking: string;
+}
+
+export interface ThinkingCompleteEvent {
+  type: "thinking_complete";
+  session_id: string;
+  full_thinking: string;
 }
 
 /** Emitted globally by the approval HTTP server (not per-session). */

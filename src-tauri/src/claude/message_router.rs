@@ -127,6 +127,8 @@ async fn sync_session_mode(
 
 struct RouterState {
     accumulated_text: String,
+    accumulated_thinking: String,
+    thinking_block_index: Option<u32>,
     cli_session_id_emitted: bool,
     emitted_tool_ids: std::collections::HashSet<String>,
     pending_tools: HashMap<u32, PendingToolBlock>,
@@ -237,7 +239,15 @@ fn handle_assistant_message(
                 };
                 emit_or_warn(app_handle, activity_event, &fe, "tool-result");
             }
-            ContentBlock::Thinking { .. } => {}
+            ContentBlock::Thinking { thinking } => {
+                if !thinking.is_empty() {
+                    let fe = FrontendEvent::ThinkingComplete {
+                        session_id: session_id.to_string(),
+                        full_thinking: thinking.clone(),
+                    };
+                    emit_or_warn(app_handle, chat_event, &fe, "thinking-complete");
+                }
+            }
             ContentBlock::Unknown => {
                 debug!("Unknown content block type");
             }
@@ -268,6 +278,14 @@ fn handle_content_block_delta(
                     pending.input_json.push_str(&fragment);
                 }
             }
+        }
+        Some(StreamDelta::ThinkingDelta { thinking }) => {
+            state.accumulated_thinking.push_str(&thinking);
+            let fe = FrontendEvent::ThinkingDelta {
+                session_id: session_id.to_string(),
+                thinking,
+            };
+            emit_or_warn(app_handle, chat_event, &fe, "thinking-delta");
         }
         _ => {}
     }
@@ -310,6 +328,18 @@ fn handle_content_block_start(
                     emit_or_warn(app_handle, chat_event, &fe, "text-delta");
                 }
             }
+            ContentBlock::Thinking { thinking } => {
+                state.thinking_block_index = index;
+                state.accumulated_thinking.clear();
+                if !thinking.is_empty() {
+                    state.accumulated_thinking.push_str(&thinking);
+                    let fe = FrontendEvent::ThinkingDelta {
+                        session_id: session_id.to_string(),
+                        thinking,
+                    };
+                    emit_or_warn(app_handle, chat_event, &fe, "thinking-delta");
+                }
+            }
             _ => {}
         }
     }
@@ -318,11 +348,24 @@ fn handle_content_block_start(
 fn handle_content_block_stop(
     app_handle: &AppHandle,
     session_id: &str,
+    chat_event: &str,
     activity_event: &str,
     index: Option<u32>,
     state: &mut RouterState,
 ) {
     if let Some(idx) = index {
+        // Emit thinking_complete if this was the thinking block
+        if state.thinking_block_index == Some(idx) {
+            if !state.accumulated_thinking.is_empty() {
+                let fe = FrontendEvent::ThinkingComplete {
+                    session_id: session_id.to_string(),
+                    full_thinking: state.accumulated_thinking.clone(),
+                };
+                emit_or_warn(app_handle, chat_event, &fe, "thinking-complete");
+            }
+            state.thinking_block_index = None;
+        }
+
         if let Some(pending) = state.pending_tools.remove(&idx) {
             let input = serde_json::from_str(&pending.input_json)
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
@@ -385,6 +428,8 @@ async fn handle_result(
         emit_or_warn(app_handle, chat_event, &fe, "turn-complete");
     }
     state.accumulated_text.clear();
+    state.accumulated_thinking.clear();
+    state.thinking_block_index = None;
 }
 
 fn handle_system_status(
@@ -691,6 +736,8 @@ pub async fn route_events(
 
     let mut state = RouterState {
         accumulated_text: String::new(),
+        accumulated_thinking: String::new(),
+        thinking_block_index: None,
         cli_session_id_emitted: false,
         emitted_tool_ids: std::collections::HashSet::new(),
         pending_tools: HashMap::new(),
@@ -736,7 +783,7 @@ pub async fn route_events(
 
             RawStreamEvent::ContentBlockStop { index, .. } => {
                 handle_content_block_stop(
-                    &app_handle, &session_id, &activity_event,
+                    &app_handle, &session_id, &chat_event, &activity_event,
                     index, &mut state,
                 );
             }

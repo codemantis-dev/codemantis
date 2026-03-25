@@ -51,6 +51,7 @@ interface SessionState {
   rateLimitUtilization: Map<string, number>;  // 0-1
   sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
   activeSubAgents: Map<string, SubAgentInfo[]>;  // sessionId → running sub-agents
+  sessionThinking: Map<string, { isThinking: boolean; content: string }>;
   tabOrder: string[];
 
   // Project grouping
@@ -98,6 +99,9 @@ interface SessionState {
   updateSubAgent: (sessionId: string, toolUseId: string, update: Partial<SubAgentInfo>) => void;
   completeSubAgent: (sessionId: string, toolUseId: string) => void;
   incrementSubAgentToolCount: (sessionId: string, toolUseId: string) => void;
+  startThinking: (sessionId: string) => void;
+  appendThinkingContent: (sessionId: string, text: string) => void;
+  finalizeThinking: (sessionId: string, fullText?: string) => void;
 
   // Help session (not added to tabOrder or sessions map)
   initHelpSessionMaps: (sessionId: string) => void;
@@ -147,6 +151,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   rateLimitUtilization: new Map(),
   sessionCapabilities: new Map(),
   activeSubAgents: new Map(),
+  sessionThinking: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -221,6 +226,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionEffort.delete(sessionId);
       const activeSubAgents = new Map(state.activeSubAgents);
       activeSubAgents.delete(sessionId);
+      const sessionThinking = new Map(state.sessionThinking);
+      sessionThinking.delete(sessionId);
       // Clean up the 8 Maps that were previously leaked
       const sessionActivity = new Map(state.sessionActivity);
       sessionActivity.delete(sessionId);
@@ -286,6 +293,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionBusy,
         sessionEffort,
         activeSubAgents,
+        sessionThinking,
         sessionActivity,
         sessionCompacting,
         busySince,
@@ -565,7 +573,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionCapabilities.delete(sessionId);
       const activeSubAgents = new Map(state.activeSubAgents);
       activeSubAgents.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents };
+      const sessionThinking = new Map(state.sessionThinking);
+      sessionThinking.delete(sessionId);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -673,6 +683,44 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       );
       activeSubAgents.set(sessionId, updated);
       return { activeSubAgents };
+    }),
+
+  startThinking: (sessionId) =>
+    set((state) => {
+      const sessionThinking = new Map(state.sessionThinking);
+      sessionThinking.set(sessionId, { isThinking: true, content: "" });
+      return { sessionThinking };
+    }),
+
+  appendThinkingContent: (sessionId, text) =>
+    set((state) => {
+      const sessionThinking = new Map(state.sessionThinking);
+      const prev = sessionThinking.get(sessionId) ?? { isThinking: true, content: "" };
+      sessionThinking.set(sessionId, { ...prev, content: prev.content + text });
+      return { sessionThinking };
+    }),
+
+  finalizeThinking: (sessionId, fullText) =>
+    set((state) => {
+      const sessionThinking = new Map(state.sessionThinking);
+      const prev = sessionThinking.get(sessionId);
+      const thinkingText = fullText ?? prev?.content ?? "";
+      sessionThinking.set(sessionId, { isThinking: false, content: thinkingText });
+
+      // Attach thinking to the current streaming message (or latest assistant message)
+      const streaming = state.sessionStreaming.get(sessionId);
+      const msgId = streaming?.currentMessageId;
+      if (msgId && thinkingText) {
+        const sessionMessages = new Map(state.sessionMessages);
+        const messages = [...(sessionMessages.get(sessionId) ?? [])];
+        const idx = messages.findIndex((m) => m.id === msgId);
+        if (idx >= 0) {
+          messages[idx] = { ...messages[idx], thinkingContent: thinkingText };
+          sessionMessages.set(sessionId, messages);
+          return { sessionThinking, sessionMessages };
+        }
+      }
+      return { sessionThinking };
     }),
 
   accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead) =>

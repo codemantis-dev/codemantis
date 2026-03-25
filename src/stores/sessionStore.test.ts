@@ -21,6 +21,7 @@ function resetStore(): void {
     sessionStreaming: new Map(),
     sessionContext: new Map(),
     activeSubAgents: new Map(),
+    sessionThinking: new Map(),
     tabOrder: [],
   });
 }
@@ -328,6 +329,110 @@ describe("sessionStore", () => {
       // Should not throw
       useSessionStore.getState().incrementSubAgentToolCount("s1", "nonexistent");
       expect(useSessionStore.getState().activeSubAgents.get("s1")).toBeUndefined();
+    });
+  });
+
+  describe("thinking actions", () => {
+    it("startThinking sets isThinking and clears content", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      const thinking = useSessionStore.getState().sessionThinking.get("s1");
+      expect(thinking?.isThinking).toBe(true);
+      expect(thinking?.content).toBe("");
+    });
+
+    it("appendThinkingContent accumulates text", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "First ");
+      useSessionStore.getState().appendThinkingContent("s1", "second.");
+      const thinking = useSessionStore.getState().sessionThinking.get("s1");
+      expect(thinking?.content).toBe("First second.");
+      expect(thinking?.isThinking).toBe(true);
+    });
+
+    it("appendThinkingContent works without prior startThinking", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().appendThinkingContent("s1", "Hello");
+      const thinking = useSessionStore.getState().sessionThinking.get("s1");
+      expect(thinking?.content).toBe("Hello");
+      expect(thinking?.isThinking).toBe(true);
+    });
+
+    it("finalizeThinking sets isThinking false and preserves content", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "Reasoning...");
+      useSessionStore.getState().finalizeThinking("s1");
+      const thinking = useSessionStore.getState().sessionThinking.get("s1");
+      expect(thinking?.isThinking).toBe(false);
+      expect(thinking?.content).toBe("Reasoning...");
+    });
+
+    it("finalizeThinking with fullText overrides accumulated content", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "partial");
+      useSessionStore.getState().finalizeThinking("s1", "Complete thinking text");
+      const thinking = useSessionStore.getState().sessionThinking.get("s1");
+      expect(thinking?.content).toBe("Complete thinking text");
+    });
+
+    it("finalizeThinking attaches thinkingContent to current streaming message", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().addMessage("s1", {
+        id: "m1", role: "assistant", content: "", timestamp: "", activityIds: [], isStreaming: true,
+      });
+      useSessionStore.getState().startStreaming("s1", "m1");
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "My reasoning");
+      useSessionStore.getState().finalizeThinking("s1");
+      const msgs = useSessionStore.getState().sessionMessages.get("s1") ?? [];
+      expect(msgs[0].thinkingContent).toBe("My reasoning");
+    });
+
+    it("finalizeThinking does not crash when no streaming message exists", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "text");
+      // Should not throw
+      useSessionStore.getState().finalizeThinking("s1");
+      expect(useSessionStore.getState().sessionThinking.get("s1")?.isThinking).toBe(false);
+    });
+
+    it("startThinking clears previous thinking content", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "old thinking");
+      useSessionStore.getState().startThinking("s1");
+      expect(useSessionStore.getState().sessionThinking.get("s1")?.content).toBe("");
+    });
+
+    it("removeSession cleans up sessionThinking", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "text");
+      useSessionStore.getState().removeSession("s1");
+      expect(useSessionStore.getState().sessionThinking.get("s1")).toBeUndefined();
+    });
+
+    it("clearSessionData cleans up sessionThinking", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "text");
+      useSessionStore.getState().clearSessionData("s1");
+      expect(useSessionStore.getState().sessionThinking.get("s1")).toBeUndefined();
+    });
+
+    it("thinking is isolated between sessions", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().addSession({ ...TEST_SESSION, id: "s2", name: "Test2" });
+      useSessionStore.getState().startThinking("s1");
+      useSessionStore.getState().appendThinkingContent("s1", "Session 1 thinking");
+      useSessionStore.getState().startThinking("s2");
+      useSessionStore.getState().appendThinkingContent("s2", "Session 2 thinking");
+      expect(useSessionStore.getState().sessionThinking.get("s1")?.content).toBe("Session 1 thinking");
+      expect(useSessionStore.getState().sessionThinking.get("s2")?.content).toBe("Session 2 thinking");
     });
   });
 

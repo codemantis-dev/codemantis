@@ -3,6 +3,7 @@ import type {
   TextDeltaEvent,
   TextCompleteEvent,
   TurnCompleteEvent,
+  ThinkingDeltaEvent,
 } from "../../types/claude-events";
 import type { TurnStats } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -50,6 +51,33 @@ function bufferStreamingText(sessionId: string, text: string): void {
   }
 }
 
+// Thinking streaming buffer: batches rapid thinking_delta events and flushes at ~60fps
+export const thinkingBuffers = new Map<string, string>();
+export const thinkingFrames = new Map<string, number>();
+
+export function flushThinkingBuffer(sessionId: string): void {
+  const buffered = thinkingBuffers.get(sessionId);
+  if (buffered) {
+    useSessionStore.getState().appendThinkingContent(sessionId, buffered);
+    thinkingBuffers.set(sessionId, "");
+  }
+  thinkingFrames.delete(sessionId);
+}
+
+function bufferThinkingText(sessionId: string, text: string): void {
+  const current = thinkingBuffers.get(sessionId) ?? "";
+  thinkingBuffers.set(sessionId, current + text);
+
+  if (typeof requestAnimationFrame === "function") {
+    if (!thinkingFrames.has(sessionId)) {
+      const frame = requestAnimationFrame(() => flushThinkingBuffer(sessionId));
+      thinkingFrames.set(sessionId, frame);
+    }
+  } else {
+    flushThinkingBuffer(sessionId);
+  }
+}
+
 // ── Extracted chat event handlers ──
 
 function handleTextDelta(sessionId: string, event: TextDeltaEvent, store: SessionStoreState, now: string): void {
@@ -94,12 +122,32 @@ function handleTextComplete(sessionId: string, event: TextCompleteEvent, store: 
   }
 }
 
+function handleThinkingDelta(sessionId: string, event: ThinkingDeltaEvent, store: SessionStoreState): void {
+  store.touchLastEvent(sessionId);
+  store.ensureBusy(sessionId);
+  store.setSessionActivity(sessionId, { label: "Reasoning...", toolName: null, toolElapsed: 0, filePath: null });
+  const thinking = store.sessionThinking.get(sessionId);
+  if (!thinking?.isThinking) {
+    store.startThinking(sessionId);
+  }
+  bufferThinkingText(sessionId, event.thinking);
+}
+
 function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: SessionStoreState): void {
   store.setSessionBusy(sessionId, false);
   // Flush any buffered text
   const turnFrame = pendingFrames.get(sessionId);
   if (turnFrame) cancelAnimationFrame(turnFrame);
   flushStreamingBuffer(sessionId);
+  // Flush any buffered thinking
+  const thinkFrame = thinkingFrames.get(sessionId);
+  if (thinkFrame) cancelAnimationFrame(thinkFrame);
+  flushThinkingBuffer(sessionId);
+  // Finalize thinking if still active
+  const thinking = store.sessionThinking.get(sessionId);
+  if (thinking?.isThinking) {
+    store.finalizeThinking(sessionId);
+  }
 
   const streaming = store.sessionStreaming.get(sessionId);
   const completedMessageId = streaming?.currentMessageId ?? null;
@@ -205,6 +253,19 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
     case "cli_session_id":
       store.setCliSessionId(sessionId, event.cli_session_id);
       break;
+
+    case "thinking_delta":
+      handleThinkingDelta(sessionId, event, store);
+      break;
+
+    case "thinking_complete": {
+      // Flush any buffered thinking
+      const thinkingFrame = thinkingFrames.get(sessionId);
+      if (thinkingFrame) cancelAnimationFrame(thinkingFrame);
+      flushThinkingBuffer(sessionId);
+      store.finalizeThinking(sessionId, event.full_thinking);
+      break;
+    }
 
     case "text_delta":
       handleTextDelta(sessionId, event, store, now);

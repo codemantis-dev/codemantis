@@ -9,6 +9,7 @@ import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
 import { ExternalLink } from "../../lib/external-links";
 import TurnStatsPopover from "./TurnStatsPopover";
+import ThinkingContent from "./ThinkingContent";
 
 function formatMessageTime(timestamp: string): string {
   const date = new Date(timestamp);
@@ -78,6 +79,11 @@ export default React.memo(function MessageBubble({
   return (
     <div className="mb-4 min-w-0">
       <ActivityChip messageId={message.id} sessionId={sessionId} />
+      {message.thinkingContent && (
+        <div className="mt-1">
+          <ThinkingContent content={message.thinkingContent} isStreaming={false} />
+        </div>
+      )}
       <div className="mt-1 selectable min-w-0 overflow-hidden">
         <div className="markdown-content text-chat text-text-secondary">
           <ReactMarkdown
