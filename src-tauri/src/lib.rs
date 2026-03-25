@@ -195,6 +195,15 @@ pub fn run() {
                     }
                 }
             });
+            // Bring window to front after launch — ensures visibility after update relaunch
+            let focus_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if let Some(window) = focus_handle.get_webview_window("main") {
+                    let _ = window.set_focus();
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
