@@ -1,232 +1,224 @@
-<!--
-  CodeMantis Complete User Guide — Part V, Part VI & Part VII
-  Generated from source code by Claude Code
-  Date: March 2026
-  App Version: 1.0.0
--->
-
-## Part V: Sidebar
+<!-- CodeMantis Complete User Guide — Parts V, VI & VII (Chapters 22-31) -->
+<!-- Generated from source code | App Version: 0.9.1 | Date: 2026-03-26 -->
 
 ---
 
-### Chapter 19: File Tree
+# Part V: Sidebar
 
-The file tree in the left sidebar shows your project's directory structure. You can browse files, create new ones, rename, delete, and interact with files in powerful ways through a rich context menu.
+---
 
-#### What You See
+## Chapter 22: File Tree
 
-The file tree occupies the main area of the left sidebar, below a "Files" header bar and above the Git Status card and Context Meter.
+The File Tree provides a visual representation of your project's directory structure directly inside CodeMantis. It lets you browse, open, create, rename, duplicate, and delete files and folders without leaving the app.
 
-**Header bar (36px):**
-- A folder-tree icon and the label **"Files"** (left side).
-- Three action buttons (right side, visible when a project is open):
-  - **New File** (file-plus icon): Creates a new file at the project root.
-  - **New Folder** (folder-plus icon): Creates a new folder at the project root.
-  - **Refresh** (refresh icon): Reloads the file tree. Spins while loading.
+### What You See
 
-**File tree body (scrollable):**
-A hierarchical list of files and folders:
-- **Folders** show a chevron (▸ collapsed, ▾ expanded), a folder icon, and the folder name. Root-level folders are auto-expanded; deeper folders start collapsed. Click a folder to expand/collapse it.
-- **Files** show a file icon (colored by extension) and the file name. Click a file to open it in the File Viewer (right panel).
+The sidebar occupies the left edge of the application window. At the top is a header bar labeled **"Files"** with a folder-tree icon. To the right of the label sit three small icon buttons:
 
-**File icon colors by extension:**
+- **New File** (FilePlus icon) -- creates a new file at the project root
+- **New Folder** (FolderPlus icon) -- creates a new folder at the project root
+- **Refresh** (rotating arrows icon) -- manually reloads the file tree; the icon spins while loading
 
-| Extension | Color |
-|-----------|-------|
-| .ts, .tsx | Blue (#3178c6) |
-| .js, .jsx | Yellow (#f7df1e) |
-| .json | Gray (#a1a1aa) |
-| .md | Amber (#fbbf24) |
-| .rs | Orange (#dea584) |
-| .css | Blue (#60a5fa) |
-| .html | Red (#f87171) |
-| .py | Blue (#3572A5) |
-| Other | Default dim color |
+Below the header, the tree displays your project's files and folders in a hierarchical, indented list. Each item shows:
 
-**Special files** — `CLAUDE.md` and the `.claude` folder are highlighted in yellow with bold text, making them easy to spot.
+- **Folders:** A chevron arrow (right when collapsed, down when expanded) followed by a folder icon and the folder name. Folder icons are tinted in a muted color, except for special entries like `CLAUDE.md` and `.claude`, which appear in yellow with bold text.
+- **Files:** A file icon tinted by file extension (TypeScript/TSX in blue, JavaScript in yellow, JSON in gray, Markdown in amber, Rust in warm brown, CSS in light blue, HTML in red, Python in blue-violet) followed by the file name. `CLAUDE.md` files appear highlighted in yellow.
 
-**Inline rename input:** When renaming, an inline text input replaces the file/folder name. For files, the name (without extension) is pre-selected. Press Enter to confirm, Escape to cancel.
+The first level of directories auto-expands when the tree loads. Deeper levels start collapsed.
 
-**Inline new file/folder input:** When creating a new item, an inline input appears at the target location with placeholder text ("filename" or "folder name"). Press Enter to create, Escape to cancel. The parent folder auto-expands to show the input.
+### How to Open / Access
 
-**Context menu (right-click):**
-The context menu varies based on what you right-click:
+| Method | Action |
+|---|---|
+| Keyboard shortcut | `Cmd B` toggles the sidebar visibility |
+| Always visible | The sidebar is shown by default when a project is open |
 
-**Right-click a file:**
-- New File / New Folder (in the same parent directory)
-- Add to Main Chat (attach as a file attachment)
-- Add to Assistant (expandable submenu with all assistant tabs)
-- Add Relative Path to Chat / Add Absolute Path to Chat
-- Open (in File Viewer)
-- Duplicate / Rename / Delete
-- Reveal in Finder
-- Copy Contents / Copy Path / Copy Relative Path
-- Expand All Folders / Collapse All Folders
+### User Actions
 
-**Right-click a folder:**
-- New File / New Folder (inside this folder)
-- Add Relative Path to Chat / Add Absolute Path to Chat
-- Rename / Delete (with confirmation: "Delete folder and all its contents?")
-- Reveal in Finder
-- Copy Path / Copy Relative Path
-- Expand All Folders / Collapse All Folders
+**Click a file**
+Click any file name in the tree. The file opens in the File Viewer panel on the right side of the app (see Chapter 14).
 
-**Right-click empty space:**
-- New File / New Folder (at project root)
-- Expand All Folders / Collapse All Folders
+**Expand / collapse a folder**
+Click a folder row to toggle it open or closed. The chevron rotates to indicate the current state.
 
-You can also right-click the "Files" header bar to open the root-level context menu.
+**Right-click a file (context menu)**
+Right-click on any file to open a context menu with these options:
 
-#### How to Open / Access
+- **New File** -- creates a new file in the same parent directory
+- **New Folder** -- creates a new folder in the same parent directory
+- **Add to Main Chat** -- attaches the file to the current chat session as a context attachment
+- **Add to Assistant** -- expands an inline sub-menu listing all active assistant tabs; click one to attach the file to that assistant
+- **Add Relative Path to Chat** -- inserts the file's relative path (from project root) into the chat input box
+- **Add Absolute Path to Chat** -- inserts the file's full absolute path into the chat input box
+- **Open** -- opens the file in the File Viewer
+- **Duplicate** -- creates a copy of the file in the same directory
+- **Rename** -- converts the file name into an inline editable text field; press `Enter` to confirm or `Escape` to cancel. For files with extensions, only the name portion (before the dot) is pre-selected.
+- **Delete** -- shows a confirmation dialog: "Delete '{filename}'? This cannot be undone." Confirming permanently deletes the file and closes any open File Viewer tabs for it.
+- **Reveal in Finder** -- opens macOS Finder with the file highlighted
+- **Copy Contents** -- copies the full text content of the file to the clipboard
+- **Copy Path** -- copies the absolute file path to the clipboard
+- **Copy Relative Path** -- copies the path relative to the project root
+- **Expand All Folders** -- expands every folder in the tree at once
+- **Collapse All Folders** -- collapses every folder in the tree at once
 
-The file tree is always visible in the left sidebar when a project is open. Toggle the sidebar with ⌘B.
+**Right-click a folder (context menu)**
+Right-click on any folder to see:
 
-#### User Actions
+- **New File** -- creates a new file inside this folder
+- **New Folder** -- creates a new sub-folder inside this folder
+- **Add Relative Path to Chat** -- inserts the folder's relative path into the chat input
+- **Add Absolute Path to Chat** -- inserts the folder's absolute path into the chat input
+- **Rename** -- inline rename for the folder
+- **Delete** -- confirmation dialog: "Delete folder '{name}' and all its contents? This cannot be undone."
+- **Reveal in Finder** -- opens Finder to this folder
+- **Copy Path** -- copies the absolute path
+- **Copy Relative Path** -- copies the relative path
+- **Expand All Folders** / **Collapse All Folders**
 
-**Browse the file tree**
-Click folders to expand/collapse them. Scroll to navigate large projects.
+**Right-click empty space (context menu)**
+Right-clicking on blank area below all files shows:
 
-**Open a file**
-Click a file name → The file opens in the File Viewer (right panel, Files tab). See Chapter 10 for details.
+- **New File** -- creates a file at the project root
+- **New Folder** -- creates a folder at the project root
+- **Expand All Folders** / **Collapse All Folders**
 
-**Create a new file**
-Click the file-plus icon in the header, or right-click → New File → Type a filename in the inline input → Press Enter. The file is created and auto-opened in the File Viewer.
+**Create a new file or folder inline**
+When you trigger "New File" or "New Folder" (from the header buttons, context menu, or keyboard), an inline text input appears at the appropriate location in the tree. Type the name, then press `Enter` to create or `Escape` to cancel. Newly created files automatically open in the File Viewer.
 
-**Create a new folder**
-Click the folder-plus icon in the header, or right-click → New Folder → Type a name → Press Enter.
+**Rename inline**
+Selecting "Rename" from the context menu converts the item's label into an editable input field. Press `Enter` to save or `Escape` to discard. Clicking outside the input also commits the rename.
 
-**Rename a file or folder**
-Right-click → Rename → The name becomes an inline editable input. Edit the name → Press Enter to confirm, Escape to cancel.
+### States
 
-**Delete a file or folder**
-Right-click → Delete → A browser confirmation dialog appears. For folders: "Delete folder '{name}' and all its contents? This cannot be undone." Confirm to delete. Any File Viewer tabs for deleted files are automatically closed.
+- **Default:** The tree shows all non-hidden files and folders, with the first level expanded.
+- **Loading:** The center of the tree area shows "Loading..." text. The refresh button icon spins.
+- **Empty:** If the project directory contains no visible files, the message "Empty directory" appears centered.
+- **No project:** When no project is open, the tree shows "No project open" centered.
 
-**Duplicate a file**
-Right-click a file → Duplicate → A copy is created in the same directory.
+### Hidden Files and Directories
 
-**Reveal in Finder**
-Right-click → Reveal in Finder → The file or folder is shown in macOS Finder.
+The file tree automatically hides the following directories, which are typically not useful to browse:
 
-**Copy file contents to clipboard**
-Right-click a file → Copy Contents → The full file text is copied.
+`node_modules`, `.git`, `.next`, `__pycache__`, `.DS_Store`, `target`, `.venv`, `venv`, `.turbo`, `.cache`, `coverage`, `.angular`, `.svelte-kit`, `.nuxt`, `.codemantis`
 
-**Copy path to clipboard**
-Right-click → Copy Path (absolute) or Copy Relative Path (relative to project root).
+These are filtered server-side (in Rust) and never sent to the frontend.
 
-**Insert path into chat input**
-Right-click → Add Relative Path to Chat or Add Absolute Path to Chat → The path is appended to the main chat input area.
+### Symlink Protection
 
-**Attach file to chat**
-Right-click a file → Add to Main Chat → The file is added as an attachment to the current session's chat input.
+Symbolic links are silently skipped during tree traversal. This prevents the file tree from escaping outside the project root directory. All file operations (rename, delete, read) canonicalize paths to guard against symlink-based path traversal.
 
-**Attach file to an assistant**
-Right-click a file → Add to Assistant → Select an assistant tab → The file is attached to that assistant's input.
+### Tree Depth Limit
 
-**Expand or collapse all folders**
-Right-click → Expand All Folders (opens every folder) or Collapse All Folders (closes all folders).
+The tree traverses up to 5 levels deep. Directories deeper than this are not displayed.
 
-**Refresh the file tree**
-Click the refresh icon in the header → The tree reloads from disk. This happens automatically when Claude modifies files or when you press Enter in the terminal.
+### Auto-Refresh
 
-#### States
+The file tree refreshes automatically when Claude edits, creates, or deletes files during a session. You can also trigger a manual refresh by clicking the refresh button in the header or right-clicking and choosing an action that modifies the tree.
 
-- **No project open:** "No project open" centered text.
-- **Loading:** "Loading..." text in the tree area. The refresh icon spins.
-- **Empty directory:** "Empty directory" text.
-- **Populated:** Hierarchical file/folder list with icons and colors.
+### Configuration
 
-#### Configuration
+No dedicated settings. The sidebar visibility is toggled with `Cmd B`.
 
-The file tree respects `.gitignore` and excludes common directories like `node_modules`, `.git`, etc. (handled by the Rust backend's `readFileTree` command).
-
-#### Keyboard Shortcuts
+### Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
-| ⌘ B | Toggle sidebar visibility |
+|---|---|
+| `Cmd B` | Toggle sidebar visibility |
 
-#### Tips
+### Tips
 
-1. **Right-click is your power tool.** The context menu gives you 15+ actions — from attaching files to chat, to copying paths, to creating new files.
-2. **CLAUDE.md and .claude are highlighted in yellow** so you can always find your AI configuration files quickly.
-3. **The tree auto-refreshes** when Claude edits files or when you run commands in the terminal, so it always reflects the current state of your project.
-
----
-
-### Chapter 20: Git Status
-
-The Git Status card at the bottom of the sidebar shows a compact summary of your project's git state — the current branch, uncommitted changes, last commit time, and last push time.
-
-#### What You See
-
-The Git Status card appears below the file tree and above the Context Meter. It is only visible when the project is a git repository.
-
-**Row 1 — Branch and changes:**
-- **Branch icon** (accent color) + **branch name** (bold, e.g., "main", "feature/auth"). Shows "detached" if in a detached HEAD state.
-- **Uncommitted changes count** (right side): A file-edit icon + number in yellow (e.g., "3"). Only visible when there are uncommitted changes.
-
-**Row 2 — Timestamps:**
-- **Last commit** (left): A clock icon + relative time (e.g., "5m ago", "2h ago", "3d ago", "1mo ago", "just now").
-- **Last push** (right): An upload icon + relative time. Shows "never" if the project has never been pushed.
-
-Timestamps update every 30 seconds to keep the relative times accurate.
-
-#### How to Open / Access
-
-The Git Status card is always visible at the bottom of the sidebar when the project is a git repository. It is hidden for non-git projects.
-
-#### User Actions
-
-The Git Status card is read-only — it provides information at a glance. There are no interactive elements.
-
-#### States
-
-- **Clean working tree:** No uncommitted changes indicator. Timestamps show normally.
-- **Dirty working tree:** Yellow file-edit icon + count of uncommitted changes. Git status polls more frequently (every 5 seconds vs. 10 seconds for clean repos).
-- **Not a git repo:** The card is completely hidden.
-- **Detached HEAD:** Branch name shows "detached".
-- **Never pushed:** Last push shows "never".
-
-#### Configuration
-
-Git status is polled automatically:
-- Every **5 seconds** when uncommitted changes are present.
-- Every **10 seconds** when the working tree is clean.
-- **Immediately** when the window regains focus (e.g., after switching back from another app).
-
-No user-configurable settings.
-
-#### Keyboard Shortcuts
-
-None — the Git Status card is informational only.
-
-#### Tips
-
-1. **Watch the yellow change count** — it tells you at a glance whether you have uncommitted work. This is especially useful after Claude makes edits.
-2. **The "last push" time** helps you remember whether you've pushed recent changes to the remote repository.
-3. **Git status refreshes automatically** so you don't need to do anything — it's always up to date.
+- Right-click is the fastest way to attach a file to your chat or an assistant -- no need to drag or use the attachment bar.
+- Use "Expand All Folders" when you need to visually scan the entire project, then "Collapse All" to return to a tidy view.
+- The inline rename feature pre-selects only the filename (not the extension), so you can quickly type a new name without accidentally changing the file type.
 
 ---
 
-## Part VI: Settings & Configuration
+## Chapter 23: Git Status
+
+The Git Status Card sits at the bottom of the sidebar, providing a quick glance at your repository's branch, recent activity, and change counts. Clicking the branch name opens a popover showing recent commits.
+
+### What You See
+
+The Git Status Card appears as a compact section pinned to the bottom of the sidebar, just above the Context Meter. It contains two rows:
+
+**Row 1 (top):** On the left, a branch icon (tinted in the theme's accent color) followed by the current branch name in bold. On the right, if there are uncommitted changes, a yellow file-edit icon with a count (e.g., "3").
+
+**Row 2 (bottom):** Two small indicators in muted text:
+- Left side: A clock icon and a relative timestamp showing when the last commit was made (e.g., "5m ago", "2h ago", "3d ago")
+- Right side: An upload icon and a relative timestamp showing when the last push occurred
+
+If the project is not a Git repository, the card is hidden entirely.
+
+### How to Open / Access
+
+The Git Status Card is always visible at the bottom of the sidebar when a Git repository is open. No action is needed to display it.
+
+### User Actions
+
+**Click the branch name**
+Clicking the branch name button opens the **Git Commits Popover**, a floating panel that appears above the branch name. It shows:
+
+- A title: **"Recent Commits"**
+- A scrollable list of up to 10 recent commits, each displaying:
+  - **Commit hash** (short, monospaced, tinted in the accent color)
+  - **Commit message** (truncated if long)
+  - **Author name** (small text)
+  - **Relative time** (e.g., "just now", "15m ago", "2d ago")
+
+The popover is 280px wide with a maximum height of 300px. If more than a few commits are shown, the list scrolls. Click outside the popover or press `Escape` to close it.
+
+### States
+
+- **Default (clean repository):** Branch name shown, no yellow change count, timestamps visible.
+- **Dirty (uncommitted changes):** The yellow file-edit icon and change count appear to the right of the branch name.
+- **Loading (commits popover):** When the popover is first opened, it briefly shows "Loading..." while fetching commit history.
+- **Empty (no commits):** The popover displays "No commits found" if the repository has no commit history.
+- **Not a Git repo:** The entire card is hidden.
+- **Detached HEAD:** The branch name displays as "detached".
+
+### Auto-Polling
+
+Git status is polled automatically in the background:
+- **Every 5 seconds** when uncommitted changes are detected (active polling)
+- **Every 10 seconds** when the working tree is clean (relaxed polling)
+- **Immediately** when the window regains focus (e.g., switching back from another app)
+
+The relative timestamps ("5m ago") also re-render every 30 seconds to stay current.
+
+### Configuration
+
+There are no dedicated settings for Git status. It activates automatically for any project that is a Git repository.
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd B` | Toggle sidebar (which contains the Git Status Card) |
+
+### Tips
+
+- The change count combines staged, unstaged, and untracked files into one number, giving you a quick sense of how "dirty" your working tree is.
+- Click the branch name any time you want to verify what was recently committed -- useful after Claude makes changes to confirm they match your expectations.
+- The relative timestamps help you notice if you have forgotten to push for a while, since the "Last push" indicator will drift into hours or days.
 
 ---
 
-### Chapter 21: Settings — General
+# Part VI: Settings & Configuration
 
-The General settings tab controls the app's appearance, text size, input behavior, and several feature toggles.
+---
 
-#### What You See
+## Chapter 24: Settings -- General
 
-The Settings modal opens as a centered dialog with a tab sidebar on the left. The **General** tab is the default tab.
+The General tab is the first screen you see when opening Settings. It controls visual appearance, input behavior, and several global preferences.
 
-**Theme selection:**
-A 3×2 grid of theme buttons. Each button shows a color swatch (dark circle for dark themes, light circle for light themes) and the theme name. The active theme has an accent border.
+### What You See
 
-Available themes:
+A scrollable panel with the heading **"General"** and the following sections:
+
+**Theme** -- A 3-column grid of six theme buttons, each showing a small circle swatch (dark or light) and the theme name. The currently selected theme has an accent-colored border and highlighted background. The six themes are:
 
 | Theme | Type |
-|-------|------|
+|---|---|
 | Midnight | Dark |
 | Ocean | Dark |
 | Ember | Dark |
@@ -234,584 +226,852 @@ Available themes:
 | Sand | Light |
 | Arctic | Light |
 
-**Settings rows (below the theme grid):**
+**Font Size** -- A number input (range 10--20) showing the current font size in pixels. The default is 13px.
 
-| Setting | Control | Description |
-|---------|---------|-------------|
-| Font Size | Number input (10-20) | Controls text size throughout the app. Also adjustable via ⌘= / ⌘- / ⌘0 |
-| Send Shortcut | Dropdown: "Cmd + Enter" or "Enter" | Which key sends messages in the chat |
-| Show trivia while waiting | Toggle switch | Display fun facts while Claude is working. Description: "Display fun facts while Claude is working" |
-| Auto-open edited files | Toggle switch | Open files in the viewer when Claude edits them. Description: "Open files in the viewer when Claude edits them" |
-| Default context window | Button group: "200K" or "1M" | Fallback context size when the CLI doesn't report it. Description: "Fallback context size when CLI doesn't report it" |
-| Show welcome screen on launch | Toggle switch | Display the getting-started screen when the app opens. Description: "Display the getting-started screen when the app opens" |
+**Send Shortcut** -- A dropdown with two options:
+- "Cmd + Enter" (sends messages with `Cmd Enter`)
+- "Enter" (sends messages with just `Enter`; default)
 
-Toggle switches use an accent-colored track when enabled and a bordered gray track when disabled.
+**Show trivia while waiting** -- A toggle switch with the subtitle "Display fun facts while Claude is working." Off by default.
 
-#### How to Open / Access
+**Auto-open edited files** -- A toggle switch with the subtitle "Open files in the viewer when Claude edits them." Off by default.
 
-- Click the **gear icon** in the title bar.
-- Press ⌘,
+**Default context window** -- Two side-by-side pill buttons: "200K" and "1M". The subtitle reads "Fallback context size when CLI doesn't report it." Default is 1M (1,000,000 tokens).
 
-#### User Actions
+**Show welcome screen on launch** -- A toggle switch with the subtitle "Display the getting-started screen when the app opens."
+
+**Check for updates** -- Displays "Current version: v{version}" and a blue **"Check Now"** button. While checking, the button text changes to "Checking..." and is disabled. If an update is found, the Settings modal closes and the Update Modal opens (see Chapter 31). If you are already on the latest version, a toast says "You're on the latest version."
+
+### How to Open / Access
+
+| Method | Action |
+|---|---|
+| Keyboard shortcut | `Cmd ,` |
+| Title bar | Click the gear icon in the title bar |
+| Settings modal | The "General" tab is selected by default |
+
+### User Actions
 
 **Change the theme**
-Click a theme button → The app's entire color scheme changes immediately. The theme persists across app restarts.
+Click any of the six theme buttons. The theme applies immediately (live preview), but is only persisted when you click **Save**. Themes use CSS variables, so the entire UI -- including the Monaco code editor -- updates to match.
 
 **Adjust font size**
-Change the number in the Font Size input (range: 10-20px) → Text throughout the app resizes. Default is 13px.
-Or use keyboard shortcuts: ⌘= (zoom in), ⌘- (zoom out), ⌘0 (reset to 13px). A toast notification confirms the new size.
+Type a value into the number input, or use the keyboard shortcuts `Cmd =` (zoom in), `Cmd -` (zoom out), and `Cmd 0` (reset to 13px). The keyboard shortcuts work globally, not just inside Settings. Font size changes also adjust the terminal font size by the same amount.
 
-**Change the send shortcut**
-Select "Cmd + Enter" or "Enter" from the dropdown → The send behavior in the chat input changes accordingly.
+**Toggle a switch**
+Click any toggle to flip it on/off. The switch slides and changes color (accent color when on, muted when off).
 
-**Toggle trivia**
-Click the toggle → Enables or disables fun fact cards in the thinking indicator (see Chapter 4).
+**Check for updates**
+Click "Check Now." If an update is available, the Update Modal appears with the new version number, release notes, and an install button.
 
-**Toggle auto-open files**
-Click the toggle → When enabled, files automatically open in the File Viewer whenever Claude reads or writes them.
+### States
 
-**Set default context window**
-Click "200K" or "1M" → Sets the fallback context window size used when the Claude CLI doesn't report the actual context size.
+- **Default:** All fields show their current saved values.
+- **Modified (unsaved):** Changed values appear immediately in the UI but are not persisted until you click "Save" in the bottom-left of the Settings sidebar.
+- **Cancelled:** Clicking "Cancel" or the X button reverts all changes to the last saved state.
 
-**Toggle welcome screen**
-Click the toggle → Controls whether the Welcome Screen appears on app launch.
+### Configuration
 
-#### States
+This IS the configuration panel. All settings here are persisted to the app's SQLite database at `~/Library/Application Support/dev.codemantis.myapp/codemantis.db`.
 
-All settings take effect immediately and are persisted to the database automatically.
-
-#### Configuration
-
-Settings are stored in the app's SQLite database at `~/Library/Application Support/dev.codemantis.app/`.
-
-#### Keyboard Shortcuts
+### Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
-| ⌘ , | Open Settings |
-| ⌘ = | Zoom in (increase font size) |
-| ⌘ - | Zoom out (decrease font size) |
-| ⌘ 0 | Reset zoom (13px) |
+|---|---|
+| `Cmd ,` | Open Settings |
+| `Cmd =` | Zoom in (increase font size by 1px) |
+| `Cmd -` | Zoom out (decrease font size by 1px) |
+| `Cmd 0` | Reset font size to 13px |
 
-#### Tips
+### Tips
 
-1. **Try all six themes** to find the one that suits your environment. The dark themes (Midnight, Ocean, Ember) are great for extended coding sessions; the light themes (Dawn, Sand, Arctic) work well in bright environments.
-2. **Sand is the default theme** — if you want a dark theme, switch immediately after first launch.
-3. **Auto-open files** is disabled by default. Enable it if you want to see every file Claude touches in the File Viewer automatically — useful for closely monitoring changes.
+- Use "Sand" or "Arctic" for well-lit environments and "Midnight" or "Ocean" for low-light coding sessions.
+- If you prefer hitting Enter for newlines in long messages, switch the Send Shortcut to "Cmd + Enter."
+- The 1M context window default is recommended for Claude Max subscribers using extended-context models. The 200K setting is appropriate for standard Claude Pro plans.
 
 ---
 
-### Chapter 22: Settings — AI Providers
+## Chapter 25: Settings -- Session Logs
 
-The AI Providers tab is where you configure API keys for OpenAI, Google Gemini, and Anthropic. These keys power the multi-AI assistants, AI changelog, and SpecWriter features. Claude Code itself does **not** need an API key — it uses your existing Claude Pro/Max subscription.
+The Session Logs tab controls whether CodeMantis saves the full conversation history of each session to the local database, enabling you to restore and re-read past sessions.
 
-#### What You See
+### What You See
 
-**Section header:**
-"AI Providers" with the description: "Configure API keys and token pricing for each provider. These are shared across Changelog and Assistant features."
+A panel with the heading **"Session Logs"** (accessed via the Database icon in the Settings sidebar). Below the heading is explanatory text:
 
-**API key inputs:**
-One row per provider, each showing:
-- The **provider name** as a label (e.g., "OpenAI", "Google Gemini", "Anthropic").
-- A **password input** field with placeholder "Enter {Provider} API key". The key is masked.
-- A **Test** button: Click to validate the key against the provider's API.
+> "Save the complete conversation of each session -- all messages exchanged between you and Claude Code. When you reopen a historical session, the full chat history is restored so you can pick up where you left off."
 
-**Test results:**
-- **Success:** Green text "API key is valid" appears below the input.
-- **Error:** Red text "Invalid API key or connection error" appears below.
-- **Testing:** The button reads "Testing..." and is disabled.
+**Save session conversations** -- A toggle switch with the subtitle "Store all messages when a session closes so they can be replayed later." Enabled by default.
 
-**Model Pricing section (below API keys):**
-A table organized by provider showing cost per 1M tokens in USD for each model. Each model has:
-- The model name (e.g., "GPT-4o", "Gemini 2.5 Flash", "Claude Sonnet 4").
-- **Input** price field (editable number input).
-- **Output** price field (editable number input).
+When the toggle is on, an additional section appears:
 
-These prices are used to calculate cost estimates in the Assistant tabs and API Logs.
+**Retention period** -- A dropdown with these options:
+- 7 days
+- 14 days
+- **30 days** (default)
+- 90 days
+- 1 year
+- Forever
 
-#### How to Open / Access
+Below the dropdown: "Session logs older than this are automatically cleaned up on app launch. Set to 'Forever' to keep all logs indefinitely."
 
-Settings → **AI Providers** tab.
+### How to Open / Access
 
-#### User Actions
+| Method | Action |
+|---|---|
+| Settings modal | Click the **"Session Logs"** tab (Database icon) in the left sidebar |
+
+### User Actions
+
+**Enable or disable session logging**
+Click the toggle switch. When disabled, session conversations are not saved when sessions close. Existing saved logs remain until they expire.
+
+**Change retention period**
+Select a value from the dropdown. Logs older than the selected duration are automatically deleted the next time CodeMantis launches.
+
+### States
+
+- **Enabled (default):** The toggle is on and the retention dropdown is visible.
+- **Disabled:** The toggle is off. The retention dropdown is hidden. No new session logs will be saved.
+
+### Configuration
+
+- **Settings path:** Settings > Session Logs > Save session conversations
+- **Settings path:** Settings > Session Logs > Retention period
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd ,` | Open Settings |
+
+### Tips
+
+- Keeping session logs enabled at the default 30 days is recommended. It costs minimal disk space and lets you resume any session from the Session History panel.
+- Set retention to "Forever" if you want a permanent record of all your coding conversations for reference.
+- If disk space is a concern, reduce the retention to 7 days. Cleanup happens automatically on launch.
+
+---
+
+## Chapter 26: Settings -- AI Providers
+
+The AI Providers tab is where you configure API keys for external AI services that power the Assistant, Changelog, and SpecWriter features. Claude Code itself requires no API key -- it uses your existing Claude subscription.
+
+### What You See
+
+A panel with the heading **"AI Providers"** and the subtext: "Configure API keys and token pricing for each provider. These are shared across Changelog and Assistant features."
+
+**OpenRouter Promotion Banner** -- If you have no API keys set (or no OpenRouter key), a highlighted banner appears at the top:
+
+> **"No AI API Key? Use OpenRouter -- Free AI for CodeMantis!"**
+> "OpenRouter gives you access to 200+ AI models from all major providers. Many models are completely free -- no credit card needed."
+> A blue **"Get Free API Key"** button links to `https://openrouter.ai/keys`.
+
+**API Key Inputs** -- Listed from top to bottom:
+
+1. **OpenRouter** (shown first, with a subtitle: "Free models available -- no credit card required")
+   - Password input field
+   - **Test** button
+   - On success: "API key is valid -- {N} models available ({M} free)"
+   - On error: "Could not validate API key -- check that the key is correct and your internet connection is working"
+
+2. A divider labeled "Other Providers"
+
+3. **OpenAI** -- Password input + Test button
+4. **Google Gemini** -- Password input + Test button
+5. **Anthropic API** -- Password input + Test button
+
+Each provider's Test button is disabled until a key is entered. While testing, the button shows "Testing..." and is disabled.
+
+**Model Pricing** -- Below a divider labeled "Model Pricing (per 1M tokens, USD)", each provider's models are listed with editable **In** (input) and **Out** (output) cost fields:
+
+- **OpenAI:** GPT-4.1, GPT-5.4 Nano, GPT-5.4 Mini, GPT-5.4
+- **Google Gemini:** Gemini 2.5 Flash Lite, Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 3.0 Flash, Gemini 3.1 Pro, Gemini 3.1 Flash Lite
+- **Anthropic API:** Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5
+- **OpenRouter:** When an OpenRouter key is configured and models are loaded, this section shows the catalog size (e.g., "OpenRouter (847 models)") with a note: "Pricing is auto-fetched from the OpenRouter API. Free models have $0 cost." Up to 8 free models and 5 lowest-cost paid models are previewed.
+
+### How to Open / Access
+
+| Method | Action |
+|---|---|
+| Settings modal | Click the **"AI Providers"** tab (Layers icon) in the left sidebar |
+
+### User Actions
 
 **Enter an API key**
-Type or paste your API key into the password field for a provider → The key is saved automatically.
+Paste or type your key into the password field for the desired provider. Keys are masked by default.
 
 **Test an API key**
-Click **Test** → The app makes a test API call to verify the key. A success or error message appears below.
+Click **"Test"** next to the key field. The app makes a validation call to the provider. A green "API key is valid" message confirms success; a red error message indicates failure.
 
-**Adjust model pricing**
-Edit the input/output price fields for any model → Pricing updates are used for cost calculations in assistant sessions and API logs.
+**Edit model pricing**
+Change the "In" or "Out" dollar values for any model. These values are used to calculate cost estimates in the Turn Stats Popover (Chapter 30) and API Logs (Chapter 29).
 
-#### States
+### States
 
-- **No key set:** Empty password field. Features requiring this provider show "No API key" or "No key" and are disabled.
-- **Key set:** The password field shows dots. The Test button is enabled.
-- **Testing:** Button reads "Testing..." and is disabled.
-- **Valid key:** Green "API key is valid" message.
-- **Invalid key:** Red "Invalid API key or connection error" message.
+- **No keys configured:** The OpenRouter promotion banner is prominently displayed.
+- **Key entered but untested:** The Test button becomes active (blue tint).
+- **Testing:** Button shows "Testing..." and is disabled.
+- **Valid key:** Green confirmation text below the input.
+- **Invalid key:** Red error text below the input.
 
-#### Configuration
+### Which Features Need Keys
 
-| Feature | Requires API Key? |
-|---------|------------------|
-| Claude Code (main chat) | No — uses Claude subscription |
-| Multi-AI Assistants (OpenAI, Gemini, Anthropic) | Yes |
-| AI Changelog | Yes |
-| SpecWriter | Yes |
+| Feature | API Key Required? |
+|---|---|
+| Claude Code (main chat) | No -- uses your Claude Pro/Max subscription |
+| Assistant Panel | Yes (any provider) or use Claude Code as provider (free) |
+| Changelog | Yes (any provider) |
+| SpecWriter | Yes (any provider) or use Claude Code as provider (free) |
 
-#### Keyboard Shortcuts
+### OpenRouter Model Catalog
 
-None specific to this tab.
+When an OpenRouter key is configured and validated, CodeMantis automatically fetches the full model catalog from the OpenRouter API. This catalog is cached for 15 minutes. It includes model IDs, names, pricing, context lengths, and supported input/output modalities (text, image, file). Free models are clearly identified. The catalog powers the searchable model dropdowns in the Assistant, Changelog, and SpecWriter settings.
 
-#### Tips
+### Configuration
 
-1. **Claude Code does not need an API key.** It uses your existing Claude Pro or Max subscription. API keys are only for the additional AI features.
-2. **Test your keys** after entering them to verify they work before relying on assistant or changelog features.
-3. **Model pricing** comes pre-filled with reasonable defaults. Update it if your pricing differs (e.g., enterprise agreements or volume discounts).
+- **Settings path:** Settings > AI Providers > {Provider Name} API key
+- **Settings path:** Settings > AI Providers > Model Pricing
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd ,` | Open Settings |
+
+### Tips
+
+- OpenRouter is the recommended starting point if you do not already have API keys -- many powerful models are available completely free.
+- Model pricing defaults are pre-filled based on published rates at the time of the CodeMantis release. Update them if prices change.
+- You can configure multiple providers simultaneously. Different features can use different providers.
 
 ---
 
-### Chapter 23: Settings — Assistant, Changelog, Terminal, Quick Commands
+## Chapter 27: Settings -- Preview & SpecWriter
 
-This chapter covers four settings tabs that configure specific features.
+The Preview and SpecWriter tabs configure the built-in web preview window and the AI-powered specification writer respectively.
 
-#### What You See
+### What You See
 
-##### Assistant Settings Tab
+#### Preview Settings (Globe icon)
 
-**Default Provider:**
-A dropdown to select the default AI provider for new assistant tabs. Options: Claude Code, OpenAI, Google Gemini, Anthropic. Description: "New assistant tabs will use this provider by default."
+A panel with the heading **"Preview Window"** containing five configuration rows:
 
-**Default Models:**
-A per-provider model selector. Each API provider (OpenAI, Gemini, Anthropic) has a dropdown to choose which model new assistants will use. Providers without an API key have their dropdown disabled (dimmed) with tooltip "Set API key in Settings > AI Providers."
+| Setting | Control | Default |
+|---|---|---|
+| Default width (px) | Number input | 1024 |
+| Default height (px) | Number input | 768 |
+| Auto-start dev server on project open | Checkbox | Off |
+| Custom dev command override | Text input (placeholder: "npm run dev") | Empty |
+| Auto-open console on errors | Checkbox | On |
 
-**Shortcuts:**
-A list of saved prompt shortcuts. Each shortcut has:
-- A **Name** input (e.g., "Code Review").
-- A **Prompt** textarea (the full prompt text).
-- A **delete button** (×) to remove the shortcut.
-- An **"+ Add shortcut"** link at the bottom.
+#### SpecWriter Settings (PenTool icon, labeled "SpecWriter" in the sidebar)
 
-Description: "Saved prompts available as quick-access chips in the assistant panel."
+A panel with the heading **"SpecWriter"** containing two configuration rows:
 
-##### Changelog Settings Tab
+| Setting | Control | Default |
+|---|---|---|
+| Spec writing AI model | Dropdown | Auto-selected based on available keys |
+| Max output tokens | Number input (range: 1024--200,000, step: 1024) | 64,000 |
 
-**Enable auto-changelog:**
-A toggle switch. Description: "Auto-generate changelog entries after each coding turn using an LLM provider."
+The model dropdown lists all hardcoded spec-writing models plus up to 5 free OpenRouter models (if an OpenRouter key is configured). Models whose providers lack an API key are shown but disabled with "(no API key)" appended.
 
-When enabled, additional options appear:
+Available hardcoded spec models (in priority order):
+- Gemini 3.1 Flash Lite
+- GPT-5.4 Mini
+- Claude Sonnet 4.6
+- Gemini 3.1 Pro
+- GPT-5.4
+- Claude Opus 4.6
 
-**Provider:**
-A dropdown to select the LLM provider: Gemini, OpenAI, or Anthropic.
+### How to Open / Access
 
-**Model:**
-A dropdown showing available models for the selected provider.
+| Method | Action |
+|---|---|
+| Settings modal | Click **"Preview"** (Globe icon) or **"SpecWriter"** (PenTool icon) in the left sidebar |
 
-**System Prompt:**
-A monospace textarea showing the prompt used to generate changelog entries. A **Reset** button (refresh icon + "Reset") restores the default prompt. Help text: "The AI receives this as a system instruction. It should ask for JSON output with headline, description, and category fields."
+### User Actions
 
-##### Terminal Settings Tab
+**Set preview dimensions**
+Type the desired width and height in pixels. These set the initial size of the preview window when it opens.
 
-**Shell:**
-A text input for the shell path. Placeholder: "Default ($SHELL)". Leave empty to use your system's default shell.
+**Enable auto-start**
+Check the "Auto-start dev server" box. When enabled, the preview's dev server starts automatically when you open a project, rather than requiring a manual start.
 
-**Font Size:**
-A number input (10-20) for the terminal font size. Independent from the app's main font size.
+**Override the dev command**
+Type a custom command (e.g., `npm run dev`, `yarn start`, `pnpm dev`) into the text input. If left empty, CodeMantis auto-detects the appropriate command.
 
-##### Quick Commands Settings Tab
+**Toggle console auto-open**
+Check or uncheck "Auto-open console on errors." When enabled, the console drawer in the preview window opens automatically when JavaScript errors are detected.
 
-A list of configurable command presets shown in the terminal toolbar.
+**Choose a spec-writing model**
+Select a model from the dropdown. Models without an API key are grayed out and cannot be selected.
 
-Each command has:
-- A **Label** input (e.g., "Build", "Test").
-- A **Command** input in monospace (e.g., "pnpm build", "pnpm test").
-- A **delete button** (×) to remove the command.
-- An **"+ Add command"** link at the bottom.
+**Set max output tokens**
+Enter a value between 1,024 and 200,000. Higher values allow the SpecWriter to produce longer, more detailed specifications. The default of 64,000 is suitable for most projects.
 
-Description: "Commands available in the terminal toolbar for quick execution."
+### States
 
-Default commands: Build (`pnpm build`), Test (`pnpm test`), Lint (`pnpm lint`), Dev (`pnpm dev`).
+- **Default:** All fields show their saved values.
+- **Modified:** Changes appear immediately but require clicking "Save" to persist.
 
-#### How to Open / Access
+### Configuration
 
-Settings → Select the **Assistant**, **Changelog**, **Terminal**, or **Quick Commands** tab.
+- **Settings path:** Settings > Preview > Default width / Default height
+- **Settings path:** Settings > Preview > Auto-start dev server on project open
+- **Settings path:** Settings > Preview > Custom dev command override
+- **Settings path:** Settings > Preview > Auto-open console on errors
+- **Settings path:** Settings > SpecWriter > Spec writing AI model
+- **Settings path:** Settings > SpecWriter > Max output tokens
 
-#### User Actions
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd ,` | Open Settings |
+| `Cmd Shift P` | Toggle Preview Window |
+| `Cmd Shift B` | Toggle SpecWriter slide-over |
+
+### Tips
+
+- If your project uses a non-standard dev command (e.g., `make serve` or `cargo watch`), enter it in the custom dev command field.
+- Set max output tokens higher (100,000+) for large-scale specifications covering multiple features; lower values (8,000--16,000) work for focused, single-feature specs.
+- Free OpenRouter models appear in the SpecWriter model dropdown when you have an OpenRouter key -- a great zero-cost option for generating specs.
+
+---
+
+## Chapter 28: Settings -- Assistant, Changelog, Terminal, Quick Commands
+
+These four settings tabs configure supporting features of CodeMantis.
+
+### What You See
+
+#### Assistant Settings (MessageSquare icon)
+
+A panel with the heading **"Assistant"** containing three sections:
+
+**Default Provider** -- A dropdown labeled "Provider" listing all available providers:
+- Claude Code (local)
+- OpenAI
+- Google Gemini
+- Anthropic API
+- OpenRouter
+
+The subtitle reads: "New assistant tabs will use this provider by default." Default: Claude Code (local).
+
+**Default Models** -- One dropdown per API provider (OpenAI, Google Gemini, Anthropic API, OpenRouter). Each lets you select which model to use by default when creating assistant tabs with that provider. Providers without API keys show their dropdowns as disabled with a tooltip "Set API key in Settings > AI Providers." OpenRouter uses a searchable dropdown component.
+
+**Shortcuts** -- A list of named prompt shortcuts. Each has:
+- A **Name** text input (e.g., "Explain", "Refactor")
+- A **Prompt** text area (e.g., "Explain the selected code in detail")
+- A delete button (X)
+- An **"+ Add shortcut"** link at the bottom
+
+These shortcuts appear as quick-access chips in the Assistant Panel.
+
+#### Changelog Settings (ScrollText icon)
+
+A panel with the heading **"Changelog"** and the subtitle: "Auto-generate changelog entries after each coding turn using an LLM provider."
+
+**Enable auto-changelog** -- A toggle switch. Off by default.
+
+When enabled, three additional controls appear:
+
+**Provider** -- A dropdown with: Google Gemini, OpenAI, Anthropic, OpenRouter.
+
+**Model** -- A dropdown listing models for the selected provider. When OpenRouter is selected, a searchable model selector appears instead.
+
+**System Prompt** -- A monospaced, resizable text area pre-filled with the default prompt that instructs the AI to output JSON with headline, description, and category fields. A small **Reset** button (with a rotate icon) in the top-right corner restores the default prompt. Below the text area: "The AI receives this as a system instruction."
+
+#### Terminal Settings (Terminal icon)
+
+A compact panel with the heading **"Terminal"** and two fields:
+
+| Setting | Control | Default |
+|---|---|---|
+| Shell | Text input (placeholder: "Default ($SHELL)") | Empty (uses system default) |
+| Font Size | Number input (range: 10--20) | 13 |
+
+#### Quick Commands Settings (Zap icon)
+
+A panel with the heading **"Quick Commands"** and the subtitle: "Commands available in the terminal toolbar for quick execution."
+
+A list of command entries, each with:
+- A **Label** text input (e.g., "Build", "Test")
+- A **Command** text input in monospace font (e.g., "pnpm build", "pnpm test")
+- A delete button (X)
+
+Default commands:
+
+| Label | Command |
+|---|---|
+| Build | `pnpm build` |
+| Test | `pnpm test` |
+| Lint | `pnpm lint` |
+| Dev | `pnpm dev` |
+
+An **"+ Add command"** link at the bottom creates a new empty entry.
+
+### How to Open / Access
+
+| Method | Action |
+|---|---|
+| Settings modal | Click the respective tab in the left sidebar: **Assistant**, **Changelog**, **Terminal**, or **Quick Commands** |
+
+### User Actions
 
 **Add an assistant shortcut**
-Click "+ Add shortcut" → Fill in a name and prompt → The shortcut appears as a pill button in the assistant panel.
+Click "+ Add shortcut" at the bottom of the Shortcuts section. Fill in a name and prompt, then Save.
 
-**Remove an assistant shortcut**
-Click the × button next to a shortcut → It is removed from the list and from the assistant panel.
+**Edit an assistant shortcut**
+Modify the name or prompt text inline. Changes take effect after clicking Save.
 
-**Enable changelog**
-Toggle the "Enable auto-changelog" switch → Configure the provider and model.
+**Delete an assistant shortcut**
+Click the X button next to any shortcut entry.
 
-**Customize the changelog prompt**
-Edit the textarea → The AI will use your custom prompt. Click "Reset" to restore the default.
+**Enable changelog generation**
+Toggle "Enable auto-changelog" on, select a provider and model, and optionally customize the system prompt. Changelog entries will be automatically generated after each coding turn that involves file modifications.
 
-**Change terminal shell**
-Type a shell path (e.g., `/bin/zsh`, `/opt/homebrew/bin/fish`) → New terminals use this shell.
+**Reset the changelog prompt**
+Click the **Reset** button (rotate icon) next to "System Prompt" to restore the default.
+
+**Set a custom shell**
+Type a shell path (e.g., `/bin/zsh`, `/usr/local/bin/fish`) into the Shell field. Leave it empty to use the system default ($SHELL).
 
 **Add a quick command**
-Click "+ Add command" → Enter a label and command → The button appears in the terminal's Quick Commands bar.
+Click "+ Add command" and fill in a label and shell command.
 
-**Remove a quick command**
-Click the × button → The command is removed from the terminal toolbar.
+**Delete a quick command**
+Click the X button next to any command entry.
 
-#### States
+### States
 
-All settings take effect immediately and persist across restarts.
+- **Default:** All fields show saved values. Changelog is disabled by default.
+- **Modified:** Changes are previewed live but require Save to persist.
 
-#### Configuration
+### Configuration
 
-All settings in these tabs are stored in the app's SQLite database.
+- **Settings path:** Settings > Assistant > Default Provider
+- **Settings path:** Settings > Assistant > Default Models > {Provider}
+- **Settings path:** Settings > Assistant > Shortcuts
+- **Settings path:** Settings > Changelog > Enable auto-changelog
+- **Settings path:** Settings > Changelog > Provider / Model / System Prompt
+- **Settings path:** Settings > Terminal > Shell / Font Size
+- **Settings path:** Settings > Quick Commands
 
-#### Tips
+### Keyboard Shortcuts
 
-1. **Quick Commands are project-agnostic.** Set them to match your most common project setup (e.g., `pnpm dev`, `cargo test`, `python manage.py runserver`).
-2. **The changelog prompt is customizable.** If you want changelog entries in a specific format (e.g., conventional commits style), edit the system prompt.
-3. **Assistant shortcuts** save you from retyping common prompts. Create shortcuts for "Review this code", "Explain this function", or "Write tests for this" to speed up your workflow.
+| Shortcut | Action |
+|---|---|
+| `Cmd ,` | Open Settings |
+
+### Tips
+
+- Create assistant shortcuts for your most common prompts ("Review this for bugs", "Write unit tests", "Explain this function") to save typing.
+- The default quick commands assume a pnpm-based project. Replace "pnpm" with "npm", "yarn", or your preferred package manager.
+- For Changelog, Gemini 2.5 Flash Lite is a low-cost default choice. Switch to a more capable model if you want richer descriptions.
 
 ---
 
-### Chapter 24: Settings — Shortcuts & API Logs
+## Chapter 29: Settings -- Shortcuts & API Logs
 
-This chapter covers the keyboard shortcuts reference and the API activity log viewer.
+The Shortcuts tab displays all keyboard shortcuts at a glance. The API Logs tab provides visibility into all AI provider API calls, their costs, and any errors.
 
-#### What You See
+### What You See
 
-##### Shortcuts Tab
+#### Shortcuts Tab (Keyboard icon)
 
-A read-only reference listing every keyboard shortcut in CodeMantis, organized by category:
+A panel with the heading **"Keyboard Shortcuts"** and categorized lists. Each entry shows the action description on the left and a styled keyboard shortcut badge on the right:
 
-**Global:**
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ N | New project from template |
-| ⌘ O | Open existing project |
-| ⌘ , | Settings |
-| ⌘ ⇧ M | MCP Servers |
-| ⌘ / | CLI Overlay |
-| ⌘ . | Toggle mode (Normal/Auto/Plan) |
-| ⌘ = | Zoom in (increase font size) |
-| ⌘ - | Zoom out (decrease font size) |
-| ⌘ 0 | Reset zoom |
-
-**Sessions:**
+**Global**
 
 | Shortcut | Action |
-|----------|--------|
-| ⌘ N | New session in current project |
-| ⌘ W | Close current session |
-| ⌘ ⇧ [ | Previous session |
-| ⌘ ⇧ ] | Next session |
-| ⌘ 1-9 | Switch to session by number |
+|---|---|
+| `Cmd Shift N` | New project from template |
+| `Cmd O` | Open existing project |
+| `Cmd ,` | Settings |
+| `Cmd Shift M` | MCP Servers |
+| `Cmd /` | CLI Overlay |
+| `Cmd .` | Toggle mode (Normal/Auto/Plan) |
+| `Cmd =` | Zoom in (increase font size) |
+| `Cmd -` | Zoom out (decrease font size) |
+| `Cmd 0` | Reset zoom |
+| `Cmd ?` | Toggle Help panel |
 
-**Panels:**
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ B | Toggle sidebar |
-| ⌘ ⇧ A | Focus activity feed |
-| ⌘ ⇧ F | Focus file viewer |
-| ⌘ ⇧ T | Focus terminal |
-| ⌘ ⇧ L | Focus changelog |
-
-**Preview:**
+**Sessions**
 
 | Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ P | Toggle Preview Window |
-| ⌘ R | Refresh preview (when focused) |
-| ⌘ ⇧ C | Toggle Console Drawer (when focused) |
+|---|---|
+| `Cmd N` | New session in current project |
+| `Cmd W` | Close current session |
+| `Cmd Shift [` | Previous session |
+| `Cmd Shift ]` | Next session |
+| `Cmd 1-9` | Switch to session by number |
 
-**SpecWriter:**
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ B | Toggle SpecWriter slide-over |
-
-**Editor:**
+**Panels**
 
 | Shortcut | Action |
-|----------|--------|
-| ⌘ S | Save file |
+|---|---|
+| `Cmd B` | Toggle sidebar |
+| `Cmd Shift A` | Focus activity feed |
+| `Cmd Shift F` | Focus file viewer |
+| `Cmd Shift T` | Focus terminal |
+| `Cmd Shift L` | Focus changelog |
 
-Each shortcut is displayed with the description on the left and the key combination in a monospace styled badge on the right.
+**Preview**
 
-##### API Logs Tab
+| Shortcut | Action |
+|---|---|
+| `Cmd Shift P` | Toggle Preview Window |
+| `Cmd R` | Refresh preview (when focused) |
+| `Cmd Shift C` | Toggle Console Drawer (when focused) |
 
-A full activity log of all API calls made by CodeMantis (for assistants, changelog, and SpecWriter — not Claude Code itself).
+**SpecWriter**
 
-**Tab switcher:**
-Two tabs: **Cost Log** and **Error Log** (with error count badge, e.g., "Error Log (3)").
+| Shortcut | Action |
+|---|---|
+| `Cmd Shift B` | Toggle SpecWriter slide-over |
 
-**Cost Log tab:**
+**Editor**
 
-*Summary card (when calls exist):*
-- **Total Cost** (large, right-aligned)
-- **Total Calls** count
-- **Per-provider breakdown**: Each provider with its cost and call count.
+| Shortcut | Action |
+|---|---|
+| `Cmd S` | Save file |
 
-*Log list:*
-Each entry shows:
-- A **status dot**: green (success) or red (error).
-- **Timestamp** (e.g., "Mar 15, 2:34 PM").
-- **Provider** name (capitalized).
-- **Model** (monospace).
-- **Token count** (input + output).
-- **Cost** (bold, right-aligned).
+#### API Logs Tab (BarChart3 icon)
 
-*Empty state:* Chart icon + "No API calls logged yet" + "Calls will appear here when API providers are used."
+A panel with the heading **"API Logs"** and a tab switcher at the top with two tabs:
 
-**Error Log tab:**
+**Cost Log** (default view) -- Shows:
 
-*Summary card (when errors exist):*
-- **Total Errors** count (in red).
-- **Per-provider breakdown** of error counts.
+1. **Cost Summary Card** (when calls exist): Total Cost (formatted), Total Calls count, and a per-provider breakdown (provider name, cost, call count).
 
-*Error list:*
-Each entry is a clickable row showing:
-- Red status dot.
-- Timestamp, provider, model.
-- Error message (red, monospace, truncated).
-- Click to expand → Full error message in a red-tinted scrollable box.
+2. **Call List**: Each row shows:
+   - A colored dot (green for success, red for failure)
+   - Timestamp
+   - Provider name
+   - Model name (monospaced)
+   - Total tokens
+   - Cost amount
+   - A copy button (appears on hover) that copies the entry details to clipboard
 
-*Empty state:* Warning triangle icon + "No errors logged" + "API errors will appear here when they occur."
+3. Empty state: A bar-chart icon with "No API calls logged yet" and "Calls will appear here when API providers are used."
 
-**Footer note:** "Logs older than 5 days are automatically deleted."
+**Error Log** -- Shows:
 
-#### How to Open / Access
+1. **Error Summary Card** (when errors exist): Total Errors count (in red) and per-provider error breakdown.
 
-Settings → **Shortcuts** tab or **API Logs** tab.
+2. **Error List**: Each row is clickable and shows:
+   - A red dot
+   - Timestamp
+   - Provider name
+   - Model name
+   - Error message (truncated, in red monospace)
+   - A copy button
 
-#### User Actions
+   Clicking an error row expands an inline detail panel showing the full error message in red monospace text, with its own copy button.
 
-**View keyboard shortcuts**
-Open Settings → Shortcuts tab → Browse the complete list organized by category.
+3. Empty state: A warning icon with "No errors logged" and "API errors will appear here when they occur."
 
-**View API cost history**
-Open Settings → API Logs tab → The Cost Log shows every API call with timestamps, providers, models, token counts, and costs.
+Below both tabs: "Logs older than 5 days are automatically deleted."
 
-**View API errors**
-Switch to the Error Log tab → Click an error entry to expand and see the full error message.
+**Diagnostics** section at the bottom:
+- **Copy Log Path** button -- copies `~/Library/Logs/dev.codemantis.myapp/codemantis.log` to clipboard
+- **Open in Finder** button -- reveals the log file in Finder
+- The log file path displayed in monospace text
 
-#### States
+### How to Open / Access
 
-- **API Logs loading:** "Loading..." text.
-- **Cost Log empty:** "No API calls logged yet."
-- **Error Log empty:** "No errors logged."
-- **Populated:** Scrollable list of log entries with summary card.
+| Method | Action |
+|---|---|
+| Settings modal | Click **"Shortcuts"** (Keyboard icon) or **"API Logs"** (BarChart3 icon) in the left sidebar |
 
-#### Configuration
+### User Actions
 
-Logs are stored in the app's SQLite database. Logs older than 5 days are automatically cleaned up when the API Logs tab is opened.
+**View the shortcut reference**
+Open Settings > Shortcuts. All shortcuts are displayed in a read-only reference list.
 
-#### Tips
+**View API cost breakdown**
+Open Settings > API Logs > Cost Log. The summary card shows your total spend and per-provider totals.
 
-1. **The Shortcuts tab is a quick reference** — open it anytime you forget a keyboard shortcut (⌘, → Shortcuts).
-2. **Use API Logs to track spending** across all AI providers. The summary card gives you a quick overview of total cost and per-provider breakdown.
-3. **Check the Error Log** when an assistant or changelog isn't working — it shows the exact API error message, which is usually the fastest way to diagnose issues (expired keys, rate limits, invalid models).
+**Inspect an API error**
+Switch to the Error Log tab and click any error row to expand its full error message.
+
+**Copy a log entry**
+Hover over any row in the Cost Log or Error Log and click the copy icon. The entry details are copied to your clipboard. A brief checkmark animation confirms the copy.
+
+**Access diagnostic logs**
+Click "Copy Log Path" to get the filesystem path, or "Open in Finder" to navigate directly to the app's log file.
+
+### States
+
+- **Loading:** "Loading..." text while API logs are fetched from the database.
+- **Empty:** Placeholder graphics when no calls or errors have been logged.
+- **Populated:** Summary card and scrollable list of entries.
+
+### Configuration
+
+No configuration options -- this tab is read-only. Log cleanup (5-day retention) happens automatically when the tab loads.
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd ,` | Open Settings |
+
+### Tips
+
+- Check the API Logs tab periodically to understand how much you are spending on Assistant and Changelog API calls.
+- The Error Log is the first place to look if an Assistant response or Changelog generation fails unexpectedly.
+- The diagnostic log file path is useful when reporting bugs -- attach the log file to help developers diagnose issues.
 
 ---
 
-## Part VII: Context & Status
+# Part VII: Context & Status
 
 ---
 
-### Chapter 25: Context Meter & Token Management
+## Chapter 30: Context Meter & Token Management
 
-The Context Meter shows how much of Claude's context window has been used in the current session. It helps you understand when a conversation is getting long and when you might want to start a new session.
+The Context Meter tracks how much of Claude's context window your current session has consumed. It helps you understand when to start a new session or run `/compact` to free up space.
 
-#### What You See
+### What You See
 
-The Context Meter sits at the very bottom of the left sidebar, below the Git Status card.
+The Context Meter is pinned to the very bottom of the sidebar, below the Git Status Card. It displays:
 
-**Session stats (top line, when turns exist):**
-- **Turn count** + **total tokens** (e.g., "5 turns / 12.3K tok")
-- **Total cost** (right-aligned, monospace, e.g., "$0.42") — only shown when cost is greater than zero.
+**Session summary line** (when at least one turn has been completed):
+- Left side: Turn count and total tokens (e.g., "3 turns / 45K tok")
+- Right side: Cumulative estimated cost (e.g., "$0.12")
 
-**Context bar (below stats):**
-- **Label:** "CONTEXT" (uppercase, small, dim, left side)
-- **Usage text:** "{used} / {max}" (right side, e.g., "245K / 1M")
-- **Progress bar:** A thin horizontal bar (4px) that fills from left to right:
-  - **Accent color** (purple): 0-70% usage — normal.
-  - **Yellow**: 70-90% usage — getting full.
-  - **Red**: 90-100% usage — nearly full, Claude may start forgetting earlier messages.
+**Context bar:**
+- A label "CONTEXT" on the left (uppercase, small text)
+- A fraction on the right (e.g., "125K / 1M")
+- A thin horizontal progress bar that fills from left to right
 
-Token counts are formatted for readability: values over 1M show as "1.2M", values over 1000 show as "245K", smaller values show as-is.
+The progress bar changes color based on usage:
+- **Accent color** (blue/theme-dependent): 0--70% usage
+- **Yellow**: 71--90% usage
+- **Red**: 91--100% usage
 
-**Turn Stats Popover (in the chat panel):**
-After each assistant message, a small clickable badge shows the turn's total tokens and cost. Click it to open a detailed popover:
+#### Turn Stats Popover
+
+Each assistant message in the chat panel shows a small bar-chart icon button displaying the turn's token count and cost (e.g., "12.5K tokens $0.03"). Clicking this button opens a **Turn Stats Popover** -- a 260px floating panel showing:
 
 | Field | Description |
-|-------|-------------|
-| Duration | Total time for this turn |
-| API time | Time spent in API calls only |
-| API calls | Number of API calls in this turn |
-| Cost | USD cost for this turn |
-| Input tokens | Tokens in the prompt |
-| Output tokens | Tokens in the response |
-| Cache read | Tokens read from cache |
-| Cache write | Tokens written to cache |
-| Total tokens | Sum of all token types |
+|---|---|
+| Duration | Wall-clock time for the turn |
+| API time | Time spent waiting for API responses |
+| API calls | Number of individual API calls within the turn |
+| Cost | Estimated cost of this turn |
+| Input tokens | Tokens sent to Claude |
+| Output tokens | Tokens generated by Claude |
+| Cache read | Tokens served from prompt cache |
+| Cache write | Tokens added to prompt cache |
+| Total tokens | Sum of all token categories |
 
-The popover has a divider separating timing/cost info from the token breakdown. Click outside to close it.
+Fields with zero values are hidden to keep the popover compact. Click outside or press `Escape` to close.
 
-#### How to Open / Access
+### How to Open / Access
 
-- The Context Meter is always visible at the bottom of the sidebar.
-- Turn Stats Popovers appear below each completed assistant message in the chat.
+The Context Meter is always visible at the bottom of the sidebar. The Turn Stats Popover appears on each assistant message bubble.
 
-#### User Actions
+### Context Threshold Warnings
 
-**Check context usage**
-Glance at the Context Meter progress bar → Accent = plenty of room, yellow = getting full, red = nearly full.
+CodeMantis monitors context usage and fires toast notifications at critical thresholds:
 
-**View detailed turn stats**
-Click the token/cost badge below any assistant message → The popover opens with a full breakdown of tokens, cost, and duration. Click outside to dismiss.
+| Threshold | Toast Message | Duration |
+|---|---|---|
+| 80% | "Context window is 80% full. Consider running /compact to free space." | 10 seconds |
+| 95% | "Context window is 95% full. Run /compact to free space before the session stalls." | 15 seconds |
 
-#### States
+Each threshold fires only once per session -- you will not be repeatedly warned about the same level.
 
-- **Empty session (no turns):** Only the "CONTEXT" label and empty progress bar are shown. No stats line.
-- **Active session:** Stats line shows turn count, tokens, and cost. Progress bar fills based on usage.
-- **High usage (70-90%):** Progress bar turns yellow. The Session Status Bar also shows context percentage in yellow.
-- **Critical usage (90%+):** Progress bar turns red. The Session Status Bar shows context percentage in red. Claude may begin losing context of earlier messages.
+### Session Status Bar
 
-#### Configuration
+At the bottom of the chat panel, a thin status bar shows real-time session information from left to right:
 
-| Setting | Location | Description |
-|---------|----------|-------------|
-| Default context window | Settings → General | Fallback context size: 200K or 1M. Used when the CLI doesn't report the actual value. |
+- **Status indicator:** A small colored dot (green pulsing = busy, yellow pulsing = compacting, gray = idle) followed by the status label ("Busy", "Compacting", or "Idle")
+- **Elapsed time** (when busy): Duration since the current operation started
+- **Activity detail** (when busy): What Claude is currently doing (e.g., "Editing settings.ts", "Running command...", "2 agents")
+- **Agent tokens** (when sub-agents are active): Token count consumed by sub-agents
+- **Mode icon** (when applicable): Green shield for Auto-Accept mode, yellow map icon for Plan mode
+- **Model name:** The active model (e.g., "Sonnet 4.6")
+- **Turn count:** Number of completed turns
+- **Rate limit utilization** (when above 50%): "RL 75%" -- shows how close you are to the API rate limit. Turns yellow at 80%.
+- **Session tokens:** Total tokens consumed
+- **Session cost:** Cumulative cost
+- **Context percentage:** "ctx 45%" -- colored based on thresholds (gray < 70%, yellow 70--90%, red > 90%)
 
-#### Keyboard Shortcuts
+### Default Context Window
 
-None — the Context Meter is informational only.
+The default context window size is configurable in Settings > General > Default context window. Choose between:
+- **200K** (200,000 tokens) -- standard Claude Pro plans
+- **1M** (1,000,000 tokens) -- Claude Max plans with extended context
 
-#### Tips
+This value is used as a fallback when the CLI does not report the actual context window size. CodeMantis also attempts to infer the correct size from the model name.
 
-1. **Start a new session** when context usage exceeds 80%. Claude becomes less effective at recalling earlier conversation details as the context fills up.
-2. **Use `/compact`** to reduce token usage by summarizing earlier conversation history — this can free up context without starting a new session.
-3. **The turn stats popover** is useful for understanding which messages consumed the most tokens — large code outputs or long conversations can fill context quickly.
+### Managing Context
+
+When context usage gets high:
+1. Type `/compact` in the chat input to ask Claude to compress the conversation history
+2. Start a new session (`Cmd N`) for a fresh context window
+3. The session status bar and context meter will update in real time as context is freed
+
+### Configuration
+
+- **Settings path:** Settings > General > Default context window
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd N` | New session (fresh context) |
+
+### Tips
+
+- Keep an eye on the Context Meter color. When it turns yellow, plan to wrap up your current line of work or run `/compact`.
+- The Turn Stats Popover is useful for understanding which turns consume the most tokens -- turns with many file reads or large code blocks will be heavier.
+- For long-running tasks, the 1M context window setting gives you significantly more room before needing to compact or start fresh.
 
 ---
 
-### Chapter 26: Error Recovery & Troubleshooting
+## Chapter 31: Error Recovery & Troubleshooting
 
-CodeMantis is designed to handle errors gracefully. This chapter covers every error state you might encounter and how to recover from each one.
+This chapter covers how CodeMantis handles errors, rate limits, stale connections, and other edge cases -- and what you can do when things go wrong.
 
-#### What You See
+### Rate Limiting
 
-##### Session Status Bar Indicators
+**What happens:** When the Claude API returns a rate limit error (HTTP 429 or similar), CodeMantis automatically retries with exponential backoff.
 
-The Session Status Bar at the bottom of the chat panel (see Chapter 4) shows several indicators that help diagnose issues:
+**What you see:**
+- A message appears in the chat: "**Rate limited.** Retrying in {N}s (attempt {X}/3)..."
+- A toast notification: "Rate limited -- retrying in {N}s"
+- The retry delays escalate: 30 seconds, then 60 seconds, then 120 seconds
 
-- **Status**: "Idle" (gray dot), "Busy" (pulsing green dot), or "Compacting" (pulsing yellow dot).
-- **Rate limit utilization**: "RL XX%" appears when rate limit usage exceeds 50%. Turns yellow at 80%.
-- **Context percentage**: "ctx XX%" with color coding (normal, yellow at 70%, red at 90%).
-- **Mode icon**: Shield (Normal), ShieldCheck (Auto-Accept), Map (Plan).
+**Behavior:**
+- Up to 3 retry attempts are made automatically
+- Each retry re-sends the last user message
+- After 3 failed attempts, a "Restart" button appears on the error message, allowing you to manually retry
+- The rate limit utilization percentage is shown in the status bar ("RL 75%") when above 50%, turning yellow at 80%
 
-##### Confirm Close Modal
+### Stale Connection Detection
 
-When closing a session or project, a confirmation dialog appears:
+**What happens:** If a session is marked as busy but no events are received for an extended period, CodeMantis uses progressive stale connection detection.
 
-- **Close session:** Title: "Close session '{name}'?" Description: "The Claude CLI process will be stopped."
-- **Close project:** Title: "Close project '{name}'?" Description: "All N sessions and their CLI processes will be stopped."
-- Buttons: **Cancel** (secondary) / **Close** (red).
-- Keyboard: Enter = Close, Escape = Cancel.
+**What you see:**
+- After ~2 minutes of silence: Toast notification "No events for {N}m -- Claude may be working on a complex task"
+- After continued silence: "Still no events after {N}m -- process is alive, likely deep in analysis"
+- Periodic reminders every ~45 seconds: "No events for {N}m -- process still running"
 
-##### Plan Complete Modal
+**Behind the scenes:** A shared timer checks all active sessions every 15 seconds. If a session has been silent for more than 120 seconds and is not actively streaming text, the app checks whether the CLI process is still alive. If the process has died:
+- The session is marked as idle
+- A recovery message appears: "**Session ended.** The Claude Code process exited without a completion signal. Your work is saved. You can send a new message to continue."
+- A toast: "Session recovered -- process had ended"
 
-When a Plan mode conversation finishes, a dialog appears:
+### Session Crashes and Process Exits
 
-- **Title:** "Plan Complete"
-- **Description:** "Claude has finished planning. Ready to implement?"
-- **Auto-Accept toggle:** A checkbox labeled "Enable Auto-Accept" with description "Approve all tool calls automatically during implementation."
-- **Buttons:** "Later" (secondary) / "Implement Now" (primary accent).
-- Keyboard: Enter = Implement Now.
+**Non-zero exit codes:** When the CLI process exits with an error code, CodeMantis analyzes the stderr output to provide helpful messages:
 
-Clicking "Implement Now" sends "Go ahead, implement the plan." to Claude and optionally switches to Auto-Accept mode.
+- **Authentication failure** (detected by keywords like "auth", "token", "expired", "401"): A message instructs you to run `claude login` in a terminal, with a "Restart" button.
+- **Rate limit** (detected by "429", "rate limit"): Auto-retry behavior described above.
+- **Other errors:** The error is translated into a user-friendly message with a title, explanation, and remediation suggestion. The raw stderr is included in a code block for debugging.
 
-##### Error Toast Notifications
+**Clean exit (code 0):** No error message is shown.
 
-Errors throughout the app are surfaced as toast notifications — small temporary messages that appear at the top of the screen. They show the error message in red and automatically dismiss after a few seconds.
+All error messages that indicate a recoverable situation include a **Restart** button, allowing you to re-establish the session.
 
-##### Session Crash Recovery
+### Session Compacting
 
-If a Claude Code session crashes:
-- The last assistant message displays a **"Restart Session"** button (blue, with a refresh icon).
-- Click it to start a new Claude Code process for the same project.
-- Your files are untouched — only the conversation state is affected.
+**What you see:** When Claude is compacting the conversation to free context space:
+- The status bar shows "Compacting" with a yellow pulsing dot
+- The status bar label turns yellow
+- Once complete, the status returns to "Idle" or "Busy" as appropriate
 
-##### API Error Recovery
+### Plan Complete Modal
 
-If an API error occurs during a Claude response:
-- The error message displays a **"Retry"** button (blue, with a refresh icon).
-- Click it to retry the failed request.
+**When it appears:** After Claude finishes generating a plan in Plan mode.
 
-##### Rate Limiting
+**What you see:** A modal dialog with:
+- A green clipboard-check icon
+- Title: **"Plan Complete"**
+- Subtitle: "Claude has finished planning. Ready to implement?"
+- An **"Enable Auto-Accept"** checkbox: "Approve all tool calls automatically during implementation"
+- Two buttons: **"Later"** (dismisses the modal) and **"Implement Now"** (sends "Go ahead, implement the plan." to Claude)
 
-When you hit Claude's rate limit:
-- The Session Status Bar shows "RL XX%" in yellow (at 80%+).
-- Claude Code handles rate limiting internally with automatic retries and backoff.
-- A countdown may appear in the chat while waiting for the rate limit to reset.
+**Keyboard:** Press `Enter` to implement, `Escape` to dismiss.
 
-##### Stale Connection Detection
+If Auto-Accept is checked before clicking "Implement Now," the session mode switches to Auto-Accept for the implementation phase.
 
-If no events arrive from Claude for 30+ seconds while a session is marked as busy:
-- The project tab dot turns solid yellow (instead of pulsing green).
-- This indicates the session may be unresponsive — consider closing and restarting it.
+### Confirm Close Modal
 
-#### How to Open / Access
+**When it appears:** When you try to close a session or project that has an active CLI process.
 
-Error states appear automatically when issues occur. No manual navigation required.
+**What you see:** A modal with a yellow warning icon and:
+- For sessions: "Close session '{name}'? The Claude CLI process will be stopped."
+- For projects: "Close project '{name}'? All {N} sessions and their CLI processes will be stopped."
+- Two buttons: **"Cancel"** and **"Close"** (red)
 
-#### User Actions
+**Keyboard:** `Enter` confirms close, `Escape` cancels.
 
-**Restart a crashed session**
-Click the **"Restart Session"** button on the crash message → A new Claude CLI process starts for this project. The previous conversation is gone, but your files remain unchanged.
+### Auto-Update System
 
-**Retry after an API error**
-Click the **"Retry"** button on the error message → The failed request is retried.
+**When it appears:** Automatically on launch (if an update is available) or when you click "Check Now" in Settings > General.
 
-**Handle rate limiting**
-Wait for the rate limit to reset (usually 1-5 minutes). The status bar shows the current utilization. Claude Code automatically retries once the limit clears.
+**What you see:** The Update Modal showing:
+- A download icon and title: **"Update available"** with "CodeMantis v{new version}"
+- Release notes in a scrollable area (up to ~128px tall)
+- Two buttons: **"Later"** (dismisses) and **"Update & Restart"** (starts download)
 
-**Confirm or cancel closing**
-In the Confirm Close dialog: Click **Close** or press Enter to confirm. Click **Cancel** or press Escape to keep the session/project open.
+**During download:**
+- The modal shows a progress bar with percentage (0--100%)
+- Status text: "Downloading..." then "Installing..." then "Restarting..."
+- The close button and "Later" button are hidden -- you cannot dismiss the modal during download
 
-**Implement a completed plan**
-In the Plan Complete dialog: Optionally check "Enable Auto-Accept" → Click **"Implement Now"** or press Enter. Or click **"Later"** to dismiss and implement manually.
+**On completion:** The progress bar turns green, status shows "Restarting...", and the app relaunches after a brief pause.
 
-**Recover from a stale session**
-If the project tab shows a solid yellow dot for an extended period: Close the session (⌘W → confirm) and create a new one (⌘N). You can resume the conversation from the History tab (see Chapter 8).
+**On failure:** A red error message appears: "Update failed: {error details}" and the buttons reappear so you can try again or dismiss.
 
-#### States
+### Image Preview Modal
 
-- **Healthy:** Green pulsing dot (busy) or gray dot (idle). Normal operation.
-- **Compacting:** Yellow pulsing dot. Claude is compacting context — temporary, resolves automatically.
-- **Rate limited:** "RL XX%" in the status bar. Automatic retry in progress.
-- **Stale:** Solid yellow dot on project tab. No events for 30+ seconds.
-- **Crashed:** "Restart Session" button on the last message. Session terminated.
-- **API error:** "Retry" button on the error message. Single request failed.
+**When it appears:** When you click on an image attachment or preview in the app.
 
-#### Configuration
+**What you see:** A full-screen overlay with the image centered and scaled to fit the window (maximum height: viewport minus 4rem). A dark overlay bar at the bottom of the image shows the filename and file size (formatted as B/KB/MB). A close button (X) sits at the right end of the bar.
 
-No user-configurable error handling settings. Error behavior is built into the app.
+**How to close:** Click the X button, click anywhere outside the image, or press `Escape`.
 
-#### Data Safety
+### External Link Guard
 
-- **Your files are never at risk.** If CodeMantis crashes or a session dies, your project files remain exactly as they were at the last edit.
-- **Sessions are preserved server-side.** Closed sessions can be resumed from the History tab (see Chapter 8) because the conversation history lives on Claude's servers.
-- **The database is backed up automatically.** Before the app starts, `codemantis.db` is copied to `codemantis.db.backup`.
-- **App data location:** `~/Library/Application Support/dev.codemantis.app/`
+All external links (http, https, mailto) clicked within CodeMantis are intercepted and opened in your default system browser instead of navigating the app's webview. This prevents accidentally leaving the app. Links to localhost, 127.0.0.1, and internal Tauri URLs are allowed to navigate normally.
 
-#### Tips
+### Data Safety
 
-1. **Don't panic on crashes.** Your project files are always safe. Just click "Restart Session" and continue where you left off — or resume from History.
-2. **If a session feels stuck** (solid yellow dot for 30+ seconds), close it and start a new one. You can resume the previous conversation from the History tab.
-3. **Rate limiting is normal** on heavy usage. The app handles it automatically with retries — just wait a moment and it will resume.
+**Database location:** `~/Library/Application Support/dev.codemantis.myapp/codemantis.db`
+
+**Automatic backup:** Before every app launch, the database file is copied to `codemantis.db.backup` in the same directory. This happens before any database migrations run, ensuring you have a rollback point if a migration fails.
+
+**Log file:** `~/Library/Logs/dev.codemantis.myapp/codemantis.log` -- accessible via Settings > API Logs > Diagnostics.
+
+### Troubleshooting Quick Reference
+
+| Problem | Solution |
+|---|---|
+| "Authentication failed" | Run `claude login` in a terminal, then start a new session |
+| Rate limited | Wait for auto-retry (up to 3 attempts), or start a new session |
+| Session appears stuck | Wait for stale detection (2 minutes). If the process died, a recovery message appears automatically |
+| Context window full | Run `/compact` in chat, or start a new session with `Cmd N` |
+| Update failed | Dismiss the modal and try again later, or download the latest version from the website |
+| API provider not working | Go to Settings > AI Providers and use the "Test" button to verify your key |
+| File tree not updating | Click the refresh button in the sidebar header, or wait for auto-refresh |
+| Terminal not responding | Check Settings > Terminal for the correct shell path |
+
+### Configuration
+
+- **Settings path:** Settings > General > Check for updates
+- **Storage path:** `~/Library/Application Support/dev.codemantis.myapp/`
+- **Log path:** `~/Library/Logs/dev.codemantis.myapp/codemantis.log`
+
+### Tips
+
+- If you encounter persistent rate limiting, try switching to a different time of day or upgrading your Claude plan for higher rate limits.
+- The automatic database backup means you can safely update CodeMantis without worrying about losing your settings or session history. If something goes wrong, the `.backup` file is your safety net.
+- When reporting bugs, always include the diagnostic log file (Settings > API Logs > Diagnostics > "Open in Finder") -- it contains detailed error information that helps developers identify and fix issues quickly.

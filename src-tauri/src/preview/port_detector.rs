@@ -76,19 +76,26 @@ pub fn scan_for_dev_server_url(line: &str) -> Option<(u16, String)> {
 }
 
 /// Probe a port to check if an HTTP server is listening.
+///
+/// Uses `127.0.0.1` instead of `localhost` to avoid IPv6 resolution issues
+/// on macOS where `localhost` may resolve to `::1` first, causing timeouts
+/// when the dev server only binds to IPv4 (`0.0.0.0`).
 pub async fn probe_port(port: u16) -> bool {
-    let url = format!("http://localhost:{}", port);
+    let url = format!("http://127.0.0.1:{}", port);
     match reqwest::Client::new()
         .head(&url)
         .timeout(std::time::Duration::from_secs(2))
         .send()
         .await
     {
-        Ok(_) => {
-            debug!("Port {} is responding to HTTP", port);
+        Ok(resp) => {
+            debug!("Port {} is responding to HTTP (status: {})", port, resp.status());
             true
         }
-        Err(_) => false,
+        Err(e) => {
+            debug!("Port {} probe failed: {}", port, e);
+            false
+        }
     }
 }
 

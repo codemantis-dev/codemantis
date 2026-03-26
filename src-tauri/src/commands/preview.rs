@@ -603,6 +603,22 @@ pub async fn start_dev_server(
         }
     }
 
+    // Clean up stale dev server state from a previous failed attempt.
+    // This ensures the old terminal is closed and any orphaned child
+    // processes are cleaned up before we create a new one.
+    {
+        let mut servers = preview_state.dev_servers.lock().await;
+        if let Some(old_info) = servers.remove(&project_path) {
+            info!(
+                "[preview] Cleaning up stale dev server for {} (status: {:?}, terminal: {})",
+                project_path, old_info.status, old_info.terminal_id
+            );
+            terminal_pool
+                .close_all_for_session(&old_info.synthetic_session_id)
+                .await;
+        }
+    }
+
     // Create a synthetic session ID for the dev server
     let hash = {
         use std::collections::hash_map::DefaultHasher;
@@ -665,6 +681,10 @@ pub async fn start_dev_server(
     let unlisten_ah = app_handle.clone();
 
     tokio::spawn(async move {
+        info!(
+            "[preview] Port detection task started for {} (terminal: {}, expected_port: {:?})",
+            output_pp, output_tid, expected_port
+        );
         let event_name = format!("terminal-output-{}", output_tid);
 
         // Use a channel to collect terminal output
@@ -708,22 +728,41 @@ pub async fn start_dev_server(
                             }
                             info!("Dev server candidate on port {} for {}, verifying...", port, output_pp);
 
-                            // Wait briefly for the process to stabilize — some frameworks
-                            // (e.g. fumadocs-mdx) start a dev server, output the URL, then
-                            // detect a conflicting instance and exit. Without this check the
-                            // preview window would open to a dead port.
-                            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                            // Probe the port with retries — some frameworks (Next.js
+                            // Turbopack, fumadocs-mdx) print the URL before they actually
+                            // accept HTTP connections.  Under heavy system load the gap
+                            // can exceed 3 seconds. We retry up to 4 times with increasing
+                            // delays (total ~7 s max per detected port) while the overall
+                            // 30 s deadline still applies as the hard ceiling.
+                            let probe_delays_ms: &[u64] = &[1000, 1500, 2000, 2500];
+                            let mut probe_succeeded = false;
 
-                            // Guard: project may have been closed during the stabilization wait
-                            if project_removed().await {
-                                debug!("Project {} was closed during port verification, skipping emit", output_pp);
-                                unlisten_ah.unlisten(listener_id);
-                                return;
+                            for (attempt, &delay_ms) in probe_delays_ms.iter().enumerate() {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+                                // Guard: project may have been closed during the wait
+                                if project_removed().await {
+                                    debug!("Project {} was closed during port verification, skipping emit", output_pp);
+                                    unlisten_ah.unlisten(listener_id);
+                                    return;
+                                }
+
+                                if port_detector::probe_port(port).await {
+                                    probe_succeeded = true;
+                                    break;
+                                }
+
+                                info!(
+                                    "[preview] Port {} probe attempt {}/{} failed for {}, retrying...",
+                                    port, attempt + 1, probe_delays_ms.len(), output_pp
+                                );
                             }
 
-                            // Probe the port to confirm the server is actually responding
-                            if !port_detector::probe_port(port).await {
-                                warn!("Dev server on port {} for {} failed probe after detection, continuing scan", port, output_pp);
+                            if !probe_succeeded {
+                                warn!(
+                                    "Dev server on port {} for {} failed all {} probe attempts, continuing scan",
+                                    port, output_pp, probe_delays_ms.len()
+                                );
                                 continue;
                             }
 
@@ -747,8 +786,14 @@ pub async fn start_dev_server(
                         }
                     }
                 }
-                Ok(None) => break false,
-                Err(_) => break false, // timeout
+                Ok(None) => {
+                    info!("[preview] Terminal output channel closed for {} before port detected", output_pp);
+                    break false;
+                }
+                Err(_) => {
+                    warn!("[preview] Port detection timed out after 30s for {}", output_pp);
+                    break false;
+                }
             }
         };
 
@@ -812,7 +857,7 @@ pub async fn start_dev_server(
             return;
         }
 
-        warn!("Failed to detect dev server port for {}", output_pp);
+        warn!("Failed to detect dev server port for {} (terminal: {})", output_pp, output_tid);
         {
             let mut servers = dev_servers.lock().await;
             if let Some(info) = servers.get_mut(&output_pp) {
