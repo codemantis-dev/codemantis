@@ -68,7 +68,7 @@ describe("SpecChatInput", () => {
       planningStreaming: new Map([[PROJECT_PATH, true]]),
     });
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
-    expect(screen.getByTitle("Stop generation")).toBeInTheDocument();
+    expect(screen.getByTitle("Stop generation (Esc)")).toBeInTheDocument();
   });
 
   it("calls cancelStream when stop button clicked", () => {
@@ -76,7 +76,7 @@ describe("SpecChatInput", () => {
       planningStreaming: new Map([[PROJECT_PATH, true]]),
     });
     render(<SpecChatInput projectPath={PROJECT_PATH} />);
-    fireEvent.click(screen.getByTitle("Stop generation"));
+    fireEvent.click(screen.getByTitle("Stop generation (Esc)"));
     expect(mockCancelStream).toHaveBeenCalledWith(PROJECT_PATH);
   });
 

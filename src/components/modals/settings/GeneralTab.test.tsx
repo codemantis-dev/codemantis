@@ -11,7 +11,8 @@ vi.mock("../../../lib/tauri-commands", () => ({
   checkForUpdates: vi.fn(() => Promise.resolve(null)),
 }));
 
-vi.mock("../../../types/settings", () => ({
+vi.mock("../../../types/settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../types/settings")>()),
   THEMES: [
     { id: "midnight", label: "Midnight", isDark: true },
     { id: "ocean", label: "Ocean", isDark: true },
