@@ -1,5 +1,15 @@
 # CodeMantis Releases
 
+## 0.9.2
+
+- Persist right-panel subviews and add uiStore coverage
+- Default-expand reasoning panel content
+- Auto-focus chat inputs and polish assistant/spec send-stop controls
+- Add tab tooltips and Esc-to-stop for SpecWriter streaming
+- Preview loading modal and more resilient startup polling
+- Expand user guide; fix preview dev server retry and cleanup
+- Add reasoning panel and spec writer guide screenshots
+
 ## 0.9.1
 
 - Persist session chat logs with retention and restore on resume
