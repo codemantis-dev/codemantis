@@ -316,66 +316,77 @@ pub async fn open_preview_window(
             if let Err(e) = preview_win.eval(action_drain_js) {
                 debug!("[preview] Action drain eval failed: {}", e);
             } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-                if let Ok(title) = preview_win.title() {
-                    if let Some(json_str) = title.strip_prefix("__CM_ACTIONS__") {
-                        // Restore the original title immediately
-                        let _ = preview_win.eval(r#"
-                            (function() {
-                                if (window.__CM_TITLE_BEFORE_ACTION !== undefined) {
-                                    document.title = window.__CM_TITLE_BEFORE_ACTION;
-                                    delete window.__CM_TITLE_BEFORE_ACTION;
-                                }
-                            })();
-                        "#);
+                // Read the title with retries — document.title → NSWindow title
+                // propagation is async on macOS (WKWebView → KVO → NSWindow).
+                // A single 20ms delay is often too short, especially under load.
+                let mut actions_found = false;
+                for attempt in 0..3u8 {
+                    let delay = if attempt == 0 { 100 } else { 150 };
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    if let Ok(title) = preview_win.title() {
+                        if let Some(json_str) = title.strip_prefix("__CM_ACTIONS__") {
+                            // Restore the original title immediately
+                            let _ = preview_win.eval(r#"
+                                (function() {
+                                    if (window.__CM_TITLE_BEFORE_ACTION !== undefined) {
+                                        document.title = window.__CM_TITLE_BEFORE_ACTION;
+                                        delete window.__CM_TITLE_BEFORE_ACTION;
+                                    }
+                                })();
+                            "#);
 
-                        if let Ok(actions) = serde_json::from_str::<Vec<ToolbarAction>>(json_str) {
-                            for action in actions {
-                                info!("[preview] Toolbar action: {}", action.action);
-                                match action.action.as_str() {
-                                    "screenshot" => {
-                                        match capture_screenshot_inner(&poll_ah) {
-                                            Ok(path) => {
-                                                info!("[preview] Screenshot captured: {}", path);
-                                                if let Err(e) = poll_ah.emit("preview-screenshot-taken", path) {
-                                                    warn!("[preview] Failed to emit screenshot event: {}", e);
+                            if let Ok(actions) = serde_json::from_str::<Vec<ToolbarAction>>(json_str) {
+                                for action in actions {
+                                    info!("[preview] Toolbar action: {}", action.action);
+                                    match action.action.as_str() {
+                                        "screenshot" => {
+                                            match capture_screenshot_inner(&poll_ah) {
+                                                Ok(path) => {
+                                                    info!("[preview] Screenshot captured: {}", path);
+                                                    if let Err(e) = poll_ah.emit("preview-screenshot-taken", path) {
+                                                        warn!("[preview] Failed to emit screenshot event: {}", e);
+                                                    }
+                                                }
+                                                Err(e) => warn!("[preview] Screenshot failed: {}", e),
+                                            }
+                                        }
+                                        "close" => {
+                                            // window.close() in JS provides immediate feedback;
+                                            // this is a belt-and-suspenders close from Rust.
+                                            if let Some(win) = poll_ah.get_webview_window("preview") {
+                                                let _ = win.close();
+                                            }
+                                        }
+                                        "open" => {
+                                            if let Some(url_str) = &action.url {
+                                                match Url::parse(url_str) {
+                                                    Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {
+                                                        info!("[preview] Opening in browser: {}", url.as_str());
+                                                        let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
+                                                    }
+                                                    _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
                                                 }
                                             }
-                                            Err(e) => warn!("[preview] Screenshot failed: {}", e),
                                         }
-                                    }
-                                    "close" => {
-                                        // window.close() in JS provides immediate feedback;
-                                        // this is a belt-and-suspenders close from Rust.
-                                        if let Some(win) = poll_ah.get_webview_window("preview") {
-                                            let _ = win.close();
-                                        }
-                                    }
-                                    "open" => {
-                                        if let Some(url_str) = &action.url {
-                                            match Url::parse(url_str) {
-                                                Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {
-                                                    info!("[preview] Opening in browser: {}", url.as_str());
-                                                    let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
+                                        "console_to_chat" => {
+                                            if let Some(logs) = &action.logs {
+                                                info!("[preview] Sending console logs to chat ({} bytes)", logs.len());
+                                                if let Err(e) = poll_ah.emit("preview-console-to-chat", logs.clone()) {
+                                                    warn!("[preview] Failed to emit console-to-chat: {}", e);
                                                 }
-                                                _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
                                             }
                                         }
+                                        other => debug!("[preview] Unknown toolbar action: {}", other),
                                     }
-                                    "console_to_chat" => {
-                                        if let Some(logs) = &action.logs {
-                                            info!("[preview] Sending console logs to chat ({} bytes)", logs.len());
-                                            if let Err(e) = poll_ah.emit("preview-console-to-chat", logs.clone()) {
-                                                warn!("[preview] Failed to emit console-to-chat: {}", e);
-                                            }
-                                        }
-                                    }
-                                    other => debug!("[preview] Unknown toolbar action: {}", other),
                                 }
                             }
+                            actions_found = true;
+                            break;
                         }
-                        continue; // skip console drain this iteration to avoid title conflicts
                     }
+                }
+                if actions_found {
+                    continue; // skip console drain this iteration to avoid title conflicts
                 }
             }
 
@@ -435,8 +446,9 @@ pub async fn open_preview_window(
                 continue;
             }
 
-            // Small delay to let the JS execute
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            // Delay to let the JS execute — needs enough time for WKWebView
+            // to run the eval and update internal state.
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
             // Step 2: Move pending data into document.title temporarily so Rust can read it
             let title_js = r#"
@@ -454,8 +466,8 @@ pub async fn open_preview_window(
                 continue;
             }
 
-            // Small delay for title to update
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            // Delay for document.title → NSWindow title propagation
+            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
             // Step 3: Read the title from Rust side
             match preview_win.title() {

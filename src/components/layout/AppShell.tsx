@@ -17,6 +17,7 @@ import RightPanel from "../rightpanel/RightPanel";
 import InputArea from "../input/InputArea";
 import ConfirmCloseModal from "../modals/ConfirmCloseModal";
 import PreviewUrlDialog from "../modals/PreviewUrlDialog";
+import PreviewLoadingModal from "../modals/PreviewLoadingModal";
 import type { PendingClose } from "../modals/ConfirmCloseModal";
 import SpecWriterSlideOver from "../specwriter/SpecWriterSlideOver";
 import HelpPanel from "../help/HelpPanel";
@@ -275,6 +276,7 @@ export default function AppShell() {
         onCancel={() => setPendingClose(null)}
       />
 
+      <PreviewLoadingModal />
       <PreviewUrlDialog />
       <SpecWriterSlideOver />
       <HelpPanel />
