@@ -38,7 +38,20 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const { writeSpec, sendMessage } = useSpecConversationRouter();
+  const { writeSpec, sendMessage, cancelStream } = useSpecConversationRouter();
+
+  // Global Esc key to stop streaming (works even when textarea is not focused)
+  useEffect(() => {
+    if (!isStreaming) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelStream(projectPath);
+      }
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [isStreaming, cancelStream, projectPath]);
 
   // Init a fresh conversation if none exists — default to 'feature' mode
   // Default to Claude Code (no API key needed), or auto-select an API model if available

@@ -52,6 +52,7 @@ export default React.memo(function ProjectTab({
       onClick={onSelect}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      title={projectName}
       className={`
         relative flex items-center gap-1.5 px-3 h-full cursor-pointer select-none
         min-w-[100px] max-w-[180px] shrink-0

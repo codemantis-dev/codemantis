@@ -64,6 +64,7 @@ const SessionSubTab = React.memo(function SessionSubTab({
       onDoubleClick={handleDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      title={name}
       className={`
         relative flex items-center gap-1.5 px-2.5 h-full cursor-pointer select-none
         min-w-[80px] max-w-[180px] shrink-0 text-label

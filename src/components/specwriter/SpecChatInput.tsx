@@ -85,12 +85,17 @@ export default function SpecChatInput({ projectPath }: Props) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.key === "Escape" && isStreaming) {
+        e.preventDefault();
+        cancelStream(projectPath);
+        return;
+      }
       if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, sendShortcut]
+    [handleSend, sendShortcut, isStreaming, cancelStream, projectPath]
   );
 
   const handlePaste = useCallback(
@@ -257,8 +262,9 @@ export default function SpecChatInput({ projectPath }: Props) {
         )}
       </div>
 
-      <div className="text-[10px] mt-1 text-center select-none" style={{ color: "var(--text-ghost)" }}>
-        {sendShortcutHint(sendShortcut)}
+      <div className="text-[10px] mt-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
+        <span>{sendShortcutHint(sendShortcut)}</span>
+        {isStreaming && <span>Esc to stop</span>}
       </div>
     </div>
   );
