@@ -204,7 +204,7 @@ export default function ActivityFeed() {
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-2 min-h-0">
         {reasoningContent ? (
-          <ThinkingContent content={reasoningContent} isStreaming={reasoningIsStreaming} maxHeight={undefined} />
+          <ThinkingContent content={reasoningContent} isStreaming={reasoningIsStreaming} maxHeight={undefined} initialExpanded />
         ) : (
           <p className="text-text-faint text-ui text-center py-4">No reasoning yet</p>
         )}

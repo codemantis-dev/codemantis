@@ -6,10 +6,11 @@ interface ThinkingContentProps {
   content: string;
   isStreaming: boolean;
   maxHeight?: number;
+  initialExpanded?: boolean;
 }
 
-export default function ThinkingContent({ content, isStreaming, maxHeight = 300 }: ThinkingContentProps) {
-  const [expanded, setExpanded] = useState(isStreaming);
+export default function ThinkingContent({ content, isStreaming, maxHeight = 300, initialExpanded }: ThinkingContentProps) {
+  const [expanded, setExpanded] = useState(initialExpanded ?? isStreaming);
   const scrollRef = useRef<HTMLPreElement>(null);
 
   // Auto-expand when streaming starts, keep user's choice otherwise
