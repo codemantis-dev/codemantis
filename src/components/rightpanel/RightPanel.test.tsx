@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import RightPanel from "./RightPanel";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -45,7 +45,7 @@ vi.mock("../../hooks/useTerminal", () => ({
 describe("RightPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useUiStore.setState({ rightTab: "activity" });
+    useUiStore.setState({ rightTab: "activity", sessionRightTab: new Map() });
     useSessionStore.setState({
       activeSessionId: "s1",
       sessions: new Map(),
@@ -95,5 +95,75 @@ describe("RightPanel", () => {
     render(<RightPanel />);
     expect(screen.getByTestId("terminal-tabs")).toBeInTheDocument();
     expect(screen.getByTestId("quick-commands")).toBeInTheDocument();
+  });
+
+  describe("per-session right tab restoration", () => {
+    it("restores saved right tab when switching sessions", () => {
+      useUiStore.setState({
+        rightTab: "activity",
+        sessionRightTab: new Map([["s2", "assistant"]]),
+      });
+      useSessionStore.setState({ activeSessionId: "s1" });
+      const { rerender } = render(<RightPanel />);
+
+      // Switch to s2 which had "assistant" saved
+      act(() => useSessionStore.setState({ activeSessionId: "s2" }));
+      rerender(<RightPanel />);
+
+      expect(useUiStore.getState().rightTab).toBe("assistant");
+    });
+
+    it("saves outgoing session tab when switching away", () => {
+      useUiStore.setState({ rightTab: "terminal", sessionRightTab: new Map() });
+      useSessionStore.setState({ activeSessionId: "s1" });
+      const { rerender } = render(<RightPanel />);
+
+      // Switch to s2
+      act(() => useSessionStore.setState({ activeSessionId: "s2" }));
+      rerender(<RightPanel />);
+
+      // s1 should have been saved as "terminal"
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("terminal");
+    });
+
+    it("keeps current tab when switching to a session with no saved tab", () => {
+      useUiStore.setState({ rightTab: "files", sessionRightTab: new Map() });
+      useSessionStore.setState({ activeSessionId: "s1" });
+      const { rerender } = render(<RightPanel />);
+
+      // Switch to s2 which has no saved tab
+      act(() => useSessionStore.setState({ activeSessionId: "s2" }));
+      rerender(<RightPanel />);
+
+      expect(useUiStore.getState().rightTab).toBe("files");
+    });
+
+    it("round-trips tab state across multiple session switches", () => {
+      useSessionStore.setState({ activeSessionId: "s1" });
+      useUiStore.setState({ rightTab: "activity", sessionRightTab: new Map() });
+      const { rerender } = render(<RightPanel />);
+
+      // In s1, switch to terminal
+      fireEvent.click(screen.getByText("Terminal"));
+      expect(useUiStore.getState().rightTab).toBe("terminal");
+
+      // Switch to s2
+      act(() => useSessionStore.setState({ activeSessionId: "s2" }));
+      rerender(<RightPanel />);
+
+      // In s2, switch to assistant
+      fireEvent.click(screen.getByText("Assistant"));
+      expect(useUiStore.getState().rightTab).toBe("assistant");
+
+      // Switch back to s1 — should restore "terminal"
+      act(() => useSessionStore.setState({ activeSessionId: "s1" }));
+      rerender(<RightPanel />);
+      expect(useUiStore.getState().rightTab).toBe("terminal");
+
+      // Switch back to s2 — should restore "assistant"
+      act(() => useSessionStore.setState({ activeSessionId: "s2" }));
+      rerender(<RightPanel />);
+      expect(useUiStore.getState().rightTab).toBe("assistant");
+    });
   });
 });

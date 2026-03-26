@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ActivityEntry } from "../types/activity";
 import type { SettingsTab } from "../components/modals/settings/constants";
+import { useSessionStore } from "./sessionStore";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant" | "guide";
 export type ProjectPickerTab = "templates" | "open" | "recent" | "clone";
@@ -18,6 +19,7 @@ interface UiState {
   rightPanelWidth: number;
   rightPanelMinWidth: number;
   rightTab: RightTab;
+  sessionRightTab: Map<string, RightTab>;
   showApprovalModal: boolean;
   showQuestionModal: boolean;
   showSettingsModal: boolean;
@@ -55,6 +57,7 @@ interface UiState {
   setRightPanelWidth: (width: number) => void;
   setRightPanelMinWidth: (width: number) => void;
   setRightTab: (tab: RightTab) => void;
+  restoreSessionRightTab: (outgoingId: string | null, incomingId: string | null) => void;
   setShowApprovalModal: (show: boolean) => void;
   setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
@@ -93,6 +96,7 @@ export const useUiStore = create<UiState>((set) => ({
   rightPanelWidth: 420,
   rightPanelMinWidth: 200,
   rightTab: "activity",
+  sessionRightTab: new Map(),
   showApprovalModal: false,
   showQuestionModal: false,
   showSettingsModal: false,
@@ -135,7 +139,26 @@ export const useUiStore = create<UiState>((set) => ({
       rightPanelMinWidth: width,
       rightPanelWidth: Math.max(width, s.rightPanelWidth),
     })),
-  setRightTab: (tab) => set({ rightTab: tab }),
+  setRightTab: (tab) =>
+    set((s) => {
+      const sessionRightTab = new Map(s.sessionRightTab);
+      const activeSessionId = useSessionStore.getState().activeSessionId;
+      if (activeSessionId) {
+        sessionRightTab.set(activeSessionId, tab);
+      }
+      return { rightTab: tab, sessionRightTab };
+    }),
+  restoreSessionRightTab: (outgoingId, incomingId) =>
+    set((s) => {
+      const sessionRightTab = new Map(s.sessionRightTab);
+      if (outgoingId) {
+        sessionRightTab.set(outgoingId, s.rightTab);
+      }
+      const restored = incomingId
+        ? sessionRightTab.get(incomingId) ?? s.rightTab
+        : s.rightTab;
+      return { rightTab: restored, sessionRightTab };
+    }),
   setShowApprovalModal: (show) => set({ showApprovalModal: show }),
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),

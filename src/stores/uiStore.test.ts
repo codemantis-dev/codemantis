@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useUiStore } from "./uiStore";
+import { useSessionStore } from "./sessionStore";
 
 describe("uiStore", () => {
   beforeEach(() => {
@@ -7,10 +8,12 @@ describe("uiStore", () => {
       sidebarWidth: 220,
       rightPanelWidth: 360,
       rightTab: "activity",
+      sessionRightTab: new Map(),
       showApprovalModal: false,
       showSettingsModal: false,
       showProjectPicker: false,
     });
+    useSessionStore.setState({ activeSessionId: null });
   });
 
   it("has correct defaults", () => {
@@ -114,5 +117,79 @@ describe("uiStore", () => {
     useUiStore.getState().openProjectPicker("recent");
     expect(useUiStore.getState().showProjectPicker).toBe(true);
     expect(useUiStore.getState().projectPickerTab).toBe("recent");
+  });
+
+  describe("per-session right tab", () => {
+    it("setRightTab persists tab for the active session", () => {
+      useSessionStore.setState({ activeSessionId: "s1" });
+      useUiStore.getState().setRightTab("terminal");
+      expect(useUiStore.getState().rightTab).toBe("terminal");
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("terminal");
+    });
+
+    it("setRightTab does not persist when no active session", () => {
+      useSessionStore.setState({ activeSessionId: null });
+      useUiStore.getState().setRightTab("files");
+      expect(useUiStore.getState().rightTab).toBe("files");
+      expect(useUiStore.getState().sessionRightTab.size).toBe(0);
+    });
+
+    it("setRightTab updates the map entry when tab changes again", () => {
+      useSessionStore.setState({ activeSessionId: "s1" });
+      useUiStore.getState().setRightTab("terminal");
+      useUiStore.getState().setRightTab("assistant");
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("assistant");
+    });
+
+    it("setRightTab tracks different sessions independently", () => {
+      useSessionStore.setState({ activeSessionId: "s1" });
+      useUiStore.getState().setRightTab("terminal");
+
+      useSessionStore.setState({ activeSessionId: "s2" });
+      useUiStore.getState().setRightTab("files");
+
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("terminal");
+      expect(useUiStore.getState().sessionRightTab.get("s2")).toBe("files");
+    });
+
+    it("restoreSessionRightTab saves outgoing and restores incoming", () => {
+      useUiStore.setState({
+        rightTab: "terminal",
+        sessionRightTab: new Map([["s2", "files"]]),
+      });
+      useUiStore.getState().restoreSessionRightTab("s1", "s2");
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("terminal");
+      expect(useUiStore.getState().rightTab).toBe("files");
+    });
+
+    it("restoreSessionRightTab defaults to current tab for first visit", () => {
+      useUiStore.setState({ rightTab: "changelog", sessionRightTab: new Map() });
+      useUiStore.getState().restoreSessionRightTab("s1", "s3");
+      expect(useUiStore.getState().rightTab).toBe("changelog");
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("changelog");
+    });
+
+    it("restoreSessionRightTab handles null outgoing", () => {
+      useUiStore.setState({
+        rightTab: "activity",
+        sessionRightTab: new Map([["s1", "assistant"]]),
+      });
+      useUiStore.getState().restoreSessionRightTab(null, "s1");
+      expect(useUiStore.getState().rightTab).toBe("assistant");
+    });
+
+    it("restoreSessionRightTab handles null incoming", () => {
+      useUiStore.setState({ rightTab: "terminal", sessionRightTab: new Map() });
+      useUiStore.getState().restoreSessionRightTab("s1", null);
+      expect(useUiStore.getState().rightTab).toBe("terminal");
+      expect(useUiStore.getState().sessionRightTab.get("s1")).toBe("terminal");
+    });
+
+    it("restoreSessionRightTab handles both null", () => {
+      useUiStore.setState({ rightTab: "files", sessionRightTab: new Map() });
+      useUiStore.getState().restoreSessionRightTab(null, null);
+      expect(useUiStore.getState().rightTab).toBe("files");
+      expect(useUiStore.getState().sessionRightTab.size).toBe(0);
+    });
   });
 });

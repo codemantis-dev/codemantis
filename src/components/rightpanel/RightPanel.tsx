@@ -19,7 +19,9 @@ import DevServerBanner from "./DevServerBanner";
 export default function RightPanel() {
   const rightTab = useUiStore((s) => s.rightTab);
   const setRightTab = useUiStore((s) => s.setRightTab);
+  const restoreSessionRightTab = useUiStore((s) => s.restoreSessionRightTab);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const prevSessionIdRef = useRef<string | null>(activeSessionId);
 
   const sessionTerminals = useTerminalStore((s) => s.sessionTerminals);
   const activeTerminalIdMap = useTerminalStore((s) => s.activeTerminalId);
@@ -80,6 +82,15 @@ export default function RightPanel() {
   useEffect(() => {
     setSelectedActivityEntry(null);
   }, [rightTab, setSelectedActivityEntry]);
+
+  // Restore per-session right tab on session switch
+  useEffect(() => {
+    const prevId = prevSessionIdRef.current;
+    if (prevId !== activeSessionId) {
+      restoreSessionRightTab(prevId, activeSessionId);
+      prevSessionIdRef.current = activeSessionId;
+    }
+  }, [activeSessionId, restoreSessionRightTab]);
 
   // Fallback: if on "guide" tab but guide was dismissed, switch to activity
   useEffect(() => {
