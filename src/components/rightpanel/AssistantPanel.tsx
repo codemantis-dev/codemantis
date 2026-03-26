@@ -113,6 +113,8 @@ export default function AssistantPanel() {
     setExpandedProvider(null);
     setContextMenu(null);
     prevAssistantRef.current = activeAssistantId;
+    // Auto-focus assistant input when switching assistants/sessions
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }, [activeAssistantId, setShowProviderMenu, setExpandedProvider]);
 
   // Escape key to cancel assistant generation

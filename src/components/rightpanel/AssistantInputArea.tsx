@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Send, Plus, Square } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { shouldSend } from "../../lib/keyboard";
+import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 import type { SlashCommand } from "../../types/slash-commands";
 import type { Attachment } from "../../types/attachment";
 import type { AssistantShortcut } from "../../types/settings";
@@ -278,12 +278,18 @@ export default function AssistantInputArea({
         }
       }
 
+      if (e.key === "Escape" && busy && activeAssistantId) {
+        e.preventDefault();
+        cancelAssistant(activeAssistantId);
+        return;
+      }
+
       if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands, onInputChange, textareaRef, sendShortcut]
+    [handleSend, showCommandPalette, commandIndex, commandQuery, activeProjectPath, activeAssistantId, sendMessage, handleSlashCommand, filteredCommands, onInputChange, textareaRef, sendShortcut, busy, cancelAssistant]
   );
 
   const handleInputChange = useCallback(
@@ -382,22 +388,35 @@ export default function AssistantInputArea({
           {busy ? (
             <button
               onClick={handleStop}
-              className="p-1.5 rounded-lg text-red hover:bg-red/10 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-ui font-medium text-red hover:brightness-90 transition-colors"
+              style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)" }}
               title="Stop generation (Esc)"
             >
-              <Square size={14} />
+              <Square size={12} />
+              <span>Stop</span>
+              <span className="text-label opacity-60">Esc</span>
             </button>
           ) : (
             <button
               onClick={handleSend}
               disabled={(!input.trim() && currentAttachments.length === 0) || !activeAssistantId}
-              className="p-1.5 rounded-lg text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-ui font-medium transition-colors ${
+                (input.trim() || currentAttachments.length > 0) && activeAssistantId
+                  ? "bg-accent text-white hover:bg-accent-light"
+                  : "bg-bg-subtle text-text-ghost cursor-not-allowed"
+              }`}
               title={`Send (${sendShortcut === "enter" ? "Enter" : "Cmd+Enter"})`}
             >
-              <Send size={16} />
+              <Send size={13} />
+              <span>Send</span>
+              <span className="text-label opacity-60">{sendShortcutLabel(sendShortcut)}</span>
             </button>
           )}
         </div>
+      </div>
+      <div className="text-[10px] px-2 pb-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
+        <span>{sendShortcutHint(sendShortcut)}</span>
+        {busy && <span>Esc to stop</span>}
       </div>
     </div>
   );

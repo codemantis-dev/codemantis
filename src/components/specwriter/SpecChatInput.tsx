@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Send, Square, Paperclip } from "lucide-react";
 import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
@@ -6,7 +6,7 @@ import type { SpecAttachment } from "../../types/spec-writer";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { processDroppedPathsForSpec } from "../../lib/file-utils";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { shouldSend, sendShortcutHint } from "../../lib/keyboard";
+import { shouldSend, sendShortcutHint, sendShortcutLabel } from "../../lib/keyboard";
 
 interface Props {
   projectPath: string;
@@ -58,6 +58,11 @@ export default function SpecChatInput({ projectPath }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-focus spec input on mount / project switch
+  useEffect(() => {
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [projectPath]);
 
   // Tauri native file drop
   const handleFileDrop = useCallback(async (paths: string[]) => {
@@ -243,21 +248,28 @@ export default function SpecChatInput({ projectPath }: Props) {
         {isStreaming ? (
           <button
             onClick={() => cancelStream(projectPath)}
-            title="Stop generation"
-            className="p-1.5 rounded transition-colors shrink-0"
-            style={{ color: "var(--error, #ef4444)" }}
+            title="Stop generation (Esc)"
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-ui font-medium transition-colors shrink-0"
+            style={{ color: "var(--error, #ef4444)", background: "color-mix(in srgb, var(--error, #ef4444) 15%, transparent)" }}
           >
-            <Square size={16} fill="currentColor" />
+            <Square size={12} fill="currentColor" />
+            <span>Stop</span>
+            <span className="text-label opacity-60">Esc</span>
           </button>
         ) : (
           <button
             onClick={handleSend}
             disabled={!text.trim() && attachments.length === 0}
             title={`Send (${sendShortcut === "enter" ? "Enter" : "Cmd+Enter"})`}
-            className="p-1.5 rounded transition-colors shrink-0 disabled:opacity-30"
-            style={{ color: "var(--accent)" }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-ui font-medium transition-colors shrink-0 ${
+              text.trim() || attachments.length > 0
+                ? "bg-accent text-white hover:bg-accent-light"
+                : "bg-bg-subtle text-text-ghost cursor-not-allowed"
+            }`}
           >
-            <Send size={16} />
+            <Send size={13} />
+            <span>Send</span>
+            <span className="text-label opacity-60">{sendShortcutLabel(sendShortcut)}</span>
           </button>
         )}
       </div>

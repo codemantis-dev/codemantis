@@ -73,6 +73,8 @@ export default function InputArea() {
     setShowCommandPalette(false);
     setCommandQuery("");
     prevSessionRef.current = activeSessionId;
+    // Auto-focus chat input when switching sessions/projects
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }, [activeSessionId]);
 
   const draftInput = useUiStore((s) => s.draftInput);
