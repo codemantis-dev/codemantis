@@ -3,10 +3,40 @@
   window.__CM_CONSOLE_BRIDGE = true;
   window.__CM_CONSOLE_BUFFER = [];
   window.__CM_CONSOLE_LOG = [];
-  // Action queue: toolbar buttons push actions here instead of using fetch(),
-  // which is blocked by pages with restrictive CSP (connect-src 'self').
-  // The Rust polling loop drains this queue via document.title IPC.
+  // Action queue: fallback for when Tauri IPC is not available.
+  // Toolbar buttons prefer Tauri IPC (emit event) when __TAURI__ is present,
+  // and fall back to this queue + document.title IPC for non-localhost origins.
   window.__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || [];
+
+  // Helper: send a toolbar action via the fastest available channel.
+  function cmSendAction(action) {
+    if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
+      window.__TAURI__.event.emit('preview-toolbar-action', action);
+    } else {
+      window.__CM_PENDING_ACTIONS.push(action);
+    }
+  }
+
+  // Helper: send console log batch via Tauri IPC (if available).
+  function cmSendConsoleBatch(entries) {
+    if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
+      window.__TAURI__.event.emit('preview-console-batch', entries);
+      return true;
+    }
+    return false;
+  }
+
+  // Periodically flush console buffer via Tauri IPC (if available).
+  // This replaces the Rust-side polling for console logs.
+  setInterval(function() {
+    if (window.__CM_CONSOLE_BUFFER && window.__CM_CONSOLE_BUFFER.length > 0) {
+      var entries = window.__CM_CONSOLE_BUFFER.splice(0);
+      if (!cmSendConsoleBatch(entries)) {
+        // Put entries back if IPC not available — Rust polling will drain them
+        window.__CM_CONSOLE_BUFFER.unshift.apply(window.__CM_CONSOLE_BUFFER, entries);
+      }
+    }
+  }, 500);
 
   var MAX_ENTRIES = 500;
   var ORIG = {
@@ -158,14 +188,14 @@
   });
   toolbar.appendChild(vpContainer);
 
-  // Open in Browser — pushes action to queue, Rust opens via system 'open' command
+  // Open in Browser — sends action via Tauri IPC or fallback queue
   toolbar.appendChild(tbBtn('\u2197', 'Open in Browser', function() {
-    window.__CM_PENDING_ACTIONS.push({ action: 'open', url: window.location.href });
+    cmSendAction({ action: 'open', url: window.location.href });
   }));
 
-  // Screenshot to Chat — pushes action to queue, Rust captures via screencapture
+  // Screenshot to Chat — sends action via Tauri IPC or fallback queue
   toolbar.appendChild(tbBtn('\uD83D\uDCF7', 'Screenshot to Chat', function() {
-    window.__CM_PENDING_ACTIONS.push({ action: 'screenshot' });
+    cmSendAction({ action: 'screenshot' });
   }));
 
   // Console badge
@@ -180,7 +210,7 @@
 
   // Close preview button — immediate window.close() + Rust-side close via action queue
   toolbar.appendChild(tbBtn('\u2715', 'Close Preview', function() {
-    window.__CM_PENDING_ACTIONS.push({ action: 'close' });
+    cmSendAction({ action: 'close' });
     window.close();
   }));
 
@@ -378,7 +408,7 @@
     var text = entries.map(function(e) {
       return '[' + e.level.toUpperCase() + '] ' + e.msg;
     }).join('\n');
-    window.__CM_PENDING_ACTIONS.push({ action: 'console_to_chat', logs: text });
+    cmSendAction({ action: 'console_to_chat', logs: text });
   }));
 
   drawerActions.appendChild(drawerBtn('\u2715', 'Close console', function() {

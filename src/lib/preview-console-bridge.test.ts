@@ -42,11 +42,19 @@ describe("preview-console-bridge.js contract", () => {
       expect(bridgeSource).toContain("action: 'console_to_chat'");
     });
 
-    it("all four action types push to __CM_PENDING_ACTIONS", () => {
-      const pushLines = bridgeSource.split("\n").filter(
-        (line) => line.includes("__CM_PENDING_ACTIONS.push"),
+    it("all four action types use cmSendAction or push to __CM_PENDING_ACTIONS", () => {
+      // Actions are sent via cmSendAction() which prefers Tauri IPC when available,
+      // falling back to __CM_PENDING_ACTIONS queue
+      const actionLines = bridgeSource.split("\n").filter(
+        (line) => line.includes("cmSendAction(") || line.includes("__CM_PENDING_ACTIONS.push"),
       );
-      expect(pushLines.length).toBeGreaterThanOrEqual(4);
+      expect(actionLines.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it("cmSendAction prefers Tauri IPC when available", () => {
+      expect(bridgeSource).toContain("window.__TAURI__");
+      expect(bridgeSource).toContain("event.emit");
+      expect(bridgeSource).toContain("preview-toolbar-action");
     });
 
     it("does NOT use fetch() to 127.0.0.1 for toolbar actions", () => {

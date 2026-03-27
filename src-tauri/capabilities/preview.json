@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "preview-remote",
+  "description": "Minimal capability for preview window remote content — only event emission. Scoped to localhost dev servers.",
+  "windows": ["preview"],
+  "remote": {
+    "urls": ["http://localhost:*", "http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "core:event:allow-emit"
+  ]
+}

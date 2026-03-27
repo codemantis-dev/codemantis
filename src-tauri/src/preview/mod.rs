@@ -3,6 +3,7 @@ pub mod port_detector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tauri::EventId;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -49,6 +50,9 @@ pub struct PreviewState {
     /// The project path that currently owns the preview window.
     /// Used to scope close events to the correct project.
     pub active_preview_project: Arc<Mutex<Option<String>>>,
+    /// Event listener IDs for IPC-based toolbar actions and console batches.
+    /// Cleaned up when the preview window is replaced or closed.
+    pub ipc_listener_ids: Arc<Mutex<Vec<EventId>>>,
 }
 
 impl PreviewState {
@@ -59,6 +63,7 @@ impl PreviewState {
             window_lock: Arc::new(Mutex::new(())),
             poll_cancel: Arc::new(Mutex::new(CancellationToken::new())),
             active_preview_project: Arc::new(Mutex::new(None)),
+            ipc_listener_ids: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }

@@ -174,6 +174,14 @@ pub async fn open_preview_window(
         *cancel = CancellationToken::new();
     }
 
+    // Unlisten previous IPC event listeners to prevent duplicate processing
+    {
+        let mut ids = preview_state.ipc_listener_ids.lock().await;
+        for id in ids.drain(..) {
+            app_handle.unlisten(id);
+        }
+    }
+
     // Destroy existing preview window if any.
     // Use destroy() instead of close() to avoid firing the CloseRequested event,
     // which would incorrectly signal the JS side that the preview was closed
@@ -241,13 +249,103 @@ pub async fn open_preview_window(
         }
     });
 
+    // ── Tauri IPC listeners for toolbar actions and console batches ────
+    // These handle actions sent via window.__TAURI__.event.emit() from the
+    // bridge JS.  This is the PRIMARY action channel — the document.title
+    // polling below is kept as a fallback for non-localhost origins where
+    // Tauri IPC is not available (dangerousRemoteDomainIpcAccess is scoped
+    // to localhost / 127.0.0.1).
+    let ipc_ah = app_handle.clone();
+    let ipc_console_logs = preview_state.console_logs.clone();
+    let _ipc_project_path = project_path.clone();
+    let action_listener_id = app_handle.listen("preview-toolbar-action", move |event| {
+        let payload = event.payload();
+        if let Ok(action) = serde_json::from_str::<ToolbarAction>(payload) {
+            info!("[preview] Toolbar action (IPC): {}", action.action);
+            match action.action.as_str() {
+                "screenshot" => {
+                    match capture_screenshot_inner(&ipc_ah) {
+                        Ok(path) => {
+                            info!("[preview] Screenshot captured: {}", path);
+                            if let Err(e) = ipc_ah.emit("preview-screenshot-taken", path) {
+                                warn!("[preview] Failed to emit screenshot event: {}", e);
+                            }
+                        }
+                        Err(e) => warn!("[preview] Screenshot failed: {}", e),
+                    }
+                }
+                "close" => {
+                    if let Some(win) = ipc_ah.get_webview_window("preview") {
+                        let _ = win.close();
+                    }
+                }
+                "open" => {
+                    if let Some(url_str) = &action.url {
+                        match Url::parse(url_str) {
+                            Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {
+                                info!("[preview] Opening in browser: {}", url.as_str());
+                                let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
+                            }
+                            _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
+                        }
+                    }
+                }
+                "console_to_chat" => {
+                    if let Some(logs) = &action.logs {
+                        info!("[preview] Sending console logs to chat ({} bytes)", logs.len());
+                        if let Err(e) = ipc_ah.emit("preview-console-to-chat", logs.clone()) {
+                            warn!("[preview] Failed to emit console-to-chat: {}", e);
+                        }
+                    }
+                }
+                other => debug!("[preview] Unknown toolbar action: {}", other),
+            }
+        }
+    });
+
+    let console_ipc_ah = app_handle.clone();
+    let console_listener_id = app_handle.listen("preview-console-batch", move |event| {
+        let payload = event.payload();
+        if let Ok(entries) = serde_json::from_str::<Vec<ConsoleLogEntry>>(payload) {
+            if entries.is_empty() {
+                return;
+            }
+            // Emit events for errors and warnings to main window
+            for entry in &entries {
+                if entry.level == "error" || entry.level == "warn" {
+                    if let Err(e) = console_ipc_ah.emit("preview-console-entry", entry.clone()) {
+                        warn!("[preview] Failed to emit preview-console-entry: {}", e);
+                    }
+                }
+            }
+
+            let rt = tokio::runtime::Handle::try_current();
+            if let Ok(handle) = rt {
+                let logs_clone = ipc_console_logs.clone();
+                let entries_clone = entries;
+                handle.spawn(async move {
+                    let mut store = logs_clone.lock().await;
+                    store.extend(entries_clone);
+                    write_console_log_file(&store);
+                });
+            }
+        }
+    });
+
+    // Store listener IDs for cleanup when the preview is replaced or closed
+    {
+        let mut ids = preview_state.ipc_listener_ids.lock().await;
+        ids.push(action_listener_id);
+        ids.push(console_listener_id);
+    }
+
     // Grab a clone of the current cancellation token for this polling task.
     let poll_token = {
         let cancel = preview_state.poll_cancel.lock().await;
         cancel.clone()
     };
 
-    // Spawn console polling + callback port injection task.
+    // Spawn console polling + callback port injection task (fallback for non-IPC domains).
     let poll_ah = app_handle.clone();
     let console_logs = preview_state.console_logs.clone();
     let poll_project_path = project_path.clone();
