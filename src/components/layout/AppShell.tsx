@@ -22,6 +22,8 @@ import type { PendingClose } from "../modals/ConfirmCloseModal";
 import SpecWriterSlideOver from "../specwriter/SpecWriterSlideOver";
 import HelpPanel from "../help/HelpPanel";
 import ImagePreviewModal from "../modals/ImagePreviewModal";
+import SuperBroStrip from "../chat/SuperBroStrip";
+import { useSuperBro } from "../../hooks/useSuperBro";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -97,6 +99,7 @@ export default function AppShell() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
   useDevServerDetection();
+  useSuperBro(activeProjectPath);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
 
   // Subscribe to preview console entries → Activity Feed + toast on errors
@@ -255,6 +258,7 @@ export default function AppShell() {
                 <ChatPanel />
               </div>
               <InputArea />
+              <SuperBroStrip />
             </>
           )}
         </div>

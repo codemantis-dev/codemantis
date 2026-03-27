@@ -25,6 +25,7 @@ vi.mock("./lib/tauri-commands", () => ({
     apiKeys: {}, modelPricing: {}, changelogPrompt: "",
     assistantShortcuts: [], assistantDefaultProvider: "claude-code", assistantDefaultModel: {},
     triviaEnabled: true, onboardingCompleted: true,
+    superBroEnabled: true, superBroProvider: "auto", superBroModel: "auto",
   })),
   updateSettings: vi.fn(() => Promise.resolve()),
 }));
@@ -116,6 +117,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     claudeBinaryOverride: null, onboardingCompleted: false, apiKeyBannerDismissed: false,
     lastCloneDirectory: null,
     sessionLogsEnabled: true, sessionLogsRetentionDays: 30,
+    superBroEnabled: true, superBroProvider: "auto", superBroModel: "auto",
     ...overrides,
   };
 }

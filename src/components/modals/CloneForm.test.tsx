@@ -65,6 +65,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastCloneDirectory: null,
   sessionLogsEnabled: true,
   sessionLogsRetentionDays: 30,
+  superBroEnabled: true,
+  superBroProvider: "auto",
+  superBroModel: "auto",
 };
 
 function resetStore(): void {

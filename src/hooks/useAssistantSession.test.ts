@@ -133,6 +133,9 @@ function resetStores(): void {
       taskBoardAutoOpenSlideOver: true,
       sessionLogsEnabled: true,
       sessionLogsRetentionDays: 30,
+      superBroEnabled: true,
+      superBroProvider: "auto",
+      superBroModel: "auto",
     },
     loaded: true,
   });

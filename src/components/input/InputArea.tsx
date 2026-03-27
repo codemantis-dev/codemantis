@@ -14,6 +14,7 @@ import type { Attachment } from "../../types/attachment";
 import { handleError } from "../../lib/error-handler";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { useSettingsStore } from "../../stores/settingsStore";
+import SuperBroToggle from "../chat/SuperBroToggle";
 import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
 
@@ -425,6 +426,7 @@ export default function InputArea() {
                 <span className="font-mono text-xs leading-none">/</span>
                 <span>Cmd</span>
               </button>
+              <SuperBroToggle />
             </div>
 
             <div className="flex items-center gap-3">

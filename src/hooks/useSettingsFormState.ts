@@ -69,6 +69,11 @@ export function useSettingsFormState() {
   const [sessionLogsEnabled, setSessionLogsEnabled] = useState(settings.sessionLogsEnabled);
   const [sessionLogsRetentionDays, setSessionLogsRetentionDays] = useState(settings.sessionLogsRetentionDays);
 
+  // --- Super-Bro ---
+  const [superBroEnabled, setSuperBroEnabled] = useState(settings.superBroEnabled);
+  const [superBroProvider, setSuperBroProvider] = useState(settings.superBroProvider);
+  const [superBroModel, setSuperBroModel] = useState(settings.superBroModel);
+
   // --- Task Board ---
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
   const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 64000);
@@ -114,6 +119,9 @@ export function useSettingsFormState() {
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
       setSessionLogsEnabled(settings.sessionLogsEnabled);
       setSessionLogsRetentionDays(settings.sessionLogsRetentionDays);
+      setSuperBroEnabled(settings.superBroEnabled);
+      setSuperBroProvider(settings.superBroProvider);
+      setSuperBroModel(settings.superBroModel);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
       setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
@@ -168,6 +176,9 @@ export function useSettingsFormState() {
       taskBoardAutoOpenSlideOver,
       sessionLogsEnabled,
       sessionLogsRetentionDays,
+      superBroEnabled,
+      superBroProvider,
+      superBroModel,
     });
 
     // Trigger OpenRouter model fetch if key changed
@@ -332,6 +343,14 @@ export function useSettingsFormState() {
     setSessionLogsEnabled,
     sessionLogsRetentionDays,
     setSessionLogsRetentionDays,
+
+    // Super-Bro tab
+    superBroEnabled,
+    setSuperBroEnabled,
+    superBroProvider,
+    setSuperBroProvider,
+    superBroModel,
+    setSuperBroModel,
 
     // Task Board tab
     taskBoardPlanningModel,

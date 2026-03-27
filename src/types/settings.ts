@@ -98,6 +98,11 @@ export interface AppSettings {
   // Session Logs
   sessionLogsEnabled: boolean;
   sessionLogsRetentionDays: number;
+
+  // Super-Bro
+  superBroEnabled: boolean;
+  superBroProvider: string;
+  superBroModel: string;
 }
 
 export { getDefaultModelPricing };

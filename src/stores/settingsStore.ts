@@ -69,6 +69,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastCloneDirectory: null,
   sessionLogsEnabled: true,
   sessionLogsRetentionDays: 30,
+  superBroEnabled: true,
+  superBroProvider: "auto",
+  superBroModel: "auto",
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

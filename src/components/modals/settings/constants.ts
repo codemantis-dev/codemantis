@@ -1,10 +1,11 @@
-import { Settings, Terminal, Zap, Layers, ScrollText, MessageSquare, Keyboard, BarChart3, Globe, PenTool, Database } from "lucide-react";
+import { Settings, Terminal, Zap, Layers, ScrollText, MessageSquare, Keyboard, BarChart3, Globe, PenTool, Database, Shield } from "lucide-react";
 import type { ChangelogProvider } from "../../../types/settings";
 
-export type SettingsTab = "general" | "terminal" | "quick-commands" | "ai-providers" | "changelog" | "assistant" | "shortcuts" | "api-logs" | "preview" | "task-board" | "session-logs";
+export type SettingsTab = "general" | "terminal" | "quick-commands" | "ai-providers" | "changelog" | "assistant" | "shortcuts" | "api-logs" | "preview" | "task-board" | "session-logs" | "super-bro";
 
 export const NAV_ITEMS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: "general", label: "General", icon: Settings },
+  { id: "super-bro", label: "Super-Bro", icon: Shield },
   { id: "session-logs", label: "Session Logs", icon: Database },
   { id: "terminal", label: "Terminal", icon: Terminal },
   { id: "quick-commands", label: "Quick Commands", icon: Zap },

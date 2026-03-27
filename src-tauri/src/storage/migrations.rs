@@ -131,3 +131,15 @@ CREATE TABLE IF NOT EXISTS implementation_guides (
 );
 CREATE INDEX IF NOT EXISTS idx_impl_guides_project ON implementation_guides(project_path);
 "#;
+
+pub const MIGRATE_SUPER_BRO_OBSERVATIONS: &str = r#"
+CREATE TABLE IF NOT EXISTS super_bro_observations (
+    id TEXT PRIMARY KEY,
+    project_path TEXT NOT NULL,
+    text TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_referenced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_super_bro_obs_project ON super_bro_observations(project_path);
+"#;

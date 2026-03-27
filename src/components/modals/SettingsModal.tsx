@@ -14,6 +14,7 @@ import AssistantSettingsTab from "./settings/AssistantSettingsTab";
 import ShortcutsTab from "./settings/ShortcutsTab";
 import ApiLogsTab from "./settings/ApiLogsTab";
 import SessionLogsTab from "./settings/SessionLogsTab";
+import SuperBroTab from "./settings/SuperBroTab";
 import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
 export default function SettingsModal() {
@@ -190,6 +191,17 @@ export default function SettingsModal() {
                 retentionDays={state.sessionLogsRetentionDays}
                 onEnabledChange={state.setSessionLogsEnabled}
                 onRetentionDaysChange={state.setSessionLogsRetentionDays}
+              />
+            )}
+
+            {state.activeTab === "super-bro" && (
+              <SuperBroTab
+                enabled={state.superBroEnabled}
+                provider={state.superBroProvider}
+                model={state.superBroModel}
+                onEnabledChange={state.setSuperBroEnabled}
+                onProviderChange={state.setSuperBroProvider}
+                onModelChange={state.setSuperBroModel}
               />
             )}
 

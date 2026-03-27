@@ -80,6 +80,17 @@ pub struct SessionMessageRow {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ObservationRow {
+    pub id: String,
+    pub project_path: String,
+    pub text: String,
+    pub category: String,
+    pub created_at: String,
+    pub last_referenced_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionMessageSearchResult {
     pub session_id: String,
     pub session_name: String,
@@ -153,6 +164,9 @@ impl Database {
 
         // Implementation guides table
         let _ = conn.execute_batch(migrations::MIGRATE_IMPLEMENTATION_GUIDES);
+
+        // Super-Bro observations table
+        let _ = conn.execute_batch(migrations::MIGRATE_SUPER_BRO_OBSERVATIONS);
 
         // Always drop planning_messages if it exists.
         // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
@@ -886,6 +900,64 @@ impl Database {
         Ok(())
     }
 
+    // ── Super-Bro Observations ───────────────────────────────────────────
+
+    pub fn insert_observation(
+        &self,
+        id: &str,
+        project_path: &str,
+        text: &str,
+        category: &str,
+        created_at: &str,
+        last_referenced_at: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO super_bro_observations (id, project_path, text, category, created_at, last_referenced_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![id, project_path, text, category, created_at, last_referenced_at],
+        ).map_err(|e| AppError::DatabaseError(format!("Insert observation failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn list_observations(&self, project_path: &str) -> Result<Vec<ObservationRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, project_path, text, category, created_at, last_referenced_at FROM super_bro_observations WHERE project_path = ?1 ORDER BY last_referenced_at DESC LIMIT 50"
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![project_path], |row| {
+                Ok(ObservationRow {
+                    id: row.get(0)?,
+                    project_path: row.get(1)?,
+                    text: row.get(2)?,
+                    category: row.get(3)?,
+                    created_at: row.get(4)?,
+                    last_referenced_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut observations = Vec::new();
+        for row in rows {
+            observations.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(observations)
+    }
+
+    pub fn delete_observation(&self, id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "DELETE FROM super_bro_observations WHERE id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| AppError::DatabaseError(format!("Delete observation failed: {}", e)))?;
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
@@ -1348,5 +1420,104 @@ mod tests {
         // Deleting one session's messages doesn't affect the other
         db.delete_session("s1").unwrap();
         assert_eq!(db.load_session_messages("s2").unwrap().len(), 5);
+    }
+
+    // ── Super-Bro Observation Tests ──────────────────────────────────
+
+    #[test]
+    fn test_insert_and_list_observations() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_observation("obs-1", "/project/a", "Claude forgets loading states", "pattern", "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z").unwrap();
+        db.insert_observation("obs-2", "/project/a", "Uses pnpm not npm", "project_note", "2026-03-02T00:00:00Z", "2026-03-02T00:00:00Z").unwrap();
+
+        let obs = db.list_observations("/project/a").unwrap();
+        assert_eq!(obs.len(), 2);
+        assert_eq!(obs[0].id, "obs-2"); // Most recently referenced first
+        assert_eq!(obs[1].id, "obs-1");
+    }
+
+    #[test]
+    fn test_observations_filtered_by_project() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_observation("obs-1", "/project/a", "Pattern A", "pattern", "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z").unwrap();
+        db.insert_observation("obs-2", "/project/b", "Pattern B", "pattern", "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z").unwrap();
+
+        let obs_a = db.list_observations("/project/a").unwrap();
+        assert_eq!(obs_a.len(), 1);
+        assert_eq!(obs_a[0].text, "Pattern A");
+
+        let obs_b = db.list_observations("/project/b").unwrap();
+        assert_eq!(obs_b.len(), 1);
+        assert_eq!(obs_b[0].text, "Pattern B");
+    }
+
+    #[test]
+    fn test_delete_observation() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_observation("obs-1", "/project/a", "Pattern", "pattern", "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z").unwrap();
+        assert_eq!(db.list_observations("/project/a").unwrap().len(), 1);
+
+        db.delete_observation("obs-1").unwrap();
+        assert_eq!(db.list_observations("/project/a").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_insert_observation_upsert() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_observation("obs-1", "/project/a", "Original text", "pattern", "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z").unwrap();
+        db.insert_observation("obs-1", "/project/a", "Updated text", "preference", "2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z").unwrap();
+
+        let obs = db.list_observations("/project/a").unwrap();
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].text, "Updated text");
+        assert_eq!(obs[0].category, "preference");
+    }
+
+    #[test]
+    fn test_list_observations_empty_project() {
+        let db = Database::new(":memory:").unwrap();
+        let obs = db.list_observations("/project/nonexistent").unwrap();
+        assert!(obs.is_empty());
+    }
+
+    #[test]
+    fn test_observation_row_serialization() {
+        let row = ObservationRow {
+            id: "obs-1".to_string(),
+            project_path: "/project/a".to_string(),
+            text: "Test observation".to_string(),
+            category: "pattern".to_string(),
+            created_at: "2026-03-01T00:00:00Z".to_string(),
+            last_referenced_at: "2026-03-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_value(&row).unwrap();
+        // Verify camelCase serialization
+        assert!(json.get("projectPath").is_some());
+        assert!(json.get("createdAt").is_some());
+        assert!(json.get("lastReferencedAt").is_some());
+    }
+
+    #[test]
+    fn test_delete_nonexistent_observation() {
+        let db = Database::new(":memory:").unwrap();
+        // Should not error
+        db.delete_observation("obs-does-not-exist").unwrap();
+    }
+
+    #[test]
+    fn test_list_observations_limit_50() {
+        let db = Database::new(":memory:").unwrap();
+        for i in 0..60 {
+            db.insert_observation(
+                &format!("obs-{}", i),
+                "/project/a",
+                &format!("Observation {}", i),
+                "pattern",
+                "2026-03-01T00:00:00Z",
+                &format!("2026-03-{:02}T00:00:00Z", (i % 28) + 1),
+            ).unwrap();
+        }
+        let obs = db.list_observations("/project/a").unwrap();
+        assert_eq!(obs.len(), 50);
     }
 }

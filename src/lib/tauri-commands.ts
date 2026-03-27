@@ -845,3 +845,48 @@ export async function deleteGuidesForProject(
 ): Promise<void> {
   return invoke("delete_guides_for_project_cmd", { projectPath });
 }
+
+// ── Super-Bro ────────────────────────────────────────────────────────
+
+export interface ObservationPayload {
+  id: string;
+  projectPath: string;
+  text: string;
+  category: string;
+  createdAt: string;
+  lastReferencedAt: string;
+}
+
+export async function saveObservation(
+  id: string,
+  projectPath: string,
+  text: string,
+  category: string,
+  createdAt: string,
+  lastReferencedAt: string,
+): Promise<void> {
+  return invoke("save_observation", {
+    id,
+    projectPath,
+    text,
+    category,
+    createdAt,
+    lastReferencedAt,
+  });
+}
+
+export async function loadObservations(
+  projectPath: string,
+): Promise<ObservationPayload[]> {
+  return invoke<ObservationPayload[]>("load_observations", { projectPath });
+}
+
+export async function deleteObservation(id: string): Promise<void> {
+  return invoke("delete_observation", { id });
+}
+
+export async function readSuperBroModule(
+  moduleName: string,
+): Promise<string> {
+  return invoke<string>("read_super_bro_module", { moduleName });
+}

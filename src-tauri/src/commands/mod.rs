@@ -18,4 +18,5 @@ pub mod slash_commands;
 pub mod snapshot;
 pub mod startup;
 pub mod specwriter;
+pub mod super_bro;
 pub mod terminal;

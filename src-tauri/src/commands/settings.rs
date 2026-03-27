@@ -102,6 +102,14 @@ pub struct AppSettings {
     pub session_logs_enabled: bool,
     #[serde(default = "default_session_logs_retention_days")]
     pub session_logs_retention_days: u32,
+
+    // --- Super-Bro ---
+    #[serde(default = "default_true")]
+    pub super_bro_enabled: bool,
+    #[serde(default = "default_super_bro_provider")]
+    pub super_bro_provider: String,
+    #[serde(default = "default_super_bro_model")]
+    pub super_bro_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +193,12 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
 fn default_session_logs_retention_days() -> u32 {
     30
 }
+fn default_super_bro_provider() -> String {
+    "auto".to_string()
+}
+fn default_super_bro_model() -> String {
+    "auto".to_string()
+}
 fn default_changelog_prompt() -> String {
     r#"Summarize this coding session turn as a changelog entry. Return JSON only, markdown ONLY in the description field (5-6 sentences).
 Make sure to briefly describe in general, what was changed, the most important topics.
@@ -239,6 +253,9 @@ impl Default for AppSettings {
             last_clone_directory: None,
             session_logs_enabled: true,
             session_logs_retention_days: default_session_logs_retention_days(),
+            super_bro_enabled: true,
+            super_bro_provider: default_super_bro_provider(),
+            super_bro_model: default_super_bro_model(),
         }
     }
 }
@@ -396,6 +413,32 @@ mod tests {
         assert!(!settings.onboarding_completed);
         assert!(!settings.api_key_banner_dismissed);
         assert!(settings.session_logs_enabled);
+        assert!(settings.super_bro_enabled);
+    }
+
+    #[test]
+    fn super_bro_default_settings() {
+        let settings = AppSettings::default();
+        assert!(settings.super_bro_enabled);
+        assert_eq!(settings.super_bro_provider, "auto");
+        assert_eq!(settings.super_bro_model, "auto");
+    }
+
+    #[test]
+    fn super_bro_camel_case_serialization() {
+        let settings = AppSettings::default();
+        let json = serde_json::to_value(&settings).unwrap();
+        assert!(json.get("superBroEnabled").is_some());
+        assert!(json.get("superBroProvider").is_some());
+        assert!(json.get("superBroModel").is_some());
+    }
+
+    #[test]
+    fn super_bro_deserialization_with_defaults() {
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(settings.super_bro_enabled);
+        assert_eq!(settings.super_bro_provider, "auto");
+        assert_eq!(settings.super_bro_model, "auto");
     }
 
     #[test]

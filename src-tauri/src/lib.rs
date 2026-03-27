@@ -378,6 +378,10 @@ pub fn run() {
             commands::guide::update_guide_data,
             commands::guide::delete_guide_cmd,
             commands::guide::delete_guides_for_project_cmd,
+            commands::super_bro::save_observation,
+            commands::super_bro::load_observations,
+            commands::super_bro::delete_observation,
+            commands::super_bro::read_super_bro_module,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
