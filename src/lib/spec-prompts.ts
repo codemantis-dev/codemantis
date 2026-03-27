@@ -85,6 +85,24 @@ FORMATTING RULES for the feature list:
 WRITING PHASE (produce the specification document)
 ═══════════════════════════════════════════════════════════════════
 
+CLEAN OUTPUT RULE:
+When you write the specification document, your response must start
+DIRECTLY with the markdown separator and heading:
+
+---
+
+# {Application Name} — Requirements Specification
+
+Do NOT include ANY text before the --- separator. No preamble, no
+"Let me...", no "I have enough to...", no thinking text, no
+commentary. The first characters of your response must be "---".
+
+Similarly, when writing the Verification Audit, start directly with:
+
+# {Application Name} — Verification Audit
+
+No preamble before the heading.
+
 Write a COMPLETE Markdown document following this EXACT structure.
 Every section is MANDATORY. Do not skip or merge sections.
 
@@ -373,6 +391,14 @@ If the spec is small (< 15 checklist items, ≤ 2 phases), write instead:
 "This spec is small enough for a single Claude Code session. No session plan needed."
 and then proceed to Section 11.
 
+The Session Plan section MUST begin with this exact warning block
+(do not paraphrase or omit):
+
+> ⚠️ This specification is too large for a single Claude Code session.
+> Feeding the entire spec at once will produce incomplete results.
+> Use the sessions below. Each prompt tells Claude Code which
+> spec sections to read — it does NOT need to read the full document.
+
 For EACH session, use this EXACT format:
 
 ### Session {N}: {Short Title} (~{N} files)
@@ -384,14 +410,28 @@ For EACH session, use this EXACT format:
 
 **Prompt for Claude Code:**
 \`\`\`
-{The complete, copy-pasteable prompt. Must reference the spec file path.
-Must list what to focus on AND what NOT to do yet.}
+Read docs/specs/{filename}.md — but ONLY these sections:
+- Section {N} ({name}) — {why}
+- Section {N} ({name}) — {why}
+- Section 9, Phase {N} — for the checklist items
+
+IGNORE all other sections. Do NOT read ahead.
+
+{what to implement — 3-5 specific items}
+
+Do NOT modify files from previous sessions unless the checklist
+explicitly says to.
 \`\`\`
 
 **Verify before next session:**
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
 - [ ] TypeScript compiles: pnpm tsc --noEmit
+
+EVERY session prompt MUST use the exact structure shown above. NEVER
+write a session prompt that says "Read the spec first" or "Read
+docs/specs/filename.md." without the "ONLY these sections" constraint.
+Every prompt MUST scope the reading to specific sections.
 
 FORMAT PRECISION — THE GUIDE PARSER DEPENDS ON THIS:
 CodeMantis automatically extracts the Session Plan into an interactive
@@ -552,6 +592,14 @@ When asked to generate the audit, produce a document starting with:
 open the actual file and read the code. Do NOT rely on memory.
 Report PASS, FAIL, or MISSING. Fix all failures before moving on.
 
+If the spec has a Session Plan (Section 10), add this note after
+the "When to run" line in the audit header:
+
+**Session Plan note:** This spec uses a multi-session implementation
+plan (Section 10). Run this audit only after ALL sessions are complete,
+not after individual sessions. Per-session verification checks are in
+the Session Plan itself.
+
 The audit is designed to be read by Claude Code AFTER it has
 implemented the spec. Its job is to force Claude Code to:
 1. Open actual files (not rely on memory)
@@ -684,7 +732,11 @@ IF ANY STEP FAILS: identify which component's output doesn't
 match the next component's expected input.
 
 ## Final Audit Summary
-  Total items: ___
+In the Final Audit Summary, COUNT the total number of VERIFY directives
+(lines containing "VERIFY:") and pre-fill the "Total items" count.
+Do not leave it blank.
+
+  Total items: {count all VERIFY directives}
   PASS: ___
   FAIL: ___ (list item numbers)
   MISSING: ___ (list item numbers)
@@ -861,6 +913,24 @@ FORMATTING RULES for the feature list:
 ═══════════════════════════════════════════════════════════════════
 WRITING PHASE — FEATURE SPECIFICATION
 ═══════════════════════════════════════════════════════════════════
+
+CLEAN OUTPUT RULE:
+When you write the specification document, your response must start
+DIRECTLY with the markdown separator and heading:
+
+---
+
+# {Feature Name} — Feature Specification
+
+Do NOT include ANY text before the --- separator. No preamble, no
+"Let me...", no "I have enough to...", no thinking text, no
+commentary. The first characters of your response must be "---".
+
+Similarly, when writing the Verification Audit, start directly with:
+
+# {Feature Name} — Verification Audit
+
+No preamble before the heading.
 
 Write a COMPLETE Markdown document following this EXACT structure.
 Every section is MANDATORY. Do not skip or merge sections.
@@ -1059,6 +1129,14 @@ If the spec is small (< 15 checklist items, ≤ 2 phases), write instead:
 "This spec is small enough for a single Claude Code session. No session plan needed."
 and then proceed to Section 11.
 
+The Session Plan section MUST begin with this exact warning block
+(do not paraphrase or omit):
+
+> ⚠️ This specification is too large for a single Claude Code session.
+> Feeding the entire spec at once will produce incomplete results.
+> Use the sessions below. Each prompt tells Claude Code which
+> spec sections to read — it does NOT need to read the full document.
+
 For EACH session, use this EXACT format:
 
 ### Session {N}: {Short Title} (~{N} files)
@@ -1070,14 +1148,28 @@ For EACH session, use this EXACT format:
 
 **Prompt for Claude Code:**
 \`\`\`
-{The complete, copy-pasteable prompt. Must reference the spec file path.
-Must list what to focus on AND what NOT to do yet.}
+Read docs/specs/{filename}.md — but ONLY these sections:
+- Section {N} ({name}) — {why}
+- Section {N} ({name}) — {why}
+- Section 9, Phase {N} — for the checklist items
+
+IGNORE all other sections. Do NOT read ahead.
+
+{what to implement — 3-5 specific items}
+
+Do NOT modify files from previous sessions unless the checklist
+explicitly says to.
 \`\`\`
 
 **Verify before next session:**
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
 - [ ] TypeScript compiles: pnpm tsc --noEmit
+
+EVERY session prompt MUST use the exact structure shown above. NEVER
+write a session prompt that says "Read the spec first" or "Read
+docs/specs/filename.md." without the "ONLY these sections" constraint.
+Every prompt MUST scope the reading to specific sections.
 
 FORMAT PRECISION — THE GUIDE PARSER DEPENDS ON THIS:
 CodeMantis automatically extracts the Session Plan into an interactive
@@ -1187,6 +1279,14 @@ When asked to generate the audit, produce a document starting with:
 **How to use:** Work through every section. For each VERIFY directive,
 open the actual file and read the code. Do NOT rely on memory.
 Report PASS, FAIL, or MISSING. Fix all failures before moving on.
+
+If the spec has a Session Plan (Section 10), add this note after
+the "When to run" line in the audit header:
+
+**Session Plan note:** This spec uses a multi-session implementation
+plan (Section 10). Run this audit only after ALL sessions are complete,
+not after individual sessions. Per-session verification checks are in
+the Session Plan itself.
 
 The audit is designed to be read by Claude Code AFTER it has
 implemented the spec. Its job is to force Claude Code to:
@@ -1316,7 +1416,11 @@ IF ANY STEP FAILS: identify which component's output doesn't
 match the next component's expected input.
 
 ## Final Audit Summary
-  Total items: ___
+In the Final Audit Summary, COUNT the total number of VERIFY directives
+(lines containing "VERIFY:") and pre-fill the "Total items" count.
+Do not leave it blank.
+
+  Total items: {count all VERIFY directives}
   PASS: ___
   FAIL: ___ (list item numbers)
   MISSING: ___ (list item numbers)
