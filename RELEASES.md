@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 0.9.3
+
+- Preview toolbar console via Tauri emit with scoped remote capability
+- Fix preview toolbar via approval-server fetch and reliable macOS screenshots
+
 ## 0.9.2
 
 - Persist right-panel subviews and add uiStore coverage
