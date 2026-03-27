@@ -479,18 +479,26 @@ mod tests {
     }
 
     #[test]
-    fn bridge_does_not_use_fetch_for_toolbar_actions() {
-        // Regression guard: fetch() to 127.0.0.1 is blocked by CSP.
-        // The bridge must NOT use fetch for screenshot/close/console-to-chat.
+    fn bridge_uses_fetch_to_approval_server_for_actions() {
+        // The bridge sends toolbar actions via fetch() to the approval server
+        // (127.0.0.1:{port}) which has CORS headers for localhost origins.
+        // Falls back to __CM_PENDING_ACTIONS queue if fetch fails (CSP blocking).
         let bridge = include_str!("../../resources/preview-console-bridge.js");
-        let fetch_to_callback: Vec<&str> = bridge
-            .lines()
-            .filter(|l| l.contains("fetch(") && l.contains("127.0.0.1"))
-            .collect();
+        assert!(bridge.contains("127.0.0.1"), "Bridge must use 127.0.0.1 for approval server");
+        assert!(bridge.contains("__CM_CALLBACK_PORT"), "Bridge must reference the callback port");
+        assert!(bridge.contains("/screenshot"), "Bridge must have /screenshot endpoint");
+        assert!(bridge.contains("/open"), "Bridge must have /open endpoint");
+        assert!(bridge.contains("/close"), "Bridge must have /close endpoint");
+        assert!(bridge.contains("/console-to-chat"), "Bridge must have /console-to-chat endpoint");
+    }
+
+    #[test]
+    fn bridge_falls_back_to_action_queue_on_fetch_failure() {
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        // The .catch() handler pushes to the fallback queue
         assert!(
-            fetch_to_callback.is_empty(),
-            "Bridge must NOT use fetch() to 127.0.0.1 — blocked by CSP. Found {} fetch calls",
-            fetch_to_callback.len()
+            bridge.contains("__CM_PENDING_ACTIONS.push(action)"),
+            "Bridge must fall back to __CM_PENDING_ACTIONS on fetch failure"
         );
     }
 
@@ -621,5 +629,45 @@ mod tests {
         let action: super::super::commands::preview::ToolbarAction =
             serde_json::from_str(json).unwrap();
         assert_eq!(action.action, "close");
+    }
+
+    // ── IPC listener ID tracking ──
+
+    #[tokio::test]
+    async fn ipc_listener_ids_starts_empty() {
+        let state = PreviewState::new();
+        let ids = state.ipc_listener_ids.lock().await;
+        assert!(ids.is_empty());
+    }
+
+    // ── Capability contract ──
+
+    #[test]
+    fn preview_capability_exists_and_has_remote_urls() {
+        let cap = include_str!("../../capabilities/preview.json");
+        assert!(cap.contains("preview-remote"), "Capability must have preview-remote identifier");
+        assert!(cap.contains("http://localhost:*"), "Capability must allow localhost");
+        assert!(cap.contains("http://127.0.0.1:*"), "Capability must allow 127.0.0.1");
+        assert!(cap.contains("core:event:allow-emit"), "Capability must grant event:allow-emit");
+    }
+
+    #[test]
+    fn default_capability_includes_preview_window() {
+        // The preview window needs window management permissions (close, size, etc.)
+        // for Rust-side operations. Removing "preview" from default breaks close button.
+        let cap = include_str!("../../capabilities/default.json");
+        assert!(cap.contains("\"preview\""), "Default capability must include the preview window");
+    }
+
+    // ── Bridge fetch routing ──
+
+    #[test]
+    fn bridge_cm_send_action_routes_to_correct_endpoints() {
+        // Verify the switch statement in cmSendAction maps actions to endpoints
+        let bridge = include_str!("../../resources/preview-console-bridge.js");
+        assert!(bridge.contains("case 'screenshot':"));
+        assert!(bridge.contains("case 'open':"));
+        assert!(bridge.contains("case 'close':"));
+        assert!(bridge.contains("case 'console_to_chat':"));
     }
 }

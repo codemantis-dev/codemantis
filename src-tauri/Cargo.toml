@@ -39,5 +39,9 @@ tempfile = "3"
 libc = "0.2"
 toml = "0.8"
 tokio-util = "0.7"
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
 
 [dev-dependencies]

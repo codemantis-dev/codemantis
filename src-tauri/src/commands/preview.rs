@@ -90,18 +90,65 @@ pub fn capture_screenshot_inner(app_handle: &AppHandle) -> Result<String, String
         return Err("Cannot screenshot minimized window".to_string());
     }
 
+    let tmp_path = std::env::temp_dir().join(format!(
+        "codemantis-screenshot-{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    let path_str = tmp_path.to_str().ok_or("Invalid temp path")?.to_string();
+
+    // Use `screencapture -l <windowID>` which captures the exact window by its
+    // native CGWindowID.  This is more reliable than the coordinate-based `-R`
+    // approach which breaks when outer_position() returns incorrect values
+    // (observed in wry 0.54 when called from a non-main-thread context).
+    //
+    // We get the window ID via raw-window-handle → NSWindow → windowNumber.
+    #[cfg(target_os = "macos")]
+    {
+        use raw_window_handle::HasWindowHandle;
+        if let Ok(handle) = window.window_handle() {
+            if let raw_window_handle::RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+                // appkit.ns_view is a pointer to the NSView.
+                // NSView.window returns the parent NSWindow.
+                // NSWindow.windowNumber returns the CGWindowID.
+                let ns_view_ptr = appkit.ns_view.as_ptr() as *const objc2::runtime::AnyObject;
+                let ns_window: *const objc2::runtime::AnyObject =
+                    unsafe { objc2::msg_send![&*ns_view_ptr, window] };
+                let window_number: isize =
+                    unsafe { objc2::msg_send![&*ns_window, windowNumber] };
+                if window_number > 0 {
+                    info!("[preview] Screenshot via window ID {}", window_number);
+                    let output = std::process::Command::new("screencapture")
+                        .args(["-l", &window_number.to_string(), "-o", "-x", &path_str])
+                        .output()
+                        .map_err(|e| format!("screencapture -l failed: {}", e))?;
+                    if output.status.success() {
+                        return Ok(path_str);
+                    }
+                    warn!(
+                        "[preview] screencapture -l {} failed: {}",
+                        window_number,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+            }
+        }
+    }
+
+    // Fallback: coordinate-based capture
     let position = window.outer_position().map_err(|e| e.to_string())?;
     let size = window.outer_size().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
 
-    // Convert physical coords to logical/point coords for screencapture -R
     let mut x = (position.x as f64 / scale) as i32;
     let mut y = (position.y as f64 / scale) as i32;
     let w = (size.width as f64 / scale) as u32;
     let h = (size.height as f64 / scale) as u32;
 
     info!(
-        "[preview] Screenshot: physical=({},{}) {}x{}, scale={}, logical=({},{}) {}x{}",
+        "[preview] Screenshot fallback -R: physical=({},{}) {}x{}, scale={}, logical=({},{}) {}x{}",
         position.x, position.y, size.width, size.height, scale, x, y, w, h
     );
 
@@ -112,24 +159,8 @@ pub fn capture_screenshot_inner(app_handle: &AppHandle) -> Result<String, String
         ));
     }
 
-    // Clamp negative positions — window may be partially off-screen
-    if x < 0 {
-        warn!("[preview] Screenshot x position negative ({}), clamping to 0", x);
-        x = 0;
-    }
-    if y < 0 {
-        warn!("[preview] Screenshot y position negative ({}), clamping to 0", y);
-        y = 0;
-    }
-
-    let tmp_path = std::env::temp_dir().join(format!(
-        "codemantis-screenshot-{}.png",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    ));
-    let path_str = tmp_path.to_str().ok_or("Invalid temp path")?.to_string();
+    if x < 0 { x = 0; }
+    if y < 0 { y = 0; }
 
     let rect = format!("{},{},{},{}", x, y, w, h);
     let output = std::process::Command::new("screencapture")
@@ -255,6 +286,13 @@ pub async fn open_preview_window(
     // polling below is kept as a fallback for non-localhost origins where
     // Tauri IPC is not available (dangerousRemoteDomainIpcAccess is scoped
     // to localhost / 127.0.0.1).
+    // Diagnostic: listen for IPC health-check from the bridge JS
+    let diag_listener_id = app_handle.listen("preview-ipc-diag", move |event| {
+        info!("[preview] IPC diagnostic received from bridge JS: {}", event.payload());
+    });
+
+    info!("[preview] Registering IPC event listeners for toolbar actions and console batches");
+
     let ipc_ah = app_handle.clone();
     let ipc_console_logs = preview_state.console_logs.clone();
     let _ipc_project_path = project_path.clone();
@@ -335,6 +373,7 @@ pub async fn open_preview_window(
     // Store listener IDs for cleanup when the preview is replaced or closed
     {
         let mut ids = preview_state.ipc_listener_ids.lock().await;
+        ids.push(diag_listener_id);
         ids.push(action_listener_id);
         ids.push(console_listener_id);
     }
@@ -363,6 +402,51 @@ pub async fn open_preview_window(
             );
             if let Err(e) = win.eval(&inject_port_js) {
                 warn!("[preview] Failed to inject callback port via eval: {}", e);
+            }
+        }
+
+        // ── One-time IPC diagnostic (after 2s to let bridge + Tauri IPC initialize) ──
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+        if let Some(win) = poll_ah.get_webview_window("preview") {
+            // Read __CM_IPC_CHANNEL via title-based diagnostic (best effort)
+            let diag_js = r#"
+                (function() {
+                    var ch = window.__CM_IPC_CHANNEL || 'undefined';
+                    var hasTauri = typeof window.__TAURI__ !== 'undefined';
+                    var hasInternals = typeof window.__TAURI_INTERNALS__ !== 'undefined';
+                    var hasBridge = typeof window.__CM_CONSOLE_BRIDGE !== 'undefined';
+                    window.__CM_IPC_DIAG_RESULT = 'channel=' + ch +
+                        ',__TAURI__=' + hasTauri +
+                        ',__TAURI_INTERNALS__=' + hasInternals +
+                        ',bridge=' + hasBridge;
+                    // Also try title-based reporting for Rust to read
+                    window.__CM_DIAG_ORIG_TITLE = document.title;
+                    document.title = '__CM_DIAG__' + window.__CM_IPC_DIAG_RESULT;
+                })();
+            "#;
+            if let Err(e) = win.eval(diag_js) {
+                warn!("[preview] IPC diagnostic eval failed: {}", e);
+            } else {
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                match win.title() {
+                    Ok(title) => {
+                        if let Some(diag) = title.strip_prefix("__CM_DIAG__") {
+                            info!("[preview] IPC diagnostic: {}", diag);
+                        } else {
+                            info!("[preview] IPC diagnostic: title read returned '{}' (document.title NOT propagating to window title — this confirms wry/WKWebView title sync is broken)", title);
+                        }
+                    }
+                    Err(e) => warn!("[preview] IPC diagnostic: title read failed: {}", e),
+                }
+                // Restore title
+                let _ = win.eval(r#"
+                    (function() {
+                        if (window.__CM_DIAG_ORIG_TITLE !== undefined) {
+                            document.title = window.__CM_DIAG_ORIG_TITLE;
+                            delete window.__CM_DIAG_ORIG_TITLE;
+                        }
+                    })();
+                "#);
             }
         }
 

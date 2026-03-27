@@ -5,11 +5,9 @@
  * script. They read the bridge JS source and assert that critical elements
  * are present — action queue, variable names, and communication mechanisms.
  *
- * Regression: security changes repeatedly broke the preview toolbar because
- * fetch()-based callbacks were silently blocked by pages with restrictive CSP
- * (connect-src 'self'). The bridge now uses a JS action queue
- * (__CM_PENDING_ACTIONS) that the Rust polling loop drains via document.title,
- * which is immune to CSP restrictions.
+ * The bridge sends toolbar actions via fetch() to the approval server's CORS
+ * endpoints (/screenshot, /open, /close, /console-to-chat). Falls back to
+ * __CM_PENDING_ACTIONS queue if fetch fails (e.g. CSP blocking on strict sites).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
@@ -42,26 +40,25 @@ describe("preview-console-bridge.js contract", () => {
       expect(bridgeSource).toContain("action: 'console_to_chat'");
     });
 
-    it("all four action types use cmSendAction or push to __CM_PENDING_ACTIONS", () => {
-      // Actions are sent via cmSendAction() which prefers Tauri IPC when available,
-      // falling back to __CM_PENDING_ACTIONS queue
+    it("all four action types use cmSendAction", () => {
+      // Actions are sent via cmSendAction() which calls fetch() to the approval server
       const actionLines = bridgeSource.split("\n").filter(
-        (line) => line.includes("cmSendAction(") || line.includes("__CM_PENDING_ACTIONS.push"),
+        (line) => line.includes("cmSendAction("),
       );
       expect(actionLines.length).toBeGreaterThanOrEqual(4);
     });
 
-    it("cmSendAction prefers Tauri IPC when available", () => {
-      expect(bridgeSource).toContain("window.__TAURI__");
-      expect(bridgeSource).toContain("event.emit");
-      expect(bridgeSource).toContain("preview-toolbar-action");
+    it("cmSendAction uses fetch() to the approval server callback port", () => {
+      expect(bridgeSource).toContain("__CM_CALLBACK_PORT");
+      expect(bridgeSource).toContain("127.0.0.1");
+      expect(bridgeSource).toContain("/screenshot");
+      expect(bridgeSource).toContain("/open");
+      expect(bridgeSource).toContain("/close");
+      expect(bridgeSource).toContain("/console-to-chat");
     });
 
-    it("does NOT use fetch() to 127.0.0.1 for toolbar actions", () => {
-      const fetchToCallback = bridgeSource.split("\n").filter(
-        (line) => line.includes("fetch(") && line.includes("127.0.0.1"),
-      );
-      expect(fetchToCallback).toHaveLength(0);
+    it("cmSendAction falls back to __CM_PENDING_ACTIONS on fetch failure", () => {
+      expect(bridgeSource).toContain("__CM_PENDING_ACTIONS.push(action)");
     });
 
     it("close button calls window.close() for immediate feedback", () => {

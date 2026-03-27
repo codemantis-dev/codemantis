@@ -3,40 +3,41 @@
   window.__CM_CONSOLE_BRIDGE = true;
   window.__CM_CONSOLE_BUFFER = [];
   window.__CM_CONSOLE_LOG = [];
-  // Action queue: fallback for when Tauri IPC is not available.
-  // Toolbar buttons prefer Tauri IPC (emit event) when __TAURI__ is present,
-  // and fall back to this queue + document.title IPC for non-localhost origins.
+  // Action queue: fallback for document.title IPC polling (kept for legacy).
   window.__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || [];
 
-  // Helper: send a toolbar action via the fastest available channel.
+  // ── fetch()-based IPC to the approval server ──────────────────────
+  // The approval server on 127.0.0.1 has CORS endpoints for preview
+  // actions (/screenshot, /open, /close, /console-to-chat).
+  // window.__CM_CALLBACK_PORT is injected by the initialization_script.
+  function cmCallbackUrl(path) {
+    var port = window.__CM_CALLBACK_PORT;
+    if (!port) return null;
+    return 'http://127.0.0.1:' + port + path;
+  }
+
   function cmSendAction(action) {
-    if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
-      window.__TAURI__.event.emit('preview-toolbar-action', action);
+    var url = null;
+    switch (action.action) {
+      case 'screenshot':    url = cmCallbackUrl('/screenshot'); break;
+      case 'open':          url = cmCallbackUrl('/open'); break;
+      case 'close':         url = cmCallbackUrl('/close'); break;
+      case 'console_to_chat': url = cmCallbackUrl('/console-to-chat'); break;
+    }
+    if (url) {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action),
+      }).catch(function() {
+        // CSP or network error — fall back to action queue
+        window.__CM_PENDING_ACTIONS.push(action);
+      });
     } else {
+      // No callback port or unknown action — queue for polling fallback
       window.__CM_PENDING_ACTIONS.push(action);
     }
   }
-
-  // Helper: send console log batch via Tauri IPC (if available).
-  function cmSendConsoleBatch(entries) {
-    if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
-      window.__TAURI__.event.emit('preview-console-batch', entries);
-      return true;
-    }
-    return false;
-  }
-
-  // Periodically flush console buffer via Tauri IPC (if available).
-  // This replaces the Rust-side polling for console logs.
-  setInterval(function() {
-    if (window.__CM_CONSOLE_BUFFER && window.__CM_CONSOLE_BUFFER.length > 0) {
-      var entries = window.__CM_CONSOLE_BUFFER.splice(0);
-      if (!cmSendConsoleBatch(entries)) {
-        // Put entries back if IPC not available — Rust polling will drain them
-        window.__CM_CONSOLE_BUFFER.unshift.apply(window.__CM_CONSOLE_BUFFER, entries);
-      }
-    }
-  }, 500);
 
   var MAX_ENTRIES = 500;
   var ORIG = {
