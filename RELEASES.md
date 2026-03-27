@@ -1,5 +1,9 @@
 # CodeMantis Releases
 
+## 0.9.4
+
+- Tighten SpecWriter system prompts: enforce structured output format, session-plan warning blocks, section-scoped Claude prompts, multi-session audit notes, and VERIFY line pre-counting
+
 ## 0.9.3
 
 - Preview toolbar console via Tauri emit with scoped remote capability
