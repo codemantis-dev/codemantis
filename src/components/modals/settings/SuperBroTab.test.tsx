@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import SuperBroTab from "./SuperBroTab";
 
+vi.mock("../../../stores/openRouterStore", () => ({
+  useOpenRouterStore: vi.fn((selector) =>
+    selector({
+      models: [
+        { id: "google/gemini:free", name: "Gemini Free", isFree: true },
+        { id: "anthropic/claude-3", name: "Claude 3", isFree: false },
+      ],
+    }),
+  ),
+}));
+
 describe("SuperBroTab", () => {
   const defaultProps = {
     enabled: true,
@@ -40,13 +51,56 @@ describe("SuperBroTab", () => {
     ).toBeInTheDocument();
   });
 
-  it("provider change callback fires", () => {
+  it("provider change callback fires and resets model", () => {
     render(<SuperBroTab {...defaultProps} enabled={true} provider="auto" />);
     const providerSelect = screen.getByDisplayValue("Auto (cheapest available)");
     fireEvent.change(providerSelect, { target: { value: "gemini" } });
     expect(defaultProps.onProviderChange).toHaveBeenCalledWith("gemini");
-    // Should also reset model to "auto" when provider changes
     expect(defaultProps.onModelChange).toHaveBeenCalledWith("auto");
+  });
+
+  it("shows all AI_MODELS for a hardcoded provider", () => {
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} provider="gemini" model="auto" />,
+    );
+    // Should have "Auto" + all 6 Gemini models from AI_MODELS
+    const modelSelect = screen.getByDisplayValue("Auto — best available");
+    const options = modelSelect.querySelectorAll("option");
+    // auto + gemini-2.5-flash-lite + gemini-2.5-flash + gemini-2.5-pro
+    // + gemini-3-flash-preview + gemini-3.1-pro-preview + gemini-3.1-flash-lite-preview
+    expect(options.length).toBe(7); // 1 auto + 6 models
+  });
+
+  it("shows all OpenRouter models from store", () => {
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} provider="openrouter" model="auto" />,
+    );
+    const modelSelect = screen.getByDisplayValue("Auto — best available");
+    const options = modelSelect.querySelectorAll("option");
+    // auto + 2 mocked OpenRouter models
+    expect(options.length).toBe(3);
+    expect(screen.getByText("Gemini Free (free)")).toBeInTheDocument();
+    expect(screen.getByText("Claude 3")).toBeInTheDocument();
+  });
+
+  it("shows all Anthropic models", () => {
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} provider="anthropic" model="auto" />,
+    );
+    const modelSelect = screen.getByDisplayValue("Auto — best available");
+    const options = modelSelect.querySelectorAll("option");
+    // auto + 3 Anthropic models (Opus, Sonnet, Haiku)
+    expect(options.length).toBe(4);
+  });
+
+  it("shows all OpenAI models", () => {
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} provider="openai" model="auto" />,
+    );
+    const modelSelect = screen.getByDisplayValue("Auto — best available");
+    const options = modelSelect.querySelectorAll("option");
+    // auto + 4 OpenAI models (GPT-4.1, GPT-5.4 Nano, Mini, full)
+    expect(options.length).toBe(5);
   });
 
   it("model change callback fires", () => {
@@ -67,7 +121,6 @@ describe("SuperBroTab", () => {
 
   it("toggle callback fires", () => {
     render(<SuperBroTab {...defaultProps} enabled={false} />);
-    // The toggle button is inside the FieldRow for "Enable Super-Bro"
     const toggleButton = screen.getByRole("button");
     fireEvent.click(toggleButton);
     expect(defaultProps.onEnabledChange).toHaveBeenCalledWith(true);

@@ -1,5 +1,7 @@
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
+import { AI_MODELS } from "../../../types/assistant-provider";
+import { useOpenRouterStore } from "../../../stores/openRouterStore";
 
 interface SuperBroTabProps {
   enabled: boolean;
@@ -18,25 +20,34 @@ const PROVIDER_OPTIONS = [
   { id: "anthropic", label: "Anthropic" },
 ];
 
-const MODEL_OPTIONS: Record<string, { id: string; label: string }[]> = {
-  auto: [{ id: "auto", label: "Auto — best free model" }],
-  openrouter: [
-    { id: "auto", label: "Auto — cheapest free model" },
-    { id: "google/gemini-2.5-flash-preview-05-20:free", label: "Gemini 2.5 Flash (free)" },
-  ],
-  gemini: [
-    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-  ],
-  openai: [
-    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-  ],
-  anthropic: [
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  ],
-};
+function useModelOptions(provider: string): { id: string; label: string }[] {
+  const orModels = useOpenRouterStore((s) => s.models);
+
+  if (provider === "auto") {
+    return [{ id: "auto", label: "Auto — best available model" }];
+  }
+
+  const autoOption = { id: "auto", label: "Auto — best available" };
+
+  if (provider === "openrouter") {
+    const dynamicModels = orModels.map((m) => ({
+      id: m.id,
+      label: `${m.name}${m.isFree ? " (free)" : ""}`,
+    }));
+    return [autoOption, ...dynamicModels];
+  }
+
+  // For gemini, openai, anthropic — pull from the shared AI_MODELS registry
+  const providerModels = AI_MODELS[provider as keyof typeof AI_MODELS];
+  if (providerModels) {
+    return [
+      autoOption,
+      ...providerModels.map((m) => ({ id: m.id, label: m.label })),
+    ];
+  }
+
+  return [autoOption];
+}
 
 export default function SuperBroTab({
   enabled,
@@ -46,7 +57,7 @@ export default function SuperBroTab({
   onProviderChange,
   onModelChange,
 }: SuperBroTabProps) {
-  const models = MODEL_OPTIONS[provider] ?? MODEL_OPTIONS["auto"];
+  const models = useModelOptions(provider);
 
   return (
     <div className="space-y-6">
