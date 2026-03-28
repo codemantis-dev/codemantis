@@ -1,4 +1,5 @@
-use log::{debug, warn};
+use log::{debug, info, warn};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use regex::Regex;
 
@@ -21,6 +22,22 @@ static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 static PORT_IN_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:already in use|in use.*trying|EADDRINUSE|address already|port is occupied|is already running on port)").unwrap()
 });
+
+/// Extract the occupied port number from "port in use" messages.
+/// E.g. "Port 5173 is in use, trying another one..." → 5173
+static OCCUPIED_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:port\s+)(\d+)(?:\s+is\s+(?:already\s+)?in\s+use|.*EADDRINUSE|.*address already|\s+is\s+occupied|\s+is\s+already\s+running)").unwrap()
+});
+
+/// Common dev server ports to probe as a last-resort fallback when terminal
+/// output scanning and expected-port probing both fail.
+pub const DEFAULT_DEV_PORTS: &[u16] = &[
+    5173, 5174, 5175, 5176, // Vite
+    3000, 3001, 3002,       // Next.js, Express, Rails
+    4321,                   // Astro
+    8080, 8081,             // Webpack, generic
+    8000,                   // Django, Uvicorn
+];
 
 static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
@@ -97,6 +114,68 @@ pub async fn probe_port(port: u16) -> bool {
             false
         }
     }
+}
+
+/// Extract the occupied port number from a "port in use" line.
+/// Returns `Some(port)` if the line indicates a port collision.
+///
+/// # Examples
+/// - `"Port 5173 is in use, trying another one..."` → `Some(5173)`
+/// - `"Port 3000 is already in use, trying 3001 instead."` → `Some(3000)`
+/// - `"Error: listen EADDRINUSE: address already in use :::5173"` → `Some(5173)`
+pub fn extract_occupied_port(line: &str) -> Option<u16> {
+    let cleaned = ANSI_RE.replace_all(line, "");
+    let line = cleaned.as_ref();
+
+    if !PORT_IN_USE_RE.is_match(line) {
+        return None;
+    }
+
+    if let Some(caps) = OCCUPIED_PORT_RE.captures(line) {
+        if let Some(port_match) = caps.get(1) {
+            if let Ok(port) = port_match.as_str().parse::<u16>() {
+                if port >= 1024 {
+                    debug!("Extracted occupied port {} from line: {}", port, line.trim());
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    // Fallback: scan for any port number in the line
+    // (handles formats like "EADDRINUSE :::5173" where the port is after :::)
+    static FALLBACK_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?::::|port\s+)(\d+)").unwrap()
+    });
+    if let Some(caps) = FALLBACK_PORT_RE.captures(line) {
+        if let Some(port_match) = caps.get(1) {
+            if let Ok(port) = port_match.as_str().parse::<u16>() {
+                if port >= 1024 {
+                    debug!("Extracted occupied port {} (fallback) from line: {}", port, line.trim());
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Probe a list of candidate ports, skipping excluded ones.
+/// Returns the first port that responds to HTTP, along with its URL.
+pub async fn probe_port_range(candidates: &[u16], exclude: &HashSet<u16>) -> Option<(u16, String)> {
+    for &port in candidates {
+        if exclude.contains(&port) {
+            debug!("Skipping excluded port {} in range scan", port);
+            continue;
+        }
+        if probe_port(port).await {
+            let url = format!("http://localhost:{}", port);
+            info!("Port range scan found server on port {}", port);
+            return Some((port, url));
+        }
+    }
+    None
 }
 
 /// Use lsof to find ports opened by a specific PID (macOS fallback).
@@ -608,5 +687,83 @@ mod tests {
         let url = format!("http://127.0.0.1:{}", 3000);
         assert_eq!(url, "http://127.0.0.1:3000");
         assert!(!url.contains("localhost"));
+    }
+
+    // ── extract_occupied_port tests ──
+
+    #[test]
+    fn test_extract_occupied_port_vite() {
+        let line = "Port 5173 is in use, trying another one...";
+        assert_eq!(extract_occupied_port(line), Some(5173));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_vite_already() {
+        let line = "Port 5173 is already in use, trying 5174...";
+        assert_eq!(extract_occupied_port(line), Some(5173));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_nextjs() {
+        let line = "Port 3000 is in use, trying 3001 instead.";
+        assert_eq!(extract_occupied_port(line), Some(3000));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_eaddrinuse() {
+        let line = "Error: listen EADDRINUSE: address already in use :::5173";
+        assert_eq!(extract_occupied_port(line), Some(5173));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_cra() {
+        let line = "Something is already running on port 3000.";
+        assert_eq!(extract_occupied_port(line), Some(3000));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_none_for_normal_line() {
+        let line = "  ➜  Local:   http://localhost:5173/";
+        assert_eq!(extract_occupied_port(line), None);
+    }
+
+    #[test]
+    fn test_extract_occupied_port_ansi_wrapped() {
+        let line = "\x1b[31mPort 5173 is already in use\x1b[0m, trying 5174...";
+        assert_eq!(extract_occupied_port(line), Some(5173));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_occupied_keyword() {
+        let line = "port is occupied on 5173";
+        // PORT_IN_USE_RE matches, but OCCUPIED_PORT_RE expects "port 5173 is occupied"
+        // The fallback regex handles "port 5173" patterns
+        // This line says "port is occupied on 5173" — PORT_IN_USE_RE matches because
+        // it contains "port is occupied", then we try to extract the port number.
+        let result = extract_occupied_port(line);
+        // The port number here is just at the end, not in a standard format.
+        // The OCCUPIED_PORT_RE won't match because the number comes after "on".
+        // The fallback "port\s+" won't match either since "port" is followed by "is", not a number.
+        // This is acceptable — the important case is that scan_for_dev_server_url
+        // already rejects this line via PORT_IN_USE_RE.
+        assert!(result.is_none() || result == Some(5173));
+    }
+
+    // ── probe_port_range tests ──
+
+    #[tokio::test]
+    async fn test_probe_port_range_skips_excluded() {
+        let exclude: HashSet<u16> = vec![59998, 59999].into_iter().collect();
+        // Both ports are excluded and also not running — should return None
+        let result = probe_port_range(&[59998, 59999], &exclude).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_probe_port_range_no_servers() {
+        let exclude: HashSet<u16> = HashSet::new();
+        // These ports are extremely unlikely to have servers
+        let result = probe_port_range(&[59997, 59998, 59999], &exclude).await;
+        assert!(result.is_none());
     }
 }

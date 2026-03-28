@@ -4,6 +4,7 @@ use crate::preview::{ConsoleLogEntry, DevServerInfo, DevServerStatus, PreviewSta
 use crate::terminal::pty_manager::TerminalPool;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::io::Write;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
@@ -859,48 +860,48 @@ pub async fn start_dev_server(
         servers.insert(project_path.clone(), info);
     }
 
+    // --- Port detection: register listener BEFORE spawning the detection task ---
+    // This eliminates a race condition where fast-starting frameworks (Vite ~295ms)
+    // print their URL before the spawned task's listener is registered. The unbounded
+    // channel buffers all events until the task starts consuming them.
+    let event_name = format!("terminal-output-{}", terminal_id);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let listener_id = app_handle.listen(&event_name, move |event: tauri::Event| {
+        let payload = event.payload();
+        if let Ok(data) = serde_json::from_str::<String>(payload) {
+            let _ = tx.send(data);
+        } else {
+            let _ = tx.send(payload.to_string());
+        }
+    });
+
     // Spawn port detection task
     let ah = app_handle.clone();
     let pp = project_path.clone();
-    let tid = terminal_id.clone();
+    let output_tid = terminal_id.clone();
     let expected_port = dev_port;
-
-    // Listen for terminal output to scan for port
-    let output_ah = app_handle.clone();
-    let output_pp = pp.clone();
-    let output_tid = tid.clone();
     let dev_servers = preview_state.dev_servers.clone();
-
-    // Clone app_handle for unlisten cleanup
     let unlisten_ah = app_handle.clone();
 
     tokio::spawn(async move {
         info!(
             "[preview] Port detection task started for {} (terminal: {}, expected_port: {:?})",
-            output_pp, output_tid, expected_port
+            pp, output_tid, expected_port
         );
-        let event_name = format!("terminal-output-{}", output_tid);
 
-        // Use a channel to collect terminal output
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-        // Listen to terminal output events — store EventId so we can unlisten later
-        let listener_id = output_ah.listen(event_name, move |event: tauri::Event| {
-            let payload = event.payload();
-            if let Ok(data) = serde_json::from_str::<String>(payload) {
-                let _ = tx.send(data);
-            } else {
-                let _ = tx.send(payload.to_string());
-            }
-        });
-
+        let mut rx = rx;
         let timeout = tokio::time::Duration::from_secs(30);
         let deadline = tokio::time::Instant::now() + timeout;
+
+        // Track ports reported as occupied (e.g. "Port 5173 is in use") so
+        // Layer 3 can skip stale servers on those ports.
+        let mut occupied_ports: HashSet<u16> = HashSet::new();
 
         // Helper: check if project was removed (stop_dev_server called)
         let project_removed = || async {
             let servers = dev_servers.lock().await;
-            !servers.contains_key(&output_pp)
+            !servers.contains_key(&pp)
         };
 
         // Layer 1: Scan terminal output for port patterns
@@ -913,14 +914,19 @@ pub async fn start_dev_server(
             match tokio::time::timeout(remaining, rx.recv()).await {
                 Ok(Some(data)) => {
                     for line in data.lines() {
+                        // Track ports mentioned in "in use" messages for Layer 3 exclusion
+                        if let Some(occ_port) = port_detector::extract_occupied_port(line) {
+                            occupied_ports.insert(occ_port);
+                        }
+
                         if let Some((port, url)) = port_detector::scan_for_dev_server_url(line) {
                             // Guard: project may have been closed during scanning
                             if project_removed().await {
-                                debug!("Project {} was closed during port detection, skipping emit", output_pp);
+                                debug!("Project {} was closed during port detection, skipping emit", pp);
                                 unlisten_ah.unlisten(listener_id);
                                 return;
                             }
-                            info!("Dev server candidate on port {} for {}, verifying...", port, output_pp);
+                            info!("Dev server candidate on port {} for {}, verifying...", port, pp);
 
                             // Probe the port with retries — some frameworks (Next.js
                             // Turbopack, fumadocs-mdx) print the URL before they actually
@@ -936,7 +942,7 @@ pub async fn start_dev_server(
 
                                 // Guard: project may have been closed during the wait
                                 if project_removed().await {
-                                    debug!("Project {} was closed during port verification, skipping emit", output_pp);
+                                    debug!("Project {} was closed during port verification, skipping emit", pp);
                                     unlisten_ah.unlisten(listener_id);
                                     return;
                                 }
@@ -948,21 +954,21 @@ pub async fn start_dev_server(
 
                                 info!(
                                     "[preview] Port {} probe attempt {}/{} failed for {}, retrying...",
-                                    port, attempt + 1, probe_delays_ms.len(), output_pp
+                                    port, attempt + 1, probe_delays_ms.len(), pp
                                 );
                             }
 
                             if !probe_succeeded {
                                 warn!(
                                     "Dev server on port {} for {} failed all {} probe attempts, continuing scan",
-                                    port, output_pp, probe_delays_ms.len()
+                                    port, pp, probe_delays_ms.len()
                                 );
                                 continue;
                             }
 
-                            info!("Dev server confirmed on port {} for {}", port, output_pp);
+                            info!("Dev server confirmed on port {} for {}", port, pp);
                             let mut servers = dev_servers.lock().await;
-                            if let Some(info) = servers.get_mut(&output_pp) {
+                            if let Some(info) = servers.get_mut(&pp) {
                                 info.port = Some(port);
                                 info.url = Some(url.clone());
                                 info.status = DevServerStatus::Detected;
@@ -971,7 +977,7 @@ pub async fn start_dev_server(
                                 port,
                                 url,
                                 terminal_id: output_tid.clone(),
-                                project_path: output_pp.clone(),
+                                project_path: pp.clone(),
                             }) {
                                 warn!("[preview] Failed to emit dev-server-ready: {}", e);
                             }
@@ -981,11 +987,11 @@ pub async fn start_dev_server(
                     }
                 }
                 Ok(None) => {
-                    info!("[preview] Terminal output channel closed for {} before port detected", output_pp);
+                    info!("[preview] Terminal output channel closed for {} before port detected", pp);
                     break false;
                 }
                 Err(_) => {
-                    warn!("[preview] Port detection timed out after 30s for {}", output_pp);
+                    warn!("[preview] Port detection timed out after 30s for {}", pp);
                     break false;
                 }
             }
@@ -1000,16 +1006,16 @@ pub async fn start_dev_server(
 
         // Guard: project may have been closed during scanning
         if project_removed().await {
-            debug!("Project {} was closed during port detection, aborting", output_pp);
+            debug!("Project {} was closed during port detection, aborting", pp);
             return;
         }
 
         // Layer 2: Try probing the expected port from template
         if let Some(port) = expected_port {
-            info!("Probing expected port {} for {}", port, output_pp);
+            info!("Probing expected port {} for {}", port, pp);
             {
                 let mut servers = dev_servers.lock().await;
-                if let Some(info) = servers.get_mut(&output_pp) {
+                if let Some(info) = servers.get_mut(&pp) {
                     info.status = DevServerStatus::Probing;
                 }
             }
@@ -1019,15 +1025,15 @@ pub async fn start_dev_server(
 
                 // Guard: check project still exists before each probe
                 if project_removed().await {
-                    debug!("Project {} was closed during port probing, aborting", output_pp);
+                    debug!("Project {} was closed during port probing, aborting", pp);
                     return;
                 }
 
                 if port_detector::probe_port(port).await {
                     let url = format!("http://localhost:{}", port);
-                    info!("Dev server confirmed on expected port {} for {}", port, output_pp);
+                    info!("Dev server confirmed on expected port {} for {}", port, pp);
                     let mut servers = dev_servers.lock().await;
-                    if let Some(info) = servers.get_mut(&output_pp) {
+                    if let Some(info) = servers.get_mut(&pp) {
                         info.port = Some(port);
                         info.url = Some(url.clone());
                         info.status = DevServerStatus::Detected;
@@ -1036,7 +1042,7 @@ pub async fn start_dev_server(
                         port,
                         url,
                         terminal_id: output_tid.clone(),
-                        project_path: output_pp.clone(),
+                        project_path: pp.clone(),
                     }) {
                         warn!("[preview] Failed to emit dev-server-ready: {}", e);
                     }
@@ -1045,22 +1051,56 @@ pub async fn start_dev_server(
             }
         }
 
-        // Guard: one final check before emitting failure
+        // Guard: check project still exists
         if project_removed().await {
-            debug!("Project {} was closed, not emitting failure", output_pp);
+            debug!("Project {} was closed before Layer 3, aborting", pp);
             return;
         }
 
-        warn!("Failed to detect dev server port for {} (terminal: {})", output_pp, output_tid);
+        // Layer 3: Scan common dev server ports as last resort.
+        // Skip ports we know are occupied by stale servers (from Layer 1).
+        info!(
+            "[preview] Layer 3: scanning common ports for {} (excluding {:?})",
+            pp, occupied_ports
+        );
+        if let Some((port, url)) = port_detector::probe_port_range(
+            port_detector::DEFAULT_DEV_PORTS,
+            &occupied_ports,
+        ).await {
+            info!("Dev server found via port range scan on port {} for {}", port, pp);
+            let mut servers = dev_servers.lock().await;
+            if let Some(info) = servers.get_mut(&pp) {
+                info.port = Some(port);
+                info.url = Some(url.clone());
+                info.status = DevServerStatus::Detected;
+            }
+            if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
+                port,
+                url,
+                terminal_id: output_tid.clone(),
+                project_path: pp.clone(),
+            }) {
+                warn!("[preview] Failed to emit dev-server-ready: {}", e);
+            }
+            return;
+        }
+
+        // Guard: one final check before emitting failure
+        if project_removed().await {
+            debug!("Project {} was closed, not emitting failure", pp);
+            return;
+        }
+
+        warn!("Failed to detect dev server port for {} (terminal: {})", pp, output_tid);
         {
             let mut servers = dev_servers.lock().await;
-            if let Some(info) = servers.get_mut(&output_pp) {
+            if let Some(info) = servers.get_mut(&pp) {
                 info.status = DevServerStatus::Failed;
             }
         }
         if let Err(e) = ah.emit("dev-server-error", DevServerErrorEvent {
             message: "Could not detect dev server port. Try entering the URL manually.".to_string(),
-            project_path: output_pp,
+            project_path: pp,
         }) {
             warn!("[preview] Failed to emit dev-server-error: {}", e);
         }
