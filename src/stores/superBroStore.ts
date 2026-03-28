@@ -9,24 +9,37 @@ import {
   deleteObservation as deleteObservationCmd,
 } from "../lib/tauri-commands";
 
+export interface SuperBroLogEntry {
+  timestamp: string;
+  type: "trigger" | "api_call" | "response" | "all_good" | "error" | "skip";
+  message: string;
+}
+
 interface SuperBroStoreState {
   // Per-project enabled state (project path → enabled)
   enabledProjects: Map<string, boolean>;
   currentMessage: SuperBroMessage | null;
   isThinking: boolean;
   isPaused: boolean;
+  /** Brief "all good" flash after NOTHING_TO_REPORT */
+  lastCheckResult: "all_good" | null;
   // Per-project observations (project path → observations)
   projectObservations: Map<string, Observation[]>;
   messageHistory: SuperBroMessage[];
+  /** Rolling diagnostic log (last 50 entries) */
+  log: SuperBroLogEntry[];
 
   // Actions
   setMessage: (message: SuperBroMessage) => void;
   dismissCurrentMessage: () => void;
   setThinking: (thinking: boolean) => void;
+  setAllGood: () => void;
+  clearCheckResult: () => void;
   pause: () => void;
   resume: () => void;
   toggle: (projectPath: string) => void;
   isEnabled: (projectPath: string) => boolean;
+  addLog: (type: SuperBroLogEntry["type"], message: string) => void;
 
   // Observation management
   addObservation: (projectPath: string, observation: Observation) => void;
@@ -38,31 +51,37 @@ interface SuperBroStoreState {
 const MAX_HISTORY = 20;
 const MAX_OBSERVATIONS = 50;
 
+const MAX_LOG = 50;
+
 export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
   enabledProjects: new Map(),
   currentMessage: null,
   isThinking: false,
   isPaused: false,
+  lastCheckResult: null,
   projectObservations: new Map(),
   messageHistory: [],
+  log: [],
 
   setMessage: (message) =>
     set((state) => {
       const history = [message, ...state.messageHistory].slice(0, MAX_HISTORY);
-      return { currentMessage: message, messageHistory: history, isThinking: false };
+      return { currentMessage: message, messageHistory: history, isThinking: false, lastCheckResult: null };
     }),
 
   dismissCurrentMessage: () =>
     set((state) => {
       if (state.currentMessage) {
-        return {
-          currentMessage: null,
-        };
+        return { currentMessage: null };
       }
       return {};
     }),
 
-  setThinking: (thinking) => set({ isThinking: thinking }),
+  setThinking: (thinking) => set({ isThinking: thinking, lastCheckResult: null }),
+
+  setAllGood: () => set({ isThinking: false, lastCheckResult: "all_good" }),
+
+  clearCheckResult: () => set({ lastCheckResult: null }),
 
   pause: () => set({ isPaused: true }),
 
@@ -79,6 +98,14 @@ export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
   isEnabled: (projectPath) => {
     return get().enabledProjects.get(projectPath) ?? true;
   },
+
+  addLog: (type, message) =>
+    set((state) => ({
+      log: [
+        { timestamp: new Date().toISOString(), type, message },
+        ...state.log,
+      ].slice(0, MAX_LOG),
+    })),
 
   addObservation: (projectPath, observation) => {
     set((state) => {

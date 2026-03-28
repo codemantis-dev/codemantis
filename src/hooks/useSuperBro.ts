@@ -167,13 +167,14 @@ export function useSuperBro(projectPath: string | null): void {
         return;
       }
 
+      const log = useSuperBroStore.getState().addLog;
+      log("api_call", `Trigger: ${trigger} → ${resolved.provider}/${resolved.model}`);
+
       const store = useSuperBroStore.getState();
       store.setThinking(true);
       apiCallInFlight.current = true;
       lastApiCallTime.current = Date.now();
       fileCheckCount.current = 0;
-
-      console.info(`[Super-Bro] Trigger: ${trigger} | Provider: ${resolved.provider} | Model: ${resolved.model}`);
 
       try {
         const context = buildSuperBroContext(
@@ -198,13 +199,13 @@ export function useSuperBro(projectPath: string | null): void {
           userMessage,
         );
 
-        console.info(`[Super-Bro] Response (${responseText.length} chars): ${responseText.slice(0, 120)}...`);
+        useSuperBroStore.getState().addLog("response", `${responseText.length} chars: ${responseText.slice(0, 100)}`);
 
         const parsed = parseSuperBroResponse(responseText);
 
         if (parsed.isNothingToReport) {
-          console.info("[Super-Bro] NOTHING_TO_REPORT — staying quiet");
-          useSuperBroStore.getState().setThinking(false);
+          useSuperBroStore.getState().addLog("all_good", "NOTHING_TO_REPORT — all good");
+          useSuperBroStore.getState().setAllGood();
           return;
         }
 
@@ -214,6 +215,7 @@ export function useSuperBro(projectPath: string | null): void {
 
         if (parsed.fileCheckRequest && fileCheckCount.current < MAX_FILE_CHECKS) {
           fileCheckCount.current++;
+          useSuperBroStore.getState().addLog("api_call", `File check: ${parsed.fileCheckRequest}`);
           await handleFileCheck(
             resolved,
             systemPrompt,
@@ -226,6 +228,7 @@ export function useSuperBro(projectPath: string | null): void {
           return;
         }
 
+        useSuperBroStore.getState().addLog("response", `Guidance: ${parsed.guidance.slice(0, 80)}`);
         useSuperBroStore.getState().setMessage({
           id: `sb-${Date.now()}`,
           guidance: parsed.guidance,
@@ -236,6 +239,8 @@ export function useSuperBro(projectPath: string | null): void {
           dismissed: false,
         });
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        useSuperBroStore.getState().addLog("error", `API call failed: ${msg}`);
         console.error("[Super-Bro] API call failed:", e);
         useSuperBroStore.getState().setThinking(false);
       } finally {
@@ -381,7 +386,7 @@ export function useSuperBro(projectPath: string | null): void {
         return;
       }
 
-      console.info(`[Super-Bro] Event: ${trigger} (debouncing ${DEBOUNCE_MS}ms)`);
+      useSuperBroStore.getState().addLog("trigger", `Event: ${trigger}`);
 
       pendingTrigger.current = trigger;
 
@@ -394,14 +399,14 @@ export function useSuperBro(projectPath: string | null): void {
 
         // Re-check guards (values may have changed during debounce)
         if (!projectPathRef.current || !globalEnabledRef.current || !isEnabledRef.current || isPausedRef.current) {
-          console.info("[Super-Bro] Skipped after debounce — disabled or paused");
+          useSuperBroStore.getState().addLog("skip", "Skipped — disabled or paused");
           return;
         }
 
         // Rate limit check
         const now = Date.now();
         if (now - lastApiCallTime.current < RATE_LIMIT_MS) {
-          console.info("[Super-Bro] Rate limited — skipping");
+          useSuperBroStore.getState().addLog("skip", `Rate limited (${Math.round((RATE_LIMIT_MS - (now - lastApiCallTime.current)) / 1000)}s left)`);
           return;
         }
 

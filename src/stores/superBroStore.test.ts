@@ -50,8 +50,10 @@ describe("superBroStore", () => {
       currentMessage: null,
       isThinking: false,
       isPaused: false,
+      lastCheckResult: null,
       projectObservations: new Map(),
       messageHistory: [],
+      log: [],
     });
     vi.clearAllMocks();
   });
@@ -63,9 +65,45 @@ describe("superBroStore", () => {
     expect(state.currentMessage).toBeNull();
     expect(state.isThinking).toBe(false);
     expect(state.isPaused).toBe(false);
+    expect(state.lastCheckResult).toBeNull();
     expect(state.enabledProjects).toEqual(new Map());
     expect(state.projectObservations).toEqual(new Map());
     expect(state.messageHistory).toEqual([]);
+    expect(state.log).toEqual([]);
+  });
+
+  // ── setAllGood / clearCheckResult ─────────────────────────────
+
+  it("setAllGood sets lastCheckResult and clears isThinking", () => {
+    useSuperBroStore.getState().setThinking(true);
+    useSuperBroStore.getState().setAllGood();
+    const state = useSuperBroStore.getState();
+    expect(state.lastCheckResult).toBe("all_good");
+    expect(state.isThinking).toBe(false);
+  });
+
+  it("clearCheckResult resets lastCheckResult to null", () => {
+    useSuperBroStore.getState().setAllGood();
+    useSuperBroStore.getState().clearCheckResult();
+    expect(useSuperBroStore.getState().lastCheckResult).toBeNull();
+  });
+
+  // ── addLog ────────────────────────────────────────────────────
+
+  it("addLog adds entries to log", () => {
+    useSuperBroStore.getState().addLog("trigger", "claude_response event");
+    useSuperBroStore.getState().addLog("api_call", "Calling OpenAI");
+    const log = useSuperBroStore.getState().log;
+    expect(log.length).toBe(2);
+    expect(log[0].message).toBe("Calling OpenAI"); // newest first
+    expect(log[1].message).toBe("claude_response event");
+  });
+
+  it("addLog caps at 50 entries", () => {
+    for (let i = 0; i < 60; i++) {
+      useSuperBroStore.getState().addLog("trigger", `entry ${i}`);
+    }
+    expect(useSuperBroStore.getState().log.length).toBe(50);
   });
 
   // ── 2. setMessage ─────────────────────────────────────────────────

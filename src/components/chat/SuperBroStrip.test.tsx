@@ -35,6 +35,7 @@ const mockSessionStore = useSessionStore as unknown as Mock;
 const dismissMock = vi.fn();
 const pauseMock = vi.fn();
 const resumeMock = vi.fn();
+const clearCheckResultMock = vi.fn();
 
 function setupStores(overrides: {
   globalEnabled?: boolean;
@@ -49,6 +50,7 @@ function setupStores(overrides: {
   } | null;
   isThinking?: boolean;
   isPaused?: boolean;
+  lastCheckResult?: "all_good" | null;
   activeSessionId?: string | null;
 } = {}): void {
   const {
@@ -56,6 +58,7 @@ function setupStores(overrides: {
     currentMessage = null,
     isThinking = false,
     isPaused = false,
+    lastCheckResult = null,
     activeSessionId = "sess-1",
   } = overrides;
 
@@ -68,9 +71,11 @@ function setupStores(overrides: {
       currentMessage,
       isThinking,
       isPaused,
+      lastCheckResult,
       dismissCurrentMessage: dismissMock,
       pause: pauseMock,
       resume: resumeMock,
+      clearCheckResult: clearCheckResultMock,
     }),
   );
 
@@ -105,10 +110,16 @@ describe("SuperBroStrip", () => {
     expect(screen.getByText("Resume")).toBeInTheDocument();
   });
 
-  it("renders thinking state with 'Checking...' and spinner", () => {
+  it("renders analysing state with spinner", () => {
     setupStores({ isThinking: true });
     render(<SuperBroStrip />);
-    expect(screen.getByText("Checking...")).toBeInTheDocument();
+    expect(screen.getByText("Super-Bro · analysing...")).toBeInTheDocument();
+  });
+
+  it("renders all good state", () => {
+    setupStores({ lastCheckResult: "all_good" });
+    render(<SuperBroStrip />);
+    expect(screen.getByText("Super-Bro · all good")).toBeInTheDocument();
   });
 
   it("renders active message with guidance text", () => {

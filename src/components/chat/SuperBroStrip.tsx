@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Copy, Play, FastForward, X, Pause, RotateCw, Loader2 } from "lucide-react";
+import { Copy, Play, FastForward, X, Pause, RotateCw, Loader2, Check, CircleDot } from "lucide-react";
 import { useSuperBroStore } from "../../stores/superBroStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -7,16 +7,27 @@ import { useUiStore } from "../../stores/uiStore";
 import { showToast } from "../../stores/toastStore";
 import { sendMessage as sendMessageCmd } from "../../lib/tauri-commands";
 
+const ALL_GOOD_DISPLAY_MS = 4000;
+
 export default function SuperBroStrip() {
   const globalEnabled = useSettingsStore((s) => s.settings.superBroEnabled);
   const currentMessage = useSuperBroStore((s) => s.currentMessage);
   const isThinking = useSuperBroStore((s) => s.isThinking);
   const isPaused = useSuperBroStore((s) => s.isPaused);
+  const lastCheckResult = useSuperBroStore((s) => s.lastCheckResult);
   const dismiss = useSuperBroStore((s) => s.dismissCurrentMessage);
   const pause = useSuperBroStore((s) => s.pause);
   const resume = useSuperBroStore((s) => s.resume);
+  const clearCheckResult = useSuperBroStore((s) => s.clearCheckResult);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const stripRef = useRef<HTMLDivElement>(null);
+
+  // Auto-clear "all good" after a few seconds → back to "watching"
+  useEffect(() => {
+    if (lastCheckResult !== "all_good") return;
+    const timer = setTimeout(clearCheckResult, ALL_GOOD_DISPLAY_MS);
+    return () => clearTimeout(timer);
+  }, [lastCheckResult, clearCheckResult]);
 
   // Keyboard: Escape dismisses when focused
   useEffect(() => {
@@ -55,7 +66,6 @@ export default function SuperBroStrip() {
     }
 
     try {
-      // Add as user message in session store so it shows in chat
       useSessionStore.getState().addMessage(activeSessionId, {
         id: `user-sb-${Date.now()}`,
         role: "user",
@@ -65,7 +75,6 @@ export default function SuperBroStrip() {
         isStreaming: false,
       });
 
-      // Send to Claude Code
       await sendMessageCmd(activeSessionId, currentMessage.suggestedPrompt);
       dismiss();
     } catch (e) {
@@ -84,7 +93,7 @@ export default function SuperBroStrip() {
         className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border text-text-ghost text-label"
         style={{ background: "var(--bg-secondary)" }}
       >
-        <span className="text-base">🧑‍💻</span>
+        <Pause size={13} className="text-text-ghost" />
         <span className="flex-1">Super-Bro · paused</span>
         <button
           onClick={resume}
@@ -98,17 +107,38 @@ export default function SuperBroStrip() {
     );
   }
 
-  // ── Thinking State ───────────────────────────────────────────
+  // ── Analysing State ──────────────────────────────────────────
   if (isThinking) {
     return (
       <div
         ref={stripRef}
-        className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border text-text-dim text-label animate-pulse"
+        className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border text-text-dim text-label"
         style={{ background: "var(--bg-secondary)" }}
       >
-        <span className="text-base">🧑‍💻</span>
         <Loader2 size={13} className="animate-spin text-accent" />
-        <span>Checking...</span>
+        <span>Super-Bro · analysing...</span>
+      </div>
+    );
+  }
+
+  // ── All Good State (transient — auto-clears) ─────────────────
+  if (lastCheckResult === "all_good") {
+    return (
+      <div
+        ref={stripRef}
+        className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border text-label"
+        style={{ background: "var(--bg-secondary)" }}
+      >
+        <Check size={13} className="text-green" />
+        <span className="text-green">Super-Bro · all good</span>
+        <button
+          onClick={pause}
+          className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-text-ghost hover:text-text-dim hover:bg-bg-elevated transition-colors text-label"
+          title="Pause Super-Bro"
+        >
+          <Pause size={12} />
+          Pause
+        </button>
       </div>
     );
   }
@@ -129,7 +159,7 @@ export default function SuperBroStrip() {
         <div className="px-4 py-3">
           {/* Guidance text */}
           <div className="flex items-start gap-2">
-            <span className="text-base shrink-0 mt-0.5">🧑‍💻</span>
+            <CircleDot size={14} className="shrink-0 mt-0.5 text-accent" />
             <p className="flex-1 text-text-secondary text-ui leading-relaxed">
               {currentMessage.guidance}
             </p>
@@ -144,7 +174,7 @@ export default function SuperBroStrip() {
 
           {/* Suggested prompt block */}
           {currentMessage.suggestedPrompt && (
-            <div className="mt-2 ml-7">
+            <div className="mt-2 ml-6">
               <div
                 className="px-3 py-2 rounded-md text-label text-text-dim leading-relaxed"
                 style={{ background: "var(--bg-elevated)" }}
@@ -186,14 +216,14 @@ export default function SuperBroStrip() {
     );
   }
 
-  // ── Idle State ───────────────────────────────────────────────
+  // ── Watching (Idle) State ────────────────────────────────────
   return (
     <div
       ref={stripRef}
       className="shrink-0 flex items-center gap-2 px-4 py-2 border-t border-border text-text-ghost text-label"
       style={{ background: "var(--bg-secondary)" }}
     >
-      <span className="text-base">🧑‍💻</span>
+      <CircleDot size={13} className="text-text-ghost" />
       <span className="flex-1">Super-Bro · watching</span>
       <button
         onClick={pause}
