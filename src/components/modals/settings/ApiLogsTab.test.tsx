@@ -403,6 +403,44 @@ describe("ApiLogsTab", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Rate limit exceeded");
   });
 
+  // ── Cost by Feature matrix ─────────────────────────────────────
+
+  it("renders cost-by-feature matrix with provider rows and feature columns", async () => {
+    const featureLogs: ApiLogEntry[] = [
+      { ...sampleLog, id: "cl-1", provider: "gemini", sessionId: "session-abc", costUsd: 0.02 },
+      { ...sampleLog, id: "as-1", provider: "openai", sessionId: "api-asst-123-xyz", costUsd: 1.50 },
+      { ...sampleLog, id: "sb-1", provider: "openai", sessionId: "__super-bro__", costUsd: 0.03 },
+    ];
+    mockCleanupApiLogs.mockResolvedValue(undefined);
+    mockGetApiLogs.mockResolvedValue(featureLogs);
+    mockGetApiCostSummary.mockResolvedValue({
+      totalCost: 1.55,
+      totalCalls: 3,
+      byProvider: [
+        { provider: "gemini", cost: 0.02, calls: 1 },
+        { provider: "openai", cost: 1.53, calls: 2 },
+      ],
+    });
+
+    await act(async () => {
+      render(<ApiLogsTab />);
+    });
+
+    // Column headers exist in the table
+    const table = document.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table!.textContent).toContain("Changelog");
+    expect(table!.textContent).toContain("Assistant");
+    expect(table!.textContent).toContain("Super-Bro");
+    // Provider rows in the table
+    expect(table!.textContent).toContain("gemini");
+    expect(table!.textContent).toContain("openai");
+    // Footer total row
+    const tfoot = table!.querySelector("tfoot");
+    expect(tfoot).not.toBeNull();
+    expect(tfoot!.textContent).toContain("Total");
+  });
+
   // ── Super-Bro tab ───────────────────────────────────────────────
 
   it("renders Super-Bro tab button", async () => {

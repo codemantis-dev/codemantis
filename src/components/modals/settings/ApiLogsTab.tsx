@@ -24,6 +24,38 @@ export default function ApiLogsTab() {
 
   const errorLogs = useMemo(() => logs.filter((l) => !l.success), [logs]);
 
+  // ── Cost by Feature × Provider matrix ─────────────────────────────
+  const FEATURES = ["Changelog", "Assistant", "Super-Bro"] as const;
+  type Feature = (typeof FEATURES)[number];
+
+  const costMatrix = useMemo(() => {
+    const matrix: Record<string, Record<Feature, { cost: number; calls: number }>> = {};
+    const totals: Record<Feature, { cost: number; calls: number }> = {
+      Changelog: { cost: 0, calls: 0 },
+      Assistant: { cost: 0, calls: 0 },
+      "Super-Bro": { cost: 0, calls: 0 },
+    };
+
+    for (const log of logs) {
+      const feature = classifyLogSource(log.sessionId);
+      const provider = log.provider;
+      if (!matrix[provider]) {
+        matrix[provider] = {
+          Changelog: { cost: 0, calls: 0 },
+          Assistant: { cost: 0, calls: 0 },
+          "Super-Bro": { cost: 0, calls: 0 },
+        };
+      }
+      matrix[provider][feature].cost += log.costUsd;
+      matrix[provider][feature].calls += 1;
+      totals[feature].cost += log.costUsd;
+      totals[feature].calls += 1;
+    }
+
+    const providers = Object.keys(matrix).sort();
+    return { matrix, totals, providers };
+  }, [logs]);
+
   const errorsByProvider = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const log of errorLogs) {
@@ -115,6 +147,61 @@ export default function ApiLogsTab() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Cost by Feature matrix */}
+          {logs.length > 0 && costMatrix.providers.length > 0 && (
+            <div className="rounded-lg border border-border mb-4 shrink-0 overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+              <table className="w-full text-label">
+                <thead>
+                  <tr className="border-b border-border-light">
+                    <th className="text-left px-3 py-2 text-text-dim font-medium">Provider</th>
+                    {FEATURES.map((f) => (
+                      <th key={f} className="text-right px-3 py-2 text-text-dim font-medium">{f}</th>
+                    ))}
+                    <th className="text-right px-3 py-2 text-text-dim font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costMatrix.providers.map((provider) => {
+                    const row = costMatrix.matrix[provider];
+                    const rowTotal = FEATURES.reduce((sum, f) => sum + row[f].cost, 0);
+                    return (
+                      <tr key={provider} className="border-b border-border-light last:border-b-0">
+                        <td className="px-3 py-1.5 text-text-secondary capitalize">{provider}</td>
+                        {FEATURES.map((f) => (
+                          <td key={f} className="px-3 py-1.5 text-right text-text-secondary tabular-nums">
+                            {row[f].calls > 0 ? (
+                              <span title={`${row[f].calls} call${row[f].calls !== 1 ? "s" : ""}`}>
+                                {formatCost(row[f].cost)}
+                              </span>
+                            ) : (
+                              <span className="text-text-ghost">—</span>
+                            )}
+                          </td>
+                        ))}
+                        <td className="px-3 py-1.5 text-right text-text-primary font-medium tabular-nums">
+                          {formatCost(rowTotal)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border">
+                    <td className="px-3 py-2 text-text-secondary font-medium">Total</td>
+                    {FEATURES.map((f) => (
+                      <td key={f} className="px-3 py-2 text-right text-text-primary font-medium tabular-nums">
+                        {costMatrix.totals[f].calls > 0 ? formatCost(costMatrix.totals[f].cost) : <span className="text-text-ghost">—</span>}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-right text-text-primary font-semibold tabular-nums">
+                      {formatCost(FEATURES.reduce((sum, f) => sum + costMatrix.totals[f].cost, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           )}
 
@@ -312,6 +399,14 @@ export default function ApiLogsTab() {
       </div>
     </div>
   );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+function classifyLogSource(sessionId: string): "Changelog" | "Assistant" | "Super-Bro" {
+  if (sessionId === "__super-bro__") return "Super-Bro";
+  if (sessionId.startsWith("api-asst-")) return "Assistant";
+  return "Changelog";
 }
 
 // ── Super-Bro Log Panel ────────────────────────────────────────────
