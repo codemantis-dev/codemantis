@@ -1,5 +1,28 @@
 # CodeMantis Releases
 
+## 0.9.5
+
+### Super Bro — Contextual AI Coach
+- Introduce Super Bro: a contextual coaching assistant that watches your coding sessions and offers proactive guidance
+- Deployment-aware context with live git status and post-change knowledge modules
+- Per-project enable/disable with eye-icon toggle and status dot
+- Auto-dismiss guidance strip after 60 seconds; all-good state when no issues detected
+- Gate providers on configured API keys; model lists from AI_MODELS and OpenRouter
+- Dedicated Super-Bro tab in Settings and API Logs
+- Bundle Super-Bro knowledge resources with the app
+
+### Updater & Session Improvements
+- Centralize update polling with macOS menu "Check for Updates" command and shared state
+- Pass `--name` to Claude CLI for named sessions; flatten extra rate limit fields
+- Cost-by-feature matrix on API cost log tab
+
+### UI & UX Polish
+- Help chat busy banner with elapsed timer and input hints
+- Include verification audit path in Verify-for-me prompt
+- Align SpecWriter typography with text-ui and text-chat tokens
+- Fix preview port-detection race with Layer 3 port scan
+- Bottom padding on main chat column
+
 ## 0.9.4
 
 - Tighten SpecWriter system prompts: enforce structured output format, session-plan warning blocks, section-scoped Claude prompts, multi-session audit notes, and VERIFY line pre-counting
