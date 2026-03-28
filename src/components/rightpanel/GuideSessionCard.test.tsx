@@ -73,6 +73,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -89,6 +90,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -110,6 +112,7 @@ describe("GuideSessionCard", () => {
           ],
         })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -123,6 +126,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -138,6 +142,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -152,6 +157,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -167,6 +173,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -187,6 +194,7 @@ describe("GuideSessionCard", () => {
           ],
         })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -203,6 +211,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -220,6 +229,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -233,6 +243,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -248,6 +259,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ verifyChecks: [] })}
         specFilename="test.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -261,6 +273,7 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="my-feature.md"
+        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
       />,
@@ -273,5 +286,24 @@ describe("GuideSessionCard", () => {
     expect(prompt).toContain("docs/specs/my-feature.md");
     expect(prompt).toContain("TypeScript compiles");
     expect(prompt).toContain("Tests pass");
+    expect(prompt).not.toContain("Verification Audit");
+  });
+
+  it("includes audit document reference in verify prompt when auditFilename is provided", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession()}
+        specFilename="my-feature.md"
+        auditFilename="my-feature-audit.md"
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Verify for me"));
+    expect(mockSetDraftInput).toHaveBeenCalledOnce();
+    const prompt = mockSetDraftInput.mock.calls[0][0] as string;
+    expect(prompt).toContain("docs/specs/my-feature-audit.md");
+    expect(prompt).toContain("Verification Audit");
   });
 });

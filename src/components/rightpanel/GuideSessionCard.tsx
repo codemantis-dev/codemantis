@@ -17,6 +17,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 interface Props {
   session: GuideSession;
   specFilename: string;
+  auditFilename: string | null;
   onToggleVerifyCheck: (checkId: string) => void;
   onMarkComplete: () => void;
 }
@@ -24,6 +25,7 @@ interface Props {
 export default function GuideSessionCard({
   session,
   specFilename,
+  auditFilename,
   onToggleVerifyCheck,
   onMarkComplete,
 }: Props) {
@@ -67,12 +69,16 @@ export default function GuideSessionCard({
       .map((c) => `- ${c.label}`)
       .join("\n");
 
+    const auditLine = auditFilename
+      ? `\n\nAlso read the Verification Audit at docs/specs/${auditFilename} and use it as a checklist for thorough verification.`
+      : "";
+
     const verifyPrompt = `Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
 
 Check each of the following items and report PASS or FAIL for each:
 ${checksText}
 
-For each item, open the relevant files, read the actual code, and verify. Report your findings.`;
+For each item, open the relevant files, read the actual code, and verify. Report your findings.${auditLine}`;
 
     useUiStore.getState().setDraftInput(verifyPrompt);
     showToast("Verification prompt pasted into chat. Review and press Enter to send.", "info");
