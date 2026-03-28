@@ -47,3 +47,16 @@ NEXT STEP GUIDANCE:
 - If many files changed: suggest committing before the next round
   of changes ("Good checkpoint — commit these 7 files before
   moving on")
+
+DEPLOYMENT AWARENESS:
+If the DEPLOYMENT STATUS section appears in the context, Claude
+modified files that need follow-up steps:
+- "Actions needed: dependency_install" → remind user to install
+- "Actions needed: server_restart" + "Dev server running: YES"
+  → suggest restarting the dev server
+- "Actions needed: container_rebuild" → remind user to rebuild
+- "Actions needed: db_migration" → remind user to run migrations
+- "Actions needed: env_config" → remind user to restart for env
+- Multiple actions → list them in logical order (install, migrate,
+  rebuild, restart)
+If no DEPLOYMENT STATUS appears, skip this check entirely.

@@ -13,6 +13,9 @@ vi.mock("../stores/guideStore", () => ({
 vi.mock("../stores/previewStore", () => ({
   usePreviewStore: { getState: vi.fn() },
 }));
+vi.mock("../stores/terminalStore", () => ({
+  useTerminalStore: { getState: vi.fn() },
+}));
 vi.mock("./tauri-commands", () => ({
   readSuperBroModule: vi.fn(),
 }));
@@ -21,11 +24,13 @@ import {
   selectKnowledgeModule,
   buildSuperBroContext,
   buildSuperBroRequest,
+  detectDeploymentActions,
 } from "./super-bro-context";
 import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useGuideStore } from "../stores/guideStore";
 import { usePreviewStore } from "../stores/previewStore";
+import { useTerminalStore } from "../stores/terminalStore";
 import { readSuperBroModule } from "./tauri-commands";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -75,6 +80,10 @@ function mockStores(overrides?: {
   (usePreviewStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
     consoleLogs,
   });
+
+  (useTerminalStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
+    detectedDevServers: new Map(),
+  });
 }
 
 // ── selectKnowledgeModule ────────────────────────────────────────────
@@ -100,6 +109,27 @@ describe("selectKnowledgeModule", () => {
       );
     },
   );
+
+  it("returns 'knowledge-post-change' for claude_response when deployment actions detected", () => {
+    expect(
+      selectKnowledgeModule("claude_response", {
+        deployment: { actions: ["dependency_install"], devServerRunning: false },
+      }),
+    ).toBe("knowledge-post-change");
+  });
+
+  it("returns 'knowledge-claude-response' for claude_response when no deployment actions", () => {
+    expect(
+      selectKnowledgeModule("claude_response", {
+        deployment: { actions: ["none"], devServerRunning: false },
+      }),
+    ).toBe("knowledge-claude-response");
+  });
+
+  it("still works without context parameter (backward compat)", () => {
+    expect(selectKnowledgeModule("build_error")).toBe("knowledge-build-errors");
+    expect(selectKnowledgeModule("claude_response")).toBe("knowledge-claude-response");
+  });
 });
 
 // ── buildSuperBroContext ─────────────────────────────────────────────
@@ -178,6 +208,11 @@ describe("buildSuperBroContext", () => {
 
     // Spec is always null in current implementation
     expect(ctx.spec).toBeNull();
+
+    // Deployment (activity has a "read" entry, no writes → should be "none")
+    expect(ctx.deployment).toBeDefined();
+    expect(ctx.deployment.actions).toEqual(["none"]);
+    expect(typeof ctx.deployment.devServerRunning).toBe("boolean");
   });
 
   it("truncates lastClaudeMessage to 500 chars", () => {
@@ -266,6 +301,138 @@ Some more description here that goes on and on.`;
     expect(ctx.previewErrors[0]).toContain("ReferenceError");
     expect(ctx.previewErrors[1]).toContain("TypeError");
   });
+
+  it("detects deployment actions from write activities", () => {
+    mockStores({
+      activeSessionId: "sess-1",
+      messages: [],
+      activityEntries: [
+        { toolName: "write", toolInput: { file_path: "/project/package.json" }, status: "done" },
+        { toolName: "edit", toolInput: { file_path: "/project/Dockerfile" }, status: "done" },
+      ],
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    expect(ctx.deployment.actions).toContain("dependency_install");
+    expect(ctx.deployment.actions).toContain("container_rebuild");
+  });
+});
+
+// ── detectDeploymentActions ──────────────────────────────────────────
+
+describe("detectDeploymentActions", () => {
+  it("returns ['none'] when no write/edit activities", () => {
+    const result = detectDeploymentActions([
+      "read: /src/index.ts [done]",
+      "bash: npm run build [done]",
+    ]);
+    expect(result).toEqual(["none"]);
+  });
+
+  it("returns ['none'] for empty activity list", () => {
+    expect(detectDeploymentActions([])).toEqual(["none"]);
+  });
+
+  it("detects dependency_install from package.json write", () => {
+    const result = detectDeploymentActions([
+      "write: /project/package.json [done]",
+    ]);
+    expect(result).toContain("dependency_install");
+  });
+
+  it("detects container_rebuild from Dockerfile edit", () => {
+    const result = detectDeploymentActions([
+      "edit: /project/Dockerfile [done]",
+    ]);
+    expect(result).toContain("container_rebuild");
+  });
+
+  it("detects container_rebuild from docker-compose.yml", () => {
+    const result = detectDeploymentActions([
+      "write: /project/docker-compose.yml [done]",
+    ]);
+    expect(result).toContain("container_rebuild");
+  });
+
+  it("detects db_migration from schema.prisma", () => {
+    const result = detectDeploymentActions([
+      "write: /project/prisma/schema.prisma [done]",
+    ]);
+    expect(result).toContain("db_migration");
+  });
+
+  it("detects db_migration from models.py", () => {
+    const result = detectDeploymentActions([
+      "edit: /project/app/models.py [done]",
+    ]);
+    expect(result).toContain("db_migration");
+  });
+
+  it("detects env_config from .env write", () => {
+    const result = detectDeploymentActions([
+      "write: /project/.env [done]",
+    ]);
+    expect(result).toContain("env_config");
+  });
+
+  it("detects server_restart from vite.config edit", () => {
+    const result = detectDeploymentActions([
+      "edit: /project/vite.config.ts [done]",
+    ]);
+    expect(result).toContain("server_restart");
+  });
+
+  it("detects multiple actions from multiple files", () => {
+    const result = detectDeploymentActions([
+      "write: /project/package.json [done]",
+      "edit: /project/Dockerfile [done]",
+      "write: /project/prisma/schema.prisma [done]",
+    ]);
+    expect(result).toContain("dependency_install");
+    expect(result).toContain("container_rebuild");
+    expect(result).toContain("db_migration");
+  });
+
+  it("deduplicates actions", () => {
+    const result = detectDeploymentActions([
+      "write: /project/package.json [done]",
+      "edit: /project/package.json [done]",
+    ]);
+    const depCount = result.filter((a) => a === "dependency_install").length;
+    expect(depCount).toBe(1);
+  });
+
+  it("ignores read activities for deployment-relevant files", () => {
+    const result = detectDeploymentActions([
+      "read: /project/Dockerfile [done]",
+      "read: /project/package.json [done]",
+    ]);
+    expect(result).toEqual(["none"]);
+  });
+
+  it("detects dependency_install from requirements.txt", () => {
+    const result = detectDeploymentActions([
+      "write: /project/requirements.txt [done]",
+    ]);
+    expect(result).toContain("dependency_install");
+  });
+
+  it("detects dependency_install from pyproject.toml", () => {
+    const result = detectDeploymentActions([
+      "edit: /project/pyproject.toml [done]",
+    ]);
+    expect(result).toContain("dependency_install");
+  });
+
+  it("handles Write/Edit with capital letters", () => {
+    const result = detectDeploymentActions([
+      "Write: /project/package.json [done]",
+      "Edit: /project/.env [done]",
+    ]);
+    expect(result).toContain("dependency_install");
+    expect(result).toContain("env_config");
+  });
 });
 
 // ── buildSuperBroRequest ─────────────────────────────────────────────
@@ -291,6 +458,7 @@ describe("buildSuperBroRequest", () => {
     terminalOutput: "",
     previewErrors: [],
     gitStatus: { changedFiles: 1, uncommitted: true, branch: "main" },
+    deployment: { actions: ["none" as const], devServerRunning: false },
   };
 
   it("combines persona + knowledge module + context + observations into systemPrompt and userMessage", async () => {
@@ -368,5 +536,53 @@ describe("buildSuperBroRequest", () => {
     );
 
     expect(userMessage).not.toContain("PROJECT OBSERVATIONS:");
+  });
+
+  it("includes DEPLOYMENT STATUS when actions are detected", async () => {
+    const contextWithDeployment = {
+      ...baseContext,
+      deployment: {
+        actions: ["dependency_install" as const, "server_restart" as const],
+        devServerRunning: true,
+      },
+    };
+
+    const { userMessage } = await buildSuperBroRequest(
+      "claude_response",
+      contextWithDeployment,
+      [],
+    );
+
+    expect(userMessage).toContain("DEPLOYMENT STATUS:");
+    expect(userMessage).toContain("dependency_install, server_restart");
+    expect(userMessage).toContain("Dev server running: YES");
+  });
+
+  it("omits DEPLOYMENT STATUS when actions is ['none']", async () => {
+    const { userMessage } = await buildSuperBroRequest(
+      "claude_response",
+      baseContext,
+      [],
+    );
+
+    expect(userMessage).not.toContain("DEPLOYMENT STATUS:");
+  });
+
+  it("routes to knowledge-post-change module when deployment actions detected", async () => {
+    const contextWithDeployment = {
+      ...baseContext,
+      deployment: {
+        actions: ["container_rebuild" as const],
+        devServerRunning: false,
+      },
+    };
+
+    const { systemPrompt } = await buildSuperBroRequest(
+      "claude_response",
+      contextWithDeployment,
+      [],
+    );
+
+    expect(systemPrompt).toContain("Knowledge module: knowledge-post-change");
   });
 });

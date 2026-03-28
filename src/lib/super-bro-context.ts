@@ -3,9 +3,25 @@ import { useSessionStore } from "../stores/sessionStore";
 import { useActivityStore } from "../stores/activityStore";
 import { useGuideStore } from "../stores/guideStore";
 import { usePreviewStore } from "../stores/previewStore";
+import { useTerminalStore } from "../stores/terminalStore";
 import { readSuperBroModule } from "./tauri-commands";
 
 // ── Context Snapshot ───────────────────────────────────────��─────────
+
+// ── Deployment Types ────────────────────────────────────────────────
+
+export type DeploymentAction =
+  | "container_rebuild"
+  | "server_restart"
+  | "dependency_install"
+  | "db_migration"
+  | "env_config"
+  | "none";
+
+export interface DeploymentContext {
+  actions: DeploymentAction[];
+  devServerRunning: boolean;
+}
 
 export interface SuperBroContext {
   project: {
@@ -32,6 +48,7 @@ export interface SuperBroContext {
     uncommitted: boolean;
     branch: string;
   };
+  deployment: DeploymentContext;
 }
 
 export function buildSuperBroContext(
@@ -98,6 +115,12 @@ export function buildSuperBroContext(
     ? extractTechStack(claudeMdContent)
     : "Unknown";
 
+  // Deployment awareness
+  const deploymentActions = detectDeploymentActions(recentActivity);
+  const terminalStoreState = useTerminalStore.getState();
+  const devServerRunning = Array.from(terminalStoreState.detectedDevServers.values())
+    .some((detections) => detections.length > 0);
+
   return {
     project: { path: projectPath, techStack },
     guide,
@@ -107,6 +130,10 @@ export function buildSuperBroContext(
     terminalOutput: terminalOutput.slice(-2000), // Last ~30 lines
     previewErrors,
     gitStatus: gitStatus ?? { changedFiles: 0, uncommitted: false, branch: "main" },
+    deployment: {
+      actions: deploymentActions,
+      devServerRunning,
+    },
   };
 }
 
@@ -129,6 +156,64 @@ function extractTechStack(claudeMd: string): string {
   return lines.join(" ").slice(0, 200);
 }
 
+// ── Deployment Detection ────────────────────────────────────────────
+
+const DEPLOYMENT_PATTERNS: Array<{ pattern: RegExp; action: DeploymentAction }> = [
+  // Container rebuild triggers
+  { pattern: /Dockerfile/i,                action: "container_rebuild" },
+  { pattern: /docker-compose\.ya?ml/i,     action: "container_rebuild" },
+  { pattern: /compose\.ya?ml/i,            action: "container_rebuild" },
+  { pattern: /\.dockerignore/i,            action: "container_rebuild" },
+
+  // Dependency install triggers
+  { pattern: /package\.json/,              action: "dependency_install" },
+  { pattern: /requirements\.txt/,          action: "dependency_install" },
+  { pattern: /Pipfile/,                    action: "dependency_install" },
+  { pattern: /pyproject\.toml/,            action: "dependency_install" },
+  { pattern: /Gemfile/,                    action: "dependency_install" },
+  { pattern: /go\.mod/,                    action: "dependency_install" },
+  { pattern: /pom\.xml/,                   action: "dependency_install" },
+
+  // DB migration triggers
+  { pattern: /models\.py/,                 action: "db_migration" },
+  { pattern: /schema\.prisma/,             action: "db_migration" },
+  { pattern: /\.sql$/,                     action: "db_migration" },
+  { pattern: /alembic/i,                   action: "db_migration" },
+  { pattern: /drizzle.*schema/i,           action: "db_migration" },
+
+  // Env/config changes
+  { pattern: /\.env/,                      action: "env_config" },
+
+  // Server restart triggers (config files that require restart)
+  { pattern: /next\.config/,               action: "server_restart" },
+  { pattern: /vite\.config/,               action: "server_restart" },
+  { pattern: /webpack\.config/,            action: "server_restart" },
+  { pattern: /tsconfig\.json/,             action: "server_restart" },
+  { pattern: /tailwind\.config/,           action: "server_restart" },
+  { pattern: /postcss\.config/,            action: "server_restart" },
+  { pattern: /nginx\.conf/i,              action: "server_restart" },
+  { pattern: /Cargo\.toml/,               action: "server_restart" },
+];
+
+export function detectDeploymentActions(recentActivity: string[]): DeploymentAction[] {
+  const found = new Set<DeploymentAction>();
+
+  // Only check write/edit activities (not reads or bash)
+  const writeActivities = recentActivity.filter(
+    (a) => a.startsWith("write:") || a.startsWith("edit:") || a.startsWith("Write:") || a.startsWith("Edit:"),
+  );
+
+  for (const activity of writeActivities) {
+    for (const { pattern, action } of DEPLOYMENT_PATTERNS) {
+      if (pattern.test(activity)) {
+        found.add(action);
+      }
+    }
+  }
+
+  return found.size > 0 ? Array.from(found) : ["none"];
+}
+
 // ── Module Selection ─────────────────────────────────────────────────
 
 const MODULE_MAP: Record<SuperBroTrigger, string> = {
@@ -143,7 +228,19 @@ const MODULE_MAP: Record<SuperBroTrigger, string> = {
   session_start: "knowledge-session-start",
 };
 
-export function selectKnowledgeModule(trigger: SuperBroTrigger): string {
+export function selectKnowledgeModule(
+  trigger: SuperBroTrigger,
+  context?: Pick<SuperBroContext, "deployment">,
+): string {
+  // When Claude responded and file changes need deployment action,
+  // use the more specific post-change module
+  if (
+    trigger === "claude_response" &&
+    context?.deployment &&
+    context.deployment.actions[0] !== "none"
+  ) {
+    return "knowledge-post-change";
+  }
   return MODULE_MAP[trigger];
 }
 
@@ -170,8 +267,8 @@ export async function buildSuperBroRequest(
   // Layer 1: Always-present persona
   const persona = await getCachedModule("persona");
 
-  // Layer 2: Situation-specific knowledge
-  const moduleName = selectKnowledgeModule(trigger);
+  // Layer 2: Situation-specific knowledge (deployment-aware routing)
+  const moduleName = selectKnowledgeModule(trigger, context);
   const knowledge = await getCachedModule(moduleName);
 
   // Combine into system prompt
@@ -201,6 +298,7 @@ ${context.recentActivity.join("\n")}
 
 ${context.terminalOutput ? `TERMINAL OUTPUT (last 30 lines):\n${context.terminalOutput}` : ""}
 ${context.previewErrors.length > 0 ? `PREVIEW ERRORS:\n${context.previewErrors.join("\n")}` : ""}
+${context.deployment.actions[0] !== "none" ? `DEPLOYMENT STATUS:\nActions needed: ${context.deployment.actions.join(", ")}\nDev server running: ${context.deployment.devServerRunning ? "YES" : "no"}` : ""}
 
 What should the user do next? If everything looks fine, respond with NOTHING_TO_REPORT.
 `.trim();
