@@ -28,6 +28,9 @@ vi.mock("./lib/tauri-commands", () => ({
     superBroEnabled: true, superBroProvider: "auto", superBroModel: "auto",
   })),
   updateSettings: vi.fn(() => Promise.resolve()),
+  listenOpenUpdateModal: vi.fn(() => Promise.resolve(() => {})),
+  enableUpdateMenuItem: vi.fn(() => Promise.resolve()),
+  disableUpdateMenuItem: vi.fn(() => Promise.resolve()),
 }));
 
 // Mock tauri dialog
