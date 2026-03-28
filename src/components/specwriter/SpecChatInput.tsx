@@ -188,7 +188,7 @@ export default function SpecChatInput({ projectPath }: Props) {
           {attachments.map((att) => (
             <div
               key={att.id}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs"
+              className="flex items-center gap-1 px-2 py-1 rounded text-ui"
               style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
             >
               {att.type === "image" && att.preview_url && (
@@ -235,7 +235,7 @@ export default function SpecChatInput({ projectPath }: Props) {
           onPaste={handlePaste}
           placeholder="Describe what you want to build..."
           rows={6}
-          className="flex-1 resize-none rounded-md px-3 py-2 text-sm outline-none"
+          className="flex-1 resize-none rounded-md px-3 py-2 text-chat outline-none"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-primary)",

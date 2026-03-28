@@ -38,7 +38,7 @@ export default function SpecWriterToolbar({
       className="h-10 flex items-center gap-2 px-4 border-b shrink-0"
       style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
     >
-      <span className="text-sm font-medium mr-1" style={{ color: "var(--text-primary)" }}>
+      <span className="text-chat font-medium mr-1" style={{ color: "var(--text-primary)" }}>
         SpecWriter
       </span>
 
@@ -49,7 +49,7 @@ export default function SpecWriterToolbar({
             onClick={onSendToChat}
             disabled={!activeSessionId}
             title={activeSessionId ? "Send spec reference to active chat" : "No active chat session"}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95 disabled:opacity-40"
             style={{
               background: "var(--bg-elevated)",
               color: "var(--text-secondary)",
@@ -63,7 +63,7 @@ export default function SpecWriterToolbar({
             onClick={onImplement}
             disabled={!activeSessionId}
             title={activeSessionId ? "Send to main chat for all-at-once implementation" : "No active chat session"}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:opacity-90 disabled:opacity-40"
             style={{ background: "var(--accent)", color: "white" }}
           >
             <Play size={11} />
@@ -73,7 +73,7 @@ export default function SpecWriterToolbar({
             <button
               onClick={onUseGuide}
               title="Close SpecWriter and follow the step-by-step guide (recommended for complex specs)"
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95"
               style={{
                 background: "var(--bg-elevated)",
                 color: "var(--text-secondary)",
@@ -92,7 +92,7 @@ export default function SpecWriterToolbar({
         onClick={onWriteSpec}
         disabled={!canWrite}
         title="Tell the AI to generate the specification document"
-        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:opacity-90 disabled:opacity-40"
         style={{
           background: canWrite ? "var(--accent)" : "var(--bg-elevated)",
           color: canWrite ? "white" : "var(--text-dim)",
@@ -109,7 +109,7 @@ export default function SpecWriterToolbar({
           onClick={onReset}
           disabled={isStreaming}
           title="Reset — clear conversation and start fresh"
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95 disabled:opacity-40"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-secondary)",
@@ -130,7 +130,7 @@ export default function SpecWriterToolbar({
           onClick={onSuggestFeatures}
           disabled={isStreaming}
           title="Ask the AI to suggest features for this project"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95 disabled:opacity-40"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-secondary)",

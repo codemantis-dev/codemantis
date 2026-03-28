@@ -53,10 +53,10 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">📝</div>
-        <div className="text-sm font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+        <div className="text-chat font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
           Spec Preview
         </div>
-        <div className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
+        <div className="text-ui leading-relaxed" style={{ color: "var(--text-dim)" }}>
           Start a conversation on the left to create your requirements specification.
           The AI will ask questions to understand your project, then write a comprehensive spec document.
         </div>
@@ -74,7 +74,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
         >
           <button
             onClick={() => onTabChange('spec')}
-            className="px-4 py-2 text-xs font-medium transition-colors"
+            className="px-4 py-2 text-ui font-medium transition-colors"
             style={{
               color: activeTab === 'spec' ? "var(--accent)" : "var(--text-secondary)",
               borderBottom: activeTab === 'spec' ? "2px solid var(--accent)" : "2px solid transparent",
@@ -85,7 +85,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
           </button>
           <button
             onClick={() => onTabChange('audit')}
-            className="px-4 py-2 text-xs font-medium transition-colors"
+            className="px-4 py-2 text-ui font-medium transition-colors"
             style={{
               color: activeTab === 'audit' ? "var(--accent)" : "var(--text-secondary)",
               borderBottom: activeTab === 'audit' ? "2px solid var(--accent)" : "2px solid transparent",
@@ -99,7 +99,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
 
       {title && (
         <div
-          className="px-4 py-2 text-xs font-medium border-b shrink-0 flex items-center gap-2"
+          className="px-4 py-2 text-ui font-medium border-b shrink-0 flex items-center gap-2"
           style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
         >
           <span className="truncate flex-1">{title}</span>
@@ -117,7 +117,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
       )}
       {isEditing && activeTab === 'spec' ? (
         <textarea
-          className="flex-1 w-full resize-none font-mono text-sm px-4 py-3 outline-none"
+          className="flex-1 w-full resize-none font-mono text-chat px-4 py-3 outline-none"
           style={{
             background: "var(--bg-primary)",
             color: "var(--text-primary)",
@@ -132,7 +132,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto px-4 py-3"
         >
-          <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
+          <div className="markdown-content text-chat" style={{ color: "var(--text-primary)" }}>
             {renderedMarkdown}
           </div>
         </div>

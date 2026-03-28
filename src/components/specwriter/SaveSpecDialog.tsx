@@ -132,7 +132,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
           className="flex items-center justify-between px-4 py-3 border-b"
           style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
         >
-          <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          <span className="text-chat font-medium" style={{ color: "var(--text-primary)" }}>
             {dialogTitle}
           </span>
           <button
@@ -146,14 +146,14 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
 
         <div className="px-4 py-3 space-y-3">
           <div>
-            <label className="block text-xs mb-1" style={{ color: "var(--text-secondary)" }}>
+            <label className="block text-ui mb-1" style={{ color: "var(--text-secondary)" }}>
               Filename
             </label>
             <input
               type="text"
               value={filename}
               onChange={(e) => setFilename(e.target.value)}
-              className="w-full px-3 py-2 rounded-md text-sm outline-none"
+              className="w-full px-3 py-2 rounded-md text-chat outline-none"
               style={{
                 background: "var(--bg-elevated)",
                 color: "var(--text-primary)",
@@ -168,7 +168,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
 
           {fileExists && (
             <div
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-xs"
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-ui"
               style={{ background: "rgba(234,179,8,0.1)", color: "#ca8a04" }}
             >
               <span>File already exists.</span>
@@ -195,7 +195,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-md text-xs transition-colors hover:brightness-95"
+              className="px-4 py-2 rounded-md text-ui transition-colors hover:brightness-95"
               style={{
                 background: "var(--bg-elevated)",
                 color: "var(--text-secondary)",
@@ -207,7 +207,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
             <button
               onClick={handleSave}
               disabled={saving || !filename.trim() || (fileExists && !overwrite)}
-              className="px-4 py-2 rounded-md text-xs font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+              className="px-4 py-2 rounded-md text-ui font-medium transition-colors hover:opacity-90 disabled:opacity-40"
               style={{ background: "var(--accent)", color: "white" }}
             >
               {saving ? "Saving..." : "Save"}

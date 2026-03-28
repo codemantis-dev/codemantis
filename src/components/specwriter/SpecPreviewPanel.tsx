@@ -69,7 +69,7 @@ export default function SpecPreviewPanel({
             onClick={onToggleEdit}
             disabled={isStreaming}
             title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors"
             style={isEditing ? {
               background: "var(--accent)",
               color: "white",
@@ -84,7 +84,7 @@ export default function SpecPreviewPanel({
           </button>
           <button
             onClick={onCopySpec}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui transition-colors hover:brightness-95"
             style={{
               background: "var(--bg-elevated)",
               color: "var(--text-secondary)",
@@ -103,7 +103,7 @@ export default function SpecPreviewPanel({
               onClick={onGenerateAudit}
               disabled={isStreaming}
               title="Generate a Verification Audit companion document for the spec"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:brightness-95 disabled:opacity-40"
               style={{
                 background: "var(--bg-elevated)",
                 color: "var(--text-secondary)",
@@ -120,7 +120,7 @@ export default function SpecPreviewPanel({
             <button
               onClick={onOpenSaveSpecDialog}
               title="Save specification to project"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:opacity-90"
               style={{ background: "var(--accent)", color: "white" }}
             >
               <FileDown size={13} />
@@ -131,7 +131,7 @@ export default function SpecPreviewPanel({
             <button
               onClick={onOpenSaveAuditDialog}
               title="Save verification audit to project"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:opacity-90"
               style={{ background: "var(--accent)", color: "white" }}
             >
               <FileDown size={13} />

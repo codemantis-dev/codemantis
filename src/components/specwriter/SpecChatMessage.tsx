@@ -61,7 +61,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
   if (isSystem) {
     return (
       <div
-        className="flex flex-col gap-2 px-3 py-2 rounded-md text-xs select-text"
+        className="flex flex-col gap-2 px-3 py-2 rounded-md text-ui select-text"
         style={{
           background: "var(--bg-elevated)",
           color: "var(--text-secondary)",
@@ -80,7 +80,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
               <button
                 key={`sysopt-${i}`}
                 onClick={() => onSelectOption?.(opt)}
-                className="text-left px-3 py-2 rounded-md border text-xs transition-colors hover:brightness-95"
+                className="text-left px-3 py-2 rounded-md border text-ui transition-colors hover:brightness-95"
                 style={{
                   borderColor: 'var(--border)',
                   color: 'var(--text-primary)',
@@ -99,7 +99,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
       <div
-        className="relative max-w-[85%] rounded-lg px-3 py-2 text-sm"
+        className="relative max-w-[85%] rounded-lg px-3 py-2 text-chat"
         style={{
           background: isUser ? "var(--accent)" : "var(--bg-elevated)",
           color: isUser ? "white" : "var(--text-primary)",
@@ -116,7 +116,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
           </button>
         )}
         {isAssistant ? (
-          <div className="markdown-content text-sm" style={{ color: "var(--text-primary)" }}>
+          <div className="markdown-content text-chat" style={{ color: "var(--text-primary)" }}>
             {renderedMarkdown}
           </div>
         ) : (
@@ -129,7 +129,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
             {message.attachments.map((att) => (
               <div
                 key={att.id}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs"
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-ui"
                 style={{ background: "rgba(255,255,255,0.15)" }}
               >
                 {att.type === "image" && att.preview_url && (
@@ -156,7 +156,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
                       return new Set(message.parsedOptions!.map((_, idx) => idx));
                     });
                   }}
-                  className="text-left px-2 py-1 rounded text-[11px] font-medium transition-colors hover:opacity-80"
+                  className="text-left px-2 py-1 rounded text-label font-medium transition-colors hover:opacity-80"
                   style={{ color: 'var(--accent)' }}
                 >
                   {selectedOptions.size === (message.parsedOptions?.length ?? 0)
@@ -185,7 +185,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
                       e.preventDefault();
                       toggleOption(i);
                     }}
-                    className="text-left px-3 py-2 rounded-md border text-xs transition-colors"
+                    className="text-left px-3 py-2 rounded-md border text-ui transition-colors"
                     style={{
                       borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
                       color: 'var(--text-primary)',
@@ -202,7 +202,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
               {selectedOptions.size > 0 && (
                 <button
                   onClick={sendSelected}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors hover:opacity-90"
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-ui font-medium transition-colors hover:opacity-90"
                   style={{ background: "var(--accent)", color: "white" }}
                 >
                   <Send size={11} />
@@ -281,7 +281,7 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
 
   return (
     <div
-      className="rounded-md text-xs border"
+      className="rounded-md text-ui border"
       style={{
         background: "var(--bg-elevated)",
         borderColor: "var(--border)",
@@ -328,7 +328,7 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
               </button>
               {entry.found && expandedFiles.has(entry.path) && (
                 <pre
-                  className="px-2 pb-2 overflow-x-auto text-[11px] leading-relaxed"
+                  className="px-2 pb-2 overflow-x-auto text-label leading-relaxed"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   {entry.content}

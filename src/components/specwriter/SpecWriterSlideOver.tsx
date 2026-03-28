@@ -414,7 +414,7 @@ export default function SpecWriterSlideOver() {
               {/* Context error banner */}
               {contextError && (
                 <div
-                  className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-xs flex items-center gap-2"
+                  className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-ui flex items-center gap-2"
                   style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
                 >
                   <span className="flex-1">Context loading failed: {contextError}</span>
@@ -518,12 +518,12 @@ function ContextLoadingOverlay({ projectPath, onCancel }: { projectPath: string;
 
         <div>
           <h3
-            className="text-sm font-medium mb-1"
+            className="text-chat font-medium mb-1"
             style={{ color: "var(--text-primary)" }}
           >
             Analyzing project...
           </h3>
-          <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-ui leading-relaxed" style={{ color: "var(--text-secondary)" }}>
             Scanning <strong>{projectName}</strong> to understand its structure —
             framework, dependencies, routes, components, hooks, stores, and existing specs.
           </p>
@@ -534,7 +534,7 @@ function ContextLoadingOverlay({ projectPath, onCancel }: { projectPath: string;
 
         <button
           onClick={onCancel}
-          className="px-4 py-1.5 rounded-md text-xs transition-colors hover:brightness-95"
+          className="px-4 py-1.5 rounded-md text-ui transition-colors hover:brightness-95"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-secondary)",

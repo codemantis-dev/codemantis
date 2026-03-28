@@ -77,7 +77,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
     <div className="border-t" style={{ borderColor: "var(--border)" }}>
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="w-full px-3 py-2 text-xs font-medium flex items-center justify-between hover:bg-bg-elevated transition-colors"
+        className="w-full px-3 py-2 text-ui font-medium flex items-center justify-between hover:bg-bg-elevated transition-colors"
         style={{ color: "var(--text-secondary)" }}
       >
         <span>Saved Specs ({specsList.length})</span>
@@ -87,7 +87,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
       {!isCollapsed && (
         <div className="px-2 pb-2">
           {specsList.length === 0 ? (
-            <div className="text-xs px-2 py-3 text-center" style={{ color: "var(--text-dim)" }}>
+            <div className="text-ui px-2 py-3 text-center" style={{ color: "var(--text-dim)" }}>
               No specifications yet.
             </div>
           ) : (
@@ -95,7 +95,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
               {specsList.map((spec) => (
                 <div
                   key={spec.filename}
-                  className="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors text-xs"
+                  className="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors text-ui"
                   style={{
                     background: selectedSpec === spec.filename ? "var(--accent-bg)" : undefined,
                     color: selectedSpec === spec.filename ? "var(--accent)" : "var(--text-secondary)",

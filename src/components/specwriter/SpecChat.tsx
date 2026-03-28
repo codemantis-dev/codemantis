@@ -218,7 +218,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   return (
     <div className="flex flex-col h-full">
       <div
-        className="px-3 py-2 text-xs font-medium border-b shrink-0 flex items-center gap-2"
+        className="px-3 py-2 text-ui font-medium border-b shrink-0 flex items-center gap-2"
         style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
       >
         <span>SpecWriter Chat</span>
@@ -241,7 +241,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
             <select
               value={currentProvider}
               onChange={(e) => handleProviderChange(e.target.value)}
-              className="px-1.5 py-0.5 rounded-md border text-xs"
+              className="px-1.5 py-0.5 rounded-md border text-ui"
               style={{
                 background: "var(--bg-primary)",
                 borderColor: "var(--border)",
@@ -266,7 +266,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
             <select
               value={currentModel}
               onChange={(e) => handleSpecModelChange(e.target.value)}
-              className="px-1.5 py-0.5 rounded-md border text-xs"
+              className="px-1.5 py-0.5 rounded-md border text-ui"
               style={{
                 background: "var(--bg-primary)",
                 borderColor: "var(--border)",
@@ -302,7 +302,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
       {/* API key warning banner */}
       {conversation && !currentModelHasKey && (
         <div
-          className="px-3 py-2 text-xs flex items-center gap-2 border-b shrink-0"
+          className="px-3 py-2 text-ui flex items-center gap-2 border-b shrink-0"
           style={{
             background: "rgba(245,158,11,0.1)",
             borderColor: "var(--border)",
@@ -323,7 +323,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
       <div className="relative flex-1 overflow-hidden">
       <div ref={scrollRef} onScroll={checkAtBottom} className="h-full overflow-y-auto px-3 py-2 space-y-3">
         {messages.length === 0 && (
-          <div className="text-center py-8 text-sm" style={{ color: "var(--text-dim)" }}>
+          <div className="text-center py-8 text-chat" style={{ color: "var(--text-dim)" }}>
             Describe what you want to build. The AI will ask clarifying questions before writing a specification.
           </div>
         )}
@@ -343,7 +343,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
         {isStreaming && (
           <div className="flex items-center gap-2 py-1">
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--accent)" }} />
-            <span className="text-xs" style={{ color: "var(--text-dim)" }}>Thinking...</span>
+            <span className="text-ui" style={{ color: "var(--text-dim)" }}>Thinking...</span>
             {elapsed > 0 && (
               <span className="text-[10px] font-mono" style={{ color: "var(--text-ghost)" }}>
                 {formatDuration(elapsed, "elapsed")}
@@ -354,7 +354,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
         {isLoadingFiles && (
           <div className="flex items-center gap-2 py-1 px-3">
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--warning, #f59e0b)" }} />
-            <span className="text-xs" style={{ color: "var(--text-dim)" }}>Loading requested files...</span>
+            <span className="text-ui" style={{ color: "var(--text-dim)" }}>Loading requested files...</span>
           </div>
         )}
       </div>
@@ -362,7 +362,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs shadow-lg hover:brightness-95 transition-colors z-10"
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-ui shadow-lg hover:brightness-95 transition-colors z-10"
           style={{ background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
         >
           <ArrowDown size={12} />
@@ -376,7 +376,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
           <button
             onClick={handleWriteSpec}
             disabled={isStreaming}
-            className="w-full py-2 px-3 rounded-md text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-50"
+            className="w-full py-2 px-3 rounded-md text-chat font-medium transition-colors hover:opacity-90 disabled:opacity-50"
             style={{ background: "var(--accent)", color: "white" }}
           >
             Generate Spec
