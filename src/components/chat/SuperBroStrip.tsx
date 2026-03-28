@@ -8,6 +8,7 @@ import { showToast } from "../../stores/toastStore";
 import { sendMessage as sendMessageCmd } from "../../lib/tauri-commands";
 
 const ALL_GOOD_DISPLAY_MS = 4000;
+const MESSAGE_AUTO_DISMISS_MS = 60000;
 
 export default function SuperBroStrip() {
   const globalEnabled = useSettingsStore((s) => s.settings.superBroEnabled);
@@ -28,6 +29,13 @@ export default function SuperBroStrip() {
     const timer = setTimeout(clearCheckResult, ALL_GOOD_DISPLAY_MS);
     return () => clearTimeout(timer);
   }, [lastCheckResult, clearCheckResult]);
+
+  // Auto-dismiss guidance messages after 60 seconds
+  useEffect(() => {
+    if (!currentMessage || currentMessage.dismissed) return;
+    const timer = setTimeout(dismiss, MESSAGE_AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [currentMessage, dismiss]);
 
   // Keyboard: Escape dismisses when focused
   useEffect(() => {
