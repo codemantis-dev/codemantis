@@ -12,7 +12,7 @@ use claude::session::AppState;
 use log::{error, info, warn};
 use storage::Database;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
 use tauri_plugin_opener::OpenerExt;
 
 /// Recursively copy a directory and all its contents.
@@ -163,6 +163,14 @@ pub fn run() {
                         Some(about_metadata),
                     )?,
                     &PredefinedMenuItem::separator(app)?,
+                    &MenuItem::with_id(
+                        app,
+                        "check_for_updates",
+                        "Check for Updates...",
+                        true,
+                        None::<&str>,
+                    )?,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::hide(app, None)?,
@@ -240,6 +248,8 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == "help_website" {
                 let _ = app.opener().open_url("https://codemantis.dev/docs", None::<&str>);
+            } else if event.id() == "check_for_updates" {
+                let _ = app.emit("open-update-modal", ());
             }
         })
         .setup(|app| {
@@ -382,6 +392,8 @@ pub fn run() {
             commands::super_bro::load_observations,
             commands::super_bro::delete_observation,
             commands::super_bro::read_super_bro_module,
+            commands::menu::enable_update_menu_item,
+            commands::menu::disable_update_menu_item,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -149,24 +149,19 @@ export default function GeneralTab({
             />
           </button>
         </div>
-        <div className="flex items-center justify-between py-2 border-t border-border-light pt-4 mt-2">
-          <div>
-            <label className="text-ui text-text-secondary">Check for updates</label>
-            <p className="text-label text-text-ghost">
-              Current version: v{__APP_VERSION__}
-            </p>
-          </div>
-          <CheckForUpdatesButton />
-        </div>
+        <UpdateSection />
       </div>
     </div>
   );
 }
 
-function CheckForUpdatesButton(): React.ReactElement {
+function UpdateSection(): React.ReactElement {
   const [checking, setChecking] = useState(false);
   const openUpdateModal = useUiStore((s) => s.openUpdateModal);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
+  const updateAvailable = useUiStore((s) => s.updateAvailable);
+  const availableVersion = useUiStore((s) => s.availableVersion);
+  const availableNotes = useUiStore((s) => s.availableNotes);
 
   const handleCheck = async (): Promise<void> => {
     setChecking(true);
@@ -186,13 +181,41 @@ function CheckForUpdatesButton(): React.ReactElement {
   };
 
   return (
-    <button
-      onClick={handleCheck}
-      disabled={checking}
-      className="px-3 py-1.5 rounded-lg text-ui font-medium transition-colors disabled:opacity-50"
-      style={{ background: "var(--accent)", color: "white" }}
-    >
-      {checking ? "Checking..." : "Check Now"}
-    </button>
+    <div className="flex items-center justify-between py-2 border-t border-border-light pt-4 mt-2">
+      <div>
+        <label className="text-ui text-text-secondary">Check for updates</label>
+        <p className="text-label text-text-ghost">
+          {updateAvailable && availableVersion
+            ? `v${availableVersion} available \u2014 current: v${__APP_VERSION__}`
+            : `Current version: v${__APP_VERSION__}`}
+        </p>
+      </div>
+      {updateAvailable && availableVersion ? (
+        <div className="flex items-center gap-2">
+          <span className="text-label font-medium" style={{ color: "var(--accent)" }}>
+            v{availableVersion}
+          </span>
+          <button
+            onClick={() => {
+              setShowSettingsModal(false);
+              openUpdateModal(availableVersion, availableNotes);
+            }}
+            className="px-3 py-1.5 rounded-lg text-ui font-medium transition-colors"
+            style={{ background: "var(--accent)", color: "white" }}
+          >
+            Update
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleCheck}
+          disabled={checking}
+          className="px-3 py-1.5 rounded-lg text-ui font-medium transition-colors disabled:opacity-50"
+          style={{ background: "var(--accent)", color: "white" }}
+        >
+          {checking ? "Checking..." : "Check Now"}
+        </button>
+      )}
+    </div>
   );
 }

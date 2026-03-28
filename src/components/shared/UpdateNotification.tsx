@@ -1,33 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { Download, X } from "lucide-react";
-import { checkForUpdate } from "../../lib/update-checker";
 import { useUiStore } from "../../stores/uiStore";
 
 export default function UpdateNotification() {
-  const [version, setVersion] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const updateAvailable = useUiStore((s) => s.updateAvailable);
+  const version = useUiStore((s) => s.availableVersion);
+  const notes = useUiStore((s) => s.availableNotes);
   const openUpdateModal = useUiStore((s) => s.openUpdateModal);
-  const checkedRef = useRef(false);
 
-  useEffect(() => {
-    if (checkedRef.current) return;
-    checkedRef.current = true;
-
-    const timer = setTimeout(async () => {
-      try {
-        const info = await checkForUpdate();
-        if (info) {
-          setVersion(info.version);
-        }
-      } catch (e) {
-        console.warn("[updater] Check failed:", e);
-      }
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (!version || dismissed) return null;
+  if (!updateAvailable || !version || dismissed) return null;
 
   return (
     <div
@@ -44,7 +26,7 @@ export default function UpdateNotification() {
         </span>
       </div>
       <button
-        onClick={() => openUpdateModal(version, null)}
+        onClick={() => openUpdateModal(version, notes)}
         className="px-3 py-1 rounded-md text-label font-medium transition-colors"
         style={{ background: "var(--accent)", color: "white" }}
       >

@@ -51,6 +51,9 @@ interface UiState {
   showUpdateModal: boolean;
   updateVersion: string | null;
   updateNotes: string | null;
+  updateAvailable: boolean;
+  availableVersion: string | null;
+  availableNotes: string | null;
 
   setSelectedActivityEntry: (entry: ActivityEntry | null) => void;
   setSidebarWidth: (width: number) => void;
@@ -87,6 +90,8 @@ interface UiState {
   setHelpError: (error: string | null) => void;
   toggleHelpPanel: () => void;
   setHelpShowWelcome: (show: boolean) => void;
+  setUpdateAvailable: (version: string, notes: string | null) => void;
+  clearUpdateAvailable: () => void;
   openUpdateModal: (version: string, notes: string | null) => void;
   closeUpdateModal: () => void;
 }
@@ -128,6 +133,9 @@ export const useUiStore = create<UiState>((set) => ({
   showUpdateModal: false,
   updateVersion: null,
   updateNotes: null,
+  updateAvailable: false,
+  availableVersion: null,
+  availableNotes: null,
 
   setSelectedActivityEntry: (entry) => set({ selectedActivityEntry: entry }),
   setSidebarWidth: (width) =>
@@ -192,6 +200,8 @@ export const useUiStore = create<UiState>((set) => ({
   setHelpError: (error) => set({ helpError: error }),
   toggleHelpPanel: () => set((s) => ({ helpPanelOpen: !s.helpPanelOpen })),
   setHelpShowWelcome: (show) => set({ helpShowWelcome: show }),
+  setUpdateAvailable: (version, notes) => set({ updateAvailable: true, availableVersion: version, availableNotes: notes }),
+  clearUpdateAvailable: () => set({ updateAvailable: false, availableVersion: null, availableNotes: null }),
   openUpdateModal: (version, notes) => set({ showUpdateModal: true, updateVersion: version, updateNotes: notes }),
   closeUpdateModal: () => set({ showUpdateModal: false }),
 }));

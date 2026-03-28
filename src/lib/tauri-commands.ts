@@ -890,3 +890,19 @@ export async function readSuperBroModule(
 ): Promise<string> {
   return invoke<string>("read_super_bro_module", { moduleName });
 }
+
+// ── Menu ────────────────────────────────────────────────────────────
+
+export async function enableUpdateMenuItem(version: string): Promise<void> {
+  return invoke("enable_update_menu_item", { version });
+}
+
+export async function disableUpdateMenuItem(): Promise<void> {
+  return invoke("disable_update_menu_item");
+}
+
+export function listenOpenUpdateModal(
+  callback: () => void,
+): Promise<UnlistenFn> {
+  return listen<void>("open-update-modal", () => callback());
+}

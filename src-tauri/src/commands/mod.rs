@@ -9,6 +9,7 @@ pub mod git;
 pub mod guide;
 pub mod help;
 pub mod mcp;
+pub mod menu;
 pub mod openrouter;
 pub mod preview;
 pub mod scaffold;
