@@ -83,11 +83,34 @@ describe("SuperBroToggle", () => {
     expect(button.className).toContain("text-accent");
   });
 
-  it("shows dimmed when project is disabled", () => {
+  it("shows dimmed styling with strikethrough when disabled", () => {
     setupStores({ isEnabled: false });
     render(<SuperBroToggle />);
     const button = screen.getByRole("button");
-    expect(button.className).toContain("text-text-ghost");
+    expect(button.className).toContain("text-text-faint");
+    expect(button.className).toContain("line-through");
+  });
+
+  it("shows green dot when enabled", () => {
+    setupStores({ isEnabled: true });
+    render(<SuperBroToggle />);
+    const button = screen.getByRole("button");
+    const dot = button.querySelector("span.rounded-full");
+    expect(dot?.className).toContain("bg-green");
+  });
+
+  it("shows grey dot when disabled", () => {
+    setupStores({ isEnabled: false });
+    render(<SuperBroToggle />);
+    const button = screen.getByRole("button");
+    const dot = button.querySelector("span.rounded-full");
+    expect(dot?.className).toContain("bg-text-ghost");
+  });
+
+  it("shows 'Bro' label text", () => {
+    setupStores();
+    render(<SuperBroToggle />);
+    expect(screen.getByText("Bro")).toBeInTheDocument();
   });
 
   it("click calls toggle with projectPath", () => {

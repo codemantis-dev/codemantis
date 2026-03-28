@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useSuperBroStore } from "../../stores/superBroStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -24,10 +25,10 @@ export default function SuperBroToggle() {
   return (
     <button
       onClick={handleToggle}
-      className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+      className={`flex items-center gap-1 px-2 py-1 rounded-md text-label transition-colors ${
         isEnabled
           ? "text-accent hover:bg-accent/10"
-          : "text-text-ghost hover:text-text-dim hover:bg-bg-elevated"
+          : "text-text-faint hover:text-text-dim hover:bg-bg-subtle line-through decoration-text-ghost"
       }`}
       title={
         isEnabled
@@ -35,7 +36,13 @@ export default function SuperBroToggle() {
           : "Super-Bro is disabled (click to enable)"
       }
     >
-      <span className="text-sm">🧑‍💻</span>
+      {isEnabled ? <Eye size={13} /> : <EyeOff size={13} />}
+      <span>Bro</span>
+      <span
+        className={`inline-block w-1.5 h-1.5 rounded-full ${
+          isEnabled ? "bg-green" : "bg-text-ghost"
+        }`}
+      />
     </button>
   );
 }
