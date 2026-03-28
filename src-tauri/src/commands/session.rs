@@ -110,6 +110,7 @@ pub async fn create_session(
         approval_port,
         None, // model_override
         None, // append_system_prompt
+        Some(&session_info.name),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -172,12 +173,12 @@ pub async fn resume_session_process(
         binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
     };
 
-    let project_path = {
+    let (project_path, session_name) = {
         let sessions = state.sessions.lock().await;
         let session = sessions
             .get(&session_id)
             .ok_or_else(|| "Session not found".to_string())?;
-        session.project_path.clone()
+        (session.project_path.clone(), session.name.clone())
     };
 
     // Use frontend-provided CLI session ID, or fall back to backend-stored one
@@ -204,6 +205,7 @@ pub async fn resume_session_process(
         approval_port,
         None, // model_override
         None, // append_system_prompt
+        Some(&session_name),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -713,6 +715,7 @@ pub async fn create_specwriter_session(
         approval_port,
         Some(&model),
         Some(&system_prompt),
+        Some("SpecWriter"),
     )
     .await
     .map_err(|e| e.to_string())?;

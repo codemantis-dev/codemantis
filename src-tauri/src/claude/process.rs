@@ -188,6 +188,7 @@ impl ClaudeProcess {
         approval_server_port: Option<u16>,
         model_override: Option<&str>,
         append_system_prompt: Option<&str>,
+        session_name: Option<&str>,
     ) -> Result<Self, AppError> {
         info!(
             "Spawning Claude CLI for session {} in {} (resume: {:?}, approval_port: {:?}, model: {:?})",
@@ -235,6 +236,9 @@ impl ClaudeProcess {
 
         if let Some(cli_sid) = resume_cli_session_id {
             cmd.args(["--resume", cli_sid]);
+        }
+        if let Some(name) = session_name {
+            cmd.args(["--name", name]);
         }
         cmd.current_dir(project_path);
 

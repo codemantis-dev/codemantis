@@ -217,6 +217,8 @@ pub struct RateLimitInfo {
     pub overage_disabled_reason: Option<String>,
     #[serde(rename = "isUsingOverage")]
     pub is_using_overage: Option<bool>,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
 }
 
 // --- Outgoing events to the frontend ---

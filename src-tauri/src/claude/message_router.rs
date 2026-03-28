@@ -1064,6 +1064,7 @@ mod tests {
             overage_status: None,
             overage_disabled_reason: None,
             is_using_overage: None,
+            extra: Default::default(),
         };
         assert!(should_emit_rate_limit_warning(&info));
     }
@@ -1078,6 +1079,7 @@ mod tests {
             overage_status: None,
             overage_disabled_reason: None,
             is_using_overage: None,
+            extra: Default::default(),
         };
         assert!(should_emit_rate_limit_warning(&info));
     }
@@ -1092,6 +1094,7 @@ mod tests {
             overage_status: None,
             overage_disabled_reason: None,
             is_using_overage: None,
+            extra: Default::default(),
         };
         assert!(!should_emit_rate_limit_warning(&info));
     }
@@ -1106,6 +1109,7 @@ mod tests {
             overage_status: None,
             overage_disabled_reason: None,
             is_using_overage: None,
+            extra: Default::default(),
         };
         assert!(!should_emit_rate_limit_warning(&info));
     }
@@ -1121,6 +1125,7 @@ mod tests {
             overage_status: None,
             overage_disabled_reason: None,
             is_using_overage: None,
+            extra: Default::default(),
         };
         assert!(!should_emit_rate_limit_warning(&info));
 
