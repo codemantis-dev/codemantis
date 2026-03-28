@@ -689,6 +689,7 @@ impl Database {
         Ok(messages)
     }
 
+    #[allow(dead_code)]
     pub fn session_has_messages(&self, session_id: &str) -> Result<bool, AppError> {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
