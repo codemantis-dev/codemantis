@@ -4,6 +4,7 @@ import { useActivityStore } from "../stores/activityStore";
 import { useGuideStore } from "../stores/guideStore";
 import { usePreviewStore } from "../stores/previewStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useSpecWriterStore } from "../stores/specWriterStore";
 import { readSuperBroModule } from "./tauri-commands";
 
 // ── Context Snapshot ───────────────────────────────────────��─────────
@@ -62,27 +63,41 @@ export function buildSuperBroContext(
   const guideStore = useGuideStore.getState();
   const previewStore = usePreviewStore.getState();
 
-  // Last Claude message (truncated to 500 chars)
+  // Last Claude message (truncated to 9000 chars)
   const activeId = sessionStore.activeSessionId;
   let lastClaudeMessage = "";
   if (activeId) {
     const messages = sessionStore.sessionMessages.get(activeId) ?? [];
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "assistant") {
-        lastClaudeMessage = messages[i].content.slice(0, 500);
+        lastClaudeMessage = messages[i].content.slice(0, 9000);
         break;
       }
     }
   }
 
-  // Recent activity summaries (last 10)
+  // Recent activity summaries — prioritize writes/edits (most important), then bash
   const recentActivity: string[] = [];
   if (activeId) {
-    const entries = activityStore.getActiveEntries(activeId);
-    const last10 = entries.slice(-10);
-    for (const entry of last10) {
+    const allEntries = activityStore.getActiveEntries(activeId);
+
+    const writeEdits = allEntries.filter(
+      (e) => e.toolName === "Write" || e.toolName === "Edit" || e.toolName === "NotebookEdit",
+    );
+    const bashEntries = allEntries.filter((e) => e.toolName === "Bash");
+
+    // Last 90 writes/edits + last 30 bash commands, sorted by original order
+    const prioritized = [
+      ...writeEdits.slice(-90),
+      ...bashEntries.slice(-30),
+    ].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
+
+    // Cap at 120 total
+    const capped = prioritized.slice(-120);
+
+    for (const entry of capped) {
       const summary = `${entry.toolName}: ${summarizeToolInput(entry.toolName, entry.toolInput)} [${entry.status}]`;
-      recentActivity.push(summary.slice(0, 200));
+      recentActivity.push(summary.slice(0, 1200));
     }
   }
 
@@ -103,12 +118,12 @@ export function buildSuperBroContext(
     };
   }
 
-  // Preview errors (last 5)
+  // Preview errors (last 30)
   const consoleLogs = previewStore.consoleLogs.get(projectPath) ?? [];
   const previewErrors = consoleLogs
     .filter((log) => log.level === "error")
-    .slice(-5)
-    .map((log) => log.message.slice(0, 200));
+    .slice(-30)
+    .map((log) => log.message.slice(0, 1200));
 
   // Tech stack from CLAUDE.md
   const techStack = claudeMdContent
@@ -124,10 +139,10 @@ export function buildSuperBroContext(
   return {
     project: { path: projectPath, techStack },
     guide,
-    spec: null, // Could read from specWriterStore if needed
+    spec: resolveSpec(projectPath),
     lastClaudeMessage,
     recentActivity,
-    terminalOutput: terminalOutput.slice(-2000), // Last ~30 lines
+    terminalOutput: terminalOutput.slice(-12000),
     previewErrors,
     gitStatus: gitStatus ?? { changedFiles: 0, uncommitted: false, branch: "main" },
     deployment: {
@@ -141,19 +156,46 @@ function summarizeToolInput(
   toolName: string,
   toolInput: Record<string, unknown>,
 ): string {
-  if (toolName === "write" || toolName === "edit" || toolName === "read") {
+  const name = toolName.toLowerCase();
+  if (name === "write" || name === "edit" || name === "read" || name === "notebookedit") {
     return String(toolInput.file_path ?? toolInput.path ?? "");
   }
-  if (toolName === "bash") {
-    return String(toolInput.command ?? "").slice(0, 100);
+  if (name === "bash") {
+    return String(toolInput.command ?? "").slice(0, 900);
+  }
+  if (name === "glob" || name === "grep") {
+    return String(toolInput.pattern ?? toolInput.regex ?? "").slice(0, 100);
   }
   return JSON.stringify(toolInput).slice(0, 100);
 }
 
+function resolveSpec(projectPath: string): SuperBroContext["spec"] {
+  const specStore = useSpecWriterStore.getState();
+  const content = specStore.currentSpecContent.get(projectPath);
+  if (!content) return null;
+  const conversation = specStore.conversations.get(projectPath);
+  const title = conversation ? `Spec (${conversation.mode.replace("_", " ")})` : "Active spec";
+  return { title, hasActiveSpec: true };
+}
+
 function extractTechStack(claudeMd: string): string {
-  // Take first ~200 chars or find Architecture/Stack section
-  const lines = claudeMd.split("\n").slice(0, 10);
-  return lines.join(" ").slice(0, 200);
+  const sections = ["stack", "architecture", "tech", "setup", "docker", "deployment", "infrastructure"];
+  const lines = claudeMd.split("\n");
+
+  // Always include first 5 lines (project name + summary)
+  let result = lines.slice(0, 5).join(" ").trim();
+
+  // Scan for deployment-related content deeper in the file
+  for (let i = 5; i < Math.min(lines.length, 100); i++) {
+    const lower = lines[i].toLowerCase();
+    if (sections.some((s) => lower.includes(s)) || /docker|container|compose/i.test(lines[i])) {
+      const contextLines = lines.slice(i, i + 3).join(" ").trim();
+      result += " | " + contextLines;
+      break;
+    }
+  }
+
+  return result.slice(0, 2400);
 }
 
 // ── Deployment Detection ────────────────────────────────────────────
@@ -303,9 +345,10 @@ ${context.deployment.actions[0] !== "none" ? `DEPLOYMENT STATUS:\nActions needed
 What should the user do next? If everything looks fine, respond with NOTHING_TO_REPORT.
 `.trim();
 
-  // Enforce total input budget: ~6000 tokens ≈ ~24000 chars
-  // System prompt (persona + module) is ~3500 tokens; user message should stay under ~2500 tokens (~10000 chars)
-  const MAX_USER_MESSAGE_CHARS = 10000;
+  // Enforce total input budget: ~15000 tokens ≈ ~60000 chars
+  // System prompt (persona + module) is ~3500 tokens; user message can use up to ~15000 tokens (~60000 chars)
+  // Free models have 1M+ context; even worst-case fills <6% of the smallest paid model (128K)
+  const MAX_USER_MESSAGE_CHARS = 60000;
   const truncatedUserMessage =
     userMessage.length > MAX_USER_MESSAGE_CHARS
       ? userMessage.slice(0, MAX_USER_MESSAGE_CHARS) + "\n[...truncated]"

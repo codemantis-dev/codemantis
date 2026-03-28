@@ -16,6 +16,9 @@ vi.mock("../stores/previewStore", () => ({
 vi.mock("../stores/terminalStore", () => ({
   useTerminalStore: { getState: vi.fn() },
 }));
+vi.mock("../stores/specWriterStore", () => ({
+  useSpecWriterStore: { getState: vi.fn() },
+}));
 vi.mock("./tauri-commands", () => ({
   readSuperBroModule: vi.fn(),
 }));
@@ -31,6 +34,7 @@ import { useActivityStore } from "../stores/activityStore";
 import { useGuideStore } from "../stores/guideStore";
 import { usePreviewStore } from "../stores/previewStore";
 import { useTerminalStore } from "../stores/terminalStore";
+import { useSpecWriterStore } from "../stores/specWriterStore";
 import { readSuperBroModule } from "./tauri-commands";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -42,9 +46,12 @@ function mockStores(overrides?: {
     toolName: string;
     toolInput: Record<string, unknown>;
     status: string;
+    timestamp?: string;
   }>;
   guide?: unknown;
   consoleLogs?: Array<{ level: string; message: string }>;
+  specContent?: string;
+  specConversation?: { mode: string } | null;
 }): void {
   const sessionId = overrides?.activeSessionId ?? null;
   const messages = overrides?.messages ?? [];
@@ -83,6 +90,20 @@ function mockStores(overrides?: {
 
   (useTerminalStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
     detectedDevServers: new Map(),
+  });
+
+  const specContentMap = new Map<string, string>();
+  const specConversationsMap = new Map<string, unknown>();
+  if (overrides?.specContent) {
+    specContentMap.set("/test/project", overrides.specContent);
+  }
+  if (overrides?.specConversation) {
+    specConversationsMap.set("/test/project", overrides.specConversation);
+  }
+
+  (useSpecWriterStore.getState as ReturnType<typeof vi.fn>).mockReturnValue({
+    currentSpecContent: specContentMap,
+    conversations: specConversationsMap,
   });
 }
 
@@ -148,9 +169,10 @@ describe("buildSuperBroContext", () => {
       ],
       activityEntries: [
         {
-          toolName: "read",
+          toolName: "Write",
           toolInput: { file_path: "/src/index.ts" },
           status: "done",
+          timestamp: "2026-01-01T00:00:01Z",
         },
       ],
       guide: {
@@ -189,9 +211,9 @@ describe("buildSuperBroContext", () => {
     // Messages
     expect(ctx.lastClaudeMessage).toBe("Hi there, how can I help?");
 
-    // Activity
+    // Activity (Write entries are prioritized)
     expect(ctx.recentActivity).toHaveLength(1);
-    expect(ctx.recentActivity[0]).toContain("read");
+    expect(ctx.recentActivity[0]).toContain("Write");
     expect(ctx.recentActivity[0]).toContain("/src/index.ts");
 
     // Terminal
@@ -206,17 +228,16 @@ describe("buildSuperBroContext", () => {
     expect(ctx.gitStatus.uncommitted).toBe(true);
     expect(ctx.gitStatus.branch).toBe("feat/abc");
 
-    // Spec is always null in current implementation
+    // Spec — null when no spec in store
     expect(ctx.spec).toBeNull();
 
-    // Deployment (activity has a "read" entry, no writes → should be "none")
+    // Deployment
     expect(ctx.deployment).toBeDefined();
-    expect(ctx.deployment.actions).toEqual(["none"]);
     expect(typeof ctx.deployment.devServerRunning).toBe("boolean");
   });
 
-  it("truncates lastClaudeMessage to 500 chars", () => {
-    const longMessage = "A".repeat(800);
+  it("truncates lastClaudeMessage to 9000 chars", () => {
+    const longMessage = "A".repeat(12000);
     mockStores({
       activeSessionId: "sess-1",
       messages: [{ role: "assistant", content: longMessage }],
@@ -224,32 +245,104 @@ describe("buildSuperBroContext", () => {
 
     const ctx = buildSuperBroContext("/test/project", "");
 
-    expect(ctx.lastClaudeMessage).toHaveLength(500);
-    expect(ctx.lastClaudeMessage).toBe("A".repeat(500));
+    expect(ctx.lastClaudeMessage).toHaveLength(9000);
+    expect(ctx.lastClaudeMessage).toBe("A".repeat(9000));
   });
 
-  it("limits recentActivity to last 10 entries", () => {
-    const entries = Array.from({ length: 15 }, (_, i) => ({
-      toolName: "bash",
+  it("prioritizes Write/Edit entries and limits Bash to last 30", () => {
+    const writes = Array.from({ length: 100 }, (_, i) => ({
+      toolName: "Write",
+      toolInput: { file_path: `/src/file-${i}.ts` },
+      status: "done",
+      timestamp: `2026-01-01T00:${String(i).padStart(2, "0")}:00Z`,
+    }));
+    const bashes = Array.from({ length: 40 }, (_, i) => ({
+      toolName: "Bash",
       toolInput: { command: `cmd-${i}` },
       status: "done",
+      timestamp: `2026-01-01T01:${String(i).padStart(2, "0")}:00Z`,
     }));
 
     mockStores({
       activeSessionId: "sess-1",
       messages: [],
-      activityEntries: entries,
+      activityEntries: [...writes, ...bashes],
     });
 
     const ctx = buildSuperBroContext("/test/project", "");
 
-    expect(ctx.recentActivity).toHaveLength(10);
-    // Should keep the *last* 10, so first entry should reference cmd-5
-    expect(ctx.recentActivity[0]).toContain("cmd-5");
-    expect(ctx.recentActivity[9]).toContain("cmd-14");
+    // Last 90 writes + last 30 bashes = 120, capped at 120
+    expect(ctx.recentActivity.length).toBeLessThanOrEqual(120);
+    // Should include the last 90 writes (file-10 through file-99)
+    expect(ctx.recentActivity.some((a) => a.includes("file-10"))).toBe(true);
+    expect(ctx.recentActivity.some((a) => a.includes("file-99"))).toBe(true);
+    // Should NOT include the earliest writes that were trimmed
+    expect(ctx.recentActivity.some((a) => a.includes("file-0 "))).toBe(false);
+    // Should include the last 30 bash entries (cmd-10 through cmd-39)
+    expect(ctx.recentActivity.some((a) => a.includes("cmd-10"))).toBe(true);
+    expect(ctx.recentActivity.some((a) => a.includes("cmd-39"))).toBe(true);
+    // Should NOT include early bash entries
+    expect(ctx.recentActivity.some((a) => a.includes("cmd-0 "))).toBe(false);
   });
 
-  it("extracts tech stack from CLAUDE.md content", () => {
+  it("excludes Read/Glob/Grep entries from recentActivity (only Write/Edit/Bash)", () => {
+    mockStores({
+      activeSessionId: "sess-1",
+      messages: [],
+      activityEntries: [
+        { toolName: "Read", toolInput: { file_path: "/src/a.ts" }, status: "done", timestamp: "2026-01-01T00:00:01Z" },
+        { toolName: "Glob", toolInput: { pattern: "**/*.ts" }, status: "done", timestamp: "2026-01-01T00:00:02Z" },
+        { toolName: "Grep", toolInput: { pattern: "TODO" }, status: "done", timestamp: "2026-01-01T00:00:03Z" },
+        { toolName: "Write", toolInput: { file_path: "/src/b.ts" }, status: "done", timestamp: "2026-01-01T00:00:04Z" },
+      ],
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    expect(ctx.recentActivity).toHaveLength(1);
+    expect(ctx.recentActivity[0]).toContain("Write");
+    expect(ctx.recentActivity[0]).toContain("/src/b.ts");
+  });
+
+  it("summarizeToolInput handles capitalized tool names (case-insensitive)", () => {
+    mockStores({
+      activeSessionId: "sess-1",
+      messages: [],
+      activityEntries: [
+        { toolName: "Write", toolInput: { file_path: "/src/component.tsx" }, status: "done", timestamp: "2026-01-01T00:00:01Z" },
+        { toolName: "Edit", toolInput: { file_path: "/src/utils.ts" }, status: "done", timestamp: "2026-01-01T00:00:02Z" },
+        { toolName: "Bash", toolInput: { command: "cd frontend && npx tsc --noEmit" }, status: "done", timestamp: "2026-01-01T00:00:03Z" },
+      ],
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    // Write/Edit should show clean file paths, not garbled JSON
+    expect(ctx.recentActivity[0]).toBe("Write: /src/component.tsx [done]");
+    expect(ctx.recentActivity[1]).toBe("Edit: /src/utils.ts [done]");
+    // Bash should show the command, not JSON
+    expect(ctx.recentActivity[2]).toBe("Bash: cd frontend && npx tsc --noEmit [done]");
+  });
+
+  it("summarizeToolInput handles NotebookEdit with file_path", () => {
+    mockStores({
+      activeSessionId: "sess-1",
+      messages: [],
+      activityEntries: [
+        { toolName: "NotebookEdit", toolInput: { file_path: "/notebooks/analysis.ipynb" }, status: "done", timestamp: "2026-01-01T00:00:01Z" },
+      ],
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    // NotebookEdit is classified as a write, so it appears in recentActivity
+    expect(ctx.recentActivity).toHaveLength(1);
+    expect(ctx.recentActivity[0]).toContain("/notebooks/analysis.ipynb");
+    // Should NOT contain JSON braces
+    expect(ctx.recentActivity[0]).not.toContain("{");
+  });
+
+  it("extracts tech stack from CLAUDE.md content (first 5 lines)", () => {
     const claudeMd = `# CodeMantis
 Tauri v2 + React 19 + TypeScript + Rust
 Some more description here that goes on and on.`;
@@ -260,8 +353,29 @@ Some more description here that goes on and on.`;
 
     expect(ctx.project.techStack).toContain("CodeMantis");
     expect(ctx.project.techStack).toContain("Tauri v2");
-    // Should be limited to 200 chars
-    expect(ctx.project.techStack.length).toBeLessThanOrEqual(200);
+    expect(ctx.project.techStack.length).toBeLessThanOrEqual(2400);
+  });
+
+  it("extractTechStack finds Docker info deeper in CLAUDE.md", () => {
+    const claudeMd = `# My App
+A web application.
+
+
+Some description.
+More description.
+Even more.
+Yet more.
+## Architecture
+Docker Compose with nginx + FastAPI + React
+Uses Postgres in containers.`;
+
+    mockStores();
+
+    const ctx = buildSuperBroContext("/test/project", "", undefined, claudeMd);
+
+    // Should find the Architecture section and Docker reference
+    expect(ctx.project.techStack).toContain("Architecture");
+    expect(ctx.project.techStack).toContain("Docker");
   });
 
   it("handles empty stores gracefully", () => {
@@ -302,13 +416,13 @@ Some more description here that goes on and on.`;
     expect(ctx.previewErrors[1]).toContain("TypeError");
   });
 
-  it("detects deployment actions from write activities", () => {
+  it("detects deployment actions from Write/Edit activities", () => {
     mockStores({
       activeSessionId: "sess-1",
       messages: [],
       activityEntries: [
-        { toolName: "write", toolInput: { file_path: "/project/package.json" }, status: "done" },
-        { toolName: "edit", toolInput: { file_path: "/project/Dockerfile" }, status: "done" },
+        { toolName: "Write", toolInput: { file_path: "/project/package.json" }, status: "done", timestamp: "2026-01-01T00:00:01Z" },
+        { toolName: "Edit", toolInput: { file_path: "/project/Dockerfile" }, status: "done", timestamp: "2026-01-01T00:00:02Z" },
       ],
     });
 
@@ -316,6 +430,27 @@ Some more description here that goes on and on.`;
 
     expect(ctx.deployment.actions).toContain("dependency_install");
     expect(ctx.deployment.actions).toContain("container_rebuild");
+  });
+
+  it("resolves spec from specWriterStore when content exists", () => {
+    mockStores({
+      specContent: "# My Spec\nSome spec content here.",
+      specConversation: { mode: "new_application" },
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    expect(ctx.spec).not.toBeNull();
+    expect(ctx.spec!.hasActiveSpec).toBe(true);
+    expect(ctx.spec!.title).toContain("new application");
+  });
+
+  it("returns spec as null when no spec content in store", () => {
+    mockStores();
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    expect(ctx.spec).toBeNull();
   });
 });
 
@@ -454,7 +589,7 @@ describe("buildSuperBroRequest", () => {
     guide: null,
     spec: null,
     lastClaudeMessage: "I created the component.",
-    recentActivity: ["write: /src/Button.tsx [done]"],
+    recentActivity: ["Write: /src/Button.tsx [done]"],
     terminalOutput: "",
     previewErrors: [],
     gitStatus: { changedFiles: 1, uncommitted: true, branch: "main" },
@@ -488,7 +623,7 @@ describe("buildSuperBroRequest", () => {
     expect(userMessage).toContain("/test/project");
     expect(userMessage).toContain("React + TS");
     expect(userMessage).toContain("I created the component.");
-    expect(userMessage).toContain("write: /src/Button.tsx [done]");
+    expect(userMessage).toContain("Write: /src/Button.tsx [done]");
     expect(userMessage).toContain("TRIGGER: claude_response");
 
     // User message contains observations

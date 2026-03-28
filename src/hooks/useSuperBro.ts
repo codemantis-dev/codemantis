@@ -15,6 +15,7 @@ import {
   sendAssistantChat,
   listenAssistantStream,
   readFileContent,
+  getGitStatus,
 } from "../lib/tauri-commands";
 
 const DEBOUNCE_MS = 5000;
@@ -92,6 +93,7 @@ export function useSuperBro(projectPath: string | null): void {
   const lastApiCallTime = useRef(0);
   const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalBuffer = useRef("");
+  const terminalEntries = useRef<string[]>([]);
   const pendingTrigger = useRef<SuperBroTrigger | null>(null);
   const fileCheckCount = useRef(0);
   const claudeMdCache = useRef<string | undefined>(undefined);
@@ -122,6 +124,7 @@ export function useSuperBro(projectPath: string | null): void {
   // Reset local refs when switching sessions (not store state — that persists per-project)
   useEffect(() => {
     terminalBuffer.current = "";
+    terminalEntries.current = [];
     prevMessageCount.current = 0;
     prevGuideSessionIndex.current = null;
     if (debounceTimer.current) {
@@ -188,10 +191,23 @@ export function useSuperBro(projectPath: string | null): void {
       fileCheckCount.current = 0;
 
       try {
+        // Fetch live git status (non-blocking — falls back to defaults on error)
+        let gitStatus: { changedFiles: number; uncommitted: boolean; branch: string } | undefined;
+        try {
+          const gs = await getGitStatus(pp);
+          gitStatus = {
+            changedFiles: gs.uncommitted_changes,
+            uncommitted: gs.uncommitted_changes > 0,
+            branch: gs.branch ?? "main",
+          };
+        } catch {
+          // Git status unavailable — buildSuperBroContext uses safe defaults
+        }
+
         const context = buildSuperBroContext(
           pp,
           terminalBuffer.current,
-          undefined,
+          gitStatus,
           claudeMdCache.current,
         );
 
@@ -376,7 +392,7 @@ export function useSuperBro(projectPath: string | null): void {
             model,
             systemPrompt,
             messages: [{ role: "user", content: userMessage }],
-            maxTokens: 500,
+            maxTokens: 3000,
           });
         } catch (e) {
           clearTimeout(timeout);
@@ -548,7 +564,11 @@ export function useSuperBro(projectPath: string | null): void {
       const lastEntry = entries[entries.length - 1];
 
       if (lastEntry?.toolName === "bash" && lastEntry.result) {
-        terminalBuffer.current = lastEntry.result.slice(-2000);
+        terminalEntries.current.push(lastEntry.result.slice(-4000));
+        if (terminalEntries.current.length > 3) {
+          terminalEntries.current.shift();
+        }
+        terminalBuffer.current = terminalEntries.current.join("\n---\n");
 
         for (const pattern of BUILD_ERROR_PATTERNS) {
           if (pattern.test(lastEntry.result)) {
