@@ -23,6 +23,15 @@ vi.mock("@tauri-apps/api/path", () => ({
   homeDir: mockHomeDir,
 }));
 
+vi.mock("../../../stores/superBroStore", () => ({
+  useSuperBroStore: Object.assign(
+    vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
+      selector({ log: [] }),
+    ),
+    { setState: vi.fn(), getState: vi.fn(() => ({ log: [] })) },
+  ),
+}));
+
 import ApiLogsTab from "./ApiLogsTab";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 
@@ -392,5 +401,63 @@ describe("ApiLogsTab", () => {
     });
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Rate limit exceeded");
+  });
+
+  // ── Super-Bro tab ───────────────────────────────────────────────
+
+  it("renders Super-Bro tab button", async () => {
+    mockCleanupApiLogs.mockResolvedValue(undefined);
+    mockGetApiLogs.mockResolvedValue([]);
+    mockGetApiCostSummary.mockResolvedValue(emptySummary);
+
+    await act(async () => {
+      render(<ApiLogsTab />);
+    });
+
+    expect(screen.getByText("Super-Bro")).toBeInTheDocument();
+  });
+
+  it("shows empty state for Super-Bro when no log entries", async () => {
+    mockCleanupApiLogs.mockResolvedValue(undefined);
+    mockGetApiLogs.mockResolvedValue([]);
+    mockGetApiCostSummary.mockResolvedValue(emptySummary);
+
+    await act(async () => {
+      render(<ApiLogsTab />);
+    });
+
+    fireEvent.click(screen.getByText("Super-Bro"));
+
+    expect(screen.getByText("No Super-Bro activity yet")).toBeInTheDocument();
+  });
+
+  it("shows Super-Bro log entries when present", async () => {
+    // Override the mock for this test to return log entries
+    const { useSuperBroStore } = await import("../../../stores/superBroStore");
+    const mockStore = useSuperBroStore as unknown as ReturnType<typeof vi.fn>;
+    mockStore.mockImplementation((selector: (s: Record<string, unknown>) => unknown) =>
+      selector({
+        log: [
+          { timestamp: "2026-03-28T10:00:00Z", type: "trigger", message: "Event: claude_response" },
+          { timestamp: "2026-03-28T10:00:01Z", type: "api_call", message: "Calling OpenAI gpt-5.4-mini" },
+          { timestamp: "2026-03-28T10:00:03Z", type: "all_good", message: "NOTHING_TO_REPORT — all good" },
+        ],
+      }),
+    );
+
+    mockCleanupApiLogs.mockResolvedValue(undefined);
+    mockGetApiLogs.mockResolvedValue([]);
+    mockGetApiCostSummary.mockResolvedValue(emptySummary);
+
+    await act(async () => {
+      render(<ApiLogsTab />);
+    });
+
+    fireEvent.click(screen.getByText("Super-Bro"));
+
+    expect(screen.getByText("Total Events")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument(); // total count
+    expect(screen.getByText(/claude_response/)).toBeInTheDocument();
+    expect(screen.getByText(/Calling OpenAI/)).toBeInTheDocument();
   });
 });

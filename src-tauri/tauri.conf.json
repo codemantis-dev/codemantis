@@ -65,7 +65,8 @@
     "resources": [
       "resources/templates.json",
       "resources/claude-md/*",
-      "resources/user-guide.md"
+      "resources/user-guide.md",
+      "resources/super-bro/*"
     ]
   }
 }

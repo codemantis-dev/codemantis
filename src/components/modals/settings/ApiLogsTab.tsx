@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo } from "react";
-import { BarChart3, AlertTriangle, FileText, Check, Copy, FolderOpen } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Check, Copy, FolderOpen, Shield, Trash2 } from "lucide-react";
 import type { ApiLogEntry, ApiCostSummary } from "../../../types/api-logs";
 import { getApiLogs, getApiCostSummary, cleanupApiLogs } from "../../../lib/tauri-commands";
 import { formatCost, formatTimestamp } from "../../../lib/format-utils";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { homeDir } from "@tauri-apps/api/path";
 import { SectionTitle } from "./SettingsShared";
+import { useSuperBroStore } from "../../../stores/superBroStore";
+import type { SuperBroLogEntry } from "../../../stores/superBroStore";
 
 const LOG_FILE_PATH = "~/Library/Logs/dev.codemantis.myapp/codemantis.log";
 
-type TabId = "cost" | "errors";
+type TabId = "cost" | "errors" | "super-bro";
 
 export default function ApiLogsTab() {
   const [logs, setLogs] = useState<ApiLogEntry[]>([]);
@@ -72,6 +74,7 @@ export default function ApiLogsTab() {
         {([
           { id: "cost" as TabId, label: "Cost Log" },
           { id: "errors" as TabId, label: `Error Log${errorLogs.length > 0 ? ` (${errorLogs.length})` : ""}` },
+          { id: "super-bro" as TabId, label: "Super-Bro" },
         ]).map((tab) => (
           <button
             key={tab.id}
@@ -87,7 +90,7 @@ export default function ApiLogsTab() {
         ))}
       </div>
 
-      {activeTab === "cost" ? (
+      {activeTab === "cost" && (
         <>
           {/* Cost summary card */}
           {summary && summary.totalCalls > 0 && (
@@ -161,7 +164,9 @@ export default function ApiLogsTab() {
             </div>
           )}
         </>
-      ) : (
+      )}
+
+      {activeTab === "errors" && (
         <>
           {/* Error summary card */}
           {errorLogs.length > 0 && (
@@ -262,6 +267,8 @@ export default function ApiLogsTab() {
         </>
       )}
 
+      {activeTab === "super-bro" && <SuperBroLogPanel />}
+
       <p className="text-[11px] text-text-ghost mt-3 shrink-0">
         Logs older than 5 days are automatically deleted.
       </p>
@@ -304,5 +311,106 @@ export default function ApiLogsTab() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Super-Bro Log Panel ────────────────────────────────────────────
+
+const LOG_TYPE_STYLES: Record<SuperBroLogEntry["type"], { dot: string; label: string }> = {
+  trigger: { dot: "bg-accent", label: "Event" },
+  api_call: { dot: "bg-blue", label: "API Call" },
+  response: { dot: "bg-green", label: "Response" },
+  all_good: { dot: "bg-green", label: "All Good" },
+  error: { dot: "bg-red", label: "Error" },
+  skip: { dot: "bg-text-ghost", label: "Skipped" },
+};
+
+function SuperBroLogPanel(): React.ReactElement {
+  const log = useSuperBroStore((s) => s.log);
+
+  if (log.length === 0) {
+    return (
+      <div className="text-center py-8 flex-1">
+        <Shield size={24} className="mx-auto mb-2 text-text-ghost" />
+        <p className="text-ui text-text-dim">No Super-Bro activity yet</p>
+        <p className="text-label text-text-ghost mt-1">
+          Events, API calls, and responses will appear here as Super-Bro analyses your session
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Summary counts */}
+      <div className="rounded-lg border border-border p-4 mb-4 shrink-0" style={{ background: "var(--bg-elevated)" }}>
+        <div className="flex items-baseline justify-between mb-3">
+          <span className="text-ui text-text-secondary">Total Events</span>
+          <span className="text-lg font-semibold text-text-primary">{log.length}</span>
+        </div>
+        <div className="border-t border-border-light pt-2 space-y-1.5">
+          {Object.entries(
+            log.reduce<Record<string, number>>((acc, entry) => {
+              acc[entry.type] = (acc[entry.type] || 0) + 1;
+              return acc;
+            }, {}),
+          )
+            .sort((a, b) => b[1] - a[1])
+            .map(([type, count]) => {
+              const style = LOG_TYPE_STYLES[type as SuperBroLogEntry["type"]];
+              return (
+                <div key={type} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${style?.dot ?? "bg-text-ghost"}`} />
+                    <span className="text-label text-text-dim">{style?.label ?? type}</span>
+                  </div>
+                  <span className="text-label text-text-secondary">{count}</span>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* Log entries */}
+      <div className="space-y-1 flex-1 min-h-0 overflow-y-auto">
+        {log.map((entry, i) => {
+          const style = LOG_TYPE_STYLES[entry.type];
+          return (
+            <div
+              key={`${entry.timestamp}-${i}`}
+              className="group flex items-start gap-3 px-3 py-2 rounded-lg border border-border-light text-label select-text"
+              style={{ background: "var(--bg-elevated)" }}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${style.dot}`} />
+              <span className="text-text-ghost w-20 shrink-0 tabular-nums">
+                {formatTimestamp(entry.timestamp)}
+              </span>
+              <span
+                className={`w-16 shrink-0 font-medium ${
+                  entry.type === "error" ? "text-red" : "text-text-dim"
+                }`}
+              >
+                {style.label}
+              </span>
+              <span className="text-text-secondary flex-1 break-words font-mono text-[11px] leading-relaxed">
+                {entry.message}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Clear button */}
+      <div className="flex justify-end mt-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => useSuperBroStore.setState({ log: [] })}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-label text-text-ghost hover:text-text-dim hover:bg-bg-elevated transition-colors"
+        >
+          <Trash2 size={12} />
+          Clear Log
+        </button>
+      </div>
+    </>
   );
 }
