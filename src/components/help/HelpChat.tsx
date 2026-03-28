@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { ArrowDown, Loader2 } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -7,6 +7,7 @@ import StreamingCursor from "../chat/StreamingCursor";
 import CodeBlock from "../chat/CodeBlock";
 import { ExternalLink } from "../../lib/external-links";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
+import { formatDuration } from "../../lib/format-utils";
 
 /** Number of initial messages to hide (system prompt + acknowledgment). */
 const HIDDEN_PREFIX = 2;
@@ -31,6 +32,27 @@ export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
   const isAtBottomRef = useRef(true);
   const prevCountRef = useRef(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Elapsed timer: track how long the AI has been responding
+  useEffect(() => {
+    if (isBusy) {
+      setStreamStartTime(Date.now());
+    } else {
+      setStreamStartTime(null);
+      setElapsed(0);
+    }
+  }, [isBusy]);
+
+  useEffect(() => {
+    if (!streamStartTime) return;
+    setElapsed(Date.now() - streamStartTime);
+    const timer = setInterval(() => {
+      setElapsed(Date.now() - streamStartTime);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [streamStartTime]);
 
   const checkAtBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -80,6 +102,22 @@ export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
 
   return (
     <div className="relative flex-1 overflow-hidden">
+      {/* AI responding banner */}
+      {isBusy && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 border-b shrink-0 text-[11px]"
+          style={{ borderColor: "var(--border)", background: "var(--accent-bg, var(--bg-subtle))", color: "var(--accent)" }}
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent)" }} />
+            <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent)" }} />
+          </span>
+          <span>AI is responding...</span>
+          {elapsed > 5000 && (
+            <span className="font-mono opacity-70">{formatDuration(elapsed, "elapsed")}</span>
+          )}
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={checkAtBottom}
@@ -124,11 +162,17 @@ export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
 
           {/* Thinking indicator — shown when busy but not yet streaming */}
           {isBusy && !streaming.isStreaming && (
-            <div className="flex items-center gap-2 py-2">
-              <Loader2 size={14} className="animate-spin" style={{ color: "var(--accent)" }} />
-              <span className="text-sm" style={{ color: "var(--text-dim)" }}>
-                Thinking...
-              </span>
+            <div className="flex items-center gap-1.5 py-2 px-1">
+              <div className="flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="w-2 h-2 rounded-full bg-accent/60 animate-pulse"
+                    style={{ animationDelay: `${i * 200}ms` }}
+                  />
+                ))}
+              </div>
+              <span className="text-label" style={{ color: "var(--text-dim)" }}>Thinking...</span>
             </div>
           )}
         </div>
