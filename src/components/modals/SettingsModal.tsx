@@ -199,6 +199,7 @@ export default function SettingsModal() {
                 enabled={state.superBroEnabled}
                 provider={state.superBroProvider}
                 model={state.superBroModel}
+                apiKeys={state.apiKeys}
                 onEnabledChange={state.setSuperBroEnabled}
                 onProviderChange={state.setSuperBroProvider}
                 onModelChange={state.setSuperBroModel}

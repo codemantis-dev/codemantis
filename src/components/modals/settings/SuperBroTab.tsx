@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
 import { AI_MODELS } from "../../../types/assistant-provider";
@@ -7,13 +8,13 @@ interface SuperBroTabProps {
   enabled: boolean;
   provider: string;
   model: string;
+  apiKeys: Record<string, string>;
   onEnabledChange: (v: boolean) => void;
   onProviderChange: (v: string) => void;
   onModelChange: (v: string) => void;
 }
 
-const PROVIDER_OPTIONS = [
-  { id: "auto", label: "Auto (cheapest available)" },
+const ALL_PROVIDERS = [
   { id: "openrouter", label: "OpenRouter" },
   { id: "gemini", label: "Google Gemini" },
   { id: "openai", label: "OpenAI" },
@@ -53,11 +54,26 @@ export default function SuperBroTab({
   enabled,
   provider,
   model,
+  apiKeys,
   onEnabledChange,
   onProviderChange,
   onModelChange,
 }: SuperBroTabProps) {
   const models = useModelOptions(provider);
+
+  // Only show providers that have a saved API key
+  const availableProviders = useMemo(() => {
+    const withKeys = ALL_PROVIDERS.filter(
+      (p) => !!apiKeys[p.id]?.trim(),
+    );
+    // "Auto" is always available when at least one provider has a key
+    if (withKeys.length > 0) {
+      return [{ id: "auto", label: "Auto (cheapest available)" }, ...withKeys];
+    }
+    return [];
+  }, [apiKeys]);
+
+  const hasAnyKey = availableProviders.length > 0;
 
   return (
     <div className="space-y-6">
@@ -86,39 +102,52 @@ export default function SuperBroTab({
 
       {enabled && (
         <>
-          {/* Provider selector */}
-          <FieldRow label="Provider">
-            <select
-              value={provider}
-              onChange={(e) => {
-                onProviderChange(e.target.value);
-                // Reset model to auto when provider changes
-                onModelChange("auto");
-              }}
-              className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary"
-            >
-              {PROVIDER_OPTIONS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </FieldRow>
+          {!hasAnyKey && (
+            <div className="px-3 py-2.5 rounded-lg border border-yellow/30 bg-yellow/5 text-label text-text-dim">
+              No AI provider API keys configured. Add a key in{" "}
+              <span className="font-medium text-text-secondary">
+                Settings &rarr; AI Providers
+              </span>{" "}
+              to enable Super-Bro.
+            </div>
+          )}
 
-          {/* Model selector */}
-          <FieldRow label="Model">
-            <select
-              value={model}
-              onChange={(e) => onModelChange(e.target.value)}
-              className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary"
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </FieldRow>
+          {hasAnyKey && (
+            <>
+              {/* Provider selector */}
+              <FieldRow label="Provider">
+                <select
+                  value={provider}
+                  onChange={(e) => {
+                    onProviderChange(e.target.value);
+                    onModelChange("auto");
+                  }}
+                  className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary"
+                >
+                  {availableProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </FieldRow>
+
+              {/* Model selector */}
+              <FieldRow label="Model">
+                <select
+                  value={model}
+                  onChange={(e) => onModelChange(e.target.value)}
+                  className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary"
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </FieldRow>
+            </>
+          )}
 
           {/* Info box */}
           <div className="flex gap-2 px-3 py-2.5 rounded-lg border border-border bg-bg-elevated">

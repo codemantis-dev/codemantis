@@ -13,11 +13,19 @@ vi.mock("../../../stores/openRouterStore", () => ({
   ),
 }));
 
+const ALL_KEYS: Record<string, string> = {
+  openrouter: "or-key-123",
+  gemini: "gem-key-456",
+  openai: "sk-key-789",
+  anthropic: "ant-key-abc",
+};
+
 describe("SuperBroTab", () => {
   const defaultProps = {
     enabled: true,
     provider: "auto",
     model: "auto",
+    apiKeys: ALL_KEYS,
     onEnabledChange: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
@@ -32,7 +40,7 @@ describe("SuperBroTab", () => {
     expect(screen.getByText("Enable Super-Bro")).toBeInTheDocument();
   });
 
-  it("shows provider/model selectors when enabled", () => {
+  it("shows provider/model selectors when enabled and keys exist", () => {
     render(<SuperBroTab {...defaultProps} enabled={true} />);
     expect(screen.getByText("Provider")).toBeInTheDocument();
     expect(screen.getByText("Model")).toBeInTheDocument();
@@ -59,16 +67,62 @@ describe("SuperBroTab", () => {
     expect(defaultProps.onModelChange).toHaveBeenCalledWith("auto");
   });
 
-  it("shows all AI_MODELS for a hardcoded provider", () => {
+  it("only shows providers with saved API keys", () => {
+    const keysOnlyGemini = { gemini: "gem-key-456" };
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} apiKeys={keysOnlyGemini} />,
+    );
+    const providerSelect = screen.getByDisplayValue("Auto (cheapest available)");
+    const options = providerSelect.querySelectorAll("option");
+    // "Auto" + "Google Gemini" only
+    expect(options.length).toBe(2);
+    expect(options[0].textContent).toBe("Auto (cheapest available)");
+    expect(options[1].textContent).toBe("Google Gemini");
+  });
+
+  it("hides providers without API keys", () => {
+    const keysOnlyGemini = { gemini: "gem-key-456" };
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} apiKeys={keysOnlyGemini} />,
+    );
+    const providerSelect = screen.getByDisplayValue("Auto (cheapest available)");
+    const optionTexts = Array.from(providerSelect.querySelectorAll("option")).map(
+      (o) => o.textContent,
+    );
+    expect(optionTexts).not.toContain("OpenAI");
+    expect(optionTexts).not.toContain("Anthropic");
+    expect(optionTexts).not.toContain("OpenRouter");
+  });
+
+  it("shows no-key message when no API keys are configured", () => {
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} apiKeys={{}} />,
+    );
+    expect(screen.getByText(/No AI provider API keys configured/)).toBeInTheDocument();
+    expect(screen.queryByText("Provider")).not.toBeInTheDocument();
+    expect(screen.queryByText("Model")).not.toBeInTheDocument();
+  });
+
+  it("ignores empty/whitespace-only API keys", () => {
+    const emptyKeys = { gemini: "  ", openai: "", anthropic: "ant-key" };
+    render(
+      <SuperBroTab {...defaultProps} enabled={true} apiKeys={emptyKeys} />,
+    );
+    const providerSelect = screen.getByDisplayValue("Auto (cheapest available)");
+    const options = providerSelect.querySelectorAll("option");
+    // "Auto" + "Anthropic" only (gemini and openai keys are blank)
+    expect(options.length).toBe(2);
+    expect(options[1].textContent).toBe("Anthropic");
+  });
+
+  it("shows all AI_MODELS for a provider with key", () => {
     render(
       <SuperBroTab {...defaultProps} enabled={true} provider="gemini" model="auto" />,
     );
-    // Should have "Auto" + all 6 Gemini models from AI_MODELS
     const modelSelect = screen.getByDisplayValue("Auto — best available");
     const options = modelSelect.querySelectorAll("option");
-    // auto + gemini-2.5-flash-lite + gemini-2.5-flash + gemini-2.5-pro
-    // + gemini-3-flash-preview + gemini-3.1-pro-preview + gemini-3.1-flash-lite-preview
-    expect(options.length).toBe(7); // 1 auto + 6 models
+    // auto + 6 Gemini models from AI_MODELS
+    expect(options.length).toBe(7);
   });
 
   it("shows all OpenRouter models from store", () => {
@@ -89,7 +143,7 @@ describe("SuperBroTab", () => {
     );
     const modelSelect = screen.getByDisplayValue("Auto — best available");
     const options = modelSelect.querySelectorAll("option");
-    // auto + 3 Anthropic models (Opus, Sonnet, Haiku)
+    // auto + 3 Anthropic models
     expect(options.length).toBe(4);
   });
 
@@ -99,7 +153,7 @@ describe("SuperBroTab", () => {
     );
     const modelSelect = screen.getByDisplayValue("Auto — best available");
     const options = modelSelect.querySelectorAll("option");
-    // auto + 4 OpenAI models (GPT-4.1, GPT-5.4 Nano, Mini, full)
+    // auto + 4 OpenAI models
     expect(options.length).toBe(5);
   });
 
