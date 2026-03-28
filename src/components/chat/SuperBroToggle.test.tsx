@@ -4,14 +4,21 @@ import type { Mock } from "vitest";
 import SuperBroToggle from "./SuperBroToggle";
 
 // ── Mocks ────────────────────────────────────────────────────────────
+const { superBroGetState } = vi.hoisted(() => ({
+  superBroGetState: vi.fn(),
+}));
 vi.mock("../../stores/superBroStore", () => ({
-  useSuperBroStore: vi.fn(),
+  useSuperBroStore: Object.assign(vi.fn(), { getState: superBroGetState }),
 }));
 vi.mock("../../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(),
 }));
 vi.mock("../../stores/sessionStore", () => ({
   useSessionStore: vi.fn(),
+}));
+vi.mock("../../lib/tauri-commands", () => ({
+  getSettings: vi.fn().mockResolvedValue({}),
+  updateSettings: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { useSuperBroStore } from "../../stores/superBroStore";
@@ -55,9 +62,9 @@ function setupStores(overrides: {
       enabledProjects: new Map(
         projectPath ? [[projectPath, isEnabled]] : [],
       ),
-      toggle: toggleMock,
     }),
   );
+  superBroGetState.mockReturnValue({ toggle: toggleMock });
 }
 
 // ── Tests ────────────────────────────────────────────────────────────

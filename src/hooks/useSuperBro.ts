@@ -119,6 +119,18 @@ export function useSuperBro(projectPath: string | null): void {
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
 
+  // Reset local refs when switching sessions (not store state — that persists per-project)
+  useEffect(() => {
+    terminalBuffer.current = "";
+    prevMessageCount.current = 0;
+    prevGuideSessionIndex.current = null;
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    pendingTrigger.current = null;
+  }, [projectPath, activeSessionId]);
+
   // Load observations when project changes
   useEffect(() => {
     if (projectPath && globalEnabled && isEnabled) {
@@ -152,8 +164,9 @@ export function useSuperBro(projectPath: string | null): void {
 
       if (!resolved) {
         const store = useSuperBroStore.getState();
-        if (!store.currentMessage) {
-          store.setMessage({
+        const existingMsg = store.projectMessages.get(pp);
+        if (!existingMsg) {
+          store.setMessage(pp, {
             id: `sb-${Date.now()}`,
             guidance:
               "Configure an AI provider in Settings to enable Super-Bro guidance.",
@@ -167,11 +180,9 @@ export function useSuperBro(projectPath: string | null): void {
         return;
       }
 
-      const log = useSuperBroStore.getState().addLog;
-      log("api_call", `Trigger: ${trigger} → ${resolved.provider}/${resolved.model}`);
+      useSuperBroStore.getState().addLog("api_call", `Trigger: ${trigger} → ${resolved.provider}/${resolved.model}`);
 
-      const store = useSuperBroStore.getState();
-      store.setThinking(true);
+      useSuperBroStore.getState().setThinking(pp, true);
       apiCallInFlight.current = true;
       lastApiCallTime.current = Date.now();
       fileCheckCount.current = 0;
@@ -184,7 +195,7 @@ export function useSuperBro(projectPath: string | null): void {
           claudeMdCache.current,
         );
 
-        const observations = store.getObservations(pp);
+        const observations = useSuperBroStore.getState().getObservations(pp);
         const { systemPrompt, userMessage } = await buildSuperBroRequest(
           trigger,
           context,
@@ -205,7 +216,7 @@ export function useSuperBro(projectPath: string | null): void {
 
         if (parsed.isNothingToReport) {
           useSuperBroStore.getState().addLog("all_good", "NOTHING_TO_REPORT — all good");
-          useSuperBroStore.getState().setAllGood();
+          useSuperBroStore.getState().setAllGood(pp);
           return;
         }
 
@@ -229,7 +240,7 @@ export function useSuperBro(projectPath: string | null): void {
         }
 
         useSuperBroStore.getState().addLog("response", `Guidance: ${parsed.guidance.slice(0, 80)}`);
-        useSuperBroStore.getState().setMessage({
+        useSuperBroStore.getState().setMessage(pp, {
           id: `sb-${Date.now()}`,
           guidance: parsed.guidance,
           suggestedPrompt: parsed.suggestedPrompt,
@@ -242,7 +253,7 @@ export function useSuperBro(projectPath: string | null): void {
         const msg = e instanceof Error ? e.message : String(e);
         useSuperBroStore.getState().addLog("error", `API call failed: ${msg}`);
         console.error("[Super-Bro] API call failed:", e);
-        useSuperBroStore.getState().setThinking(false);
+        useSuperBroStore.getState().setThinking(pp, false);
       } finally {
         apiCallInFlight.current = false;
       }
@@ -279,7 +290,7 @@ export function useSuperBro(projectPath: string | null): void {
         const parsed = parseSuperBroResponse(responseText);
 
         if (parsed.isNothingToReport) {
-          useSuperBroStore.getState().setThinking(false);
+          useSuperBroStore.getState().setAllGood(pp);
           return;
         }
 
@@ -301,7 +312,7 @@ export function useSuperBro(projectPath: string | null): void {
           return;
         }
 
-        useSuperBroStore.getState().setMessage({
+        useSuperBroStore.getState().setMessage(pp, {
           id: `sb-${Date.now()}`,
           guidance: parsed.guidance,
           suggestedPrompt: parsed.suggestedPrompt,
@@ -312,7 +323,7 @@ export function useSuperBro(projectPath: string | null): void {
         });
       } catch (e) {
         console.error("[Super-Bro] File check failed:", e);
-        useSuperBroStore.getState().setThinking(false);
+        useSuperBroStore.getState().setThinking(pp, false);
       }
     },
     [],

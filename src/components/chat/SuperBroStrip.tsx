@@ -12,15 +12,25 @@ const MESSAGE_AUTO_DISMISS_MS = 60000;
 
 export default function SuperBroStrip() {
   const globalEnabled = useSettingsStore((s) => s.settings.superBroEnabled);
-  const currentMessage = useSuperBroStore((s) => s.currentMessage);
-  const isThinking = useSuperBroStore((s) => s.isThinking);
-  const isPaused = useSuperBroStore((s) => s.isPaused);
-  const lastCheckResult = useSuperBroStore((s) => s.lastCheckResult);
-  const dismiss = useSuperBroStore((s) => s.dismissCurrentMessage);
-  const pause = useSuperBroStore((s) => s.pause);
-  const resume = useSuperBroStore((s) => s.resume);
-  const clearCheckResult = useSuperBroStore((s) => s.clearCheckResult);
+  const session = useSessionStore((s) =>
+    s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null,
+  );
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const projectPath = session?.project_path ?? null;
+
+  const currentMessage = useSuperBroStore((s) => projectPath ? s.projectMessages.get(projectPath) ?? null : null);
+  const isThinking = useSuperBroStore((s) => projectPath ? s.projectThinking.get(projectPath) ?? false : false);
+  const isPaused = useSuperBroStore((s) => s.isPaused);
+  const lastCheckResult = useSuperBroStore((s) => projectPath ? s.projectCheckResult.get(projectPath) ?? null : null);
+
+  const dismiss = useCallback(() => {
+    if (projectPath) useSuperBroStore.getState().dismissMessage(projectPath);
+  }, [projectPath]);
+  const pause = useCallback(() => useSuperBroStore.getState().pause(), []);
+  const resume = useCallback(() => useSuperBroStore.getState().resume(), []);
+  const clearCheckResult = useCallback(() => {
+    if (projectPath) useSuperBroStore.getState().clearCheckResult(projectPath);
+  }, [projectPath]);
   const stripRef = useRef<HTMLDivElement>(null);
 
   // Auto-clear "all good" after a few seconds → back to "watching"

@@ -12,11 +12,10 @@ export default function SuperBroToggle() {
   const projectPath = session?.project_path ?? null;
   const enabledProjects = useSuperBroStore((s) => s.enabledProjects);
   const isEnabled = projectPath ? (enabledProjects.get(projectPath) ?? true) : false;
-  const toggle = useSuperBroStore((s) => s.toggle);
 
   const handleToggle = useCallback(() => {
-    if (projectPath) toggle(projectPath);
-  }, [projectPath, toggle]);
+    if (projectPath) useSuperBroStore.getState().toggle(projectPath);
+  }, [projectPath]);
 
   // Hidden when global setting is OFF
   if (!globalEnabled) return null;

@@ -44,14 +44,13 @@ function makeObservation(
 
 describe("superBroStore", () => {
   beforeEach(() => {
-    // Reset store to initial state between tests
     useSuperBroStore.setState({
       enabledProjects: new Map(),
-      currentMessage: null,
-      isThinking: false,
-      isPaused: false,
-      lastCheckResult: null,
+      projectMessages: new Map(),
+      projectThinking: new Map(),
+      projectCheckResult: new Map(),
       projectObservations: new Map(),
+      isPaused: false,
       messageHistory: [],
       log: [],
     });
@@ -62,10 +61,10 @@ describe("superBroStore", () => {
 
   it("has correct initial state", () => {
     const state = useSuperBroStore.getState();
-    expect(state.currentMessage).toBeNull();
-    expect(state.isThinking).toBe(false);
+    expect(state.projectMessages).toEqual(new Map());
+    expect(state.projectThinking).toEqual(new Map());
+    expect(state.projectCheckResult).toEqual(new Map());
     expect(state.isPaused).toBe(false);
-    expect(state.lastCheckResult).toBeNull();
     expect(state.enabledProjects).toEqual(new Map());
     expect(state.projectObservations).toEqual(new Map());
     expect(state.messageHistory).toEqual([]);
@@ -74,18 +73,18 @@ describe("superBroStore", () => {
 
   // ── setAllGood / clearCheckResult ─────────────────────────────
 
-  it("setAllGood sets lastCheckResult and clears isThinking", () => {
-    useSuperBroStore.getState().setThinking(true);
-    useSuperBroStore.getState().setAllGood();
+  it("setAllGood sets per-project checkResult and clears thinking", () => {
+    useSuperBroStore.getState().setThinking(PROJECT, true);
+    useSuperBroStore.getState().setAllGood(PROJECT);
     const state = useSuperBroStore.getState();
-    expect(state.lastCheckResult).toBe("all_good");
-    expect(state.isThinking).toBe(false);
+    expect(state.projectCheckResult.get(PROJECT)).toBe("all_good");
+    expect(state.projectThinking.get(PROJECT)).toBe(false);
   });
 
-  it("clearCheckResult resets lastCheckResult to null", () => {
-    useSuperBroStore.getState().setAllGood();
-    useSuperBroStore.getState().clearCheckResult();
-    expect(useSuperBroStore.getState().lastCheckResult).toBeNull();
+  it("clearCheckResult resets per-project checkResult to null", () => {
+    useSuperBroStore.getState().setAllGood(PROJECT);
+    useSuperBroStore.getState().clearCheckResult(PROJECT);
+    expect(useSuperBroStore.getState().projectCheckResult.get(PROJECT)).toBeNull();
   });
 
   // ── addLog ────────────────────────────────────────────────────
@@ -95,7 +94,7 @@ describe("superBroStore", () => {
     useSuperBroStore.getState().addLog("api_call", "Calling OpenAI");
     const log = useSuperBroStore.getState().log;
     expect(log.length).toBe(2);
-    expect(log[0].message).toBe("Calling OpenAI"); // newest first
+    expect(log[0].message).toBe("Calling OpenAI");
     expect(log[1].message).toBe("claude_response event");
   });
 
@@ -108,30 +107,30 @@ describe("superBroStore", () => {
 
   // ── 2. setMessage ─────────────────────────────────────────────────
 
-  it("setMessage sets currentMessage and adds to messageHistory", () => {
+  it("setMessage sets per-project message and adds to messageHistory", () => {
     const msg = makeMessage({ id: "msg-1" });
-    useSuperBroStore.getState().setMessage(msg);
+    useSuperBroStore.getState().setMessage(PROJECT, msg);
 
     const state = useSuperBroStore.getState();
-    expect(state.currentMessage).toEqual(msg);
+    expect(state.projectMessages.get(PROJECT)).toEqual(msg);
     expect(state.messageHistory).toHaveLength(1);
     expect(state.messageHistory[0]).toEqual(msg);
   });
 
-  it("setMessage clears isThinking", () => {
-    useSuperBroStore.getState().setThinking(true);
-    expect(useSuperBroStore.getState().isThinking).toBe(true);
+  it("setMessage clears thinking for that project", () => {
+    useSuperBroStore.getState().setThinking(PROJECT, true);
+    expect(useSuperBroStore.getState().projectThinking.get(PROJECT)).toBe(true);
 
-    useSuperBroStore.getState().setMessage(makeMessage());
-    expect(useSuperBroStore.getState().isThinking).toBe(false);
+    useSuperBroStore.getState().setMessage(PROJECT, makeMessage());
+    expect(useSuperBroStore.getState().projectThinking.get(PROJECT)).toBe(false);
   });
 
   it("setMessage prepends to messageHistory (newest first)", () => {
     const msg1 = makeMessage({ id: "msg-1" });
     const msg2 = makeMessage({ id: "msg-2" });
 
-    useSuperBroStore.getState().setMessage(msg1);
-    useSuperBroStore.getState().setMessage(msg2);
+    useSuperBroStore.getState().setMessage(PROJECT, msg1);
+    useSuperBroStore.getState().setMessage(PROJECT, msg2);
 
     const history = useSuperBroStore.getState().messageHistory;
     expect(history).toHaveLength(2);
@@ -139,34 +138,46 @@ describe("superBroStore", () => {
     expect(history[1].id).toBe("msg-1");
   });
 
-  // ── 3. dismissCurrentMessage ──────────────────────────────────────
+  // ── 3. dismissMessage ─────────────────────────────────────────────
 
-  it("dismissCurrentMessage clears currentMessage", () => {
-    useSuperBroStore.getState().setMessage(makeMessage());
-    expect(useSuperBroStore.getState().currentMessage).not.toBeNull();
+  it("dismissMessage clears per-project message", () => {
+    useSuperBroStore.getState().setMessage(PROJECT, makeMessage());
+    expect(useSuperBroStore.getState().projectMessages.get(PROJECT)).not.toBeNull();
 
-    useSuperBroStore.getState().dismissCurrentMessage();
-    expect(useSuperBroStore.getState().currentMessage).toBeNull();
+    useSuperBroStore.getState().dismissMessage(PROJECT);
+    expect(useSuperBroStore.getState().projectMessages.get(PROJECT)).toBeNull();
   });
 
-  // ── 4. dismissCurrentMessage when already null ────────────────────
+  it("dismissMessage is a no-op when no message exists", () => {
+    useSuperBroStore.getState().dismissMessage(PROJECT);
+    expect(useSuperBroStore.getState().projectMessages.get(PROJECT)).toBeUndefined();
+  });
 
-  it("dismissCurrentMessage is a no-op when currentMessage is already null", () => {
-    expect(useSuperBroStore.getState().currentMessage).toBeNull();
+  // ── 4. Messages are isolated per project ──────────────────────────
 
-    // Should not throw and state should remain unchanged
-    useSuperBroStore.getState().dismissCurrentMessage();
-    expect(useSuperBroStore.getState().currentMessage).toBeNull();
+  it("messages are independent per project", () => {
+    const msgA = makeMessage({ id: "msg-a", guidance: "For project A" });
+    const msgB = makeMessage({ id: "msg-b", guidance: "For project B" });
+
+    useSuperBroStore.getState().setMessage("/project/a", msgA);
+    useSuperBroStore.getState().setMessage("/project/b", msgB);
+
+    expect(useSuperBroStore.getState().projectMessages.get("/project/a")?.guidance).toBe("For project A");
+    expect(useSuperBroStore.getState().projectMessages.get("/project/b")?.guidance).toBe("For project B");
+
+    useSuperBroStore.getState().dismissMessage("/project/a");
+    expect(useSuperBroStore.getState().projectMessages.get("/project/a")).toBeNull();
+    expect(useSuperBroStore.getState().projectMessages.get("/project/b")?.guidance).toBe("For project B");
   });
 
   // ── 5. setThinking ────────────────────────────────────────────────
 
-  it("setThinking sets isThinking flag", () => {
-    useSuperBroStore.getState().setThinking(true);
-    expect(useSuperBroStore.getState().isThinking).toBe(true);
+  it("setThinking sets per-project thinking flag", () => {
+    useSuperBroStore.getState().setThinking(PROJECT, true);
+    expect(useSuperBroStore.getState().projectThinking.get(PROJECT)).toBe(true);
 
-    useSuperBroStore.getState().setThinking(false);
-    expect(useSuperBroStore.getState().isThinking).toBe(false);
+    useSuperBroStore.getState().setThinking(PROJECT, false);
+    expect(useSuperBroStore.getState().projectThinking.get(PROJECT)).toBe(false);
   });
 
   // ── 6. pause / resume ─────────────────────────────────────────────
@@ -372,7 +383,7 @@ describe("superBroStore", () => {
     for (let i = 0; i < 25; i++) {
       useSuperBroStore
         .getState()
-        .setMessage(makeMessage({ id: `msg-${i}` }));
+        .setMessage(PROJECT, makeMessage({ id: `msg-${i}` }));
     }
 
     const history = useSuperBroStore.getState().messageHistory;

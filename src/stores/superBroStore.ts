@@ -16,29 +16,31 @@ export interface SuperBroLogEntry {
 }
 
 interface SuperBroStoreState {
-  // Per-project enabled state (project path → enabled)
+  // All per-project state (keyed by project path)
   enabledProjects: Map<string, boolean>;
-  currentMessage: SuperBroMessage | null;
-  isThinking: boolean;
-  isPaused: boolean;
-  /** Brief "all good" flash after NOTHING_TO_REPORT */
-  lastCheckResult: "all_good" | null;
-  // Per-project observations (project path → observations)
+  projectMessages: Map<string, SuperBroMessage | null>;
+  projectThinking: Map<string, boolean>;
+  projectCheckResult: Map<string, "all_good" | null>;
   projectObservations: Map<string, Observation[]>;
+
+  // Global state
+  isPaused: boolean;
   messageHistory: SuperBroMessage[];
   /** Rolling diagnostic log (last 50 entries) */
   log: SuperBroLogEntry[];
 
-  // Actions
-  setMessage: (message: SuperBroMessage) => void;
-  dismissCurrentMessage: () => void;
-  setThinking: (thinking: boolean) => void;
-  setAllGood: () => void;
-  clearCheckResult: () => void;
-  pause: () => void;
-  resume: () => void;
+  // Actions (per-project)
+  setMessage: (projectPath: string, message: SuperBroMessage) => void;
+  dismissMessage: (projectPath: string) => void;
+  setThinking: (projectPath: string, thinking: boolean) => void;
+  setAllGood: (projectPath: string) => void;
+  clearCheckResult: (projectPath: string) => void;
   toggle: (projectPath: string) => void;
   isEnabled: (projectPath: string) => boolean;
+
+  // Global actions
+  pause: () => void;
+  resume: () => void;
   addLog: (type: SuperBroLogEntry["type"], message: string) => void;
 
   // Observation management
@@ -50,42 +52,64 @@ interface SuperBroStoreState {
 
 const MAX_HISTORY = 20;
 const MAX_OBSERVATIONS = 50;
-
 const MAX_LOG = 50;
 
 export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
   enabledProjects: new Map(),
-  currentMessage: null,
-  isThinking: false,
-  isPaused: false,
-  lastCheckResult: null,
+  projectMessages: new Map(),
+  projectThinking: new Map(),
+  projectCheckResult: new Map(),
   projectObservations: new Map(),
+  isPaused: false,
   messageHistory: [],
   log: [],
 
-  setMessage: (message) =>
+  setMessage: (projectPath, message) =>
     set((state) => {
+      const msgs = new Map(state.projectMessages);
+      msgs.set(projectPath, message);
+      const thinking = new Map(state.projectThinking);
+      thinking.set(projectPath, false);
+      const checks = new Map(state.projectCheckResult);
+      checks.set(projectPath, null);
       const history = [message, ...state.messageHistory].slice(0, MAX_HISTORY);
-      return { currentMessage: message, messageHistory: history, isThinking: false, lastCheckResult: null };
+      return { projectMessages: msgs, projectThinking: thinking, projectCheckResult: checks, messageHistory: history };
     }),
 
-  dismissCurrentMessage: () =>
+  dismissMessage: (projectPath) =>
     set((state) => {
-      if (state.currentMessage) {
-        return { currentMessage: null };
+      const msgs = new Map(state.projectMessages);
+      if (msgs.get(projectPath)) {
+        msgs.set(projectPath, null);
+        return { projectMessages: msgs };
       }
       return {};
     }),
 
-  setThinking: (thinking) => set({ isThinking: thinking, lastCheckResult: null }),
+  setThinking: (projectPath, thinking) =>
+    set((state) => {
+      const t = new Map(state.projectThinking);
+      t.set(projectPath, thinking);
+      const checks = new Map(state.projectCheckResult);
+      checks.set(projectPath, null);
+      return { projectThinking: t, projectCheckResult: checks };
+    }),
 
-  setAllGood: () => set({ isThinking: false, lastCheckResult: "all_good" }),
+  setAllGood: (projectPath) =>
+    set((state) => {
+      const t = new Map(state.projectThinking);
+      t.set(projectPath, false);
+      const checks = new Map(state.projectCheckResult);
+      checks.set(projectPath, "all_good");
+      return { projectThinking: t, projectCheckResult: checks };
+    }),
 
-  clearCheckResult: () => set({ lastCheckResult: null }),
-
-  pause: () => set({ isPaused: true }),
-
-  resume: () => set({ isPaused: false }),
+  clearCheckResult: (projectPath) =>
+    set((state) => {
+      const checks = new Map(state.projectCheckResult);
+      checks.set(projectPath, null);
+      return { projectCheckResult: checks };
+    }),
 
   toggle: (projectPath) =>
     set((state) => {
@@ -98,6 +122,9 @@ export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
   isEnabled: (projectPath) => {
     return get().enabledProjects.get(projectPath) ?? true;
   },
+
+  pause: () => set({ isPaused: true }),
+  resume: () => set({ isPaused: false }),
 
   addLog: (type, message) =>
     set((state) => ({
@@ -116,7 +143,6 @@ export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
       return { projectObservations: obs };
     });
 
-    // Persist to SQLite
     saveObservationCmd(
       observation.id,
       projectPath,

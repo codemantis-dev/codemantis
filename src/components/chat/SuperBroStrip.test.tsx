@@ -4,8 +4,11 @@ import type { Mock } from "vitest";
 import SuperBroStrip from "./SuperBroStrip";
 
 // ── Mocks ────────────────────────────────────────────────────────────
+const { superBroGetState } = vi.hoisted(() => ({
+  superBroGetState: vi.fn(),
+}));
 vi.mock("../../stores/superBroStore", () => ({
-  useSuperBroStore: vi.fn(),
+  useSuperBroStore: Object.assign(vi.fn(), { getState: superBroGetState }),
 }));
 vi.mock("../../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(),
@@ -21,6 +24,8 @@ vi.mock("../../stores/toastStore", () => ({
 }));
 vi.mock("../../lib/tauri-commands", () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
+  getSettings: vi.fn().mockResolvedValue({}),
+  updateSettings: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { useSuperBroStore } from "../../stores/superBroStore";
@@ -36,6 +41,8 @@ const dismissMock = vi.fn();
 const pauseMock = vi.fn();
 const resumeMock = vi.fn();
 const clearCheckResultMock = vi.fn();
+
+const TEST_PROJECT = "/test/project";
 
 function setupStores(overrides: {
   globalEnabled?: boolean;
@@ -66,21 +73,32 @@ function setupStores(overrides: {
     selector({ settings: { superBroEnabled: globalEnabled } }),
   );
 
+  const projectMessages = new Map(currentMessage ? [[TEST_PROJECT, currentMessage]] : []);
+  const projectThinking = new Map([[TEST_PROJECT, isThinking]]);
+  const projectCheckResult = new Map([[TEST_PROJECT, lastCheckResult]]);
+
   mockSuperBroStore.mockImplementation((selector: (s: Record<string, unknown>) => unknown) =>
     selector({
-      currentMessage,
-      isThinking,
+      projectMessages,
+      projectThinking,
+      projectCheckResult,
       isPaused,
-      lastCheckResult,
-      dismissCurrentMessage: dismissMock,
-      pause: pauseMock,
-      resume: resumeMock,
-      clearCheckResult: clearCheckResultMock,
     }),
   );
+  superBroGetState.mockReturnValue({
+    dismissMessage: dismissMock,
+    pause: pauseMock,
+    resume: resumeMock,
+    clearCheckResult: clearCheckResultMock,
+  });
 
   mockSessionStore.mockImplementation((selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ activeSessionId }),
+    selector({
+      activeSessionId,
+      sessions: new Map(
+        activeSessionId ? [[activeSessionId, { project_path: TEST_PROJECT }]] : [],
+      ),
+    }),
   );
 }
 
@@ -195,7 +213,7 @@ describe("SuperBroStrip", () => {
     expect(screen.getByTitle("Dismiss")).toBeInTheDocument();
   });
 
-  it("dismiss button calls dismissCurrentMessage", () => {
+  it("dismiss button calls dismissMessage", () => {
     setupStores({
       currentMessage: {
         id: "msg-5",
