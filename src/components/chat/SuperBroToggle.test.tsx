@@ -52,7 +52,9 @@ function setupStores(overrides: {
 
   mockSuperBroStore.mockImplementation((selector: (s: Record<string, unknown>) => unknown) =>
     selector({
-      isEnabled: (_path: string) => isEnabled,
+      enabledProjects: new Map(
+        projectPath ? [[projectPath, isEnabled]] : [],
+      ),
       toggle: toggleMock,
     }),
   );

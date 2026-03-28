@@ -10,9 +10,8 @@ export default function SuperBroToggle() {
     s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null,
   );
   const projectPath = session?.project_path ?? null;
-  const isEnabled = useSuperBroStore((s) =>
-    projectPath ? s.isEnabled(projectPath) : false,
-  );
+  const enabledProjects = useSuperBroStore((s) => s.enabledProjects);
+  const isEnabled = projectPath ? (enabledProjects.get(projectPath) ?? true) : false;
   const toggle = useSuperBroStore((s) => s.toggle);
 
   const handleToggle = useCallback(() => {

@@ -16,7 +16,6 @@ import {
   listenAssistantStream,
   readFileContent,
 } from "../lib/tauri-commands";
-// Provider resolution uses settings directly (no import needed from assistant-provider)
 
 const DEBOUNCE_MS = 5000;
 const RATE_LIMIT_MS = 30000;
@@ -77,7 +76,6 @@ function resolveSuperBroProvider(settings: ReturnType<typeof useSettingsStore.ge
   for (const { provider, model } of priorityOrder) {
     const key = apiKeys[provider]?.trim();
     if (key) {
-      // For OpenRouter, pick cheapest free model or fallback
       const resolvedModel =
         provider === "openrouter" && model === "auto"
           ? "google/gemini-2.5-flash-preview-05-20:free"
@@ -86,7 +84,7 @@ function resolveSuperBroProvider(settings: ReturnType<typeof useSettingsStore.ge
     }
   }
 
-  return null; // No API keys configured
+  return null;
 }
 
 export function useSuperBro(projectPath: string | null): void {
@@ -100,13 +98,26 @@ export function useSuperBro(projectPath: string | null): void {
   const streamCleanup = useRef<(() => void) | null>(null);
   const prevMessageCount = useRef(0);
   const prevGuideSessionIndex = useRef<number | null>(null);
+  const apiCallInFlight = useRef(false);
 
+  // Read reactive values from stores
   const globalEnabled = useSettingsStore((s) => s.settings.superBroEnabled);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const isPaused = useSuperBroStore((s) => s.isPaused);
-  const isEnabled = useSuperBroStore((s) =>
-    projectPath ? s.isEnabled(projectPath) : false,
-  );
+  const enabledProjects = useSuperBroStore((s) => s.enabledProjects);
+  const isEnabled = projectPath ? (enabledProjects.get(projectPath) ?? true) : false;
+
+  // Keep refs in sync so timers/callbacks always read current values
+  const projectPathRef = useRef(projectPath);
+  projectPathRef.current = projectPath;
+  const globalEnabledRef = useRef(globalEnabled);
+  globalEnabledRef.current = globalEnabled;
+  const isEnabledRef = useRef(isEnabled);
+  isEnabledRef.current = isEnabled;
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
 
   // Load observations when project changes
   useEffect(() => {
@@ -128,43 +139,18 @@ export function useSuperBro(projectPath: string | null): void {
       });
   }, [projectPath]);
 
-  // Main trigger function
-  const triggerSuperBro = useCallback(
-    (trigger: SuperBroTrigger) => {
-      if (!projectPath || !globalEnabled || !isEnabled || isPaused) return;
+  // ── Core API call logic (ref-based, no stale closures) ─────────────
 
-      // Accumulate trigger (debounce: take latest)
-      pendingTrigger.current = trigger;
-
-      // Clear existing debounce timer
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-
-      debounceTimer.current = setTimeout(() => {
-        const currentTrigger = pendingTrigger.current;
-        if (!currentTrigger) return;
-        pendingTrigger.current = null;
-
-        // Rate limit check
-        const now = Date.now();
-        if (now - lastApiCallTime.current < RATE_LIMIT_MS) return;
-
-        // Execute the API call
-        executeSuperBroCall(currentTrigger);
-      }, DEBOUNCE_MS);
-    },
-    [projectPath, globalEnabled, isEnabled, isPaused],
-  );
-
-  // Execute the Super-Bro API call
   const executeSuperBroCall = useCallback(
     async (trigger: SuperBroTrigger) => {
-      if (!projectPath) return;
+      const pp = projectPathRef.current;
+      if (!pp) return;
+      if (apiCallInFlight.current) return;
 
       const settings = useSettingsStore.getState().settings;
       const resolved = resolveSuperBroProvider(settings);
 
       if (!resolved) {
-        // No API key — show one-time note
         const store = useSuperBroStore.getState();
         if (!store.currentMessage) {
           store.setMessage({
@@ -183,26 +169,27 @@ export function useSuperBro(projectPath: string | null): void {
 
       const store = useSuperBroStore.getState();
       store.setThinking(true);
+      apiCallInFlight.current = true;
       lastApiCallTime.current = Date.now();
       fileCheckCount.current = 0;
 
+      console.info(`[Super-Bro] Trigger: ${trigger} | Provider: ${resolved.provider} | Model: ${resolved.model}`);
+
       try {
-        // Build context
         const context = buildSuperBroContext(
-          projectPath,
+          pp,
           terminalBuffer.current,
-          undefined, // git status — would need async call
+          undefined,
           claudeMdCache.current,
         );
 
-        const observations = store.getObservations(projectPath);
+        const observations = store.getObservations(pp);
         const { systemPrompt, userMessage } = await buildSuperBroRequest(
           trigger,
           context,
           observations,
         );
 
-        // Make the API call via existing assistant chat infrastructure
         const responseText = await callSuperBroApi(
           resolved.provider,
           resolved.apiKey,
@@ -211,21 +198,20 @@ export function useSuperBro(projectPath: string | null): void {
           userMessage,
         );
 
-        // Parse the response
+        console.info(`[Super-Bro] Response (${responseText.length} chars): ${responseText.slice(0, 120)}...`);
+
         const parsed = parseSuperBroResponse(responseText);
 
-        // Handle NOTHING_TO_REPORT
         if (parsed.isNothingToReport) {
-          store.setThinking(false);
+          console.info("[Super-Bro] NOTHING_TO_REPORT — staying quiet");
+          useSuperBroStore.getState().setThinking(false);
           return;
         }
 
-        // Save any observations
         for (const obs of parsed.observations) {
-          store.addObservation(projectPath, obs);
+          useSuperBroStore.getState().addObservation(pp, obs);
         }
 
-        // Handle file check request
         if (parsed.fileCheckRequest && fileCheckCount.current < MAX_FILE_CHECKS) {
           fileCheckCount.current++;
           await handleFileCheck(
@@ -234,14 +220,13 @@ export function useSuperBro(projectPath: string | null): void {
             userMessage,
             responseText,
             parsed.fileCheckRequest,
-            projectPath,
+            pp,
             trigger,
           );
           return;
         }
 
-        // Set the message
-        store.setMessage({
+        useSuperBroStore.getState().setMessage({
           id: `sb-${Date.now()}`,
           guidance: parsed.guidance,
           suggestedPrompt: parsed.suggestedPrompt,
@@ -251,15 +236,15 @@ export function useSuperBro(projectPath: string | null): void {
           dismissed: false,
         });
       } catch (e) {
-        // Silent failure — Super-Bro is advisory
         console.error("[Super-Bro] API call failed:", e);
-        store.setThinking(false);
+        useSuperBroStore.getState().setThinking(false);
+      } finally {
+        apiCallInFlight.current = false;
       }
     },
-    [projectPath],
+    [], // No deps — reads everything from refs and getState()
   );
 
-  // Handle file check flow
   const handleFileCheck = useCallback(
     async (
       resolved: { provider: string; model: string; apiKey: string },
@@ -267,17 +252,15 @@ export function useSuperBro(projectPath: string | null): void {
       originalUserMessage: string,
       firstResponse: string,
       filePath: string,
-      projectPath: string,
+      pp: string,
       trigger: SuperBroTrigger,
     ) => {
-      const store = useSuperBroStore.getState();
       try {
         const absolutePath = filePath.startsWith("/")
           ? filePath
-          : `${projectPath}/${filePath}`;
+          : `${pp}/${filePath}`;
         const fileContent = await readFileContent(absolutePath);
 
-        // Follow-up API call with file content
         const followUpMessage = `${originalUserMessage}\n\nYour previous response:\n${firstResponse}\n\nHere is the file you requested (${filePath}):\n\`\`\`\n${fileContent.slice(0, 3000)}\n\`\`\`\n\nNow give your final guidance based on what you see in the file.`;
 
         const responseText = await callSuperBroApi(
@@ -291,20 +274,15 @@ export function useSuperBro(projectPath: string | null): void {
         const parsed = parseSuperBroResponse(responseText);
 
         if (parsed.isNothingToReport) {
-          store.setThinking(false);
+          useSuperBroStore.getState().setThinking(false);
           return;
         }
 
-        // Save observations from follow-up
         for (const obs of parsed.observations) {
-          store.addObservation(projectPath, obs);
+          useSuperBroStore.getState().addObservation(pp, obs);
         }
 
-        // Handle nested file check (up to MAX_FILE_CHECKS)
-        if (
-          parsed.fileCheckRequest &&
-          fileCheckCount.current < MAX_FILE_CHECKS
-        ) {
+        if (parsed.fileCheckRequest && fileCheckCount.current < MAX_FILE_CHECKS) {
           fileCheckCount.current++;
           await handleFileCheck(
             resolved,
@@ -312,13 +290,13 @@ export function useSuperBro(projectPath: string | null): void {
             followUpMessage,
             responseText,
             parsed.fileCheckRequest,
-            projectPath,
+            pp,
             trigger,
           );
           return;
         }
 
-        store.setMessage({
+        useSuperBroStore.getState().setMessage({
           id: `sb-${Date.now()}`,
           guidance: parsed.guidance,
           suggestedPrompt: parsed.suggestedPrompt,
@@ -329,13 +307,12 @@ export function useSuperBro(projectPath: string | null): void {
         });
       } catch (e) {
         console.error("[Super-Bro] File check failed:", e);
-        store.setThinking(false);
+        useSuperBroStore.getState().setThinking(false);
       }
     },
     [],
   );
 
-  // Call the AI API using the existing assistant chat infrastructure
   const callSuperBroApi = useCallback(
     async (
       provider: string,
@@ -350,7 +327,6 @@ export function useSuperBro(projectPath: string | null): void {
           reject(new Error("Super-Bro API timeout (60s)"));
         }, 60000);
 
-        // Clean up any previous listener
         if (streamCleanup.current) {
           streamCleanup.current();
           streamCleanup.current = null;
@@ -397,14 +373,58 @@ export function useSuperBro(projectPath: string | null): void {
     [],
   );
 
+  // ── Trigger function (reads from refs, never stale) ────────────────
+
+  const triggerSuperBro = useCallback(
+    (trigger: SuperBroTrigger) => {
+      if (!projectPathRef.current || !globalEnabledRef.current || !isEnabledRef.current || isPausedRef.current) {
+        return;
+      }
+
+      console.info(`[Super-Bro] Event: ${trigger} (debouncing ${DEBOUNCE_MS}ms)`);
+
+      pendingTrigger.current = trigger;
+
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
+      debounceTimer.current = setTimeout(() => {
+        const currentTrigger = pendingTrigger.current;
+        if (!currentTrigger) return;
+        pendingTrigger.current = null;
+
+        // Re-check guards (values may have changed during debounce)
+        if (!projectPathRef.current || !globalEnabledRef.current || !isEnabledRef.current || isPausedRef.current) {
+          console.info("[Super-Bro] Skipped after debounce — disabled or paused");
+          return;
+        }
+
+        // Rate limit check
+        const now = Date.now();
+        if (now - lastApiCallTime.current < RATE_LIMIT_MS) {
+          console.info("[Super-Bro] Rate limited — skipping");
+          return;
+        }
+
+        executeSuperBroCall(currentTrigger);
+      }, DEBOUNCE_MS);
+    },
+    [executeSuperBroCall], // executeSuperBroCall has [] deps, so this is stable
+  );
+
   // ── Subscriptions ──────────────────────────────────────────────────
 
   // Watch for new assistant messages (claude_response trigger)
   useEffect(() => {
     if (!activeSessionId || !globalEnabled || !isEnabled) return;
 
+    // Initialize prevMessageCount to current count to avoid triggering on mount
+    const initialMessages = useSessionStore.getState().sessionMessages.get(activeSessionId) ?? [];
+    prevMessageCount.current = initialMessages.length;
+
     const unsub = useSessionStore.subscribe((state) => {
-      const messages = state.sessionMessages.get(activeSessionId) ?? [];
+      const sid = activeSessionIdRef.current;
+      if (!sid) return;
+      const messages = state.sessionMessages.get(sid) ?? [];
       const currentCount = messages.length;
 
       if (currentCount > prevMessageCount.current) {
@@ -424,7 +444,9 @@ export function useSuperBro(projectPath: string | null): void {
     if (!projectPath || !globalEnabled || !isEnabled) return;
 
     const unsub = usePreviewStore.subscribe((state) => {
-      const errorCount = state.unreadErrors.get(projectPath) ?? 0;
+      const pp = projectPathRef.current;
+      if (!pp) return;
+      const errorCount = state.unreadErrors.get(pp) ?? 0;
       if (errorCount > 0) {
         triggerSuperBro("preview_error");
       }
@@ -441,9 +463,7 @@ export function useSuperBro(projectPath: string | null): void {
       const guide = state.guide;
       if (!guide) return;
 
-      const activeSession = guide.sessions.find(
-        (s) => s.status === "active",
-      );
+      const activeSession = guide.sessions.find((s) => s.status === "active");
       const activeIdx = activeSession?.index ?? null;
 
       if (prevGuideSessionIndex.current !== null && activeIdx !== null) {
@@ -452,7 +472,6 @@ export function useSuperBro(projectPath: string | null): void {
         }
       }
 
-      // Check for completed session
       if (prevGuideSessionIndex.current !== null && activeIdx === null) {
         const allDone = guide.sessions.every((s) => s.status === "done");
         if (allDone) {
@@ -480,7 +499,6 @@ export function useSuperBro(projectPath: string | null): void {
       }, SILENCE_TIMEOUT_MS);
     };
 
-    // Reset on any session message change
     const unsub = useSessionStore.subscribe(() => {
       resetSilenceTimer();
     });
@@ -496,28 +514,26 @@ export function useSuperBro(projectPath: string | null): void {
   // Session start trigger
   useEffect(() => {
     if (activeSessionId && globalEnabled && isEnabled && projectPath) {
-      // Short delay to let session initialize
       const timer = setTimeout(() => {
         triggerSuperBro("session_start");
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [activeSessionId, projectPath]); // Intentional: only trigger on session/project change
+  }, [activeSessionId, projectPath, globalEnabled, isEnabled, triggerSuperBro]);
 
   // Capture terminal output for error detection
   useEffect(() => {
     if (!activeSessionId || !globalEnabled || !isEnabled) return;
 
-    // Subscribe to activity store for terminal/bash outputs
     const unsub = useActivityStore.subscribe((state) => {
-      if (!activeSessionId) return;
-      const entries = state.sessionEntries.get(activeSessionId) ?? [];
+      const sid = activeSessionIdRef.current;
+      if (!sid) return;
+      const entries = state.sessionEntries.get(sid) ?? [];
       const lastEntry = entries[entries.length - 1];
 
       if (lastEntry?.toolName === "bash" && lastEntry.result) {
         terminalBuffer.current = lastEntry.result.slice(-2000);
 
-        // Check for build errors
         for (const pattern of BUILD_ERROR_PATTERNS) {
           if (pattern.test(lastEntry.result)) {
             triggerSuperBro("build_error");
@@ -525,7 +541,6 @@ export function useSuperBro(projectPath: string | null): void {
           }
         }
 
-        // Check for test failures
         for (const pattern of TEST_FAILURE_PATTERNS) {
           if (pattern.test(lastEntry.result)) {
             triggerSuperBro("test_failure");
