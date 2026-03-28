@@ -64,6 +64,13 @@ vi.mock("../../lib/tauri-commands", () => ({
     capturedConsoleCallback = cb;
     return Promise.resolve(() => { capturedConsoleCallback = null; });
   }),
+  getSettings: vi.fn(() => Promise.resolve({})),
+  updateSettings: vi.fn(() => Promise.resolve()),
+  loadGuide: vi.fn(() => Promise.resolve(null)),
+  loadObservations: vi.fn(() => Promise.resolve([])),
+  saveObservation: vi.fn(() => Promise.resolve()),
+  deleteObservation: vi.fn(() => Promise.resolve()),
+  readSuperBroModule: vi.fn(() => Promise.resolve("")),
 }));
 vi.mock("../../hooks/useSpecConversation", () => ({
   useSpecConversation: () => ({ sendMessage: vi.fn(), writeSpec: vi.fn(), loadContext: vi.fn() }),

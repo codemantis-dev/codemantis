@@ -17,6 +17,9 @@ const { mockCloneFromGit, mockListenScaffoldProgress } = vi.hoisted(() => ({
 vi.mock("../../lib/tauri-commands", () => ({
   cloneFromGit: mockCloneFromGit,
   listenScaffoldProgress: mockListenScaffoldProgress,
+  getSettings: vi.fn(() => Promise.resolve({})),
+  updateSettings: vi.fn(() => Promise.resolve()),
+  loadObservations: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
