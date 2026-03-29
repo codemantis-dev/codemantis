@@ -18,8 +18,23 @@ import {
   getGitStatus,
 } from "../lib/tauri-commands";
 
-const DEBOUNCE_MS = 5000;
-const RATE_LIMIT_MS = 30000;
+/** @visibleForTesting */
+export const RATE_LIMIT_MS = 10_000; // 10 seconds between API calls
+
+/** Per-trigger debounce: how long to wait for duplicate triggers to coalesce.
+ *  @visibleForTesting */
+export const DEBOUNCE_BY_TRIGGER: Record<SuperBroTrigger, number> = {
+  claude_response:        500,   // store already filters for !isStreaming
+  build_error:            1500,  // terminal output arrives in chunks
+  test_failure:           1500,
+  preview_error:          1500,  // console errors can cascade
+  guide_session_start:    500,   // discrete event
+  guide_session_complete: 500,
+  session_start:          500,   // already has 2s pre-delay in useEffect
+  silence_timeout:        0,     // single-fire by definition
+  destructive_action:     0,     // urgent
+};
+
 const SILENCE_TIMEOUT_MS = 180_000; // 3 minutes
 const MAX_FILE_CHECKS = 2;
 const SUPER_BRO_ASSISTANT_ID = "__super-bro__";
@@ -90,6 +105,7 @@ function resolveSuperBroProvider(settings: ReturnType<typeof useSettingsStore.ge
 
 export function useSuperBro(projectPath: string | null): void {
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deferredRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastApiCallTime = useRef(0);
   const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalBuffer = useRef("");
@@ -130,6 +146,10 @@ export function useSuperBro(projectPath: string | null): void {
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
+    }
+    if (deferredRetryTimer.current) {
+      clearTimeout(deferredRetryTimer.current);
+      deferredRetryTimer.current = null;
     }
     pendingTrigger.current = null;
   }, [projectPath, activeSessionId]);
@@ -419,6 +439,8 @@ export function useSuperBro(projectPath: string | null): void {
 
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
+      const debounceMs = DEBOUNCE_BY_TRIGGER[trigger] ?? 500;
+
       debounceTimer.current = setTimeout(() => {
         const currentTrigger = pendingTrigger.current;
         if (!currentTrigger) return;
@@ -432,13 +454,31 @@ export function useSuperBro(projectPath: string | null): void {
 
         // Rate limit check
         const now = Date.now();
-        if (now - lastApiCallTime.current < RATE_LIMIT_MS) {
-          useSuperBroStore.getState().addLog("skip", `Rate limited (${Math.round((RATE_LIMIT_MS - (now - lastApiCallTime.current)) / 1000)}s left)`);
+        const elapsed = now - lastApiCallTime.current;
+        if (elapsed < RATE_LIMIT_MS) {
+          const retryIn = RATE_LIMIT_MS - elapsed;
+          useSuperBroStore.getState().addLog(
+            "skip",
+            `Rate limited (${Math.round(retryIn / 1000)}s left) — scheduling deferred retry`,
+          );
+
+          // Schedule a deferred retry when the rate-limit window expires (keep only the latest)
+          if (deferredRetryTimer.current) clearTimeout(deferredRetryTimer.current);
+          deferredRetryTimer.current = setTimeout(() => {
+            deferredRetryTimer.current = null;
+            if (!projectPathRef.current || !globalEnabledRef.current || !isEnabledRef.current || isPausedRef.current) {
+              return;
+            }
+            if (apiCallInFlight.current) return;
+            useSuperBroStore.getState().addLog("trigger", `Deferred retry: ${currentTrigger}`);
+            executeSuperBroCall(currentTrigger);
+          }, retryIn + 100);
+
           return;
         }
 
         executeSuperBroCall(currentTrigger);
-      }, DEBOUNCE_MS);
+      }, debounceMs);
     },
     [executeSuperBroCall], // executeSuperBroCall has [] deps, so this is stable
   );
@@ -593,6 +633,7 @@ export function useSuperBro(projectPath: string | null): void {
   useEffect(() => {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (deferredRetryTimer.current) clearTimeout(deferredRetryTimer.current);
       if (silenceTimer.current) clearTimeout(silenceTimer.current);
       if (streamCleanup.current) streamCleanup.current();
     };
