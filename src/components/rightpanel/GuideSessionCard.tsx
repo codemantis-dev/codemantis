@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Copy,
   Play,
+  Check,
   CheckCircle2,
   Circle,
   FileText,
@@ -20,6 +21,8 @@ interface Props {
   auditFilename: string | null;
   onToggleVerifyCheck: (checkId: string) => void;
   onMarkComplete: () => void;
+  onMarkPromptSent: () => void;
+  onMarkVerifyRequested: () => void;
 }
 
 export default function GuideSessionCard({
@@ -28,6 +31,8 @@ export default function GuideSessionCard({
   auditFilename,
   onToggleVerifyCheck,
   onMarkComplete,
+  onMarkPromptSent,
+  onMarkVerifyRequested,
 }: Props) {
   const [expanded, setExpanded] = useState(session.status === "active");
   const [filesExpanded, setFilesExpanded] = useState(false);
@@ -55,6 +60,7 @@ export default function GuideSessionCard({
       return;
     }
     useUiStore.getState().setDraftInput(session.prompt);
+    onMarkPromptSent();
     showToast("Prompt pasted into chat. Review and press Enter to send.", "info");
   };
 
@@ -81,6 +87,7 @@ ${checksText}
 For each item, open the relevant files, read the actual code, and verify. Report your findings.${auditLine}`;
 
     useUiStore.getState().setDraftInput(verifyPrompt);
+    onMarkVerifyRequested();
     showToast("Verification prompt pasted into chat. Review and press Enter to send.", "info");
   };
 
@@ -96,7 +103,7 @@ For each item, open the relevant files, read the actual code, and verify. Report
       className="rounded-lg overflow-hidden transition-all"
       style={{
         background: "var(--bg-primary)",
-        border: `1px solid ${isActive ? "var(--accent)" : "var(--border-light)"}`,
+        border: `1px solid ${isDone ? "var(--color-green, #22c55e)" : isActive ? "var(--accent)" : "var(--border-light)"}`,
         borderLeftWidth: 3,
         borderLeftColor: borderColor,
         opacity: isPending ? 0.7 : 1,
@@ -225,6 +232,9 @@ For each item, open the relevant files, read the actual code, and verify. Report
               <Play size={11} />
               Send to Chat
             </button>
+            {session.promptSent && (
+              <Check size={14} strokeWidth={3} style={{ color: "var(--color-green, #22c55e)" }} />
+            )}
           </div>
 
           {/* Verify checklist */}
@@ -265,18 +275,23 @@ For each item, open the relevant files, read the actual code, and verify. Report
 
           {/* Verify for me */}
           {isActive && session.verifyChecks.length > 0 && (
-            <button
-              onClick={handleVerifyForMe}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
-              style={{
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <ShieldCheck size={11} />
-              Verify for me
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleVerifyForMe}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <ShieldCheck size={11} />
+                Verify for me
+              </button>
+              {session.verifyRequested && (
+                <Check size={14} strokeWidth={3} style={{ color: "var(--color-green, #22c55e)" }} />
+              )}
+            </div>
           )}
 
           {/* Mark complete button */}

@@ -55,7 +55,7 @@ export function parseSuperBroResponse(text: string): ParsedSuperBroResponse {
   }
 
   // Clean guidance text: remove all tags
-  let guidance = trimmed
+  const guidance = trimmed
     .replace(/<suggested-prompt>[\s\S]*?<\/suggested-prompt>/g, "")
     .replace(/<check-file>[\s\S]*?<\/check-file>/g, "")
     .replace(

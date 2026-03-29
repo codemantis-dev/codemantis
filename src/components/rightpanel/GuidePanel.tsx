@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText, Trash2, Loader2, BookOpen } from "lucide-react";
+import { FileText, Trash2, Loader2, BookOpen, CheckCircle2 } from "lucide-react";
 import { useGuideStore } from "../../stores/guideStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -14,6 +14,8 @@ export default function GuidePanel() {
   const markSessionComplete = useGuideStore((s) => s.markSessionComplete);
   const dismissGuide = useGuideStore((s) => s.dismissGuide);
   const loadGuideForProject = useGuideStore((s) => s.loadGuideForProject);
+  const markPromptSent = useGuideStore((s) => s.markPromptSent);
+  const markVerifyRequested = useGuideStore((s) => s.markVerifyRequested);
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
 
@@ -101,11 +103,27 @@ export default function GuidePanel() {
             {guide.title}
           </span>
         </div>
-        <p className="text-[10px] mb-1.5" style={{ color: "var(--text-secondary)" }}>
-          {isComplete
-            ? "Implementation Guide Complete"
-            : `Implementation Guide \u00b7 ${completedSessions} of ${totalSessions} sessions complete`}
-        </p>
+        {isComplete ? (
+          <div
+            className="flex items-center gap-2 px-2 py-1 mb-1.5 rounded-md"
+            style={{
+              background: "rgba(34, 197, 94, 0.1)",
+              border: "1px solid var(--color-green, #22c55e)",
+            }}
+          >
+            <CheckCircle2 size={13} style={{ color: "var(--color-green, #22c55e)" }} />
+            <span
+              className="text-[11px] font-semibold"
+              style={{ color: "var(--color-green, #22c55e)" }}
+            >
+              Implementation Complete
+            </span>
+          </div>
+        ) : (
+          <p className="text-[10px] mb-1.5" style={{ color: "var(--text-secondary)" }}>
+            Implementation Guide &middot; {completedSessions} of {totalSessions} sessions complete
+          </p>
+        )}
         {/* Progress bar */}
         <div
           className="h-1 rounded-full overflow-hidden"
@@ -133,6 +151,8 @@ export default function GuidePanel() {
               toggleVerifyCheck(session.index, checkId)
             }
             onMarkComplete={() => handleMarkComplete(session.index)}
+            onMarkPromptSent={() => markPromptSent(session.index)}
+            onMarkVerifyRequested={() => markVerifyRequested(session.index)}
           />
         ))}
       </div>

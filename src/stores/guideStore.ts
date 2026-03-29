@@ -41,6 +41,8 @@ interface GuideState {
     status: "pending" | "active" | "done",
   ) => void;
   toggleVerifyCheck: (sessionIndex: number, checkId: string) => void;
+  markPromptSent: (sessionIndex: number) => void;
+  markVerifyRequested: (sessionIndex: number) => void;
   markSessionComplete: (sessionIndex: number) => boolean;
   dismissGuide: () => Promise<void>;
   persist: () => Promise<void>;
@@ -82,6 +84,8 @@ export const useGuideStore = create<GuideState>((set, get) => ({
         checked: false,
       })),
       status: i === 0 ? "active" : "pending",
+      promptSent: false,
+      verifyRequested: false,
     }));
 
     const guide: ImplementationGuide = {
@@ -115,6 +119,26 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     );
     const updated = { ...guide, sessions };
     set({ guide: updated });
+    debouncedPersist(() => get().persist());
+  },
+
+  markPromptSent: (sessionIndex) => {
+    const { guide } = get();
+    if (!guide) return;
+    const sessions = guide.sessions.map((s) =>
+      s.index === sessionIndex ? { ...s, promptSent: true } : s,
+    );
+    set({ guide: { ...guide, sessions } });
+    debouncedPersist(() => get().persist());
+  },
+
+  markVerifyRequested: (sessionIndex) => {
+    const { guide } = get();
+    if (!guide) return;
+    const sessions = guide.sessions.map((s) =>
+      s.index === sessionIndex ? { ...s, verifyRequested: true } : s,
+    );
+    set({ guide: { ...guide, sessions } });
     debouncedPersist(() => get().persist());
   },
 

@@ -22,6 +22,8 @@ export interface GuideSession {
   prompt: string;
   verifyChecks: VerifyCheck[];
   status: "pending" | "active" | "done";
+  promptSent?: boolean;
+  verifyRequested?: boolean;
 }
 
 export interface VerifyCheck {

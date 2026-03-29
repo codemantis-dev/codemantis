@@ -176,6 +176,143 @@ export function useSuperBro(projectPath: string | null): void {
 
   // ── Core API call logic (ref-based, no stale closures) ─────────────
 
+  const callSuperBroApi = useCallback(
+    async (
+      provider: string,
+      apiKey: string,
+      model: string,
+      systemPrompt: string,
+      userMessage: string,
+    ): Promise<string> => {
+      let fullText = "";
+
+      if (streamCleanup.current) {
+        streamCleanup.current();
+        streamCleanup.current = null;
+      }
+
+      let resolveStream: (value: string) => void;
+      let rejectStream: (reason: Error) => void;
+
+      const streamPromise = new Promise<string>((resolve, reject) => {
+        resolveStream = resolve;
+        rejectStream = reject;
+      });
+
+      const timeout = setTimeout(() => {
+        rejectStream(new Error("Super-Bro API timeout (60s)"));
+      }, 60000);
+
+      const unlisten = await listenAssistantStream(
+        SUPER_BRO_ASSISTANT_ID,
+        (event) => {
+          if (event.type === "delta") {
+            fullText += event.text;
+          } else if (event.type === "done") {
+            clearTimeout(timeout);
+            resolveStream(event.content || fullText);
+          } else if (event.type === "error") {
+            clearTimeout(timeout);
+            rejectStream(new Error(event.message ?? "Super-Bro API error"));
+          } else if (event.type === "cancelled") {
+            clearTimeout(timeout);
+            rejectStream(new Error("Cancelled"));
+          }
+        },
+      );
+
+      streamCleanup.current = unlisten;
+
+      try {
+        await sendAssistantChat({
+          assistantId: SUPER_BRO_ASSISTANT_ID,
+          provider,
+          apiKey,
+          model,
+          systemPrompt,
+          messages: [{ role: "user", content: userMessage }],
+          maxTokens: 3000,
+        });
+      } catch (e) {
+        clearTimeout(timeout);
+        unlisten();
+        streamCleanup.current = null;
+        throw e;
+      }
+
+      return streamPromise;
+    },
+    [],
+  );
+
+  const handleFileCheck = useCallback(
+    async (
+      resolved: { provider: string; model: string; apiKey: string },
+      systemPrompt: string,
+      originalUserMessage: string,
+      firstResponse: string,
+      filePath: string,
+      pp: string,
+      trigger: SuperBroTrigger,
+    ) => {
+      try {
+        const absolutePath = filePath.startsWith("/")
+          ? filePath
+          : `${pp}/${filePath}`;
+        const fileContent = await readFileContent(absolutePath);
+
+        const followUpMessage = `${originalUserMessage}\n\nYour previous response:\n${firstResponse}\n\nHere is the file you requested (${filePath}):\n\`\`\`\n${fileContent.slice(0, 3000)}\n\`\`\`\n\nNow give your final guidance based on what you see in the file.`;
+
+        const responseText = await callSuperBroApi(
+          resolved.provider,
+          resolved.apiKey,
+          resolved.model,
+          systemPrompt,
+          followUpMessage,
+        );
+
+        const parsed = parseSuperBroResponse(responseText);
+
+        if (parsed.isNothingToReport) {
+          useSuperBroStore.getState().setAllGood(pp);
+          return;
+        }
+
+        for (const obs of parsed.observations) {
+          useSuperBroStore.getState().addObservation(pp, obs);
+        }
+
+        if (parsed.fileCheckRequest && fileCheckCount.current < MAX_FILE_CHECKS) {
+          fileCheckCount.current++;
+          await handleFileCheck(
+            resolved,
+            systemPrompt,
+            followUpMessage,
+            responseText,
+            parsed.fileCheckRequest,
+            pp,
+            trigger,
+          );
+          return;
+        }
+
+        useSuperBroStore.getState().setMessage(pp, {
+          id: `sb-${Date.now()}`,
+          guidance: parsed.guidance,
+          suggestedPrompt: parsed.suggestedPrompt,
+          fileCheckRequest: null,
+          trigger,
+          timestamp: new Date().toISOString(),
+          dismissed: false,
+        });
+      } catch (e) {
+        console.error("[Super-Bro] File check failed:", e);
+        useSuperBroStore.getState().setThinking(pp, false);
+      }
+    },
+    [callSuperBroApi],
+  );
+
   const executeSuperBroCall = useCallback(
     async (trigger: SuperBroTrigger) => {
       const pp = projectPathRef.current;
@@ -294,135 +431,7 @@ export function useSuperBro(projectPath: string | null): void {
         apiCallInFlight.current = false;
       }
     },
-    [], // No deps — reads everything from refs and getState()
-  );
-
-  const handleFileCheck = useCallback(
-    async (
-      resolved: { provider: string; model: string; apiKey: string },
-      systemPrompt: string,
-      originalUserMessage: string,
-      firstResponse: string,
-      filePath: string,
-      pp: string,
-      trigger: SuperBroTrigger,
-    ) => {
-      try {
-        const absolutePath = filePath.startsWith("/")
-          ? filePath
-          : `${pp}/${filePath}`;
-        const fileContent = await readFileContent(absolutePath);
-
-        const followUpMessage = `${originalUserMessage}\n\nYour previous response:\n${firstResponse}\n\nHere is the file you requested (${filePath}):\n\`\`\`\n${fileContent.slice(0, 3000)}\n\`\`\`\n\nNow give your final guidance based on what you see in the file.`;
-
-        const responseText = await callSuperBroApi(
-          resolved.provider,
-          resolved.apiKey,
-          resolved.model,
-          systemPrompt,
-          followUpMessage,
-        );
-
-        const parsed = parseSuperBroResponse(responseText);
-
-        if (parsed.isNothingToReport) {
-          useSuperBroStore.getState().setAllGood(pp);
-          return;
-        }
-
-        for (const obs of parsed.observations) {
-          useSuperBroStore.getState().addObservation(pp, obs);
-        }
-
-        if (parsed.fileCheckRequest && fileCheckCount.current < MAX_FILE_CHECKS) {
-          fileCheckCount.current++;
-          await handleFileCheck(
-            resolved,
-            systemPrompt,
-            followUpMessage,
-            responseText,
-            parsed.fileCheckRequest,
-            pp,
-            trigger,
-          );
-          return;
-        }
-
-        useSuperBroStore.getState().setMessage(pp, {
-          id: `sb-${Date.now()}`,
-          guidance: parsed.guidance,
-          suggestedPrompt: parsed.suggestedPrompt,
-          fileCheckRequest: null,
-          trigger,
-          timestamp: new Date().toISOString(),
-          dismissed: false,
-        });
-      } catch (e) {
-        console.error("[Super-Bro] File check failed:", e);
-        useSuperBroStore.getState().setThinking(pp, false);
-      }
-    },
-    [],
-  );
-
-  const callSuperBroApi = useCallback(
-    async (
-      provider: string,
-      apiKey: string,
-      model: string,
-      systemPrompt: string,
-      userMessage: string,
-    ): Promise<string> => {
-      return new Promise(async (resolve, reject) => {
-        let fullText = "";
-        const timeout = setTimeout(() => {
-          reject(new Error("Super-Bro API timeout (60s)"));
-        }, 60000);
-
-        if (streamCleanup.current) {
-          streamCleanup.current();
-          streamCleanup.current = null;
-        }
-
-        const unlisten = await listenAssistantStream(
-          SUPER_BRO_ASSISTANT_ID,
-          (event) => {
-            if (event.type === "delta") {
-              fullText += event.text;
-            } else if (event.type === "done") {
-              clearTimeout(timeout);
-              resolve(event.content || fullText);
-            } else if (event.type === "error") {
-              clearTimeout(timeout);
-              reject(new Error(event.message ?? "Super-Bro API error"));
-            } else if (event.type === "cancelled") {
-              clearTimeout(timeout);
-              reject(new Error("Cancelled"));
-            }
-          },
-        );
-
-        streamCleanup.current = unlisten;
-
-        try {
-          await sendAssistantChat({
-            assistantId: SUPER_BRO_ASSISTANT_ID,
-            provider,
-            apiKey,
-            model,
-            systemPrompt,
-            messages: [{ role: "user", content: userMessage }],
-            maxTokens: 3000,
-          });
-        } catch (e) {
-          clearTimeout(timeout);
-          unlisten();
-          streamCleanup.current = null;
-          reject(e);
-        }
-      });
-    },
-    [],
+    [callSuperBroApi, handleFileCheck],
   );
 
   // ── Trigger function (reads from refs, never stale) ────────────────

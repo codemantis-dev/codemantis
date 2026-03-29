@@ -76,6 +76,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -93,6 +95,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -115,6 +119,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -129,6 +135,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -145,6 +153,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -160,6 +170,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -176,6 +188,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -197,6 +211,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -214,6 +230,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -232,6 +250,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -246,6 +266,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -262,6 +284,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -276,6 +300,8 @@ describe("GuideSessionCard", () => {
         auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 
@@ -297,6 +323,8 @@ describe("GuideSessionCard", () => {
         auditFilename="my-feature-audit.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
       />,
     );
 

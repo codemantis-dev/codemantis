@@ -119,6 +119,6 @@ describe("GuidePanel", () => {
     useGuideStore.setState({ guide });
     render(<GuidePanel />);
 
-    expect(screen.getByText("Implementation Guide Complete")).toBeTruthy();
+    expect(screen.getByText("Implementation Complete")).toBeTruthy();
   });
 });
