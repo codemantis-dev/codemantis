@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.9.6
+
+- Super Bro: per-trigger debounce, 10-second rate limit, and deferred retry to prevent API spam
+- Guide: track prompt-sent and verify-requested states for better session flow
+- Refactor Super-Bro API helpers into shared utilities
+
 ## 0.9.5
 
 ### Super Bro — Contextual AI Coach
