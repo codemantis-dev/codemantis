@@ -5,6 +5,7 @@ import {
   SPEC_READY_PATTERNS,
   SPEC_START_PATTERN,
   AUDIT_START_PATTERN,
+  AUDIT_FILE_PATTERN,
   FILE_REQUEST_PATTERN,
   NEW_APP_PROMPT,
   FEATURE_MODE_PROMPT,
@@ -122,6 +123,37 @@ describe("AUDIT_START_PATTERN", () => {
   it("matches within multi-line content", () => {
     const content = "Some preamble text\n\n# Dashboard — Verification Audit\n\n## Pre-Flight Checks";
     expect(AUDIT_START_PATTERN.test(content)).toBe(true);
+  });
+});
+
+describe("AUDIT_FILE_PATTERN", () => {
+  it("matches relative audit file paths", () => {
+    const match = "saved to docs/specs/ai-potential-analysis.audit.md".match(AUDIT_FILE_PATTERN);
+    expect(match?.[1]).toBe("docs/specs/ai-potential-analysis.audit.md");
+  });
+
+  it("matches absolute audit file paths", () => {
+    const match = "saved to /Users/dev/project/my-feature.audit.md".match(AUDIT_FILE_PATTERN);
+    expect(match?.[1]).toBe("/Users/dev/project/my-feature.audit.md");
+  });
+
+  it("matches audit path with 'It's at:' prefix", () => {
+    const match = "It's at: docs/specs/feature.audit.md".match(AUDIT_FILE_PATTERN);
+    expect(match?.[1]).toBe("docs/specs/feature.audit.md");
+  });
+
+  it("does not match regular .md files", () => {
+    expect("docs/specs/feature.md".match(AUDIT_FILE_PATTERN)).toBeNull();
+  });
+
+  it("does not match partial audit extensions", () => {
+    expect("file.audit.txt".match(AUDIT_FILE_PATTERN)).toBeNull();
+  });
+
+  it("extracts path from multi-line response", () => {
+    const response = "The Verification Audit has been saved to docs/specs/app.audit.md .\n\n115 VERIFY directives covering:";
+    const match = response.match(AUDIT_FILE_PATTERN);
+    expect(match?.[1]).toBe("docs/specs/app.audit.md");
   });
 });
 
