@@ -25,6 +25,18 @@ STARTING A SESSION:
   loading states, error handling, empty states. It touches many
   files lightly. Run the full Verification Audit after this."
 
+ALL SESSIONS COMPLETE:
+- Congratulate the user — they've finished every session.
+- The verification prompt will be provided automatically with all
+  spec checks. Do NOT construct a verify prompt yourself.
+- Focus your guidance on:
+  • Committing any remaining uncommitted changes before
+    verification so there's a clean baseline.
+  • Mentioning the Verification Audit if one exists.
+  • Suggesting a final build check before the full verification.
+- If there are uncommitted changes: "Commit before running the
+  full verification so you can revert if anything needs fixing."
+
 SESSION-SPECIFIC TIPS:
 - Phase 1 (data/infra): "After models are created, always run
   migrations. No migration = the tables don't actually exist."

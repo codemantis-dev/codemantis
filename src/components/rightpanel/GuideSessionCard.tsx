@@ -14,6 +14,7 @@ import type { GuideSession } from "../../types/implementation-guide";
 import { showToast } from "../../stores/toastStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { buildSessionVerifyPrompt } from "../../lib/guide-verify-prompt";
 
 interface Props {
   session: GuideSession;
@@ -71,20 +72,7 @@ export default function GuideSessionCard({
       return;
     }
 
-    const checksText = session.verifyChecks
-      .map((c) => `- ${c.label}`)
-      .join("\n");
-
-    const auditLine = auditFilename
-      ? `\n\nAlso read the Verification Audit at docs/specs/${auditFilename} and use it as a checklist for thorough verification.`
-      : "";
-
-    const verifyPrompt = `Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
-
-Check each of the following items and report PASS or FAIL for each:
-${checksText}
-
-For each item, open the relevant files, read the actual code, and verify. Report your findings.${auditLine}`;
+    const verifyPrompt = buildSessionVerifyPrompt(session, specFilename, auditFilename);
 
     useUiStore.getState().setDraftInput(verifyPrompt);
     onMarkVerifyRequested();

@@ -177,10 +177,12 @@ describe("buildSuperBroContext", () => {
       ],
       guide: {
         status: "active",
+        specFilename: "my-feature.md",
+        auditFilename: "my-feature.audit.md",
         sessions: [
-          { index: 1, name: "Setup", status: "done" },
-          { index: 2, name: "Core Logic", status: "active" },
-          { index: 3, name: "Testing", status: "pending" },
+          { index: 1, name: "Setup", status: "done", verifyChecks: [] },
+          { index: 2, name: "Core Logic", status: "active", verifyChecks: [{ label: "Tests pass" }] },
+          { index: 3, name: "Testing", status: "pending", verifyChecks: [] },
         ],
       },
       consoleLogs: [
@@ -207,6 +209,9 @@ describe("buildSuperBroContext", () => {
     expect(ctx.guide!.totalSessions).toBe(3);
     expect(ctx.guide!.completedSessions).toBe(1);
     expect(ctx.guide!.currentSessionName).toBe("Core Logic");
+    expect(ctx.guide!.specFilename).toBe("my-feature.md");
+    expect(ctx.guide!.auditFilename).toBe("my-feature.audit.md");
+    expect(ctx.guide!.allDone).toBe(false);
 
     // Messages
     expect(ctx.lastClaudeMessage).toBe("Hi there, how can I help?");
@@ -396,6 +401,31 @@ Uses Postgres in containers.`;
       uncommitted: false,
       branch: "main",
     });
+  });
+
+  it("includes guide context when guide status is 'completed' (all sessions done)", () => {
+    mockStores({
+      guide: {
+        status: "completed",
+        specFilename: "ai-potential-analysis.md",
+        auditFilename: "ai-potential-analysis.audit.md",
+        sessions: [
+          { index: 1, name: "Setup", status: "done", verifyChecks: [{ label: "DB ready" }] },
+          { index: 2, name: "Data Collection", status: "done", verifyChecks: [{ label: "Rating buttons render" }] },
+        ],
+      },
+    });
+
+    const ctx = buildSuperBroContext("/test/project", "");
+
+    expect(ctx.guide).not.toBeNull();
+    expect(ctx.guide!.allDone).toBe(true);
+    expect(ctx.guide!.active).toBe(false);
+    expect(ctx.guide!.completedSessions).toBe(2);
+    expect(ctx.guide!.totalSessions).toBe(2);
+    expect(ctx.guide!.currentSessionName).toBe("All sessions complete");
+    expect(ctx.guide!.specFilename).toBe("ai-potential-analysis.md");
+    expect(ctx.guide!.auditFilename).toBe("ai-potential-analysis.audit.md");
   });
 
   it("filters preview errors by level 'error'", () => {

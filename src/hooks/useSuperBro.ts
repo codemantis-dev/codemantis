@@ -11,6 +11,7 @@ import {
   buildSuperBroRequest,
 } from "../lib/super-bro-context";
 import { parseSuperBroResponse } from "../lib/super-bro-parser";
+import { buildGuideCompleteVerifyPrompt } from "../lib/guide-verify-prompt";
 import {
   sendAssistantChat,
   listenAssistantStream,
@@ -386,6 +387,23 @@ export function useSuperBro(projectPath: string | null): void {
         useSuperBroStore.getState().addLog("response", `${responseText.length} chars: ${responseText.slice(0, 100)}`);
 
         const parsed = parseSuperBroResponse(responseText);
+
+        // For guide_session_complete, override the LLM's suggestedPrompt with
+        // the deterministic, spec-aware verify prompt from the guide store
+        if (trigger === "guide_session_complete") {
+          const guide = useGuideStore.getState().guide;
+          if (guide) {
+            parsed.suggestedPrompt = buildGuideCompleteVerifyPrompt(
+              guide.sessions,
+              guide.specFilename,
+              guide.auditFilename,
+            );
+            if (parsed.isNothingToReport) {
+              parsed.isNothingToReport = false;
+              parsed.guidance = "All guide sessions complete! Run verification to confirm everything works.";
+            }
+          }
+        }
 
         if (parsed.isNothingToReport) {
           useSuperBroStore.getState().addLog("all_good", "NOTHING_TO_REPORT — all good");

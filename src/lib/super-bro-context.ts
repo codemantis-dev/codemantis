@@ -35,6 +35,9 @@ export interface SuperBroContext {
     totalSessions: number;
     completedSessions: number;
     currentSessionName: string;
+    specFilename: string;
+    auditFilename: string | null;
+    allDone: boolean;
   } | null;
   spec: {
     title: string;
@@ -101,20 +104,27 @@ export function buildSuperBroContext(
     }
   }
 
-  // Guide state
+  // Guide state — include both active and completed guides so the LLM
+  // gets context even after all sessions finish (guide_session_complete)
   let guide: SuperBroContext["guide"] = null;
   const g = guideStore.guide;
-  if (g && g.status === "active") {
+  if (g && (g.status === "active" || g.status === "completed")) {
     const activeSession = g.sessions.find((s) => s.status === "active");
     const completedCount = g.sessions.filter(
       (s) => s.status === "done",
     ).length;
+    const allDone = completedCount === g.sessions.length;
     guide = {
-      active: true,
-      currentSession: activeSession?.index ?? 1,
+      active: !allDone,
+      currentSession: activeSession?.index ?? completedCount,
       totalSessions: g.sessions.length,
       completedSessions: completedCount,
-      currentSessionName: activeSession?.name ?? g.sessions[0]?.name ?? "",
+      currentSessionName: allDone
+        ? "All sessions complete"
+        : (activeSession?.name ?? g.sessions[0]?.name ?? ""),
+      specFilename: g.specFilename,
+      auditFilename: g.auditFilename,
+      allDone,
     };
   }
 
@@ -326,7 +336,7 @@ export async function buildSuperBroRequest(
 CURRENT STATE:
 Project: ${context.project.path}
 Tech Stack: ${context.project.techStack}
-${context.guide ? `Implementation Guide: Session ${context.guide.currentSession} of ${context.guide.totalSessions} (${context.guide.currentSessionName})` : "No Implementation Guide active"}
+${context.guide ? (context.guide.allDone ? `Implementation Guide: All ${context.guide.totalSessions} sessions complete — spec: ${context.guide.specFilename}` : `Implementation Guide: Session ${context.guide.currentSession} of ${context.guide.totalSessions} (${context.guide.currentSessionName}) — spec: ${context.guide.specFilename}`) : "No Implementation Guide active"}
 Git: ${context.gitStatus.changedFiles} files changed, ${context.gitStatus.uncommitted ? "not committed" : "clean"}
 ${observationBlock}
 
