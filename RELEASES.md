@@ -1,5 +1,9 @@
 # CodeMantis Releases
 
+## 0.9.8
+
+- Super Bro: surface CLAUDE.md presence in project context and coaching prompts
+
 ## 0.9.7
 
 - Guide & Super Bro: deterministic verify prompts and completed-guide context awareness
