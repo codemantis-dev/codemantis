@@ -583,7 +583,7 @@ Audit. This is a DIFFERENT document from the implementation checklist
 already in the spec. The checklist is a todo list for building. The
 audit is a guided code review for AFTER building.
 
-When asked to generate the audit, produce a document starting with:
+When asked to generate the audit, output the COMPLETE document directly in your response (do NOT save it to a file). Start with:
 # {Feature/App Name} — Verification Audit
 
 **Companion to:** \`docs/specs/{filename}.md\`
@@ -1271,7 +1271,7 @@ Audit. This is a DIFFERENT document from the implementation checklist
 already in the spec. The checklist is a todo list for building. The
 audit is a guided code review for AFTER building.
 
-When asked to generate the audit, produce a document starting with:
+When asked to generate the audit, output the COMPLETE document directly in your response (do NOT save it to a file). Start with:
 # {Feature/App Name} — Verification Audit
 
 **Companion to:** \`docs/specs/{filename}.md\`
@@ -1462,6 +1462,9 @@ export const SPEC_START_PATTERN = /^#\s+.+(?:—|-)\s*(?:Requirements |Feature )
 
 export const AUDIT_START_PATTERN = /^#\s+.+(?:—|-)\s*Verification Audit/m;
 
+/** Matches a file path ending in `.audit.md` — fallback when the audit was saved to a file instead of output inline. */
+export const AUDIT_FILE_PATTERN = /([^\s"'`]+\.audit\.md)\b/;
+
 export const FILE_REQUEST_PATTERN = /📂\s*REQUEST_FILES:\s*(.+)/g;
 
 export function buildSystemPrompt(mode: 'new_application' | 'feature', templateCatalog: string, projectContext: string): string {
@@ -1544,7 +1547,8 @@ You MUST use these exact formats:
    # {Name} — Feature Specification
    The UI detects this heading to switch to spec preview mode.
 
-5. VERIFICATION AUDIT: When asked to generate an audit, start with:
+5. VERIFICATION AUDIT: When asked to generate an audit, output the COMPLETE
+   document directly in your response (do NOT save it to a file). Start with:
    # {Name} — Verification Audit
    The UI detects this heading to show the audit tab.
 

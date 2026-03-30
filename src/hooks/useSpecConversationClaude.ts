@@ -9,6 +9,7 @@ import {
   listenChatEvents,
   listTemplates,
   gatherSpecContext,
+  readFileContent,
 } from "../lib/tauri-commands";
 import type { FrontendEvent } from "../types/claude-events";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
@@ -17,6 +18,7 @@ import {
   SPEC_READY_PATTERNS,
   SPEC_START_PATTERN,
   AUDIT_START_PATTERN,
+  AUDIT_FILE_PATTERN,
   buildClaudeCodePrompt,
 } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
@@ -274,6 +276,20 @@ export function useSpecConversationClaude(): {
           // Check for verification audit document output
           if (AUDIT_START_PATTERN.test(finalContent)) {
             currentStore.setCurrentAuditContent(projectPath, finalContent);
+          } else {
+            // Fallback: audit may have been saved to a file instead of output inline
+            const auditFileMatch = finalContent.match(AUDIT_FILE_PATTERN);
+            if (auditFileMatch) {
+              const auditPath = auditFileMatch[1].startsWith("/")
+                ? auditFileMatch[1]
+                : `${projectPath}/${auditFileMatch[1]}`;
+              void readFileContent(auditPath).then((content) => {
+                if (AUDIT_START_PATTERN.test(content)) {
+                  currentStore.setCurrentAuditContent(projectPath, content);
+                  currentStore.persistState(projectPath);
+                }
+              }).catch(() => { /* file may not exist yet */ });
+            }
           }
 
           // Cleanup
@@ -358,6 +374,7 @@ export function useSpecConversationClaude(): {
       sendMessage(
         projectPath,
         "Generate the Verification Audit document for the spec you just wrote. " +
+          "Output the COMPLETE document directly in your response — do NOT save it to a file. " +
           "This is a guided code review document that Claude Code will use AFTER " +
           "implementation to verify every component, state, validation, and " +
           "integration point. Follow the Verification Audit format from your instructions."

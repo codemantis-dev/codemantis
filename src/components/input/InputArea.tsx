@@ -328,7 +328,7 @@ export default function InputArea() {
       ref={containerRef}
       className={`relative border-t border-border px-4 py-3 ${dragOver ? "bg-accent/5" : ""}`}
     >
-      <div className="max-w-[720px] mx-auto relative">
+      <div className="max-w-[1080px] mx-auto relative">
         {/* Command palette dropdown */}
         {showCommandPalette && session && (
           <CommandPalette
@@ -395,8 +395,8 @@ export default function InputArea() {
           />
 
           {/* Action bar */}
-          <div className="flex items-center justify-between px-3 pb-2">
-            <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-y-1 px-3 pb-2">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={handleFileDialog}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-label text-text-faint hover:text-text-dim hover:bg-bg-subtle transition-colors"
@@ -429,9 +429,9 @@ export default function InputArea() {
               <SuperBroToggle />
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 ml-auto">
               {session && (
-                <div className="flex items-center gap-2 select-none">
+                <div className="flex flex-wrap items-center gap-2 select-none">
                   <ModeSelector />
                   <div className="w-px h-4 bg-border-light" />
                   <ModelSelector />
@@ -448,7 +448,7 @@ export default function InputArea() {
               {isBusy ? (
                 <button
                   onClick={handleStop}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all text-red hover:brightness-90"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all shrink-0 text-red hover:brightness-90"
                   style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)" }}
                 >
                   <Square size={12} />
@@ -459,7 +459,7 @@ export default function InputArea() {
                 <button
                   onClick={handleSend}
                   disabled={!isActive}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui font-medium transition-all shrink-0 ${
                     isActive
                       ? "bg-accent text-white hover:bg-accent-light"
                       : "bg-bg-subtle text-text-ghost cursor-not-allowed"

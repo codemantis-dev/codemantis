@@ -154,7 +154,7 @@ export default function ChatPanel() {
           onScroll={checkAtBottom}
           className="h-full overflow-y-auto px-6 py-4"
         >
-          <div className="max-w-[720px] mx-auto">
+          <div className="max-w-[1080px] mx-auto">
             {messages.length === 0 && !streaming.isStreaming && (
               <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: "calc(100vh - 240px)" }}>
                 <img src="/CodeMantisIcon.png" alt="CodeMantis" className="w-20 h-20 opacity-30" />
@@ -244,7 +244,7 @@ export default function ChatPanel() {
       {/* ThinkingIndicator — pinned outside scroll area for guaranteed visibility */}
       {isBusy && !streaming.isStreaming && activeSessionId && (
         <div className="shrink-0 px-6 pt-3 pb-2 border-t border-border" style={{ background: "var(--bg-primary)" }}>
-          <div className="max-w-[720px] mx-auto">
+          <div className="max-w-[1080px] mx-auto">
             <ThinkingIndicator sessionId={activeSessionId} />
           </div>
         </div>

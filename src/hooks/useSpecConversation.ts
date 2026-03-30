@@ -1,12 +1,12 @@
 import { useCallback, useRef } from "react";
 import { useSpecWriterStore } from "../stores/specWriterStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemplates, gatherSpecContext } from "../lib/tauri-commands";
+import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemplates, gatherSpecContext, readFileContent } from "../lib/tauri-commands";
 import { getProviderForModel, DEFAULT_SPEC_MODEL, isSpecModelAvailable, autoSelectSpecModel } from "../types/assistant-provider";
 import { useOpenRouterStore } from "../stores/openRouterStore";
 import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
-import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
+import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, AUDIT_FILE_PATTERN, buildSystemPrompt } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
 import { handleFileRequests } from "../lib/spec-file-requests";
 import { fileToBase64, isTextMime } from "../lib/file-utils";
@@ -307,6 +307,20 @@ export function useSpecConversation(): {
           // Check for verification audit document output
           if (AUDIT_START_PATTERN.test(finalContent)) {
             currentStore.setCurrentAuditContent(projectPath, finalContent);
+          } else {
+            // Fallback: audit may have been saved to a file instead of output inline
+            const auditFileMatch = finalContent.match(AUDIT_FILE_PATTERN);
+            if (auditFileMatch) {
+              const auditPath = auditFileMatch[1].startsWith("/")
+                ? auditFileMatch[1]
+                : `${projectPath}/${auditFileMatch[1]}`;
+              void readFileContent(auditPath).then((content) => {
+                if (AUDIT_START_PATTERN.test(content)) {
+                  currentStore.setCurrentAuditContent(projectPath, content);
+                  currentStore.persistState(projectPath);
+                }
+              }).catch(() => { /* file may not exist yet */ });
+            }
           }
 
           // Cleanup FIRST (synchronous) — clear buffer, persist, unlisten
@@ -444,6 +458,7 @@ export function useSpecConversation(): {
       sendMessage(
         projectPath,
         "Generate the Verification Audit document for the spec you just wrote. " +
+        "Output the COMPLETE document directly in your response — do NOT save it to a file. " +
         "This is a guided code review document that Claude Code will use AFTER " +
         "implementation to verify every component, state, validation, and " +
         "integration point. Follow the Verification Audit format from your instructions."
