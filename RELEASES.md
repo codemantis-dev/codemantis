@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 0.9.7
+
+- Guide & Super Bro: deterministic verify prompts and completed-guide context awareness
+- SpecWriter: widen slide-over layout and ensure verification audit outputs COMPLETE marker
+- Test coverage for AUDIT_FILE_PATTERN matcher
+
 ## 0.9.6
 
 - Super Bro: per-trigger debounce, 10-second rate limit, and deferred retry to prevent API spam

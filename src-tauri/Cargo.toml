@@ -1,6 +1,6 @@
 [package]
 name = "codemantis"
-version = "0.9.6"
+version = "0.9.7"
 description = "A native macOS desktop UI for Claude Code"
 authors = ["Harald"]
 edition = "2021"
