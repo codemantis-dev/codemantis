@@ -201,6 +201,7 @@ describe("buildSuperBroContext", () => {
     // Project
     expect(ctx.project.path).toBe("/test/project");
     expect(ctx.project.techStack).toContain("My Project");
+    expect(ctx.project.claudeMdExists).toBe(true);
 
     // Guide
     expect(ctx.guide).not.toBeNull();
@@ -390,6 +391,7 @@ Uses Postgres in containers.`;
 
     expect(ctx.project.path).toBe("/test/project");
     expect(ctx.project.techStack).toBe("Unknown");
+    expect(ctx.project.claudeMdExists).toBe(false);
     expect(ctx.guide).toBeNull();
     expect(ctx.spec).toBeNull();
     expect(ctx.lastClaudeMessage).toBe("");
@@ -615,7 +617,7 @@ describe("buildSuperBroRequest", () => {
   });
 
   const baseContext = {
-    project: { path: "/test/project", techStack: "React + TS" },
+    project: { path: "/test/project", techStack: "React + TS", claudeMdExists: true },
     guide: null,
     spec: null,
     lastClaudeMessage: "I created the component.",
@@ -651,6 +653,7 @@ describe("buildSuperBroRequest", () => {
 
     // User message contains context fields
     expect(userMessage).toContain("/test/project");
+    expect(userMessage).toContain("CLAUDE.md: present");
     expect(userMessage).toContain("React + TS");
     expect(userMessage).toContain("I created the component.");
     expect(userMessage).toContain("Write: /src/Button.tsx [done]");
@@ -701,6 +704,22 @@ describe("buildSuperBroRequest", () => {
     );
 
     expect(userMessage).not.toContain("PROJECT OBSERVATIONS:");
+  });
+
+  it("shows 'CLAUDE.md: NOT FOUND' when claudeMdExists is false", async () => {
+    const noClaudeMd = {
+      ...baseContext,
+      project: { ...baseContext.project, claudeMdExists: false },
+    };
+
+    const { userMessage } = await buildSuperBroRequest(
+      "session_start",
+      noClaudeMd,
+      [],
+    );
+
+    expect(userMessage).toContain("CLAUDE.md: NOT FOUND");
+    expect(userMessage).not.toContain("CLAUDE.md: present");
   });
 
   it("includes DEPLOYMENT STATUS when actions are detected", async () => {

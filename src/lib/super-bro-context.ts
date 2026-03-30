@@ -28,6 +28,7 @@ export interface SuperBroContext {
   project: {
     path: string;
     techStack: string;
+    claudeMdExists: boolean;
   };
   guide: {
     active: boolean;
@@ -147,7 +148,7 @@ export function buildSuperBroContext(
     .some((detections) => detections.length > 0);
 
   return {
-    project: { path: projectPath, techStack },
+    project: { path: projectPath, techStack, claudeMdExists: !!claudeMdContent },
     guide,
     spec: resolveSpec(projectPath),
     lastClaudeMessage,
@@ -335,6 +336,7 @@ export async function buildSuperBroRequest(
   const userMessage = `
 CURRENT STATE:
 Project: ${context.project.path}
+CLAUDE.md: ${context.project.claudeMdExists ? "present" : "NOT FOUND"}
 Tech Stack: ${context.project.techStack}
 ${context.guide ? (context.guide.allDone ? `Implementation Guide: All ${context.guide.totalSessions} sessions complete — spec: ${context.guide.specFilename}` : `Implementation Guide: Session ${context.guide.currentSession} of ${context.guide.totalSessions} (${context.guide.currentSessionName}) — spec: ${context.guide.specFilename}`) : "No Implementation Guide active"}
 Git: ${context.gitStatus.changedFiles} files changed, ${context.gitStatus.uncommitted ? "not committed" : "clean"}
