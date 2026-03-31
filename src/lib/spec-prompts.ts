@@ -459,6 +459,38 @@ RULES:
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
 
+SESSION SIZING GUIDANCE:
+- Each session should cover 1-2 phases, not more
+- A session with 20+ checklist items is too large — split it
+- The last session should be dedicated to Phase 4 (polish) when
+  Phase 4 has 10+ items — it's easy to skip polish items when
+  they're bundled with feature work
+- If unsure, prefer more sessions over fewer — each session is
+  a clean context window with focused instructions
+
+LAST SESSION — AUDIT REFERENCE (MANDATORY):
+The LAST session in the Session Plan has a special verify section.
+It MUST reference the companion audit document instead of listing
+manual verification steps.
+
+Use this EXACT format for the last session's verify section:
+
+**Verify (full audit):**
+\`\`\`
+Read docs/specs/{spec-filename}.audit.md and run the full
+verification audit. For each VERIFY directive, open the actual
+file and check the code. Report PASS/FAIL for every item. Fix
+all failures before saying "Implementation complete."
+\`\`\`
+
+RULES:
+- The last session ALWAYS uses "**Verify (full audit):**"
+- The fenced code block MUST reference the .audit.md file by name
+- Do NOT write manual verification steps for the last session
+- The audit document is ALWAYS more thorough than manual checks
+- Earlier sessions (NOT the last) keep their manual verify steps
+  — those are quick smoke tests before moving to the next session
+
 ## 11. Open Questions & Assumptions
 List everything you assumed or couldn't verify.
 The implementer should review this section before starting.
@@ -568,6 +600,30 @@ WRITING RULES
     - No timeout error (unless you specify one)
     - No flash of empty state before data arrives
     - No UI freeze (user can still navigate away)
+
+15. SPECS DECIDE. AUDITS VERIFY. Every design decision must be
+    made in the specification, not deferred to the audit. If a
+    component has a behavior that could go two ways (mount vs
+    unmount, optimistic vs pessimistic, sync vs async), the spec
+    MUST pick one and state it explicitly.
+
+    WRONG (defers decision):
+      "The tabs may need forceMount — check during implementation"
+
+    RIGHT (decides):
+      "Both TabsContent panels use forceMount to preserve state
+       when switching tabs. Without forceMount, activeSession
+       state resets on every tab switch."
+
+    The audit should VERIFY that the chosen approach was
+    implemented correctly — not discover that no choice was made.
+
+    Common decisions that specs must make (not defer):
+    - Mount/unmount vs CSS show/hide for tab panels
+    - Optimistic updates vs wait-for-server for mutations
+    - Client-side vs server-side pagination
+    - Toast vs inline error for specific failure modes
+    - Cache invalidation scope (exact key vs prefix match)
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
@@ -1287,6 +1343,38 @@ RULES:
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
 
+SESSION SIZING GUIDANCE:
+- Each session should cover 1-2 phases, not more
+- A session with 20+ checklist items is too large — split it
+- The last session should be dedicated to Phase 4 (polish) when
+  Phase 4 has 10+ items — it's easy to skip polish items when
+  they're bundled with feature work
+- If unsure, prefer more sessions over fewer — each session is
+  a clean context window with focused instructions
+
+LAST SESSION — AUDIT REFERENCE (MANDATORY):
+The LAST session in the Session Plan has a special verify section.
+It MUST reference the companion audit document instead of listing
+manual verification steps.
+
+Use this EXACT format for the last session's verify section:
+
+**Verify (full audit):**
+\`\`\`
+Read docs/specs/{spec-filename}.audit.md and run the full
+verification audit. For each VERIFY directive, open the actual
+file and check the code. Report PASS/FAIL for every item. Fix
+all failures before saying "Implementation complete."
+\`\`\`
+
+RULES:
+- The last session ALWAYS uses "**Verify (full audit):**"
+- The fenced code block MUST reference the .audit.md file by name
+- Do NOT write manual verification steps for the last session
+- The audit document is ALWAYS more thorough than manual checks
+- Earlier sessions (NOT the last) keep their manual verify steps
+  — those are quick smoke tests before moving to the next session
+
 ## 11. Open Questions & Assumptions
 List EVERY ⚠️ INFERRED and ❓ ASSUMED item from the spec.
 The implementer MUST review this before starting.
@@ -1349,6 +1437,30 @@ WRITING RULES
 
 17. For every API call, specify slow response behavior (>3 seconds):
     loading stays visible, no empty state flash, no UI freeze.
+
+18. SPECS DECIDE. AUDITS VERIFY. Every design decision must be
+    made in the specification, not deferred to the audit. If a
+    component has a behavior that could go two ways (mount vs
+    unmount, optimistic vs pessimistic, sync vs async), the spec
+    MUST pick one and state it explicitly.
+
+    WRONG (defers decision):
+      "The tabs may need forceMount — check during implementation"
+
+    RIGHT (decides):
+      "Both TabsContent panels use forceMount to preserve state
+       when switching tabs. Without forceMount, activeSession
+       state resets on every tab switch."
+
+    The audit should VERIFY that the chosen approach was
+    implemented correctly — not discover that no choice was made.
+
+    Common decisions that specs must make (not defer):
+    - Mount/unmount vs CSS show/hide for tab panels
+    - Optimistic updates vs wait-for-server for mutations
+    - Client-side vs server-side pagination
+    - Toast vs inline error for specific failure modes
+    - Cache invalidation scope (exact key vs prefix match)
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
@@ -1656,6 +1768,29 @@ You MUST use these exact formats:
    - "Shall I write the specification now?"
    - "Ready to write"
    The UI detects these phrases to show the "Generate Spec" button.
+
+CLEAN OUTPUT RULE:
+When you write the specification document, your response must start
+DIRECTLY with the markdown separator and heading:
+
+---
+
+# {Name} — Feature Specification
+
+Do NOT include ANY text before the --- separator. No "Let me...",
+no "I have enough to...", no thinking text, no file reading
+narration, no commentary. The first characters of your spec
+response must be "---".
+
+Similarly, when writing the Verification Audit, start directly with:
+
+# {Name} — Verification Audit
+
+No preamble before the heading.
+
+This rule applies even though you are in Claude Code mode and may
+have been reading files and narrating your analysis in previous
+messages. When you switch to WRITING the spec, the output is clean.
 
 CONVERSATION FLOW:
 1. When the user describes what they want, acknowledge and ask
