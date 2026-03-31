@@ -3,17 +3,25 @@
   window.__CM_CONSOLE_BRIDGE = true;
   window.__CM_CONSOLE_BUFFER = [];
   window.__CM_CONSOLE_LOG = [];
-  // Action queue: fallback for document.title IPC polling (kept for legacy).
-  window.__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || [];
 
-  // ── fetch()-based IPC to the approval server ──────────────────────
-  // The approval server on 127.0.0.1 has CORS endpoints for preview
-  // actions (/screenshot, /open, /close, /console-to-chat).
-  // window.__CM_CALLBACK_PORT is injected by the initialization_script.
+  // ── IPC channels to Rust backend ─────────────────────────────────
+  // Primary: fetch() to the approval server on 127.0.0.1 (CORS endpoints).
+  // Fallback: hidden iframe navigation to cm-ipc:// scheme, intercepted by
+  // Tauri's on_navigation handler (WKNavigationDelegate). This is immune to
+  // CSP connect-src restrictions that block fetch() to localhost.
   function cmCallbackUrl(path) {
     var port = window.__CM_CALLBACK_PORT;
     if (!port) return null;
     return 'http://127.0.0.1:' + port + path;
+  }
+
+  function cmSendViaNavigation(action) {
+    // Navigate the main frame to a cm-ipc:// URL.  The Rust on_navigation
+    // handler intercepts it, dispatches the action, and returns false to
+    // cancel — so the page stays in place.  Main-frame navigations always
+    // trigger WKNavigationDelegate (unlike iframes to custom schemes).
+    window.location.href = 'cm-ipc://action/' + action.action +
+      '?data=' + encodeURIComponent(JSON.stringify(action));
   }
 
   function cmSendAction(action) {
@@ -30,12 +38,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action),
       }).catch(function() {
-        // CSP or network error — fall back to action queue
-        window.__CM_PENDING_ACTIONS.push(action);
+        // CSP blocked fetch — use navigation-based IPC (WKNavigationDelegate)
+        cmSendViaNavigation(action);
       });
     } else {
-      // No callback port or unknown action — queue for polling fallback
-      window.__CM_PENDING_ACTIONS.push(action);
+      // No callback port — use navigation-based IPC directly
+      cmSendViaNavigation(action);
     }
   }
 

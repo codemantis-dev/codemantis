@@ -3,11 +3,12 @@
  *
  * These tests verify the structural contract of the injected preview toolbar
  * script. They read the bridge JS source and assert that critical elements
- * are present — action queue, variable names, and communication mechanisms.
+ * are present — action types, variable names, and communication mechanisms.
  *
  * The bridge sends toolbar actions via fetch() to the approval server's CORS
  * endpoints (/screenshot, /open, /close, /console-to-chat). Falls back to
- * __CM_PENDING_ACTIONS queue if fetch fails (e.g. CSP blocking on strict sites).
+ * cm-ipc:// iframe navigation (intercepted by on_navigation handler) if
+ * fetch fails (e.g. CSP blocking on strict sites).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
@@ -17,11 +18,12 @@ const bridgePath = resolve(__dirname, "../../src-tauri/resources/preview-console
 const bridgeSource = readFileSync(bridgePath, "utf-8");
 
 describe("preview-console-bridge.js contract", () => {
-  // ── Action queue (CSP-immune IPC) ──
+  // ── Action IPC (fetch + navigation fallback) ──
 
-  describe("action queue", () => {
-    it("initializes __CM_PENDING_ACTIONS queue", () => {
-      expect(bridgeSource).toContain("__CM_PENDING_ACTIONS");
+  describe("action IPC", () => {
+    it("has cm-ipc:// navigation fallback for CSP-blocked fetch", () => {
+      expect(bridgeSource).toContain("cm-ipc://action/");
+      expect(bridgeSource).toContain("cmSendViaNavigation");
     });
 
     it("screenshot button pushes action to queue", () => {
@@ -57,8 +59,8 @@ describe("preview-console-bridge.js contract", () => {
       expect(bridgeSource).toContain("/console-to-chat");
     });
 
-    it("cmSendAction falls back to __CM_PENDING_ACTIONS on fetch failure", () => {
-      expect(bridgeSource).toContain("__CM_PENDING_ACTIONS.push(action)");
+    it("cmSendAction falls back to navigation IPC on fetch failure", () => {
+      expect(bridgeSource).toContain("cmSendViaNavigation(action)");
     });
 
     it("close button calls window.close() for immediate feedback", () => {

@@ -253,6 +253,11 @@ pub async fn open_preview_window(
         None => console_bridge.to_string(),
     };
 
+    // on_navigation handler: CSP-immune JS→Rust IPC channel.
+    // Bridge JS creates hidden iframes with cm-ipc:// URLs when fetch() to
+    // the approval server is blocked by CSP.  WKWebView's navigation delegate
+    // fires for all frames (main + iframes), giving us a reliable callback.
+    let nav_ah = app_handle.clone();
     let window = WebviewWindowBuilder::new(
         &app_handle,
         "preview",
@@ -260,6 +265,64 @@ pub async fn open_preview_window(
     )
     .title(format!("CodeMantis Preview — {}", project_name))
     .initialization_script(&bridge_with_port)
+    .on_navigation(move |url| {
+        debug!("[preview] on_navigation: {} (scheme={})", url.as_str(), url.scheme());
+        if url.scheme() == "cm-ipc" {
+            let action = url.path().trim_start_matches('/').to_string();
+            let data: Option<String> = url.query_pairs()
+                .find(|(k, _)| k == "data")
+                .map(|(_, v)| v.to_string());
+            info!("[preview] Toolbar action (nav-ipc): {}", action);
+            match action.as_str() {
+                "screenshot" => {
+                    match capture_screenshot_inner(&nav_ah) {
+                        Ok(path) => {
+                            info!("[preview] Screenshot captured (nav-ipc): {}", path);
+                            if let Err(e) = nav_ah.emit("preview-screenshot-taken", path) {
+                                warn!("[preview] Failed to emit screenshot event: {}", e);
+                            }
+                        }
+                        Err(e) => warn!("[preview] Screenshot failed (nav-ipc): {}", e),
+                    }
+                }
+                "close" => {
+                    if let Some(win) = nav_ah.get_webview_window("preview") {
+                        let _ = win.close();
+                    }
+                }
+                "open" => {
+                    if let Some(data_str) = &data {
+                        if let Ok(parsed) = serde_json::from_str::<ToolbarAction>(data_str) {
+                            if let Some(url_str) = &parsed.url {
+                                match Url::parse(url_str) {
+                                    Ok(u) if u.scheme() == "http" || u.scheme() == "https" => {
+                                        info!("[preview] Opening in browser (nav-ipc): {}", u.as_str());
+                                        let _ = std::process::Command::new("open").arg(u.as_str()).spawn();
+                                    }
+                                    _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
+                                }
+                            }
+                        }
+                    }
+                }
+                "console_to_chat" => {
+                    if let Some(data_str) = &data {
+                        if let Ok(parsed) = serde_json::from_str::<ToolbarAction>(data_str) {
+                            if let Some(logs) = &parsed.logs {
+                                info!("[preview] Console logs to chat (nav-ipc, {} bytes)", logs.len());
+                                if let Err(e) = nav_ah.emit("preview-console-to-chat", logs.clone()) {
+                                    warn!("[preview] Failed to emit console-to-chat: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+                other => debug!("[preview] Unknown nav-ipc action: {}", other),
+            }
+            return false; // Cancel the fake iframe navigation
+        }
+        true // Allow all real navigations
+    })
     .inner_size(w, h)
     .min_inner_size(400.0, 300.0)
     .resizable(true)
@@ -406,51 +469,6 @@ pub async fn open_preview_window(
             }
         }
 
-        // ── One-time IPC diagnostic (after 2s to let bridge + Tauri IPC initialize) ──
-        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-        if let Some(win) = poll_ah.get_webview_window("preview") {
-            // Read __CM_IPC_CHANNEL via title-based diagnostic (best effort)
-            let diag_js = r#"
-                (function() {
-                    var ch = window.__CM_IPC_CHANNEL || 'undefined';
-                    var hasTauri = typeof window.__TAURI__ !== 'undefined';
-                    var hasInternals = typeof window.__TAURI_INTERNALS__ !== 'undefined';
-                    var hasBridge = typeof window.__CM_CONSOLE_BRIDGE !== 'undefined';
-                    window.__CM_IPC_DIAG_RESULT = 'channel=' + ch +
-                        ',__TAURI__=' + hasTauri +
-                        ',__TAURI_INTERNALS__=' + hasInternals +
-                        ',bridge=' + hasBridge;
-                    // Also try title-based reporting for Rust to read
-                    window.__CM_DIAG_ORIG_TITLE = document.title;
-                    document.title = '__CM_DIAG__' + window.__CM_IPC_DIAG_RESULT;
-                })();
-            "#;
-            if let Err(e) = win.eval(diag_js) {
-                warn!("[preview] IPC diagnostic eval failed: {}", e);
-            } else {
-                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                match win.title() {
-                    Ok(title) => {
-                        if let Some(diag) = title.strip_prefix("__CM_DIAG__") {
-                            info!("[preview] IPC diagnostic: {}", diag);
-                        } else {
-                            info!("[preview] IPC diagnostic: title read returned '{}' (document.title NOT propagating to window title — this confirms wry/WKWebView title sync is broken)", title);
-                        }
-                    }
-                    Err(e) => warn!("[preview] IPC diagnostic: title read failed: {}", e),
-                }
-                // Restore title
-                let _ = win.eval(r#"
-                    (function() {
-                        if (window.__CM_DIAG_ORIG_TITLE !== undefined) {
-                            document.title = window.__CM_DIAG_ORIG_TITLE;
-                            delete window.__CM_DIAG_ORIG_TITLE;
-                        }
-                    })();
-                "#);
-            }
-        }
-
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
         loop {
             interval.tick().await;
@@ -479,99 +497,6 @@ pub async fn open_preview_window(
                     break;
                 }
             };
-
-            // ── Toolbar action processing ──────────────────────────────────
-            // Bridge JS buttons push actions to window.__CM_PENDING_ACTIONS
-            // instead of calling fetch() (which is blocked by pages with
-            // restrictive CSP like connect-src 'self').  We drain the queue
-            // into document.title (same CSP-immune trick as console polling)
-            // and dispatch each action from Rust.
-            let action_drain_js = r#"
-                (function() {
-                    var q = window.__CM_PENDING_ACTIONS;
-                    if (q && q.length > 0) {
-                        var batch = q.splice(0);
-                        window.__CM_TITLE_BEFORE_ACTION = document.title;
-                        document.title = '__CM_ACTIONS__' + JSON.stringify(batch);
-                    }
-                })();
-            "#;
-            if let Err(e) = preview_win.eval(action_drain_js) {
-                debug!("[preview] Action drain eval failed: {}", e);
-            } else {
-                // Read the title with retries — document.title → NSWindow title
-                // propagation is async on macOS (WKWebView → KVO → NSWindow).
-                // A single 20ms delay is often too short, especially under load.
-                let mut actions_found = false;
-                for attempt in 0..3u8 {
-                    let delay = if attempt == 0 { 100 } else { 150 };
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                    if let Ok(title) = preview_win.title() {
-                        if let Some(json_str) = title.strip_prefix("__CM_ACTIONS__") {
-                            // Restore the original title immediately
-                            let _ = preview_win.eval(r#"
-                                (function() {
-                                    if (window.__CM_TITLE_BEFORE_ACTION !== undefined) {
-                                        document.title = window.__CM_TITLE_BEFORE_ACTION;
-                                        delete window.__CM_TITLE_BEFORE_ACTION;
-                                    }
-                                })();
-                            "#);
-
-                            if let Ok(actions) = serde_json::from_str::<Vec<ToolbarAction>>(json_str) {
-                                for action in actions {
-                                    info!("[preview] Toolbar action: {}", action.action);
-                                    match action.action.as_str() {
-                                        "screenshot" => {
-                                            match capture_screenshot_inner(&poll_ah) {
-                                                Ok(path) => {
-                                                    info!("[preview] Screenshot captured: {}", path);
-                                                    if let Err(e) = poll_ah.emit("preview-screenshot-taken", path) {
-                                                        warn!("[preview] Failed to emit screenshot event: {}", e);
-                                                    }
-                                                }
-                                                Err(e) => warn!("[preview] Screenshot failed: {}", e),
-                                            }
-                                        }
-                                        "close" => {
-                                            // window.close() in JS provides immediate feedback;
-                                            // this is a belt-and-suspenders close from Rust.
-                                            if let Some(win) = poll_ah.get_webview_window("preview") {
-                                                let _ = win.close();
-                                            }
-                                        }
-                                        "open" => {
-                                            if let Some(url_str) = &action.url {
-                                                match Url::parse(url_str) {
-                                                    Ok(url) if url.scheme() == "http" || url.scheme() == "https" => {
-                                                        info!("[preview] Opening in browser: {}", url.as_str());
-                                                        let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
-                                                    }
-                                                    _ => warn!("[preview] Rejected open with invalid URL: {}", url_str),
-                                                }
-                                            }
-                                        }
-                                        "console_to_chat" => {
-                                            if let Some(logs) = &action.logs {
-                                                info!("[preview] Sending console logs to chat ({} bytes)", logs.len());
-                                                if let Err(e) = poll_ah.emit("preview-console-to-chat", logs.clone()) {
-                                                    warn!("[preview] Failed to emit console-to-chat: {}", e);
-                                                }
-                                            }
-                                        }
-                                        other => debug!("[preview] Unknown toolbar action: {}", other),
-                                    }
-                                }
-                            }
-                            actions_found = true;
-                            break;
-                        }
-                    }
-                }
-                if actions_found {
-                    continue; // skip console drain this iteration to avoid title conflicts
-                }
-            }
 
             // Step 0: Re-inject console bridge if not present (SPA navigation / external URL fallback)
             let reinject_js = r#"

@@ -424,17 +424,16 @@ mod tests {
     // by pages with restrictive CSP. It must now be injected via
     // initialization_script by prepending to the bridge JS.
 
-    // ── Action queue contract tests ──
-    // Regression: fetch()-based callbacks are blocked by pages with restrictive
-    // CSP (connect-src 'self'). All toolbar actions now use a JS action queue
-    // (__CM_PENDING_ACTIONS) that the Rust polling loop drains via document.title.
+    // ── Action IPC contract tests ──
+    // Primary: fetch() to approval server. Fallback: hidden iframe navigation
+    // to cm-ipc:// scheme, intercepted by on_navigation handler (CSP-immune).
 
     #[test]
-    fn bridge_initializes_pending_actions_queue() {
+    fn bridge_has_navigation_fallback() {
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(
-            bridge.contains("__CM_PENDING_ACTIONS"),
-            "Bridge must initialize window.__CM_PENDING_ACTIONS action queue"
+            bridge.contains("cm-ipc://action/"),
+            "Bridge must use cm-ipc:// scheme for navigation-based IPC fallback"
         );
     }
 
@@ -482,7 +481,7 @@ mod tests {
     fn bridge_uses_fetch_to_approval_server_for_actions() {
         // The bridge sends toolbar actions via fetch() to the approval server
         // (127.0.0.1:{port}) which has CORS headers for localhost origins.
-        // Falls back to __CM_PENDING_ACTIONS queue if fetch fails (CSP blocking).
+        // Falls back to cm-ipc:// navigation if fetch fails (CSP blocking).
         let bridge = include_str!("../../resources/preview-console-bridge.js");
         assert!(bridge.contains("127.0.0.1"), "Bridge must use 127.0.0.1 for approval server");
         assert!(bridge.contains("__CM_CALLBACK_PORT"), "Bridge must reference the callback port");
@@ -493,12 +492,12 @@ mod tests {
     }
 
     #[test]
-    fn bridge_falls_back_to_action_queue_on_fetch_failure() {
+    fn bridge_falls_back_to_navigation_on_fetch_failure() {
         let bridge = include_str!("../../resources/preview-console-bridge.js");
-        // The .catch() handler pushes to the fallback queue
+        // The .catch() handler must call the navigation fallback
         assert!(
-            bridge.contains("__CM_PENDING_ACTIONS.push(action)"),
-            "Bridge must fall back to __CM_PENDING_ACTIONS on fetch failure"
+            bridge.contains("cmSendViaNavigation(action)"),
+            "Bridge must fall back to cmSendViaNavigation on fetch failure"
         );
     }
 
@@ -597,29 +596,16 @@ mod tests {
     }
 
     #[test]
-    fn action_drain_js_uses_correct_title_prefix() {
-        // The Rust polling loop looks for "__CM_ACTIONS__" prefix in document.title.
-        // The drain JS must set this exact prefix.
-        let drain_js = r#"document.title = '__CM_ACTIONS__' + JSON.stringify(batch)"#;
-        // Verify the prefix constant matches what Rust parses
-        let prefix = "__CM_ACTIONS__";
-        assert!(
-            drain_js.contains(prefix),
-            "Drain JS must use the __CM_ACTIONS__ prefix that Rust checks"
-        );
-    }
-
-    #[test]
-    fn bridge_initializes_action_queue_before_buttons() {
-        // The queue must be initialized before any button pushes to it
+    fn bridge_navigation_fallback_defined_before_use() {
+        // cmSendViaNavigation must be defined before cmSendAction calls it
         let bridge = include_str!("../../resources/preview-console-bridge.js");
-        let queue_init = bridge.find("__CM_PENDING_ACTIONS = window.__CM_PENDING_ACTIONS || []");
-        let first_push = bridge.find("__CM_PENDING_ACTIONS.push");
-        assert!(queue_init.is_some(), "Queue must be initialized");
-        assert!(first_push.is_some(), "At least one push must exist");
+        let defn = bridge.find("function cmSendViaNavigation");
+        let usage = bridge.find("cmSendViaNavigation(action)");
+        assert!(defn.is_some(), "cmSendViaNavigation must be defined");
+        assert!(usage.is_some(), "cmSendViaNavigation must be called");
         assert!(
-            queue_init.unwrap() < first_push.unwrap(),
-            "Queue initialization must come before first push"
+            defn.unwrap() < usage.unwrap(),
+            "cmSendViaNavigation definition must come before its first use"
         );
     }
 
