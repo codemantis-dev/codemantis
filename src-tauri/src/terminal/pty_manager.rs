@@ -130,6 +130,12 @@ impl TerminalPool {
         };
 
         cmd.env("TERM", "xterm-256color");
+        // Remove NODE_PATH inherited from `pnpm tauri dev` — the Tauri CLI
+        // sets it to deep paths inside CodeMantis's own node_modules.  If a
+        // child PTY (e.g. `npm run dev` for another project) inherits this,
+        // its module resolver walks CodeMantis's massive dependency tree for
+        // every import, causing RAM to spike from 12 GB to 70+ GB.
+        cmd.env_remove("NODE_PATH");
         if !Path::new(cwd).is_dir() {
             return Err(AppError::TerminalError(format!(
                 "Working directory does not exist: {}",

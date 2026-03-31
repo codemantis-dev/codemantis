@@ -833,11 +833,14 @@ pub async fn start_dev_server(
         // dev server process has already crashed.  The tx sender is held by
         // the Tauri event listener, so rx.recv() never returns None on PTY close.
         let pty_exited = Arc::new(AtomicBool::new(false));
+        let close_listener_id;
         {
             let flag = pty_exited.clone();
             let close_tid = output_tid.clone();
-            ah.listen("dev-server-closed", move |event| {
+            // DevServerClosedEvent uses #[serde(rename_all = "camelCase")]
+            close_listener_id = ah.listen("dev-server-closed", move |event| {
                 #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase")]
                 struct Closed { terminal_id: String }
                 if let Ok(e) = serde_json::from_str::<Closed>(event.payload()) {
                     if e.terminal_id == close_tid {
@@ -884,6 +887,7 @@ pub async fn start_dev_server(
                             if project_removed().await {
                                 debug!("Project {} was closed during port detection, skipping emit", pp);
                                 unlisten_ah.unlisten(listener_id);
+                                unlisten_ah.unlisten(close_listener_id);
                                 return;
                             }
 
@@ -915,6 +919,7 @@ pub async fn start_dev_server(
                                 if project_removed().await {
                                     debug!("Project {} was closed during port verification, skipping emit", pp);
                                     unlisten_ah.unlisten(listener_id);
+                                    unlisten_ah.unlisten(close_listener_id);
                                     return;
                                 }
 
@@ -953,8 +958,14 @@ pub async fn start_dev_server(
                                 warn!("[preview] Failed to emit dev-server-ready: {}", e);
                             }
                             unlisten_ah.unlisten(listener_id);
+                            unlisten_ah.unlisten(close_listener_id);
                             return;
                         }
+                    }
+                    // If the PTY has exited, no more output will arrive — stop waiting.
+                    if pty_exited.load(Ordering::Relaxed) {
+                        info!("[preview] PTY exited, breaking Layer 1 for {}", pp);
+                        break false;
                     }
                 }
                 Ok(None) => {
@@ -972,6 +983,7 @@ pub async fn start_dev_server(
         unlisten_ah.unlisten(listener_id);
 
         if detected {
+            unlisten_ah.unlisten(close_listener_id);
             return;
         }
 
@@ -1017,6 +1029,7 @@ pub async fn start_dev_server(
                     }) {
                         warn!("[preview] Failed to emit dev-server-ready: {}", e);
                     }
+                    unlisten_ah.unlisten(close_listener_id);
                     return;
                 }
             }
@@ -1029,31 +1042,40 @@ pub async fn start_dev_server(
         }
 
         // Layer 3: Scan common dev server ports as last resort.
-        // Skip ports we know are occupied by stale servers (from Layer 1).
-        info!(
-            "[preview] Layer 3: scanning common ports for {} (excluding {:?})",
-            pp, occupied_ports
-        );
-        if let Some((port, url)) = port_detector::probe_port_range(
-            port_detector::DEFAULT_DEV_PORTS,
-            &occupied_ports,
-        ).await {
-            info!("Dev server found via port range scan on port {} for {}", port, pp);
-            let mut servers = dev_servers.lock().await;
-            if let Some(info) = servers.get_mut(&pp) {
-                info.port = Some(port);
-                info.url = Some(url.clone());
-                info.status = DevServerStatus::Detected;
+        // Skip when the PTY has exited — the process crashed and scanning common
+        // ports would pick up unrelated servers (e.g. port 8080 from another app).
+        if pty_exited.load(Ordering::Relaxed) {
+            info!(
+                "[preview] Skipping Layer 3 for {} — PTY exited (process likely crashed)",
+                pp
+            );
+        } else {
+            info!(
+                "[preview] Layer 3: scanning common ports for {} (excluding {:?})",
+                pp, occupied_ports
+            );
+            if let Some((port, url)) = port_detector::probe_port_range(
+                port_detector::DEFAULT_DEV_PORTS,
+                &occupied_ports,
+            ).await {
+                info!("Dev server found via port range scan on port {} for {}", port, pp);
+                let mut servers = dev_servers.lock().await;
+                if let Some(info) = servers.get_mut(&pp) {
+                    info.port = Some(port);
+                    info.url = Some(url.clone());
+                    info.status = DevServerStatus::Detected;
+                }
+                if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
+                    port,
+                    url,
+                    terminal_id: output_tid.clone(),
+                    project_path: pp.clone(),
+                }) {
+                    warn!("[preview] Failed to emit dev-server-ready: {}", e);
+                }
+                unlisten_ah.unlisten(close_listener_id);
+                return;
             }
-            if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
-                port,
-                url,
-                terminal_id: output_tid.clone(),
-                project_path: pp.clone(),
-            }) {
-                warn!("[preview] Failed to emit dev-server-ready: {}", e);
-            }
-            return;
         }
 
         // Guard: one final check before emitting failure
@@ -1062,6 +1084,7 @@ pub async fn start_dev_server(
             return;
         }
 
+        unlisten_ah.unlisten(close_listener_id);
         warn!("Failed to detect dev server port for {} (terminal: {})", pp, output_tid);
         {
             let mut servers = dev_servers.lock().await;

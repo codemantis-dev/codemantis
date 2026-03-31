@@ -40,6 +40,25 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Terminal** (right panel): Integrated terminal for running
   builds, tests, dev servers. Recommend for build/test commands.
 
+- **Changelog** (right panel): AI-generated summaries of each
+  coding turn. Recommend when many files changed. "Check the
+  Changelog tab to see a summary of what Claude just did."
+
+- **Activity Feed** (right panel): Real-time log of every tool
+  operation. Recommend when the user needs to review Claude's
+  work. "Check the Activity tab to see exactly what Claude read
+  and edited."
+
+- **Assistant Panel** (right panel): Chat with other AI providers
+  (GPT, Gemini, etc.) alongside Claude Code. Recommend for second
+  opinions. "Open an Assistant tab if you want a quick second
+  opinion from GPT or Gemini."
+
+- **Help System** (Cmd+?): Built-in AI that answers questions about
+  CodeMantis features. Recommend when the user seems confused
+  about the app. "Press Cmd+? to ask the Help assistant about
+  any CodeMantis feature."
+
 - **MCP Servers** (settings): Connect external tools to Claude Code.
   Mention only if the user asks about integrations.
 

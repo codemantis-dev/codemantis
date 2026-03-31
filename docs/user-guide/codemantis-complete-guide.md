@@ -36,6 +36,7 @@
 - [Chapter 19: MCP Server Management](#chapter-19-mcp-server-management)
 - [Chapter 20: Slash Commands & CLI Overlay](#chapter-20-slash-commands--cli-overlay)
 - [Chapter 21: Help System](#chapter-21-help-system)
+- [Chapter 21A: Super-Bro -- Proactive AI Guidance](#chapter-21a-super-bro----proactive-ai-guidance)
 
 ### Part V: Sidebar
 - [Chapter 22: File Tree](#chapter-22-file-tree)
@@ -665,6 +666,7 @@ Right side controls:
 - **Mode Selector** -- Shows the current mode icon and label (e.g., Shield "Normal"). See Chapter 6.
 - A vertical divider.
 - **Model Selector** -- Shows the current model name (e.g., "Sonnet") with a dropdown chevron. Click to open a dropdown of available models.
+- **Super-Bro toggle** -- A small shield icon button that enables or disables the Super-Bro proactive guidance feature. When active, the icon is highlighted in accent color. See Chapter 21A.
 - **Thinking Effort indicator** -- Three vertical bars showing thinking effort level (high = 3 bars lit, medium = 2, low = 1) with a text label ("High", "Medium", "Low"). Click to open Settings.
 - **Send/Stop button:**
   - When idle: An accent-colored **"Send"** button with a Send icon and the shortcut label (e.g., "Enter" or "Cmd+Enter"). Disabled (grayed out) when the text area is empty and no attachments are present.
@@ -2642,6 +2644,80 @@ The Help session uses Claude Haiku (claude-haiku-4-5) for fast, low-cost respons
 
 ---
 
+## Chapter 21A: Super-Bro -- Proactive AI Guidance
+
+Super-Bro is an optional AI advisor that watches your Claude Code sessions and offers brief, actionable guidance. It runs as a separate LLM call (using your configured API key), observing what Claude does and proactively suggesting next steps, catching missed files, explaining build errors, and recommending CodeMantis features when relevant.
+
+### What You See
+
+Super-Bro messages appear in the Chat Panel as system-style cards after Claude completes a response or when notable events occur (build errors, test failures, long silences). Each card contains:
+
+- **Guidance text** -- 1-3 sentences of plain-language advice from a "senior colleague" perspective.
+- **Suggested prompt** (optional) -- A ready-to-use prompt you can send to Claude Code with one click.
+- **File check** (optional) -- Super-Bro may request to inspect a file before giving final advice.
+- **Observation** (optional) -- Super-Bro saves project-specific notes (e.g., "this project uses pnpm, not npm") for future sessions.
+
+Super-Bro stays silent (returns "NOTHING_TO_REPORT") when everything is going well -- it only speaks up when there is something actionable to say.
+
+### How to Open / Access
+
+| Method | Action |
+|--------|--------|
+| Input Area toolbar | Click the **shield icon** button in the action bar (next to the thinking effort indicator) to toggle Super-Bro on/off |
+| Settings | Go to **Settings -> Super-Bro** to configure the feature, choose a provider, and select a model |
+
+### When Super-Bro Speaks
+
+Super-Bro evaluates several situations:
+
+- **After Claude finishes a response:** Checks for completeness (missing files, unregistered routes, forgotten migrations), quality (loading states, error handling, empty states, validation), and alignment with any active spec.
+- **Build errors:** Explains compiler/bundler errors in plain language and suggests a specific fix prompt.
+- **Test failures:** Identifies why tests failed (changed implementation vs. outdated tests) and suggests next steps.
+- **Runtime errors:** Interprets console errors from the Preview browser and suggests fixes.
+- **Guide session transitions:** Reminds you about verification checks, suggests commits, and orients you when starting the next session.
+- **New session or project opened:** Provides orientation (stack info, uncommitted changes, active guide status).
+- **User appears stuck (3+ minutes of inactivity):** Gently offers a nudge based on the current state.
+- **Potentially destructive actions:** Warns about risky operations (database drops, force pushes, bulk deletes) especially when in Auto-Accept mode.
+
+### User Actions
+
+**Enable Super-Bro**
+Click the shield icon in the Input Area action bar, or go to **Settings -> Super-Bro** and toggle "Enable Super-Bro" on.
+
+**Disable Super-Bro**
+Click the shield icon again, or toggle it off in Settings.
+
+**Choose a provider and model**
+Go to **Settings -> Super-Bro**. Select a provider from the dropdown (Auto selects the cheapest available). Then select a model. Super-Bro uses a fast, inexpensive model since its responses are short.
+
+**Use a suggested prompt**
+When Super-Bro suggests a prompt, click it to populate the chat input. Review and press Enter to send it to Claude Code.
+
+### States
+
+- **Enabled:** The shield icon in the action bar is highlighted in accent color. Super-Bro evaluates every Claude response and terminal event.
+- **Disabled (default):** The shield icon is dimmed. No Super-Bro guidance is generated.
+- **No API key:** If no API key is configured for any provider, Super-Bro cannot function. A warning appears in the Settings tab directing you to configure an API key in **Settings -> AI Providers**.
+
+### Configuration
+
+- **Settings -> Super-Bro -> Enable Super-Bro:** Master toggle (on/off). Default: off (`superBroEnabled: false`).
+- **Settings -> Super-Bro -> Provider:** Choose between "Auto (cheapest available)", OpenRouter, Google Gemini, OpenAI, or Anthropic. Only providers with configured API keys are shown.
+- **Settings -> Super-Bro -> Model:** Select the specific model. "Auto" selects the cheapest available model automatically.
+
+### Keyboard Shortcuts
+
+There are no dedicated keyboard shortcuts for Super-Bro. Use `Cmd ,` to open Settings and navigate to the Super-Bro tab.
+
+### Tips
+
+1. Super-Bro is designed to be quiet when things are going well. If it is not commenting, that means everything looks good.
+2. Use a fast, inexpensive model (e.g., a free OpenRouter model or Gemini Flash Lite) since Super-Bro only needs short responses.
+3. Super-Bro never modifies files or runs commands -- it only observes and advises. All code changes remain in your control through Claude Code.
+4. The "suggested prompt" feature is especially useful for beginners -- Super-Bro crafts the right prompt for common situations like fixing build errors or handling missing files.
+
+---
+
 # Part V: Sidebar
 
 ---
@@ -3796,6 +3872,9 @@ Complete reference of every configurable setting in CodeMantis.
 | Default context window | General | Choice | 1M (1,000,000) | Fallback context size: 200K or 1M tokens |
 | Show welcome screen on launch | General | Toggle | On (first launch) | Display the onboarding screen when the app opens |
 | Claude binary override | General | File path | null | Custom path to the `claude` binary |
+| Enable Super-Bro | Super-Bro | Toggle | Off | Enable proactive AI guidance during sessions |
+| Super-Bro provider | Super-Bro | Dropdown | Auto (cheapest) | AI provider for Super-Bro guidance |
+| Super-Bro model | Super-Bro | Dropdown | Auto | Specific model for Super-Bro |
 | Save session conversations | Session Logs | Toggle | On | Store all messages when a session closes |
 | Retention period | Session Logs | Choice | 30 days | How long to keep session logs: 7d, 14d, 30d, 90d, 1y, Forever |
 | OpenRouter API key | AI Providers | Password | Empty | API key for OpenRouter |
@@ -3889,6 +3968,8 @@ Complete reference of every slash command available in CodeMantis. Data from `sr
 
 | Command | Category | Description | Argument Hint |
 |---|---|---|---|
+| `/add-dir` | CLI-only | Add a directory to context | -- |
+| `/agents` | CLI-only | Manage agent configurations | -- |
 | `/chrome` | CLI-only | Open Chrome DevTools | -- |
 | `/config` | CLI-only | Configure Claude Code preferences | -- |
 | `/copy` | CLI-only | Copy last response to clipboard | -- |
