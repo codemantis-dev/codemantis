@@ -139,6 +139,24 @@ describe("SpecChat", () => {
     expect(screen.queryByText(/no api key set/i)).toBeNull();
   });
 
+  it("shows weak model warning for lightweight models", () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
+    });
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash-lite", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    expect(screen.getByText(/may struggle with complex specifications/i)).toBeTruthy();
+  });
+
+  it("does not show weak model warning for strong models", () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
+    });
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3-flash-preview", "feature");
+    render(<SpecChat projectPath={PROJECT} />);
+    expect(screen.queryByText(/may struggle with complex specifications/i)).toBeNull();
+  });
+
   it("shows provider selector before first message", () => {
     useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
     render(<SpecChat projectPath={PROJECT} />);

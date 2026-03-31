@@ -9,6 +9,7 @@ import {
   SPEC_WRITING_MODELS,
   SPEC_CLAUDE_CODE_MODELS,
   DEFAULT_SPEC_CLAUDE_CODE_MODEL,
+  SPECWRITER_WEAK_MODELS,
   isSpecModelAvailable,
   autoSelectSpecModel,
   getSpecModelLabel,
@@ -297,6 +298,20 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
           >
             Settings &rarr; AI Providers
           </button>
+        </div>
+      )}
+
+      {/* Weak model warning banner */}
+      {conversation && currentModelHasKey && SPECWRITER_WEAK_MODELS.some((m) => currentModel.includes(m)) && (
+        <div
+          className="px-3 py-2 text-ui flex items-center gap-2 border-b shrink-0"
+          style={{
+            background: "rgba(245,158,11,0.1)",
+            borderColor: "var(--border)",
+            color: "#f59e0b",
+          }}
+        >
+          <span>This model may struggle with complex specifications. For best results, use Sonnet 4.6, Gemini 3.0 Flash, or GPT-5.4.</span>
         </div>
       )}
 

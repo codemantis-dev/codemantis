@@ -121,6 +121,13 @@ export const SPEC_CLAUDE_CODE_MODELS: SpecClaudeCodeModel[] = [
 
 export const DEFAULT_SPEC_CLAUDE_CODE_MODEL = "claude-sonnet-4-6";
 
+/** Models too weak for complex SpecWriter sessions — show warning, don't block. */
+export const SPECWRITER_WEAK_MODELS = [
+  "gemini-2.5-flash-lite",
+  "gemini-3.1-flash-lite-preview",
+  "gpt-5.4-nano",
+];
+
 /**
  * Auto-select the best available spec-writing model given the user's API keys.
  * Walks SPEC_WRITING_MODELS in priority order, returns first model whose

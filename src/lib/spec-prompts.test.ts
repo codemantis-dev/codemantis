@@ -41,6 +41,23 @@ describe("buildSystemPrompt", () => {
     // Empty projectContext means falsy, so falls back to NEW_APP_PROMPT
     expect(result).toContain("senior technical architect and requirements analyst");
   });
+
+  it("feature mode contains CODEBASE NAVIGATION rules", () => {
+    const result = buildSystemPrompt("feature", templateCatalog, projectContext);
+    expect(result).toContain("CODEBASE NAVIGATION");
+    expect(result).toContain("NEVER ask the user to identify file locations");
+  });
+
+  it("feature mode contains route-first file request instruction", () => {
+    const result = buildSystemPrompt("feature", templateCatalog, projectContext);
+    expect(result).toContain("FIRST file request MUST include the routing file");
+  });
+
+  it("new_application mode contains QUESTION SCOPE RULE", () => {
+    const result = buildSystemPrompt("new_application", templateCatalog, "");
+    expect(result).toContain("QUESTION SCOPE RULE");
+    expect(result).toContain("The user describes the product. You make the technical decisions.");
+  });
 });
 
 describe("SPEC_READY_PATTERNS", () => {
@@ -436,7 +453,7 @@ describe("buildClaudeCodePrompt", () => {
   it("feature mode adapts 'request files' step to 'read files' in conversation flow", () => {
     const result = buildClaudeCodePrompt("feature", templateCatalog, projectContext);
     // Step 2 should say read instead of request
-    expect(result).toContain("IMMEDIATELY read the files you'll need using the Read tool");
+    expect(result).toContain("IMMEDIATELY read structural files to understand the codebase using the Read tool");
   });
 
   it("feature mode adapts 'final file read' step to use Read tool", () => {
@@ -500,6 +517,12 @@ describe("buildClaudeCodePrompt", () => {
     const result = buildClaudeCodePrompt("new_application", templateCatalog, "");
     expect(result).toContain("FILE ACCESS ADVANTAGE");
     expect(result).toContain("direct access to the");
+  });
+
+  it("contains CODEBASE NAVIGATION rules in the wrapper", () => {
+    const result = buildClaudeCodePrompt("feature", templateCatalog, projectContext);
+    expect(result).toContain("CODEBASE NAVIGATION");
+    expect(result).toContain("NEVER ask the user to identify file locations");
   });
 
   it("contains HARD CONSTRAINTS section from the wrapper", () => {

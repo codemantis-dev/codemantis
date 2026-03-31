@@ -13,6 +13,7 @@ import {
   autoSelectSpecModel,
   isSpecModelAvailable,
   getSpecModelLabel,
+  SPECWRITER_WEAK_MODELS,
   modelSupportsImages,
   modelSupportsFiles,
   modelSupportsAttachments,
@@ -143,6 +144,21 @@ describe("SPEC_WRITING_MODELS", () => {
       const providerModels = AI_MODELS[m.provider];
       expect(providerModels.some((pm) => pm.id === m.id)).toBe(true);
     }
+  });
+});
+
+describe("SPECWRITER_WEAK_MODELS", () => {
+  it("contains only models that exist in AI_MODELS", () => {
+    const allModelIds = Object.values(AI_MODELS).flat().map((m) => m.id);
+    for (const weakId of SPECWRITER_WEAK_MODELS) {
+      expect(allModelIds).toContain(weakId);
+    }
+  });
+
+  it("does not include any recommended models", () => {
+    expect(SPECWRITER_WEAK_MODELS).not.toContain("gemini-3-flash-preview");
+    expect(SPECWRITER_WEAK_MODELS).not.toContain("claude-sonnet-4-6");
+    expect(SPECWRITER_WEAK_MODELS).not.toContain("gpt-5.4");
   });
 });
 
