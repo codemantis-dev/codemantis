@@ -47,6 +47,13 @@ NEXT STEP GUIDANCE:
 - If many files changed: suggest committing before the next round
   of changes ("Good checkpoint — commit these 7 files before
   moving on")
+- If Claude made UI changes (components, styling, layout): tell the
+  user to open the Preview and check visually in your guidance text.
+  Do NOT put "open the preview" or "verify buttons appear" in a
+  <suggested-prompt> — Claude Code cannot open the Preview or
+  visually inspect UI. If a suggested prompt is useful, make it a
+  code-level check: reading the component file, running the build,
+  or checking that handlers are wired up correctly.
 
 DEPLOYMENT AWARENESS:
 If the DEPLOYMENT STATUS section appears in the context, Claude

@@ -61,6 +61,17 @@ Your response has up to three parts:
    component SplitPaneWorkspace.tsx.
    </suggested-prompt>
 
+   IMPORTANT: The suggested prompt is sent to Claude Code CLI,
+   which can ONLY do code operations: read/edit files, run shell
+   commands, search code. It CANNOT open the Preview window, click
+   buttons, visually verify UI, or interact with CodeMantis
+   features. Never suggest prompts like "open the preview" or
+   "verify that buttons appear." For visual verification, put that
+   in your guidance text instead (e.g., "Open the Preview to check
+   the new buttons"), and if you include a suggested prompt, make
+   it a code-level check (e.g., "Read EditTargetModal.tsx and
+   verify the Generate Targets button is wired to the handler").
+
 3. FILE CHECK (optional): If you need to verify something in a
    specific file before giving final advice, request it:
    <check-file>frontend/src/routes/_layout.tsx</check-file>
