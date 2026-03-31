@@ -1,5 +1,21 @@
 # CodeMantis Releases
 
+## 0.9.9
+
+### Terminal & Preview Fixes
+- Fix: clear NODE_PATH on PTY spawn to prevent stale module resolution
+- Fix: avoid duplicate/stale port probes and stop probing after PTY exit
+- Fix: cm-ipc navigation fallback for toolbar when CSP blocks fetch
+- Fix: PTY exit handling for preview dev servers
+
+### SpecWriter Improvements
+- Default planning model to Gemini 3 Flash; default provider to Claude Code
+- Weak-model warning and stronger feature-mode navigation instructions
+- Tighten session sizing, audit handoff, and clean-output prompt rules
+
+### Super Bro
+- Clarify CLI-only suggested prompts vs visual checks in persona docs
+
 ## 0.9.8
 
 - Super Bro: surface CLAUDE.md presence in project context and coaching prompts
