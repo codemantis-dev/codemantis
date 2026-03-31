@@ -75,7 +75,7 @@ export function useSettingsFormState() {
   const [superBroModel, setSuperBroModel] = useState(settings.superBroModel);
 
   // --- Task Board ---
-  const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
+  const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
   const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 64000);
   const [taskBoardMaxRetries] = useState(settings.taskBoardMaxRetries ?? 3);
   const [taskBoardAutoStartNext] = useState(settings.taskBoardAutoStartNext ?? true);
@@ -122,7 +122,7 @@ export function useSettingsFormState() {
       setSuperBroEnabled(settings.superBroEnabled);
       setSuperBroProvider(settings.superBroProvider);
       setSuperBroModel(settings.superBroModel);
-      setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3.1-flash-lite-preview");
+      setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
       setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
       setTestingKey(false);

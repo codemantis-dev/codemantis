@@ -55,7 +55,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   previewCustomDevCommand: null,
   previewConsoleAutoOpen: true,
   previewLastUrls: {},
-  taskBoardPlanningModel: "gemini-3.1-flash-lite-preview",
+  taskBoardPlanningModel: "gemini-3-flash-preview",
   taskBoardMaxTokens: 64000,
   taskBoardMaxRetries: 3,
   taskBoardAutoStartNext: true,

@@ -93,15 +93,16 @@ export interface SpecModelOption {
 
 /** Models available for SpecWriter, ordered by auto-select priority (lower cost first). */
 export const SPEC_WRITING_MODELS: SpecModelOption[] = [
-  { id: "gemini-3.1-flash-lite-preview", provider: "gemini",    label: "Gemini 3.1 Flash Lite" },
+  { id: "gemini-3-flash-preview",        provider: "gemini",    label: "Gemini 3.0 Flash" },
   { id: "gpt-5.4-mini",                  provider: "openai",    label: "GPT-5.4 Mini" },
   { id: "claude-sonnet-4-6",             provider: "anthropic", label: "Claude Sonnet 4.6" },
+  { id: "gemini-3.1-flash-lite-preview", provider: "gemini",    label: "Gemini 3.1 Flash Lite" },
   { id: "gemini-3.1-pro-preview",        provider: "gemini",    label: "Gemini 3.1 Pro" },
   { id: "gpt-5.4",                       provider: "openai",    label: "GPT-5.4" },
   { id: "claude-opus-4-6",               provider: "anthropic", label: "Claude Opus 4.6" },
 ];
 
-export const DEFAULT_SPEC_MODEL = "gemini-3.1-flash-lite-preview";
+export const DEFAULT_SPEC_MODEL = "gemini-3-flash-preview";
 
 // ── SpecWriter Claude Code model selection ──────────────────────
 

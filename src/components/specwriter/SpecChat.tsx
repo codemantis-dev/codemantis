@@ -8,7 +8,6 @@ import {
   getProviderForModel,
   SPEC_WRITING_MODELS,
   SPEC_CLAUDE_CODE_MODELS,
-  DEFAULT_SPEC_MODEL,
   DEFAULT_SPEC_CLAUDE_CODE_MODEL,
   isSpecModelAvailable,
   autoSelectSpecModel,
@@ -53,31 +52,12 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isStreaming, cancelStream, projectPath]);
 
-  // Init a fresh conversation if none exists — default to 'feature' mode
-  // Default to Claude Code (no API key needed), or auto-select an API model if available
+  // Init a fresh conversation if none exists — default to Claude Code (Sonnet 4.6)
   useEffect(() => {
     if (!conversation) {
-      const settings = useSettingsStore.getState().settings;
-      const rawModel = settings.taskBoardPlanningModel || DEFAULT_SPEC_MODEL;
-      const hasApiKey = isSpecModelAvailable(rawModel, settings.apiKeys);
-
-      if (hasApiKey) {
-        const provider = getProviderForModel(rawModel) ?? "gemini";
-        useSpecWriterStore.getState().initConversation(projectPath, provider, rawModel, "feature");
-      } else {
-        // Try to auto-select an API model with a key; fallback to Claude Code
-        const autoModel = autoSelectSpecModel(settings.apiKeys);
-        const autoHasKey = isSpecModelAvailable(autoModel, settings.apiKeys);
-        if (autoHasKey) {
-          const provider = getProviderForModel(autoModel) ?? "gemini";
-          useSpecWriterStore.getState().initConversation(projectPath, provider, autoModel, "feature");
-        } else {
-          // No API keys configured — default to Claude Code
-          useSpecWriterStore.getState().initConversation(
-            projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL, "feature"
-          );
-        }
-      }
+      useSpecWriterStore.getState().initConversation(
+        projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL, "feature"
+      );
     }
   }, [projectPath, conversation]);
 

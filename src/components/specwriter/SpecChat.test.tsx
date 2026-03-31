@@ -122,14 +122,15 @@ describe("SpecChat", () => {
     expect(conv?.ai_model).toBe("claude-sonnet-4-6");
   });
 
-  it("defaults to API model when API key is available", () => {
+  it("defaults to Claude Code even when API key is available", () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
     render(<SpecChat projectPath={PROJECT} />);
     const conv = useSpecWriterStore.getState().getActiveConversation(PROJECT);
-    // Should auto-select gemini since it has a key
-    expect(conv?.ai_provider).not.toBe("claude-code");
+    // Should still default to Claude Code — user must manually switch
+    expect(conv?.ai_provider).toBe("claude-code");
+    expect(conv?.ai_model).toBe("claude-sonnet-4-6");
   });
 
   it("does not show API key warning for Claude Code provider", () => {

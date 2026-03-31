@@ -165,7 +165,7 @@ fn default_preview_height() -> u32 {
     768
 }
 fn default_task_board_model() -> String {
-    "gemini-2.5-flash".to_string()
+    "gemini-3-flash-preview".to_string()
 }
 fn default_task_board_max_tokens() -> u32 {
     64000

@@ -112,17 +112,18 @@ describe("assistant-provider types", () => {
 // ── SpecWriter model selection ──────────────────────────────────
 
 describe("SPEC_WRITING_MODELS", () => {
-  it("has exactly 6 models", () => {
-    expect(SPEC_WRITING_MODELS).toHaveLength(6);
+  it("has exactly 7 models", () => {
+    expect(SPEC_WRITING_MODELS).toHaveLength(7);
   });
 
   it("first model is the default (cheapest)", () => {
     expect(SPEC_WRITING_MODELS[0].id).toBe(DEFAULT_SPEC_MODEL);
-    expect(SPEC_WRITING_MODELS[0].id).toBe("gemini-3.1-flash-lite-preview");
+    expect(SPEC_WRITING_MODELS[0].id).toBe("gemini-3-flash-preview");
   });
 
   it("includes all required models", () => {
     const ids = SPEC_WRITING_MODELS.map((m) => m.id);
+    expect(ids).toContain("gemini-3-flash-preview");
     expect(ids).toContain("gemini-3.1-flash-lite-preview");
     expect(ids).toContain("gemini-3.1-pro-preview");
     expect(ids).toContain("gpt-5.4-mini");
@@ -151,7 +152,7 @@ describe("autoSelectSpecModel", () => {
   });
 
   it("returns gemini model when only gemini key is set", () => {
-    expect(autoSelectSpecModel({ gemini: "gm-key" })).toBe("gemini-3.1-flash-lite-preview");
+    expect(autoSelectSpecModel({ gemini: "gm-key" })).toBe("gemini-3-flash-preview");
   });
 
   it("returns gpt-5.4-mini when only openai key is set (cheapest openai)", () => {
@@ -163,7 +164,7 @@ describe("autoSelectSpecModel", () => {
   });
 
   it("returns first match in priority order when all keys set", () => {
-    expect(autoSelectSpecModel({ gemini: "g", openai: "o", anthropic: "a" })).toBe("gemini-3.1-flash-lite-preview");
+    expect(autoSelectSpecModel({ gemini: "g", openai: "o", anthropic: "a" })).toBe("gemini-3-flash-preview");
   });
 
   it("skips gemini when only openai and anthropic keys set", () => {

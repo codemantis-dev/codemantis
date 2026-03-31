@@ -32,7 +32,7 @@ beforeEach(() => {
     settings: {
       ...useSettingsStore.getState().settings,
       apiKeys: { gemini: "test-key" },
-      taskBoardPlanningModel: "gemini-2.5-flash",
+      taskBoardPlanningModel: "gemini-3-flash-preview",
     },
   });
 });
