@@ -6,6 +6,8 @@ use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -823,6 +825,28 @@ pub async fn start_dev_server(
         // Layer 3 can skip stale servers on those ports.
         let mut occupied_ports: HashSet<u16> = HashSet::new();
 
+        // Track ports already probed in Layer 1 to avoid probing the same
+        // dead port twice (e.g. port appears in both Local: and Network: lines).
+        let mut probed_ports: HashSet<u16> = HashSet::new();
+
+        // Detect PTY exit so we can short-circuit probe delays when the
+        // dev server process has already crashed.  The tx sender is held by
+        // the Tauri event listener, so rx.recv() never returns None on PTY close.
+        let pty_exited = Arc::new(AtomicBool::new(false));
+        {
+            let flag = pty_exited.clone();
+            let close_tid = output_tid.clone();
+            ah.listen("dev-server-closed", move |event| {
+                #[derive(Deserialize)]
+                struct Closed { terminal_id: String }
+                if let Ok(e) = serde_json::from_str::<Closed>(event.payload()) {
+                    if e.terminal_id == close_tid {
+                        flag.store(true, Ordering::Relaxed);
+                    }
+                }
+            });
+        }
+
         // Helper: check if project was removed (stop_dev_server called)
         let project_removed = || async {
             let servers = dev_servers.lock().await;
@@ -845,25 +869,47 @@ pub async fn start_dev_server(
                         }
 
                         if let Some((port, url)) = port_detector::scan_for_dev_server_url(line) {
+                            // Skip ports already probed (e.g. same port in Local: and Network: lines)
+                            if probed_ports.contains(&port) {
+                                debug!("[preview] Skipping already-probed port {} for {}", port, pp);
+                                continue;
+                            }
+                            // Skip ports known to be occupied by stale servers
+                            if occupied_ports.contains(&port) {
+                                debug!("[preview] Skipping occupied port {} for {}", port, pp);
+                                continue;
+                            }
+
                             // Guard: project may have been closed during scanning
                             if project_removed().await {
                                 debug!("Project {} was closed during port detection, skipping emit", pp);
                                 unlisten_ah.unlisten(listener_id);
                                 return;
                             }
+
+                            probed_ports.insert(port);
                             info!("Dev server candidate on port {} for {}, verifying...", port, pp);
 
                             // Probe the port with retries — some frameworks (Next.js
                             // Turbopack, fumadocs-mdx) print the URL before they actually
                             // accept HTTP connections.  Under heavy system load the gap
                             // can exceed 3 seconds. We retry up to 4 times with increasing
-                            // delays (total ~7 s max per detected port) while the overall
+                            // delays (total ~5.1 s max per detected port) while the overall
                             // 30 s deadline still applies as the hard ceiling.
-                            let probe_delays_ms: &[u64] = &[1000, 1500, 2000, 2500];
+                            let probe_delays_ms: &[u64] = &[300, 800, 1500, 2500];
                             let mut probe_succeeded = false;
 
                             for (attempt, &delay_ms) in probe_delays_ms.iter().enumerate() {
                                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+                                // Short-circuit if the dev server process has already exited
+                                if pty_exited.load(Ordering::Relaxed) {
+                                    warn!(
+                                        "[preview] PTY exited, skipping remaining probes for port {} ({})",
+                                        port, pp
+                                    );
+                                    break;
+                                }
 
                                 // Guard: project may have been closed during the wait
                                 if project_removed().await {

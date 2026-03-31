@@ -20,7 +20,7 @@ static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Lines indicating a port is already occupied — must be skipped before pattern matching.
 static PORT_IN_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:already in use|in use.*trying|EADDRINUSE|address already|port is occupied|is already running on port)").unwrap()
+    Regex::new(r"(?i)(?:already in use|is in use|in use.*trying|using available port|EADDRINUSE|address already|port is occupied|is already running on port)").unwrap()
 });
 
 /// Extract the occupied port number from "port in use" messages.
@@ -554,6 +554,43 @@ mod tests {
     #[test]
     fn test_port_in_use_ansi_wrapped() {
         let line = "\x1b[31mPort 5173 is already in use\x1b[0m, trying 5174...";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    // ── Next.js 16 "is in use" patterns ──
+
+    #[test]
+    fn test_port_in_use_nextjs16_bare() {
+        // Next.js 16: "Port 3000 is in use by process 8197, using available port 3001 instead."
+        let line = "⚠ Port 3000 is in use by process 8197, using available port 3001 instead.";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_port_in_use_bare_is_in_use() {
+        let line = "Port 3000 is in use";
+        let result = scan_for_dev_server_url(line);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_occupied_port_nextjs16() {
+        let line = "⚠ Port 3000 is in use by process 8197, using available port 3001 instead.";
+        assert_eq!(extract_occupied_port(line), Some(3000));
+    }
+
+    #[test]
+    fn test_extract_occupied_port_bare_is_in_use() {
+        let line = "Port 5173 is in use";
+        assert_eq!(extract_occupied_port(line), Some(5173));
+    }
+
+    #[test]
+    fn test_port_in_use_using_available_port() {
+        // The "using available port" phrase should also be recognized as a port-in-use context
+        let line = "using available port 3001 instead";
         let result = scan_for_dev_server_url(line);
         assert!(result.is_none());
     }
