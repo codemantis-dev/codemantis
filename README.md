@@ -38,7 +38,7 @@ A free, open-source native macOS application that gives Claude Code a proper gra
 
 ## Why CodeMantis?
 
-- **Not Electron.** Built with Tauri v2 and Rust. Launches in under a second. Uses under 120 MB of memory. Under 30 MB download.
+- **Not Electron.** Built with Tauri v2 and Rust. Launches in under a second. Uses under 120 MB of memory. Under 50 MB download.
 - **Not an API wrapper.** Spawns the real `claude` CLI binary and communicates via its streaming JSON protocol. Your existing Pro or Max subscription is all you need.
 - **Not just a terminal.** An IDE-like layout with separated chat and activity panels, a spec writer, a preview browser, integrated terminals, multi-AI assistants, and a coaching layer — all in one native window.
 
