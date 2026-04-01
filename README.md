@@ -28,9 +28,11 @@ A free, open-source native macOS application that gives Claude Code a proper gra
 
 ### See it in action
 
-<video src="https://github.com/codemantis-dev/codemantis/raw/main/public/video/CodeMantis_in_under_3_minutes_compressed.mp4" controls width="100%"></video>
+<a href="https://youtu.be/OnSXzzLzi4o">
+  <img src="https://img.youtube.com/vi/OnSXzzLzi4o/maxresdefault.jpg" alt="CodeMantis in under 3 minutes" width="80%">
+</a>
 
-*CodeMantis in under 3 minutes — [watch the video](public/video/CodeMantis_in_under_3_minutes_compressed.mp4) if it doesn't play above.*
+*CodeMantis in under 3 minutes — click to watch on YouTube*
 
 </div>
 
