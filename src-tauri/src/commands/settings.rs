@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn default_task_board_settings() {
-        assert_eq!(default_task_board_model(), "gemini-2.5-flash");
+        assert_eq!(default_task_board_model(), "gemini-3-flash-preview");
         assert_eq!(default_task_board_max_tokens(), 64000);
         assert_eq!(default_task_board_retries(), 3);
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -65,9 +65,17 @@ export function useSettingsFormState() {
   const [previewCustomDevCommand, setPreviewCustomDevCommand] = useState(settings.previewCustomDevCommand ?? "");
   const [previewConsoleAutoOpen, setPreviewConsoleAutoOpen] = useState(settings.previewConsoleAutoOpen);
 
-  // --- Session Logs ---
-  const [sessionLogsEnabled, setSessionLogsEnabled] = useState(settings.sessionLogsEnabled);
-  const [sessionLogsRetentionDays, setSessionLogsRetentionDays] = useState(settings.sessionLogsRetentionDays);
+  // --- Session Logs (auto-saved — toggles apply immediately, no Save button needed) ---
+  const [sessionLogsEnabled, setSessionLogsEnabledLocal] = useState(settings.sessionLogsEnabled);
+  const setSessionLogsEnabled = useCallback((v: boolean) => {
+    setSessionLogsEnabledLocal(v);
+    updateSettings({ sessionLogsEnabled: v });
+  }, [updateSettings]);
+  const [sessionLogsRetentionDays, setSessionLogsRetentionDaysLocal] = useState(settings.sessionLogsRetentionDays);
+  const setSessionLogsRetentionDays = useCallback((d: number) => {
+    setSessionLogsRetentionDaysLocal(d);
+    updateSettings({ sessionLogsRetentionDays: d });
+  }, [updateSettings]);
 
   // --- Super-Bro ---
   const [superBroEnabled, setSuperBroEnabled] = useState(settings.superBroEnabled);
@@ -117,8 +125,8 @@ export function useSettingsFormState() {
       setPreviewAutoStart(settings.previewAutoStart);
       setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
-      setSessionLogsEnabled(settings.sessionLogsEnabled);
-      setSessionLogsRetentionDays(settings.sessionLogsRetentionDays);
+      setSessionLogsEnabledLocal(settings.sessionLogsEnabled);
+      setSessionLogsRetentionDaysLocal(settings.sessionLogsRetentionDays);
       setSuperBroEnabled(settings.superBroEnabled);
       setSuperBroProvider(settings.superBroProvider);
       setSuperBroModel(settings.superBroModel);

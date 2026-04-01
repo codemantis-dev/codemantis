@@ -367,4 +367,52 @@ describe("ClaudeHistory", () => {
       expect(screen.getByText("I found the issue in auth.ts")).toBeInTheDocument();
     });
   });
+
+  it("shows info toast when resuming session without stored messages", async () => {
+    const { showToast } = await import("../../stores/toastStore");
+    const entry = makeHistoryEntry({ has_stored_messages: false });
+    mockListSessionHistory.mockResolvedValue([entry]);
+    mockResumeFromHistory.mockResolvedValue("new-session-id");
+
+    render(<ClaudeHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Session")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Resume"));
+
+    await waitFor(() => {
+      expect(mockResumeFromHistory).toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledWith(
+        "Previous messages were not saved for this session",
+        "info"
+      );
+    });
+  });
+
+  it("does NOT show info toast when resuming session with stored messages", async () => {
+    const { showToast } = await import("../../stores/toastStore");
+    const entry = makeHistoryEntry({ has_stored_messages: true });
+    mockListSessionHistory.mockResolvedValue([entry]);
+    mockResumeFromHistory.mockResolvedValue("new-session-id");
+
+    render(<ClaudeHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Session")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Resume"));
+
+    await waitFor(() => {
+      expect(mockResumeFromHistory).toHaveBeenCalled();
+    });
+
+    // showToast should NOT have been called with the info message
+    expect(showToast).not.toHaveBeenCalledWith(
+      "Previous messages were not saved for this session",
+      "info"
+    );
+  });
 });

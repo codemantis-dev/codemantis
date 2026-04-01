@@ -109,7 +109,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     const session = sessionStore.getState().sessions.get(sessionId);
     if (!session) return;
 
-    const msgId = `user-${Date.now()}`;
+    const msgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     sessionStore.getState().addMessage(sessionId, {
       id: msgId,
       role: "user",
@@ -131,8 +131,12 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   const closeSessionFn = useCallback(async (sessionId: string) => {
     // Save session messages if session logs enabled (before messages are cleared)
     const { sessionLogsEnabled } = useSettingsStore.getState().settings;
+    const messages = sessionStore.getState().sessionMessages.get(sessionId) ?? [];
+    console.info(
+      `[closeSession] sessionId=${sessionId} sessionLogsEnabled=${sessionLogsEnabled} messageCount=${messages.length}` +
+      (messages.length > 0 ? ` roles=[${messages.map((m) => m.role).join(",")}] contentLengths=[${messages.map((m) => m.content.length).join(",")}]` : "")
+    );
     if (sessionLogsEnabled) {
-      const messages = sessionStore.getState().sessionMessages.get(sessionId) ?? [];
       if (messages.length > 0) {
         const payloads: SessionMessagePayload[] = messages.map((m, i) => ({
           id: m.id,
@@ -142,12 +146,19 @@ export function useClaudeSession(): UseClaudeSessionReturn {
           thinkingContent: m.thinkingContent ?? null,
           sortOrder: i,
         }));
+        console.info(`[closeSession] Saving ${payloads.length} messages for session ${sessionId}...`);
         try {
           await saveSessionMessages(sessionId, payloads);
+          console.info(`[closeSession] Successfully saved ${payloads.length} messages for session ${sessionId}`);
         } catch (e) {
           console.error("[closeSession] Failed to save session messages:", e);
+          showToast("Failed to save session messages", "error");
         }
+      } else {
+        console.warn(`[closeSession] No messages to save for session ${sessionId}`);
       }
+    } else {
+      console.warn(`[closeSession] Session logs disabled — skipping save for ${sessionId} (${messages.length} messages lost)`);
     }
 
     // Unlisten all event listeners for this session
@@ -249,31 +260,30 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       const session = await createSession(projectPath, originalName, cliSessionId);
       sessionStore.getState().addSession(session);
 
-      // Load stored messages if session logs are enabled
+      // Always load stored messages if they exist (regardless of current sessionLogsEnabled toggle —
+      // the toggle controls saving, not loading; previously saved messages should always be accessible)
       if (originalSessionId) {
-        const { sessionLogsEnabled } = useSettingsStore.getState().settings;
-        if (sessionLogsEnabled) {
-          try {
-            const stored = await loadSessionMessages(originalSessionId);
-            if (stored.length > 0) {
-              const restoredMessages: Message[] = stored.map((m) => ({
-                id: m.id,
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                timestamp: m.timestamp,
-                activityIds: [],
-                isStreaming: false,
-                thinkingContent: m.thinkingContent ?? undefined,
-                isRestored: true,
-              }));
-              const storeState = sessionStore.getState();
-              const sessionMessages = new Map(storeState.sessionMessages);
-              sessionMessages.set(session.id, restoredMessages);
-              sessionStore.setState({ sessionMessages });
-            }
-          } catch (e) {
-            console.error("[resumeFromHistory] Failed to load stored messages:", e);
+        try {
+          const stored = await loadSessionMessages(originalSessionId);
+          console.info(`[resumeFromHistory] Loaded ${stored.length} stored messages for ${originalSessionId} → new session ${session.id}`);
+          if (stored.length > 0) {
+            const restoredMessages: Message[] = stored.map((m) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              timestamp: m.timestamp,
+              activityIds: [],
+              isStreaming: false,
+              thinkingContent: m.thinkingContent ?? undefined,
+              isRestored: true,
+            }));
+            const storeState = sessionStore.getState();
+            const sessionMessages = new Map(storeState.sessionMessages);
+            sessionMessages.set(session.id, restoredMessages);
+            sessionStore.setState({ sessionMessages });
           }
+        } catch (e) {
+          console.error("[resumeFromHistory] Failed to load stored messages:", e);
         }
       }
 

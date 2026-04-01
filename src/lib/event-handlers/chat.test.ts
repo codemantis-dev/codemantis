@@ -4,12 +4,31 @@ import type { Session } from "../../types/session";
 import type { FrontendEvent } from "../../types/claude-events";
 import {
   handleChatEvent,
+  nextMessageId,
   flushThinkingBuffer,
   thinkingBuffers,
   thinkingFrames,
   streamingBuffers,
   pendingFrames,
 } from "./chat";
+
+describe("nextMessageId", () => {
+  it("generates unique IDs across many calls", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 1000; i++) {
+      ids.add(nextMessageId());
+    }
+    expect(ids.size).toBe(1000);
+  });
+
+  it("includes an epoch component to prevent cross-restart collisions", () => {
+    const id = nextMessageId();
+    // Format: msg-{epoch}-{counter} — must have at least two hyphens
+    const parts = id.split("-");
+    expect(parts.length).toBeGreaterThanOrEqual(3);
+    expect(parts[0]).toBe("msg");
+  });
+});
 
 const TEST_SESSION: Session = {
   id: "s1",

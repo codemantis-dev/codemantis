@@ -369,6 +369,8 @@ pub async fn close_session(
 
     // Persist with CLI session ID, model, and closed_at timestamp
     let closed_at = Utc::now().to_rfc3339();
+    // Check if messages were saved BEFORE we close the session
+    let has_msgs_before = state.database.session_has_messages(&session_id).unwrap_or(false);
     if let Err(e) = state.database.close_session_with_details(
         &session_id,
         cli_sid.as_deref(),
@@ -377,8 +379,13 @@ pub async fn close_session(
     ) {
         error!("Failed to persist session close details to database: {}", e);
     }
+    // Check if messages still exist AFTER close
+    let has_msgs_after = state.database.session_has_messages(&session_id).unwrap_or(false);
 
-    info!("Session closed: id={}", session_id);
+    info!(
+        "[close_session] id={} cli_sid={:?} model={:?} has_messages_before={} has_messages_after={}",
+        session_id, cli_sid, model, has_msgs_before, has_msgs_after
+    );
 
     // Clean up cli_session_ids entry
     {
@@ -488,6 +495,10 @@ pub async fn list_session_history(
             .collect();
 
         if let (Some(cli_sid), Some(closed_at)) = (session.cli_session_id, session.closed_at) {
+            info!(
+                "[list_session_history] session={} name={} has_stored_messages={} closed_at={}",
+                session.id, session.name, session.has_stored_messages, closed_at
+            );
             entries.push(SessionHistoryEntry {
                 session_id: session.id,
                 name: session.name,
@@ -613,6 +624,11 @@ pub async fn save_session_messages(
     session_id: String,
     messages: Vec<SessionMessagePayload>,
 ) -> Result<(), String> {
+    info!(
+        "[save_session_messages] Received {} messages for session {}",
+        messages.len(),
+        session_id
+    );
     let rows: Vec<SessionMessageRow> = messages
         .into_iter()
         .map(|m| SessionMessageRow {
@@ -625,16 +641,28 @@ pub async fn save_session_messages(
             sort_order: m.sort_order,
         })
         .collect();
-    state
-        .database
-        .save_session_messages(&session_id, &rows)
-        .map_err(|e| e.to_string())?;
-    info!(
-        "Saved {} session messages for session {}",
-        rows.len(),
-        session_id
-    );
-    Ok(())
+    match state.database.save_session_messages(&session_id, &rows) {
+        Ok(()) => {
+            // Verify the save by checking if messages exist now
+            let has = state.database.session_has_messages(&session_id);
+            info!(
+                "[save_session_messages] Saved {} messages for session {} — verified in DB: {:?}",
+                rows.len(),
+                session_id,
+                has
+            );
+            Ok(())
+        }
+        Err(e) => {
+            error!(
+                "[save_session_messages] FAILED to save {} messages for session {}: {}",
+                rows.len(),
+                session_id,
+                e
+            );
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -642,10 +670,15 @@ pub async fn load_session_messages(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<Vec<SessionMessagePayload>, String> {
+    info!("[load_session_messages] Loading messages for session {}", session_id);
     let rows = state
         .database
         .load_session_messages(&session_id)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!("[load_session_messages] FAILED for session {}: {}", session_id, e);
+            e.to_string()
+        })?;
+    info!("[load_session_messages] Found {} messages for session {}", rows.len(), session_id);
     Ok(rows
         .into_iter()
         .map(|r| SessionMessagePayload {

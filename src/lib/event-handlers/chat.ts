@@ -18,9 +18,10 @@ import { turnToolCallCount } from "./activity";
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
 
 let messageCounter = 0;
+const idEpoch = Date.now().toString(36);
 
 export function nextMessageId(): string {
-  return `msg-${++messageCounter}`;
+  return `msg-${idEpoch}-${++messageCounter}`;
 }
 
 // Streaming buffer: batches rapid text_delta events and flushes at ~60fps

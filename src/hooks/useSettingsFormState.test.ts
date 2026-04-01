@@ -176,7 +176,7 @@ describe("useSettingsFormState", () => {
     expect(result.current.sessionLogsRetentionDays).toBe(90);
   });
 
-  it("setSessionLogsEnabled updates local state", () => {
+  it("setSessionLogsEnabled updates local state and auto-saves to store", () => {
     act(() => {
       useUiStore.setState({ showSettingsModal: true });
     });
@@ -187,10 +187,13 @@ describe("useSettingsFormState", () => {
       result.current.setSessionLogsEnabled(false);
     });
 
+    // Local state updated
     expect(result.current.sessionLogsEnabled).toBe(false);
+    // Zustand store also updated immediately (auto-save)
+    expect(useSettingsStore.getState().settings.sessionLogsEnabled).toBe(false);
   });
 
-  it("setSessionLogsRetentionDays updates local state", () => {
+  it("setSessionLogsRetentionDays updates local state and auto-saves to store", () => {
     act(() => {
       useUiStore.setState({ showSettingsModal: true });
     });
@@ -201,6 +204,30 @@ describe("useSettingsFormState", () => {
       result.current.setSessionLogsRetentionDays(7);
     });
 
+    // Local state updated
     expect(result.current.sessionLogsRetentionDays).toBe(7);
+    // Zustand store also updated immediately (auto-save)
+    expect(useSettingsStore.getState().settings.sessionLogsRetentionDays).toBe(7);
+  });
+
+  it("session logs auto-save persists even if modal is cancelled", () => {
+    act(() => {
+      useUiStore.setState({ showSettingsModal: true });
+    });
+
+    const { result } = renderHook(() => useSettingsFormState());
+
+    // Toggle session logs off (auto-saves immediately)
+    act(() => {
+      result.current.setSessionLogsEnabled(false);
+    });
+
+    // Cancel the modal (discards other unsaved changes)
+    act(() => {
+      result.current.handleCancel();
+    });
+
+    // Session logs change should still be persisted
+    expect(useSettingsStore.getState().settings.sessionLogsEnabled).toBe(false);
   });
 });

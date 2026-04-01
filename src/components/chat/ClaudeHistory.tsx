@@ -193,6 +193,9 @@ export default function ClaudeHistory() {
         entry.name,
         entry.session_id
       );
+      if (!entry.has_stored_messages) {
+        showToast("Previous messages were not saved for this session", "info");
+      }
     } catch (e) {
       console.error("[ClaudeHistory.handleResume]", e);
       showToast("Session no longer available — try creating a new session", "error");

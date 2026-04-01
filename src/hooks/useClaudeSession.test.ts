@@ -22,6 +22,8 @@ const {
   mockListenActivityEvents,
   mockCloseTerminal,
   mockInitializeSession,
+  mockSaveSessionMessages,
+  mockLoadSessionMessages,
 } = vi.hoisted(() => ({
   mockHandleChatEvent: vi.fn(),
   mockHandleActivityEvent: vi.fn(),
@@ -35,6 +37,8 @@ const {
   mockListenActivityEvents: vi.fn(() => Promise.resolve(vi.fn())),
   mockCloseTerminal: vi.fn(() => Promise.resolve()),
   mockInitializeSession: vi.fn(() => Promise.resolve()),
+  mockSaveSessionMessages: vi.fn(() => Promise.resolve()),
+  mockLoadSessionMessages: vi.fn((): Promise<unknown[]> => Promise.resolve([])),
 }));
 
 vi.mock("../lib/event-classifier", () => ({
@@ -58,6 +62,8 @@ vi.mock("../lib/tauri-commands", () => ({
   listenActivityEvents: mockListenActivityEvents,
   closeTerminal: mockCloseTerminal,
   initializeSession: mockInitializeSession,
+  saveSessionMessages: mockSaveSessionMessages,
+  loadSessionMessages: mockLoadSessionMessages,
 }));
 
 // Mock input-drafts
@@ -70,6 +76,7 @@ vi.mock("../stores/toastStore", () => ({
   showToast: vi.fn(),
 }));
 
+import { useSettingsStore } from "../stores/settingsStore";
 import { useClaudeSession } from "./useClaudeSession";
 
 const PROJECT_PATH = "/tmp/project";
@@ -385,5 +392,98 @@ describe("useClaudeSession", () => {
         await result.current.resumeFromHistory(PROJECT_PATH, "cli-abc", "Old");
       })
     ).rejects.toThrow("Maximum 10 sessions allowed");
+  });
+
+  it("resumeFromHistory loads stored messages regardless of sessionLogsEnabled", async () => {
+    // Disable session logs — loading should STILL work
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, sessionLogsEnabled: false },
+    });
+
+    mockCreateSession.mockResolvedValueOnce(makeSession("new-s1", { id: "new-s1" }));
+    mockLoadSessionMessages.mockResolvedValueOnce([
+      { id: "m1", role: "user", content: "Hello", timestamp: "2026-01-01T00:00:00Z", thinkingContent: null, sortOrder: 0 },
+      { id: "m2", role: "assistant", content: "Hi back", timestamp: "2026-01-01T00:01:00Z", thinkingContent: null, sortOrder: 1 },
+    ]);
+
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.resumeFromHistory(PROJECT_PATH, "cli-abc", "Old Session", "orig-session-id");
+    });
+
+    // loadSessionMessages should be called with the original session ID
+    expect(mockLoadSessionMessages).toHaveBeenCalledWith("orig-session-id");
+
+    // Messages should be set on the NEW session
+    const messages = useSessionStore.getState().sessionMessages.get("new-s1") ?? [];
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content).toBe("Hello");
+    expect(messages[0].isRestored).toBe(true);
+    expect(messages[1].content).toBe("Hi back");
+  });
+
+  it("resumeFromHistory handles empty stored messages gracefully", async () => {
+    mockCreateSession.mockResolvedValueOnce(makeSession("new-s1", { id: "new-s1" }));
+    mockLoadSessionMessages.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.resumeFromHistory(PROJECT_PATH, "cli-abc", "Old Session", "orig-session-id");
+    });
+
+    expect(mockLoadSessionMessages).toHaveBeenCalledWith("orig-session-id");
+    // Session messages should be the initial empty array from addSession
+    const messages = useSessionStore.getState().sessionMessages.get("new-s1") ?? [];
+    expect(messages).toHaveLength(0);
+  });
+
+  it("closeSession saves messages when sessionLogsEnabled is true", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, sessionLogsEnabled: true },
+    });
+
+    useSessionStore.getState().addSession(makeSession("s1"));
+    // Add some messages to the session
+    useSessionStore.getState().addMessage("s1", {
+      id: "msg-1", role: "user", content: "Hello", timestamp: "2026-01-01T00:00:00Z",
+      activityIds: [], isStreaming: false,
+    });
+    useSessionStore.getState().addMessage("s1", {
+      id: "msg-2", role: "assistant", content: "Hi", timestamp: "2026-01-01T00:01:00Z",
+      activityIds: [], isStreaming: false,
+    });
+
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.closeSession("s1");
+    });
+
+    expect(mockSaveSessionMessages).toHaveBeenCalledWith("s1", expect.arrayContaining([
+      expect.objectContaining({ id: "msg-1", role: "user", content: "Hello" }),
+      expect.objectContaining({ id: "msg-2", role: "assistant", content: "Hi" }),
+    ]));
+  });
+
+  it("closeSession does NOT save messages when sessionLogsEnabled is false", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, sessionLogsEnabled: false },
+    });
+
+    useSessionStore.getState().addSession(makeSession("s1"));
+    useSessionStore.getState().addMessage("s1", {
+      id: "msg-1", role: "user", content: "Hello", timestamp: "2026-01-01T00:00:00Z",
+      activityIds: [], isStreaming: false,
+    });
+
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.closeSession("s1");
+    });
+
+    expect(mockSaveSessionMessages).not.toHaveBeenCalled();
   });
 });
