@@ -4,9 +4,11 @@
 
 ### The Mac app Claude Code deserves
 
-A free, open-source native macOS application that gives Claude Code a three-panel graphical interface — chat, activity feed, file viewer, terminals, and more.
+A free, open-source native macOS application that gives Claude Code a proper graphical interface — chat, activity feed, file viewer, preview browser, spec writer, terminals, and much more.
 
 **Uses your existing Claude Pro/Max subscription. No API key needed.**
+
+[codemantis.dev](https://codemantis.dev)
 
 ![CodeMantis](media/screenshots/CodeMantis_main_application_window_001.jpg)
 
@@ -16,17 +18,27 @@ A free, open-source native macOS application that gives Claude Code a three-pane
 [![GitHub Release](https://img.shields.io/github/v/release/codemantis-dev/codemantis?color=green)](https://github.com/codemantis-dev/codemantis/releases)
 [![Free & Open Source](https://img.shields.io/badge/free_%26_open_source-brightgreen.svg)]()
 
-[Website](https://codemantis.dev) · [Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [Contributing](CONTRIBUTING.md)
+[Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [User Guide](docs/user-guide/codemantis-complete-guide.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 ---
 
+<div align="center">
+
+### See it in action
+
+<video src="https://github.com/codemantis-dev/codemantis/raw/main/public/video/CodeMantis_in_under_3_minutes_compressed.mp4" controls width="100%"></video>
+
+*CodeMantis in under 3 minutes — [watch the video](public/video/CodeMantis_in_under_3_minutes_compressed.mp4) if it doesn't play above.*
+
+</div>
+
 ## Why CodeMantis?
 
 - **Not Electron.** Built with Tauri v2 and Rust. Launches in under a second. Uses under 120 MB of memory. Under 30 MB download.
 - **Not an API wrapper.** Spawns the real `claude` CLI binary and communicates via its streaming JSON protocol. Your existing Pro or Max subscription is all you need.
-- **Not just a terminal.** A three-panel IDE-like layout with separated chat and activity panels, a file viewer, integrated terminals, and multi-AI assistants — all in one native window.
+- **Not just a terminal.** An IDE-like layout with separated chat and activity panels, a spec writer, a preview browser, integrated terminals, multi-AI assistants, and a coaching layer — all in one native window.
 
 ---
 
@@ -34,15 +46,43 @@ A free, open-source native macOS application that gives Claude Code a three-pane
 
 ### SpecWriter — Write the Spec, Not the Code
 
-Claude Code implements what you describe — but the quality of the description determines the quality of the result. SpecWriter is an AI conversation partner that draws out the details you'd forget. Attach mockups, screenshots, or PDFs. It reads your codebase for real file paths and context, tags its confidence level on each recommendation, and produces implementation-ready specs with verification checklists.
+Claude Code implements what you describe — but the quality of the description determines the quality of the result. SpecWriter is an AI conversation partner that draws out the details you'd forget. Attach mockups, screenshots, or PDFs. It reads your codebase for real file paths and context, tags its confidence level on each recommendation, and produces implementation-ready specs with verification checklists. Save specs directly to your project and send them to Claude Code in one click.
 
-![SpecWriter](media/screenshots/CodeMantis_spec_writer_AI_dialogue_001.jpg)
+![SpecWriter](media/screenshots/CodeMantis_spec_writer_finished_spec_001.jpg)
+
+### Implementation Guide — From Spec to Code, Step by Step
+
+SpecWriter doesn't just hand you a document — it breaks the spec into scoped implementation sessions, each with its own file list, verification checklist, and a ready-to-go prompt you can send straight to Claude Code. Track progress across sessions, and use the **"Verify for me"** button to have Claude confirm each step before moving on.
+
+![Implementation Guide](media/screenshots/CodeMantis_guide_session_plan_with_verify_for_me_button_001.jpg)
 
 ### Three-Panel Layout with Mode Control
 
-The chat panel shows only conversation text. All code operations — file reads, writes, edits, bash commands — appear in the Activity Feed with color-coded tool badges, approval controls, and expandable details. Switch between **Normal** (approve each tool use), **Auto-Accept** (let Claude work autonomously), and **Plan** (reasoning only, no code changes) with `⌘.`.
+The chat panel shows only conversation text. All code operations — file reads, writes, edits, bash commands — appear in the Activity Feed with color-coded tool badges, approval controls, and expandable details. Switch between **Normal** (approve each tool use), **Auto-Accept** (let Claude work autonomously), and **Plan** (reasoning only, no code changes) with `⌘.`. When a plan finishes, a **"Plan Complete — Implement Now"** dialog lets you jump straight into execution with auto-accept enabled.
 
 ![Three-panel layout](media/screenshots/CodeMantis_main_application_window_chat_001.jpg)
+
+### Extended Thinking & Reasoning Panel
+
+See what Claude is thinking. The Activity Feed surfaces Claude's extended reasoning in a dedicated collapsible panel, so you can follow its thought process as it works through your codebase. Sub-agent activity — parallel exploration tasks spawned by Claude — is visualized live in the chat with named task labels.
+
+![Reasoning panel](media/screenshots/CodeMantis_Claude_reasoning_panel_001.jpg)
+
+### Preview Browser
+
+A native browser window for previewing your running app alongside the conversation. Auto-detects dev servers from terminal output, supports responsive viewport presets (mobile, tablet, desktop), and captures console logs — errors and warnings surface directly in the Activity Feed. Screenshot your app and feed it right back into the Claude conversation with one click.
+
+![Preview browser](media/screenshots/CodeMantis_integrated_browser_001.jpg)
+
+### Super Bro — Contextual AI Coach
+
+An optional coaching layer that watches your coding sessions and offers proactive guidance. Super Bro is deployment-aware (reads live git status and recent changes), tags its confidence level, and auto-dismisses when everything looks good. Enable per-project from the sidebar. Configure provider, model, and knowledge modules in Settings.
+
+### Multi-AI Assistants
+
+Open parallel assistant tabs powered by OpenAI, Google Gemini, Anthropic, or OpenRouter alongside your Claude Code session. Per-session token tracking and cost display included. Use them as brainstorming partners, code reviewers, or documentation helpers — while Claude Code remains the one editing your files.
+
+![Multi-AI assistants](media/screenshots/CodeMantis_main_application_window_with_assistant_gpt_001.jpg)
 
 ### Project Templates
 
@@ -50,17 +90,13 @@ Scaffold new projects from 11 curated templates — React + Vite, Next.js, Next.
 
 ![Project templates](media/screenshots/CodeMantis_new_project_templates_001.jpg)
 
-### Preview Browser
+### Interactive Tool Approvals & Questions
 
-A native browser window for previewing your running app alongside the conversation. Auto-detects dev servers from terminal output, supports responsive viewport presets, and captures console logs — errors and warnings surface directly in the Activity Feed. You can screenshot your app and feed it right back into the Claude conversation.
+Claude asks before acting. The approval modal shows exactly what tool Claude wants to use and why, with **Approve**, **Deny**, and **Always allow in this session** options. When Claude needs your input, it presents structured question cards with recommended options — or lets you type a custom response.
 
-![Preview browser](media/screenshots/CodeMantis_integrated_browser_001.jpg)
-
-### Multi-AI Assistants
-
-Open parallel assistant tabs powered by OpenAI, Google Gemini, or Anthropic APIs alongside your Claude Code session. Per-session token tracking and cost display included. Use them as brainstorming partners, code reviewers, or documentation helpers — while Claude Code remains the one editing your files.
-
-![Multi-AI assistants](media/screenshots/CodeMantis_main_application_window_with_assistant_gpt_001.jpg)
+| | |
+|---|---|
+| ![Approval](media/screenshots/CodeMantis_approval_window_001.jpg) | ![Question](media/screenshots/CodeMantis_Claude_question_answer_options_001.jpg) |
 
 ### And More
 
@@ -69,12 +105,15 @@ Open parallel assistant tabs powered by OpenAI, Google Gemini, or Anthropic APIs
 - **15+ MCP Server Templates** — Add, edit, and remove MCP servers across global and project scopes
 - **Slash Commands** — Searchable command palette with skill templates, built-in commands, and CLI fallback
 - **AI Changelogs** — Auto-generated structured changelogs after each session (Gemini, OpenAI, or Anthropic)
+- **Session Persistence** — Chat logs saved locally with automatic restore on resume; browse and resume previous sessions from Session History
+- **Clone from GitHub** — Clone a repo directly from the welcome screen or project picker
+- **Welcome Screen** — Guided onboarding with prerequisite checks, first-step actions, and environment verification
 - **6 Themes** — Midnight, Ocean, Ember (dark) / Dawn, Sand, Arctic (light)
-- **Session History** — Resume previous Claude Code conversations
-- **Auto-Updates** — Built-in Tauri updater with in-app notifications
+- **Auto-Updates** — Built-in Tauri updater with in-app update dialog and progress bar
 - **Error Recovery** — Auto-retry on rate limits, restart on crashes, stale connection detection
 - **Context Meter** — Live token usage with warnings at 80% and 95%
 - **Git Status** — Branch name, uncommitted changes, last commit and push time
+- **10,500 Trivia Facts** — Curated rotating facts while Claude is working, with easter eggs every 50th rotation
 
 ---
 
@@ -82,12 +121,22 @@ Open parallel assistant tabs powered by OpenAI, Google Gemini, or Anthropic APIs
 
 | | |
 |---|---|
-| ![Full layout](media/screenshots/CodeMantis_main_application_window_001.jpg) | ![SpecWriter](media/screenshots/CodeMantis_spec_writer_AI_dialogue_001.jpg) |
-| Three-panel layout with chat, activity feed, and file viewer | SpecWriter AI dialogue for implementation specs |
-| ![Templates](media/screenshots/CodeMantis_new_project_templates_001.jpg) | ![Preview Browser](media/screenshots/CodeMantis_integrated_browser_001.jpg) |
-| 11 curated project templates with prerequisite checks | Live preview browser with console log capture |
-| ![Multi-AI](media/screenshots/CodeMantis_main_application_window_with_assistant_gpt_001.jpg) | ![MCP Servers](media/screenshots/CodeMantis_mcp_server_management_001.jpg) |
-| Parallel AI assistants (OpenAI, Gemini, Anthropic) | MCP server management with 15+ templates |
+| ![Full layout](media/screenshots/CodeMantis_main_application_window_001.jpg) | ![Welcome screen](media/screenshots/CodeMantis_welcome_screen_001.jpg) |
+| Three-panel layout with chat, activity feed, and file viewer | Welcome screen with prerequisite checks and first steps |
+| ![SpecWriter](media/screenshots/CodeMantis_spec_writer_finished_spec_001.jpg) | ![Implementation Guide](media/screenshots/CodeMantis_spec_writer_guide_result_001.jpg) |
+| SpecWriter with full specification output and saved specs | Implementation Guide — scoped sessions with verification checklists |
+| ![Preview Browser](media/screenshots/CodeMantis_integrated_browser_001.jpg) | ![Console capture](media/screenshots/CodeMantis_integrated_browser_console_handling_001.jpg) |
+| Live preview browser with responsive viewport presets | Console log capture with warnings surfaced in activity feed |
+| ![Reasoning](media/screenshots/Codemantis_show_claude_code_reasoning_in_activity_001.jpg) | ![Sub-agents](media/screenshots/CodeMantis_sub_agents_working_001.jpg) |
+| Extended thinking and reasoning panel in activity feed | Sub-agent visualization with parallel exploration tasks |
+| ![Templates](media/screenshots/CodeMantis_new_project_templates_001.jpg) | ![Multi-AI](media/screenshots/CodeMantis_main_application_window_with_assistant_gpt_001.jpg) |
+| 11 curated project templates with prerequisite checks | Parallel AI assistants (OpenAI, Gemini, Anthropic, OpenRouter) |
+| ![Approval](media/screenshots/CodeMantis_approval_window_001.jpg) | ![Questions](media/screenshots/CodeMantis_Claude_question_answer_options_001.jpg) |
+| Tool approval modal with per-session allow option | Interactive question cards with structured options |
+| ![MCP Servers](media/screenshots/CodeMantis_mcp_server_management_001.jpg) | ![Plan Complete](media/screenshots/CodeMantis_plan_complete_implement_now_001.jpg) |
+| MCP server management with 15+ templates | Plan Complete dialog — jump straight to implementation |
+| ![Projects](media/screenshots/CodeMantis_projects_and_Claude_instances_001.jpg) | ![Screenshot to chat](media/screenshots/CodeMantis_screenshots_and_console_logs_from_integrated_browser_001.jpg) |
+| Multiple projects with independent Claude sessions | Screenshot and console logs fed back into conversation |
 
 ---
 
@@ -218,6 +267,6 @@ MIT — see [LICENSE](LICENSE) for details.
 
 If that's not a product demo, what is? [Read the story &rarr;](https://dev.to/codemantis)
 
-[Website](https://codemantis.dev) · [GitHub](https://github.com/codemantis-dev/codemantis) · [Releases](https://github.com/codemantis-dev/codemantis/releases)
+[Website](https://codemantis.dev) · [GitHub](https://github.com/codemantis-dev/codemantis) · [Releases](https://github.com/codemantis-dev/codemantis/releases) · [User Guide](docs/user-guide/codemantis-complete-guide.md)
 
 </div>
