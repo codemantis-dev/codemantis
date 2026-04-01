@@ -267,7 +267,7 @@ MIT — see [LICENSE](LICENSE) for details.
 
 **Built by a non-developer. Powered by Claude Code. Crafted for Mac.**
 
-If that's not a product demo, what is? [Read the story &rarr;](https://dev.to/codemantis)
+If that's not a product demo, what is? [Read the story &rarr;](https://codemantis.dev/blog/built-by-non-developer)
 
 [Website](https://codemantis.dev) · [GitHub](https://github.com/codemantis-dev/codemantis) · [Releases](https://github.com/codemantis-dev/codemantis/releases) · [User Guide](docs/user-guide/codemantis-complete-guide.md)
 
