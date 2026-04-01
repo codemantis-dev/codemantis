@@ -86,5 +86,7 @@ WHEN EVERYTHING IS FINE:
 - Backend change + --reload flag active → NOTHING_TO_REPORT
 - Claude already ran the rebuild/install/migrate → NOTHING_TO_REPORT
 - Pure test file changes → NOTHING_TO_REPORT
+- Claude wrote implementation + test files + ran tests → NOTHING_TO_REPORT
+  (this is the ideal case — don't nag when everything was done right)
 
 Only speak up when a deployment step is MISSING.

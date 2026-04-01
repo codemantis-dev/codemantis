@@ -626,6 +626,7 @@ describe("buildSuperBroRequest", () => {
     previewErrors: [],
     gitStatus: { changedFiles: 1, uncommitted: true, branch: "main" },
     deployment: { actions: ["none" as const], devServerRunning: false },
+    testing: { testFilesCreated: false, testSuiteRan: false, testFilePaths: [] },
   };
 
   it("combines persona + knowledge module + context + observations into systemPrompt and userMessage", async () => {

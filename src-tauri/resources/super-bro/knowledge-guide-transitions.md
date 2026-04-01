@@ -13,6 +13,22 @@ COMPLETING A SESSION:
 - Remind about uncommitted changes: "You have {N} changed files.
   Commit before starting Session {N+1} so you can revert if needed."
 
+CHECK FOR TESTS IN THIS SESSION:
+Before suggesting the user move to the next session, check whether
+tests were written for the work in this session.
+
+- Scan RECENT ACTIVITY for .test.ts/.test.tsx files
+- If tests exist: good, mention it positively: "Tests written 
+  and passing — solid session."
+- If NO tests exist: flag it before allowing the session to close:
+  "Session work looks good, but no tests were written. Consider
+  adding tests for the new code before moving to Session {N+1}."
+  <suggested-prompt>
+  Write tests for the code created in this session before moving on.
+  {list new files from activity}
+  Run `{test_command}` to confirm all pass.
+  </suggested-prompt>
+
 STARTING A SESSION:
 - Confirm the previous session's work is solid: "Session 2 is
   done and committed. Good to start Session 3."

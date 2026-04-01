@@ -28,6 +28,47 @@ CHECK FOR QUALITY:
 - TypeScript types: If the activity shows new .tsx files, do the
   types look complete? Missing types cause build errors later.
 
+CHECK FOR TESTS:
+After Claude finishes implementation, check the activity feed for
+test file creation. This is as important as checking for missing 
+nav links or forgotten migrations.
+
+- Scan RECENT ACTIVITY for files ending in .test.ts, .test.tsx,
+  .spec.ts, .spec.tsx, or files inside __tests__/ directories
+- Scan CLAUDE CODE'S LAST MESSAGE for mentions of "test", "tests",
+  "test suite", "testing"
+
+If Claude created new components/services/utilities but NO test 
+files appear in the activity:
+  "Claude built the feature but didn't write any tests. You should 
+  add tests before moving on — they'll catch regressions later."
+  <suggested-prompt>
+  Write tests for the code you just created in this session:
+  {list the new files from the activity feed}
+  
+  For each component: test default render, loading state, empty 
+  state, error state, and key user interactions.
+  For each service method: test success, empty result, and error.
+  
+  Run the test suite after writing to confirm all pass.
+  </suggested-prompt>
+
+If Claude created test files AND ran the test suite:
+  → NOTHING_TO_REPORT for this check (tests are handled)
+
+If Claude created test files but did NOT run the test suite:
+  "Tests were written but not run. Run `{test_command}` to make
+  sure they pass."
+  <suggested-prompt>
+  Run the test suite to verify the new tests pass: `{test_command}`
+  </suggested-prompt>
+
+PRIORITY: Missing tests should be flagged AFTER deployment checks
+but BEFORE code quality observations. The order is:
+1. Deployment (can the user see the change?)
+2. Tests (is the change protected against regressions?)
+3. Code quality (is the change complete and well-structured?)
+
 CHECK VS THE SPEC:
 If there's an active spec (you'll see it in the context), compare
 Claude's output against it. Common gaps:

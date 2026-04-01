@@ -390,6 +390,16 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Click → navigates to {route}
   - [ ] Active state styling when on {route} (and removed when navigating away)
 
+- [ ] Test coverage (list EVERY new file that needs tests):
+  - [ ] {component/page}.test.tsx: renders default state, loading
+        state, empty state, error state, user interactions ({list
+        specific interactions})
+  - [ ] {service}.test.ts: success case, empty case, error case,
+        edge cases ({list specific edges})
+  - [ ] {utility}.test.ts: all branches, edge inputs
+  - [ ] Run full test suite: \`{test_command}\` — all pass including
+        new tests
+
 ## 10. Session Plan — Multi-Session Implementation Breakdown
 
 If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
@@ -428,6 +438,12 @@ IGNORE all other sections. Do NOT read ahead.
 
 {what to implement — 3-5 specific items}
 
+Write tests for every new component, service method, and utility
+function you create in this session. Place tests adjacent to the
+source files following the project's test conventions (e.g.,
+Component.test.tsx next to Component.tsx, or in a __tests__ dir).
+Run the test suite after implementation to confirm all pass.
+
 Do NOT modify files from previous sessions unless the checklist
 explicitly says to.
 \`\`\`
@@ -435,7 +451,9 @@ explicitly says to.
 **Verify before next session:**
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
-- [ ] TypeScript compiles: pnpm tsc --noEmit
+- [ ] Tests written for all new functions/components in this session
+- [ ] Test suite passes: \`{test_command}\` (including new tests)
+- [ ] TypeScript compiles: \`{typecheck_command}\`
 
 EVERY session prompt MUST use the exact structure shown above. NEVER
 write a session prompt that says "Read the spec first" or "Read
@@ -625,6 +643,41 @@ WRITING RULES
     - Toast vs inline error for specific failure modes
     - Cache invalidation scope (exact key vs prefix match)
 
+16. EVERY phase in the Implementation Checklist MUST include test
+    items. Tests are written DURING implementation, not in a separate
+    "testing phase" at the end.
+
+    WRONG (testing deferred — context is lost, tests never happen):
+      ### Phase 1: Build components
+      - [ ] Create UserCard component
+      - [ ] Create UserList page
+      ### Phase 2: Build services
+      - [ ] Create userService
+      ### Phase 3: Write tests  ← too late, skipped under time pressure
+      - [ ] Test everything
+
+    RIGHT (testing inline — each phase delivers code + tests):
+      ### Phase 1: Build components
+      - [ ] Create UserCard component
+      - [ ] Create UserList page
+      - [ ] Test UserCard: renders name prop, shows loading skeleton,
+            shows error state, handles empty data
+      - [ ] Test UserList: renders list of cards, shows empty state,
+            handles fetch error, loading skeleton
+      ### Phase 2: Build services
+      - [ ] Create userService.getUsers()
+      - [ ] Test getUsers: returns data on success, returns empty
+            array when no users, throws on network error
+
+    The test items MUST be specific about WHAT to test. Not just
+    "test UserCard" but "test UserCard: renders name, loading state,
+    error state, empty state." Each state/behavior is a test case.
+
+    WHY INLINE: Claude Code has full context of the component it
+    just built. Asking it to write tests immediately after
+    implementation produces better tests than asking in a separate
+    session where it has to re-read everything.
+
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
 
@@ -754,6 +807,33 @@ For every form field:
   - Valid input: no error shown (VERIFY error clears after correction)
   - Each invalid case: specific error message + timing
   List EVERY field and EVERY rule individually. Do not group.
+
+## Test Coverage Verification
+
+For every new file created by this spec:
+
+### {ComponentName}.test.tsx (or .test.ts)
+
+🔴 VERIFY: Test file exists at {expected path}
+- Expected: test file adjacent to source file following project conventions
+- Not expected: no test file exists; test file exists but is empty/placeholder
+
+🔴 VERIFY: Open {test file path}
+- Expected: tests cover default render, loading state, empty state, error state
+- Expected: tests cover key user interactions ({list from spec})
+- Not expected: only a "renders without crashing" smoke test
+
+🟡 VERIFY: Run \`{test_command}\`
+- Expected: all tests pass, including new tests from this spec
+- Expected: no skipped or pending tests for new functionality
+- Not expected: test suite fails; new tests are \`.skip()\`'d
+
+### Test count summary:
+
+🟡 VERIFY: Count test files created vs new source files created
+- Expected: at least one test file per new component, service,
+  and utility file
+- Not expected: 8 new source files created but 0-1 test files
 
 ## UI Polish Verification
 List EVERY instance individually (do NOT summarize):
@@ -1274,6 +1354,16 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Click → navigates to {route}
   - [ ] Active state styling when on {route} (removed when leaving)
 
+- [ ] Test coverage (list EVERY new file that needs tests):
+  - [ ] {component/page}.test.tsx: renders default state, loading
+        state, empty state, error state, user interactions ({list
+        specific interactions})
+  - [ ] {service}.test.ts: success case, empty case, error case,
+        edge cases ({list specific edges})
+  - [ ] {utility}.test.ts: all branches, edge inputs
+  - [ ] Run full test suite: \`{test_command}\` — all pass including
+        new tests
+
 ## 10. Session Plan — Multi-Session Implementation Breakdown
 
 If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
@@ -1312,6 +1402,12 @@ IGNORE all other sections. Do NOT read ahead.
 
 {what to implement — 3-5 specific items}
 
+Write tests for every new component, service method, and utility
+function you create in this session. Place tests adjacent to the
+source files following the project's test conventions (e.g.,
+Component.test.tsx next to Component.tsx, or in a __tests__ dir).
+Run the test suite after implementation to confirm all pass.
+
 Do NOT modify files from previous sessions unless the checklist
 explicitly says to.
 \`\`\`
@@ -1319,7 +1415,9 @@ explicitly says to.
 **Verify before next session:**
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
-- [ ] TypeScript compiles: pnpm tsc --noEmit
+- [ ] Tests written for all new functions/components in this session
+- [ ] Test suite passes: \`{test_command}\` (including new tests)
+- [ ] TypeScript compiles: \`{typecheck_command}\`
 
 EVERY session prompt MUST use the exact structure shown above. NEVER
 write a session prompt that says "Read the spec first" or "Read
@@ -1462,6 +1560,41 @@ WRITING RULES
     - Toast vs inline error for specific failure modes
     - Cache invalidation scope (exact key vs prefix match)
 
+19. EVERY phase in the Implementation Checklist MUST include test
+    items. Tests are written DURING implementation, not in a separate
+    "testing phase" at the end.
+
+    WRONG (testing deferred — context is lost, tests never happen):
+      ### Phase 1: Build components
+      - [ ] Create UserCard component
+      - [ ] Create UserList page
+      ### Phase 2: Build services
+      - [ ] Create userService
+      ### Phase 3: Write tests  ← too late, skipped under time pressure
+      - [ ] Test everything
+
+    RIGHT (testing inline — each phase delivers code + tests):
+      ### Phase 1: Build components
+      - [ ] Create UserCard component
+      - [ ] Create UserList page
+      - [ ] Test UserCard: renders name prop, shows loading skeleton,
+            shows error state, handles empty data
+      - [ ] Test UserList: renders list of cards, shows empty state,
+            handles fetch error, loading skeleton
+      ### Phase 2: Build services
+      - [ ] Create userService.getUsers()
+      - [ ] Test getUsers: returns data on success, returns empty
+            array when no users, throws on network error
+
+    The test items MUST be specific about WHAT to test. Not just
+    "test UserCard" but "test UserCard: renders name, loading state,
+    error state, empty state." Each state/behavior is a test case.
+
+    WHY INLINE: Claude Code has full context of the component it
+    just built. Asking it to write tests immediately after
+    implementation produces better tests than asking in a separate
+    session where it has to re-read everything.
+
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
 
@@ -1584,6 +1717,33 @@ For every form field (see spec Section 9, Phase 4, Form Validations):
   - 🔴 Invalid: {another input} → "{exact error message}"
   - 🟡 Valid input after error → error message CLEARS immediately
   List EVERY field. EVERY rule. One item each. Do not group.
+
+## Test Coverage Verification
+
+For every new file created by this spec:
+
+### {ComponentName}.test.tsx (or .test.ts)
+
+🔴 VERIFY: Test file exists at {expected path}
+- Expected: test file adjacent to source file following project conventions
+- Not expected: no test file exists; test file exists but is empty/placeholder
+
+🔴 VERIFY: Open {test file path}
+- Expected: tests cover default render, loading state, empty state, error state
+- Expected: tests cover key user interactions ({list from spec})
+- Not expected: only a "renders without crashing" smoke test
+
+🟡 VERIFY: Run \`{test_command}\`
+- Expected: all tests pass, including new tests from this spec
+- Expected: no skipped or pending tests for new functionality
+- Not expected: test suite fails; new tests are \`.skip()\`'d
+
+### Test count summary:
+
+🟡 VERIFY: Count test files created vs new source files created
+- Expected: at least one test file per new component, service,
+  and utility file
+- Not expected: 8 new source files created but 0-1 test files
 
 ## UI Polish Verification
 ENUMERATE individually — one VERIFY per item, never summarize:

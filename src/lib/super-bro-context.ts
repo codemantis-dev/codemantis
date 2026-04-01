@@ -54,6 +54,11 @@ export interface SuperBroContext {
     branch: string;
   };
   deployment: DeploymentContext;
+  testing: {
+    testFilesCreated: boolean;
+    testSuiteRan: boolean;
+    testFilePaths: string[];
+  };
 }
 
 export function buildSuperBroContext(
@@ -147,6 +152,20 @@ export function buildSuperBroContext(
   const devServerRunning = Array.from(terminalStoreState.detectedDevServers.values())
     .some((detections) => detections.length > 0);
 
+  // Test awareness
+  const testFilePattern = /\.(test|spec)\.(ts|tsx|js|jsx)$|__tests__\//;
+  const testRunPattern = /vitest|jest|mocha|pnpm test|npm test|bun test|pytest|cargo test/i;
+
+  const testFilesCreated = recentActivity.some(
+    (a) => (a.startsWith("Write:") || a.startsWith("Edit:")) && testFilePattern.test(a),
+  );
+  const testSuiteRan = recentActivity.some(
+    (a) => a.startsWith("Bash:") && testRunPattern.test(a),
+  );
+  const testFilePaths = recentActivity
+    .filter((a) => (a.startsWith("Write:") || a.startsWith("Edit:")) && testFilePattern.test(a))
+    .map((a) => a.replace(/^(Write|Edit):\s*/, "").replace(/\s*\[.*$/, ""));
+
   return {
     project: { path: projectPath, techStack, claudeMdExists: !!claudeMdContent },
     guide,
@@ -159,6 +178,11 @@ export function buildSuperBroContext(
     deployment: {
       actions: deploymentActions,
       devServerRunning,
+    },
+    testing: {
+      testFilesCreated,
+      testSuiteRan,
+      testFilePaths,
     },
   };
 }
@@ -353,6 +377,9 @@ ${context.recentActivity.join("\n")}
 ${context.terminalOutput ? `TERMINAL OUTPUT (last 30 lines):\n${context.terminalOutput}` : ""}
 ${context.previewErrors.length > 0 ? `PREVIEW ERRORS:\n${context.previewErrors.join("\n")}` : ""}
 ${context.deployment.actions[0] !== "none" ? `DEPLOYMENT STATUS:\nActions needed: ${context.deployment.actions.join(", ")}\nDev server running: ${context.deployment.devServerRunning ? "YES" : "no"}` : ""}
+${context.testing.testFilesCreated || context.testing.testSuiteRan
+  ? `TESTING STATUS:\nTest files created: ${context.testing.testFilesCreated ? "YES (" + context.testing.testFilePaths.join(", ") + ")" : "NO"}\nTest suite ran: ${context.testing.testSuiteRan ? "YES" : "NO"}`
+  : "TESTING STATUS: No test activity detected in this session"}
 
 What should the user do next? If everything looks fine, respond with NOTHING_TO_REPORT.
 `.trim();
