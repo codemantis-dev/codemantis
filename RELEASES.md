@@ -1,5 +1,13 @@
 # CodeMantis Releases
 
+## 1.0.0
+
+CodeMantis 1.0.0 — the first stable release. See the full release notes on GitHub.
+
+- First public stable release
+- Session logs: auto-save toggles, always restore history, avoid message ID collisions
+- Expanded README with product walkthrough, screenshots, and demo assets
+
 ## 0.9.9
 
 ### Terminal & Preview Fixes
