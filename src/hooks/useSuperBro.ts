@@ -118,6 +118,7 @@ export function useSuperBro(projectPath: string | null): void {
   const prevMessageCount = useRef(0);
   const prevGuideSessionIndex = useRef<number | null>(null);
   const apiCallInFlight = useRef(false);
+  const greetedSessions = useRef<Set<string>>(new Set());
 
   // Read reactive values from stores
   const globalEnabled = useSettingsStore((s) => s.settings.superBroEnabled);
@@ -610,10 +611,14 @@ export function useSuperBro(projectPath: string | null): void {
     };
   }, [globalEnabled, isEnabled, isPaused, activeSessionId, triggerSuperBro]);
 
-  // Session start trigger
+  // Session start trigger — only fires once per session ID
   useEffect(() => {
     if (activeSessionId && globalEnabled && isEnabled && projectPath) {
+      if (greetedSessions.current.has(activeSessionId)) {
+        return; // Already greeted this session — skip redundant welcome
+      }
       const timer = setTimeout(() => {
+        greetedSessions.current.add(activeSessionId);
         triggerSuperBro("session_start");
       }, 2000);
       return () => clearTimeout(timer);

@@ -11,6 +11,7 @@ import type {
 interface PersistedSpecWriterState {
   conversation: SpecConversation | null;
   auditContent?: string | null;
+  specContent?: string | null;
 }
 
 interface SpecWriterState {
@@ -78,6 +79,16 @@ interface SpecWriterState {
   // Actions - CLI session
   setCliSessionId: (projectPath: string, sessionId: string | null) => void;
   getCliSessionId: (projectPath: string) => string | undefined;
+
+  // Actions - Turn completion (batched update to avoid intermediate re-renders)
+  completeTurn: (projectPath: string, updates: {
+    finalContent: string;
+    isSpec: boolean;
+    isAudit: boolean;
+    displayContent?: string;
+    options?: string[];
+    isReadyToWrite?: boolean;
+  }) => void;
 
   // Actions - Lifecycle
   discardAndStartNew: (projectPath: string) => Promise<void>;
@@ -345,6 +356,54 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
 
   getCliSessionId: (projectPath) => get().cliSessionIds.get(projectPath),
 
+  // Turn completion — single batched update to avoid intermediate re-renders from useShallow
+  completeTurn: (projectPath, updates) =>
+    set((state) => {
+      const planningStreaming = new Map(state.planningStreaming);
+      planningStreaming.set(projectPath, false);
+
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (!conv) return { planningStreaming };
+
+      const messages = [...conv.messages];
+      const lastIdx = messages.length - 1;
+
+      if (lastIdx >= 0 && messages[lastIdx].role === 'assistant') {
+        let updated = { ...messages[lastIdx], content: updates.finalContent };
+        if (updates.displayContent !== undefined) {
+          updated = { ...updated, displayContent: updates.displayContent };
+        }
+        if (updates.options !== undefined) {
+          updated = { ...updated, parsedOptions: updates.options };
+        }
+        if (updates.isSpec) {
+          updated = { ...updated, message_type: 'spec_document' as const };
+        }
+        messages[lastIdx] = updated;
+      }
+
+      let status = conv.status;
+      if (updates.isSpec) {
+        status = 'done';
+      } else if (updates.isReadyToWrite) {
+        status = 'ready_to_write';
+      }
+      conversations.set(projectPath, { ...conv, messages, status });
+
+      const currentSpecContent = new Map(state.currentSpecContent);
+      if (updates.isSpec) {
+        currentSpecContent.set(projectPath, updates.finalContent);
+      }
+
+      const currentAuditContent = new Map(state.currentAuditContent);
+      if (updates.isAudit) {
+        currentAuditContent.set(projectPath, updates.finalContent);
+      }
+
+      return { planningStreaming, conversations, currentSpecContent, currentAuditContent };
+    }),
+
   // Lifecycle
   discardAndStartNew: async (projectPath) => {
     const cliId = get().cliSessionIds.get(projectPath);
@@ -370,7 +429,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     const conversation = state.conversations.get(projectPath) ?? null;
     if (!conversation) return;
     const auditContent = state.currentAuditContent.get(projectPath) ?? null;
-    const persisted: PersistedSpecWriterState = { conversation, auditContent };
+    const specContent = state.currentSpecContent.get(projectPath) ?? null;
+    const persisted: PersistedSpecWriterState = { conversation, auditContent, specContent };
     saveTaskBoardState(projectPath, JSON.stringify(persisted)).catch((e) =>
       console.error("[specWriterStore] Failed to persist state:", e)
     );
@@ -394,15 +454,32 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         return false;
       }
 
+      // Determine spec content: prefer explicit field, fall back to extraction from messages
+      let specContent: string | null = persisted.specContent ?? null;
+      if (!specContent && conversation.messages) {
+        for (let i = conversation.messages.length - 1; i >= 0; i--) {
+          const msg = conversation.messages[i];
+          if (msg.role === 'assistant' && msg.message_type === 'spec_document') {
+            specContent = msg.content;
+            break;
+          }
+        }
+      }
+
       set((state) => {
         const conversations = new Map(state.conversations);
         conversations.set(projectPath, conversation);
+        // Restore spec content if available
+        const currentSpecContent = new Map(state.currentSpecContent);
+        if (specContent) {
+          currentSpecContent.set(projectPath, specContent);
+        }
         // Restore audit content if persisted
         const currentAuditContent = new Map(state.currentAuditContent);
         if (persisted.auditContent) {
           currentAuditContent.set(projectPath, persisted.auditContent);
         }
-        return { conversations, currentAuditContent };
+        return { conversations, currentSpecContent, currentAuditContent };
       });
       return true;
     } catch (e) {

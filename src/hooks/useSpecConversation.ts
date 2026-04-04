@@ -243,51 +243,30 @@ export function useSpecConversation(): {
         }
 
         if (event.type === "done") {
-          // Cancel pending RAF and flush immediately so final content is complete
+          // Cancel pending RAF — completeTurn will write the final content
           if (flushScheduledRef.current !== null) {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
-          flushStreamBuffer();
 
-          currentStore.setPlanningStreaming(projectPath, false);
           const finalContent = streamBufferRef.current;
-
-          // Parse selectable options (?> markers with fallback for markdown lists)
           const parsed = parseSelectableOptions(finalContent);
-          if (parsed) {
-            currentStore.setMessageDisplayContent(projectPath, parsed.cleanContent);
-            currentStore.setMessageOptions(projectPath, parsed.options);
-          }
+          const isSpec = SPEC_START_PATTERN.test(finalContent);
+          const isAudit = AUDIT_START_PATTERN.test(finalContent);
+          const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
 
-          // Check if AI is ready to write spec
-          if (SPEC_READY_PATTERNS.some((p) => p.test(finalContent))) {
-            currentStore.setConversationStatus(projectPath, "ready_to_write");
-          }
+          // Single batched store update: streaming=false, content, status, message type
+          currentStore.completeTurn(projectPath, {
+            finalContent,
+            isSpec,
+            isAudit,
+            displayContent: parsed?.cleanContent,
+            options: parsed?.options,
+            isReadyToWrite,
+          });
 
-          // Check for spec document output
-          if (SPEC_START_PATTERN.test(finalContent)) {
-            currentStore.setCurrentSpecContent(projectPath, finalContent);
-            currentStore.setConversationStatus(projectPath, "done");
-            // Update the message type to spec_document
-            const conv = currentStore.getActiveConversation(projectPath);
-            if (conv && conv.messages.length > 0) {
-              const messages = [...conv.messages];
-              const lastIdx = messages.length - 1;
-              if (messages[lastIdx].role === 'assistant') {
-                messages[lastIdx] = { ...messages[lastIdx], message_type: 'spec_document' };
-              }
-              useSpecWriterStore.setState((state) => {
-                const conversations = new Map(state.conversations);
-                const c = conversations.get(projectPath);
-                if (c) {
-                  conversations.set(projectPath, { ...c, messages });
-                }
-                return { conversations };
-              });
-            }
-
-            // Auto-offer audit generation immediately after spec completes
+          // Post-turn side effects (separate updates are fine — core state is already committed)
+          if (isSpec) {
             const existingAudit = useSpecWriterStore.getState().currentAuditContent.get(projectPath);
             if (!existingAudit) {
               currentStore.addMessage(projectPath, {
@@ -304,11 +283,8 @@ export function useSpecConversation(): {
             }
           }
 
-          // Check for verification audit document output
-          if (AUDIT_START_PATTERN.test(finalContent)) {
-            currentStore.setCurrentAuditContent(projectPath, finalContent);
-          } else {
-            // Fallback: audit may have been saved to a file instead of output inline
+          // Fallback: audit may have been saved to a file instead of output inline
+          if (!isAudit) {
             const auditFileMatch = finalContent.match(AUDIT_FILE_PATTERN);
             if (auditFileMatch) {
               const auditPath = auditFileMatch[1].startsWith("/")

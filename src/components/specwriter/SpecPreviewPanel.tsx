@@ -42,9 +42,13 @@ export default function SpecPreviewPanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
 
-  // Auto-switch to audit tab when audit content first appears
+  // Sync active tab with audit content: switch to audit when it appears, back to spec when cleared
   useEffect(() => {
-    if (currentAuditContent) setActiveTab('audit');
+    if (currentAuditContent) {
+      setActiveTab('audit');
+    } else {
+      setActiveTab('spec');
+    }
   }, [currentAuditContent]);
 
   return (
