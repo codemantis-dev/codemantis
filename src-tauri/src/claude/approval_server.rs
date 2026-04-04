@@ -163,6 +163,17 @@ async fn find_forge_session_id(
         }
     }
 
+    // Tier 1b: Check session_modes (catches SpecWriter sessions
+    // which are in session_modes but NOT in state.sessions)
+    if let Some(hint) = forge_session_id_hint {
+        if let Some(state) = app_handle.try_state::<AppState>() {
+            let modes = state.session_modes.lock().await;
+            if modes.contains_key(hint) {
+                return Some(hint.to_string());
+            }
+        }
+    }
+
     if let Some(state) = app_handle.try_state::<AppState>() {
         // Tier 2: Reverse lookup — CLI session ID → Forge session ID
         if let Some(cli_sid) = cli_session_id {
@@ -242,6 +253,27 @@ async fn handle_tool_approval(
         )
         .await;
 
+        // SpecWriter sessions must NOT be allowed to change mode.
+        // A SpecWriter session exists in session_modes but NOT in sessions.
+        if let Some(ref sid) = forge_session_id {
+            if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
+                let sessions = app_state.sessions.lock().await;
+                let modes = app_state.session_modes.lock().await;
+                if modes.contains_key(sid) && !sessions.contains_key(sid) {
+                    info!(
+                        "[approval-server] DENIED {} for SpecWriter session {}",
+                        tool_name, sid
+                    );
+                    return (
+                        StatusCode::OK,
+                        Json(HookResponse::deny(Some(
+                            "Mode changes not allowed in SpecWriter sessions.".to_string(),
+                        ))),
+                    );
+                }
+            }
+        }
+
         if let Some(ref sid) = forge_session_id {
             if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
                 let mut modes = app_state.session_modes.lock().await;
@@ -314,9 +346,21 @@ async fn handle_tool_approval(
                     return (StatusCode::OK, Json(HookResponse::allow()));
                 }
                 SessionMode::Plan => {
-                    // The CLI itself enforces plan mode restrictions
-                    // (permissionMode="plan"). No additional tool blocking here —
-                    // fall through to normal approval flow.
+                    // Plan mode: DENY all write operations at the infrastructure level.
+                    // The CLI's --dangerously-skip-permissions flag bypasses its own
+                    // permission system, so the approval server is the ONLY enforcement
+                    // point. Read-only tools (Read, Glob, Grep, etc.) are already
+                    // auto-approved above. Everything else is denied.
+                    info!(
+                        "[approval-server] DENIED tool {} in Plan mode (session: {})",
+                        tool_name, forge_session_id
+                    );
+                    return (
+                        StatusCode::OK,
+                        Json(HookResponse::deny(Some(
+                            "Tool not allowed in Plan mode. Only read operations (Read, Glob, Grep, ListDirectory) are permitted.".to_string(),
+                        ))),
+                    );
                 }
                 SessionMode::Normal => {
                     // Fall through to normal approval flow
