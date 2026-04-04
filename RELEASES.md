@@ -1,5 +1,10 @@
 # CodeMantis Releases
 
+## 1.0.1
+
+- SpecWriter: batched completeTurn, persist spec content, and audit tab sync
+- Super Bro: testing context awareness and inline test coverage guidance
+
 ## 1.0.0
 
 CodeMantis 1.0.0 — the first stable release. See the full release notes on GitHub.
