@@ -3,7 +3,6 @@ import { ArrowDown } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
-import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import {
   getProviderForModel,
   SPEC_WRITING_MODELS,
@@ -15,17 +14,22 @@ import {
   getSpecModelLabel,
 } from "../../types/assistant-provider";
 import { formatDuration } from "../../lib/format-utils";
+import type { SpecAttachment } from "../../types/spec-writer";
 import SpecChatMessage from "./SpecChatMessage";
 import SpecChatInput from "./SpecChatInput";
 
 interface Props {
   projectPath: string;
+  isOpen?: boolean;
   contextLoading?: boolean;
   contextError?: string | null;
   onOptionAction?: (option: string) => boolean;
+  sendMessage: (projectPath: string, content: string, attachments?: SpecAttachment[]) => Promise<void>;
+  writeSpec: (projectPath: string) => void;
+  cancelStream: (projectPath: string) => void;
 }
 
-export default function SpecChat({ projectPath, contextLoading, contextError, onOptionAction }: Props) {
+export default function SpecChat({ projectPath, isOpen, contextLoading, contextError, onOptionAction, sendMessage, writeSpec, cancelStream }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
@@ -38,7 +42,6 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [streamStartTime, setStreamStartTime] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const { writeSpec, sendMessage, cancelStream } = useSpecConversationRouter();
 
   // Global Esc key to stop streaming (works even when textarea is not focused)
   useEffect(() => {
@@ -418,7 +421,7 @@ export default function SpecChat({ projectPath, contextLoading, contextError, on
         )}
       </div>
 
-      <SpecChatInput projectPath={projectPath} />
+      <SpecChatInput projectPath={projectPath} isOpen={isOpen} sendMessage={sendMessage} cancelStream={cancelStream} />
     </div>
   );
 }

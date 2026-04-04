@@ -3,17 +3,6 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
-const mockSendMessage = vi.fn();
-vi.mock("../../hooks/useSpecConversationRouter", () => ({
-  useSpecConversationRouter: () => ({
-    sendMessage: mockSendMessage,
-    writeSpec: vi.fn(),
-    generateAudit: vi.fn(),
-    loadContext: vi.fn(),
-    cancelStream: vi.fn(),
-  }),
-}));
-
 vi.mock("../../lib/tauri-commands", () => ({
   sendAssistantChat: vi.fn(),
   listenAssistantStream: vi.fn().mockResolvedValue(() => {}),
@@ -25,6 +14,22 @@ import SpecChat from "./SpecChat";
 
 const PROJECT = "/tmp/test";
 
+const mockSendMessage = vi.fn();
+const mockWriteSpec = vi.fn();
+const mockCancelStream = vi.fn();
+
+function renderChat(overrides?: Partial<React.ComponentProps<typeof SpecChat>>) {
+  return render(
+    <SpecChat
+      projectPath={PROJECT}
+      sendMessage={mockSendMessage}
+      writeSpec={mockWriteSpec}
+      cancelStream={mockCancelStream}
+      {...overrides}
+    />
+  );
+}
+
 beforeEach(() => {
   useSpecWriterStore.setState({
     conversations: new Map(),
@@ -33,6 +38,8 @@ beforeEach(() => {
     currentSpecContent: new Map(),
     currentAuditContent: new Map(),
     savedSpecs: new Map(),
+    draftText: new Map(),
+    draftAttachments: new Map(),
   });
   // Default: no API keys set
   useSettingsStore.setState({
@@ -43,7 +50,7 @@ beforeEach(() => {
 
 describe("SpecChat", () => {
   it("renders empty state", () => {
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText(/describe what you want to build/i)).toBeTruthy();
   });
 
@@ -56,7 +63,7 @@ describe("SpecChat", () => {
       message_type: "conversation",
       timestamp: new Date().toISOString(),
     });
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText("Build a dashboard")).toBeTruthy();
   });
 
@@ -64,7 +71,7 @@ describe("SpecChat", () => {
     // Explicitly init with an API provider that has no key
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
     // apiKeys is {} — no keys set
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText(/no api key set/i)).toBeTruthy();
   });
 
@@ -73,7 +80,7 @@ describe("SpecChat", () => {
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key-123" } },
     });
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.queryByText(/no api key set/i)).toBeNull();
   });
 
@@ -88,7 +95,7 @@ describe("SpecChat", () => {
       timestamp: new Date().toISOString(),
       parsedOptions: ["Option A", "Option B"],
     });
-    render(<SpecChat projectPath={PROJECT} onOptionAction={onOptionAction} />);
+    renderChat({ onOptionAction });
     fireEvent.click(screen.getByText("Option A"));
     expect(onOptionAction).toHaveBeenCalledWith("Option A");
     expect(mockSendMessage).not.toHaveBeenCalled();
@@ -105,7 +112,7 @@ describe("SpecChat", () => {
       timestamp: new Date().toISOString(),
       parsedOptions: ["Regular option"],
     });
-    render(<SpecChat projectPath={PROJECT} onOptionAction={onOptionAction} />);
+    renderChat({ onOptionAction });
     fireEvent.click(screen.getByText("Regular option"));
     expect(onOptionAction).toHaveBeenCalledWith("Regular option");
     expect(mockSendMessage).toHaveBeenCalledWith(PROJECT, "Regular option");
@@ -115,7 +122,7 @@ describe("SpecChat", () => {
 
   it("defaults to Claude Code when no API keys are configured", () => {
     // No conversation initialized, no API keys → init creates claude-code
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     // The conversation should be initialized with claude-code
     const conv = useSpecWriterStore.getState().getActiveConversation(PROJECT);
     expect(conv?.ai_provider).toBe("claude-code");
@@ -126,7 +133,7 @@ describe("SpecChat", () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     const conv = useSpecWriterStore.getState().getActiveConversation(PROJECT);
     // Should still default to Claude Code — user must manually switch
     expect(conv?.ai_provider).toBe("claude-code");
@@ -135,7 +142,7 @@ describe("SpecChat", () => {
 
   it("does not show API key warning for Claude Code provider", () => {
     useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.queryByText(/no api key set/i)).toBeNull();
   });
 
@@ -144,7 +151,7 @@ describe("SpecChat", () => {
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash-lite", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText(/may struggle with complex specifications/i)).toBeTruthy();
   });
 
@@ -153,13 +160,13 @@ describe("SpecChat", () => {
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3-flash-preview", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.queryByText(/may struggle with complex specifications/i)).toBeNull();
   });
 
   it("shows provider selector before first message", () => {
     useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     // Should have provider dropdown with "Claude Code" option
     const selects = screen.getAllByRole("combobox");
     expect(selects.length).toBeGreaterThanOrEqual(2); // provider + model
@@ -167,7 +174,7 @@ describe("SpecChat", () => {
 
   it("shows Claude Code models when claude-code is selected", () => {
     useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     // Should show Claude Code model options
     expect(screen.getByText("Haiku 4.5")).toBeTruthy();
     expect(screen.getByText("Sonnet 4.6")).toBeTruthy();
@@ -179,7 +186,7 @@ describe("SpecChat", () => {
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
     useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText("Gemini 3.1 Flash Lite")).toBeTruthy();
   });
 
@@ -192,7 +199,7 @@ describe("SpecChat", () => {
       message_type: "conversation",
       timestamp: new Date().toISOString(),
     });
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     // After first message, should show model badge, not selectors
     const selects = screen.queryAllByRole("combobox");
     // Mode selector is in the bottom bar, but provider/model selects should be gone
@@ -208,7 +215,76 @@ describe("SpecChat", () => {
       message_type: "conversation",
       timestamp: new Date().toISOString(),
     });
-    render(<SpecChat projectPath={PROJECT} />);
+    renderChat();
     expect(screen.getByText(/Sonnet 4\.6/)).toBeTruthy();
+  });
+
+  // ── Prop-based streaming function tests ──────────────────────
+
+  it("calls writeSpec prop when Generate Spec button is clicked", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.setState({
+      conversations: new Map([[PROJECT, {
+        ...useSpecWriterStore.getState().conversations.get(PROJECT)!,
+        status: "ready_to_write" as const,
+      }]]),
+    });
+    renderChat();
+    const genBtn = screen.getByText("Generate Spec");
+    fireEvent.click(genBtn);
+    expect(mockWriteSpec).toHaveBeenCalledWith(PROJECT);
+  });
+
+  it("shows streaming indicator when isStreaming is true", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.setState({
+      planningStreaming: new Map([[PROJECT, true]]),
+    });
+    renderChat();
+    expect(screen.getByText("AI is responding...")).toBeTruthy();
+  });
+
+  it("shows Thinking indicator during streaming", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.setState({
+      planningStreaming: new Map([[PROJECT, true]]),
+    });
+    renderChat();
+    expect(screen.getByText("Thinking...")).toBeTruthy();
+  });
+
+  it("uses cancelStream prop via child SpecChatInput", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.setState({
+      planningStreaming: new Map([[PROJECT, true]]),
+    });
+    renderChat();
+    // Click the Stop button (rendered by SpecChatInput, which receives cancelStream prop)
+    fireEvent.click(screen.getByTitle("Stop generation (Esc)"));
+    expect(mockCancelStream).toHaveBeenCalledWith(PROJECT);
+  });
+
+  it("uses sendMessage prop via child SpecChatInput for sending", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Hello from chat");
+    renderChat();
+    fireEvent.click(screen.getByTitle("Send (Enter)"));
+    expect(mockSendMessage).toHaveBeenCalledWith(PROJECT, "Hello from chat", undefined);
+  });
+
+  it("passes sendMessage prop to option handler fallthrough", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().addMessage(PROJECT, {
+      id: "msg-1",
+      role: "assistant",
+      content: "Pick one",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+      parsedOptions: ["Custom option"],
+    });
+    // No onOptionAction → should use sendMessage prop
+    renderChat();
+    fireEvent.click(screen.getByText("Custom option"));
+    expect(mockSendMessage).toHaveBeenCalledWith(PROJECT, "Custom option");
   });
 });

@@ -1,6 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import { Send, Square, Paperclip } from "lucide-react";
-import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -10,6 +9,9 @@ import { shouldSend, sendShortcutHint, sendShortcutLabel } from "../../lib/keybo
 
 interface Props {
   projectPath: string;
+  isOpen?: boolean;
+  sendMessage: (projectPath: string, content: string, attachments?: SpecAttachment[]) => Promise<void>;
+  cancelStream: (projectPath: string) => void;
 }
 
 /** Convert a browser File to a base64 data URI */
@@ -49,20 +51,43 @@ function resizeImage(dataUri: string, maxSize: number = 1024): Promise<string> {
   });
 }
 
-export default function SpecChatInput({ projectPath }: Props) {
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<SpecAttachment[]>([]);
-  const { sendMessage, cancelStream } = useSpecConversationRouter();
+const EMPTY_ATTACHMENTS: SpecAttachment[] = [];
+
+export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancelStream }: Props) {
+  const text = useSpecWriterStore((s) => s.draftText.get(projectPath) ?? "");
+  const attachments = useSpecWriterStore((s) => s.draftAttachments.get(projectPath) ?? EMPTY_ATTACHMENTS);
+  const setDraftText = useSpecWriterStore((s) => s.setDraftText);
+  const setDraftAttachments = useSpecWriterStore((s) => s.setDraftAttachments);
+  const clearDraft = useSpecWriterStore((s) => s.clearDraft);
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-focus spec input on mount / project switch
+  // Convenience wrappers that support the updater-function pattern
+  const setText = useCallback(
+    (val: string) => setDraftText(projectPath, val),
+    [projectPath, setDraftText]
+  );
+  const setAttachments = useCallback(
+    (val: SpecAttachment[] | ((prev: SpecAttachment[]) => SpecAttachment[])) => {
+      if (typeof val === "function") {
+        const current = useSpecWriterStore.getState().draftAttachments.get(projectPath) ?? [];
+        setDraftAttachments(projectPath, val(current));
+      } else {
+        setDraftAttachments(projectPath, val);
+      }
+    },
+    [projectPath, setDraftAttachments]
+  );
+
+  // Focus textarea when panel opens or project switches
   useEffect(() => {
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [projectPath]);
+    if (isOpen) {
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [isOpen, projectPath]);
 
   // Tauri native file drop
   const handleFileDrop = useCallback(async (paths: string[]) => {
@@ -77,16 +102,16 @@ export default function SpecChatInput({ projectPath }: Props) {
   });
 
   const handleSend = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed && attachments.length === 0) return;
+    const store = useSpecWriterStore.getState();
+    const currentText = (store.draftText.get(projectPath) ?? "").trim();
+    const currentAtts = store.draftAttachments.get(projectPath) ?? [];
+    if (!currentText && currentAtts.length === 0) return;
     if (isStreaming) return;
 
-    setText("");
-    const atts = [...attachments];
-    setAttachments([]);
+    clearDraft(projectPath);
 
-    await sendMessage(projectPath, trimmed, atts.length > 0 ? atts : undefined);
-  }, [text, attachments, projectPath, sendMessage, isStreaming]);
+    await sendMessage(projectPath, currentText, currentAtts.length > 0 ? [...currentAtts] : undefined);
+  }, [projectPath, sendMessage, isStreaming, clearDraft]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

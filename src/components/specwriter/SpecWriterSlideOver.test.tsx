@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import SpecWriterSlideOver from "./SpecWriterSlideOver";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
@@ -30,6 +30,19 @@ vi.mock("../../hooks/useSpecConversation", () => ({
     sendMessage: vi.fn(),
     writeSpec: vi.fn(),
     generateAudit: vi.fn(),
+    cancelStream: vi.fn(),
+    loadContext: vi.fn(),
+  }),
+}));
+
+vi.mock("../../hooks/useSpecConversationClaude", () => ({
+  useSpecConversationClaude: () => ({
+    sendMessage: vi.fn(),
+    writeSpec: vi.fn(),
+    generateAudit: vi.fn(),
+    cancelStream: vi.fn(),
+    loadContext: vi.fn(),
+    changeModel: vi.fn(),
   }),
 }));
 
@@ -87,6 +100,8 @@ describe("SpecWriterSlideOver", () => {
       planningStreaming: new Map(),
       savedSpecs: new Map(),
       projectContext: new Map(),
+      draftText: new Map(),
+      draftAttachments: new Map(),
     });
   });
 
@@ -140,12 +155,15 @@ describe("SpecWriterSlideOver", () => {
     expect(screen.getByTestId("spec-preview")).toBeInTheDocument();
   });
 
-  it("does not render content when closed", () => {
+  it("hides content when closed (always rendered for background streaming)", () => {
     useSpecWriterStore.setState({
       uiState: new Map([[PROJECT_PATH, { is_open: false, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
     });
     render(<SpecWriterSlideOver />);
-    expect(screen.queryByTestId("spec-chat")).not.toBeInTheDocument();
+    // Children are always rendered but hidden via display:none
+    const chat = screen.getByTestId("spec-chat");
+    expect(chat).toBeInTheDocument();
+    expect(chat.closest('[style*="display: none"]')).toBeTruthy();
   });
 
   it("shows Reset button when conversation has messages", () => {
@@ -164,5 +182,76 @@ describe("SpecWriterSlideOver", () => {
     });
     render(<SpecWriterSlideOver />);
     expect(screen.getByText("Reset")).toBeInTheDocument();
+  });
+
+  // ── Always-render / CSS hidden behavior ──────────────────────
+
+  it("shows content with display:flex when open", () => {
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    render(<SpecWriterSlideOver />);
+    const chat = screen.getByTestId("spec-chat");
+    // When open, the container should NOT have display:none
+    expect(chat.closest('[style*="display: none"]')).toBeFalsy();
+    expect(chat.closest('[style*="display: flex"]')).toBeTruthy();
+  });
+
+  it("always renders SpecPreview in DOM even when closed", () => {
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: false, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    render(<SpecWriterSlideOver />);
+    expect(screen.getByTestId("spec-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("spec-preview").closest('[style*="display: none"]')).toBeTruthy();
+  });
+
+  it("Reset clears draft text and attachments via clearConversation", () => {
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+      conversations: new Map([[PROJECT_PATH, {
+        id: "c1",
+        project_path: PROJECT_PATH,
+        messages: [{ id: "m1", role: "user" as const, content: "test", message_type: "conversation" as const, timestamp: "2026-01-01" }],
+        ai_provider: "gemini",
+        ai_model: "gemini-2.5-flash",
+        status: "gathering" as const,
+        mode: "feature" as const,
+        context_loaded: false,
+      }]]),
+      draftText: new Map([[PROJECT_PATH, "Draft to be cleared"]]),
+      draftAttachments: new Map([[PROJECT_PATH, [{ id: "a1", type: "image" as const, name: "img.png", size: 100, mime_type: "image/png", file_path: "" }]]]),
+    });
+    render(<SpecWriterSlideOver />);
+    fireEvent.click(screen.getByText("Reset"));
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT_PATH)).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT_PATH)).toBe(false);
+    expect(useSpecWriterStore.getState().conversations.has(PROJECT_PATH)).toBe(false);
+  });
+
+  it("children persist in DOM across close/open cycle", () => {
+    // Start open
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    const { rerender } = render(<SpecWriterSlideOver />);
+    expect(screen.getByTestId("spec-chat")).toBeInTheDocument();
+
+    // Close
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: false, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    rerender(<SpecWriterSlideOver />);
+    // Still in DOM, just hidden
+    expect(screen.getByTestId("spec-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("spec-chat").closest('[style*="display: none"]')).toBeTruthy();
+
+    // Reopen
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    rerender(<SpecWriterSlideOver />);
+    expect(screen.getByTestId("spec-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("spec-chat").closest('[style*="display: none"]')).toBeFalsy();
   });
 });

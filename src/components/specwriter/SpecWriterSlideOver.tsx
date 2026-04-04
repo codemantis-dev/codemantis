@@ -53,7 +53,7 @@ export default function SpecWriterSlideOver() {
   const [isEditing, setIsEditing] = useState(false);
   const [hasGuide, setHasGuide] = useState(false);
   const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage, writeSpec, generateAudit } = useSpecConversationRouter();
+  const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const conversationMode = conversation?.mode;
   const hasMessages = (conversation?.messages.length ?? 0) > 0;
@@ -82,9 +82,9 @@ export default function SpecWriterSlideOver() {
 
   const { refreshSavedSpecs } = useSavedSpecs(activeProjectPath);
 
-  // When slide-over opens, load state and context
+  // One-time project init: load persisted state and gather context
   useEffect(() => {
-    if (!isOpen || !activeProjectPath) return;
+    if (!activeProjectPath) return;
     if (initCheckedRef.current === activeProjectPath) return;
     initCheckedRef.current = activeProjectPath;
 
@@ -111,12 +111,19 @@ export default function SpecWriterSlideOver() {
     listSpecDocuments(activeProjectPath).then((specs) => {
       setSavedSpecs(activeProjectPath, specs);
     }).catch(() => {});
-  }, [isOpen, activeProjectPath, loadState, setContextLoaded, setSavedSpecs, setProjectContext]);
+  }, [activeProjectPath, loadState, setContextLoaded, setSavedSpecs, setProjectContext]);
 
-  // Reset init check when slide-over closes; persist state
+  // Refresh saved specs each time the panel opens (may have changed while closed)
+  useEffect(() => {
+    if (!isOpen || !activeProjectPath) return;
+    listSpecDocuments(activeProjectPath).then((specs) => {
+      setSavedSpecs(activeProjectPath, specs);
+    }).catch(() => {});
+  }, [isOpen, activeProjectPath, setSavedSpecs]);
+
+  // Abort context gathering if panel closes while loading
   useEffect(() => {
     if (!isOpen) {
-      initCheckedRef.current = null;
       contextAbortRef.current = true;
       setContextLoading(false);
     }
@@ -177,7 +184,7 @@ export default function SpecWriterSlideOver() {
       setLastSavedAuditFile(null);
       setIsEditing(false);
       setHasGuide(false);
-      // Clear persisted state from database so stale data doesn't reload
+      // clearConversation already clears draft, but also wipe persisted state
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
   }, [activeProjectPath, clearConversation, setCurrentSpecContent, setCurrentAuditContent]);
@@ -399,84 +406,88 @@ export default function SpecWriterSlideOver() {
           onClose={handleClose}
         />
 
-        {/* Two-column content — only mount children when open */}
-        {isOpen && (
-          <>
-            <div className="flex flex-1 overflow-hidden relative">
-              {/* Context loading overlay (feature mode only) */}
-              {contextLoading && conversation?.mode === 'feature' && (
-                <ContextLoadingOverlay
-                  projectPath={activeProjectPath}
-                  onCancel={handleCancelContext}
-                />
-              )}
+        {/* Two-column content — always rendered, hidden via CSS when closed
+             so hooks stay mounted and background streaming continues */}
+        <div
+          className="flex-1 overflow-hidden relative"
+          style={{ display: isOpen ? 'flex' : 'none' }}
+        >
+          {/* Context loading overlay (feature mode only) */}
+          {contextLoading && conversation?.mode === 'feature' && (
+            <ContextLoadingOverlay
+              projectPath={activeProjectPath}
+              onCancel={handleCancelContext}
+            />
+          )}
 
-              {/* Context error banner */}
-              {contextError && (
-                <div
-                  className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-ui flex items-center gap-2"
-                  style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
-                >
-                  <span className="flex-1">Context loading failed: {contextError}</span>
-                  <button
-                    onClick={() => setContextError(null)}
-                    className="text-[10px] px-2 py-0.5 rounded border"
-                    style={{ borderColor: "rgba(239,68,68,0.3)" }}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
-
-              {/* Left: Chat */}
-              <div
-                className="overflow-hidden flex flex-col"
-                style={{ width: `${chatWidth}%` }}
+          {/* Context error banner */}
+          {contextError && (
+            <div
+              className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-ui flex items-center gap-2"
+              style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
+            >
+              <span className="flex-1">Context loading failed: {contextError}</span>
+              <button
+                onClick={() => setContextError(null)}
+                className="text-[10px] px-2 py-0.5 rounded border"
+                style={{ borderColor: "rgba(239,68,68,0.3)" }}
               >
-                <SpecChat
-                  projectPath={activeProjectPath}
-                  contextLoading={contextLoading}
-                  contextError={contextError}
-                  onOptionAction={handleOptionAction}
-                />
-              </div>
-
-              {/* Divider */}
-              <div
-                ref={dividerRef}
-                onMouseDown={handleDividerMouseDown}
-                className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
-              >
-                <div
-                  className="w-px transition-colors"
-                  style={{
-                    background: isDragging ? "var(--accent)" : "var(--border)",
-                  }}
-                />
-              </div>
-
-              {/* Right: Spec Preview + Actions + Saved Specs */}
-              <SpecPreviewPanel
-                activeProjectPath={activeProjectPath}
-                currentSpecContent={currentSpecContent}
-                currentAuditContent={currentAuditContent}
-                isEditing={isEditing}
-                isStreaming={isStreaming}
-                canGenerateAudit={canGenerateAudit}
-                canSaveAudit={canSaveAudit}
-                canSave={canSave}
-                onSpecEdit={handleSpecEdit}
-                onCloseSpec={handleCloseSpec}
-                onToggleEdit={handleToggleEdit}
-                onCopySpec={handleCopySpec}
-                onGenerateAudit={handleGenerateAudit}
-                onOpenSaveAuditDialog={openSaveAuditDialog}
-                onOpenSaveSpecDialog={openSaveSpecDialog}
-                onLoadSpec={handleLoadSpec}
-              />
+                Dismiss
+              </button>
             </div>
-          </>
-        )}
+          )}
+
+          {/* Left: Chat */}
+          <div
+            className="overflow-hidden flex flex-col"
+            style={{ width: `${chatWidth}%` }}
+          >
+            <SpecChat
+              projectPath={activeProjectPath}
+              isOpen={isOpen}
+              contextLoading={contextLoading}
+              contextError={contextError}
+              onOptionAction={handleOptionAction}
+              sendMessage={sendSpecMessage}
+              writeSpec={writeSpec}
+              cancelStream={cancelStream}
+            />
+          </div>
+
+          {/* Divider */}
+          <div
+            ref={dividerRef}
+            onMouseDown={handleDividerMouseDown}
+            className="w-[5px] shrink-0 cursor-col-resize flex items-stretch justify-center"
+          >
+            <div
+              className="w-px transition-colors"
+              style={{
+                background: isDragging ? "var(--accent)" : "var(--border)",
+              }}
+            />
+          </div>
+
+          {/* Right: Spec Preview + Actions + Saved Specs */}
+          <SpecPreviewPanel
+            activeProjectPath={activeProjectPath}
+            currentSpecContent={currentSpecContent}
+            currentAuditContent={currentAuditContent}
+            isEditing={isEditing}
+            isStreaming={isStreaming}
+            canGenerateAudit={canGenerateAudit}
+            canSaveAudit={canSaveAudit}
+            canSave={canSave}
+            onSpecEdit={handleSpecEdit}
+            onCloseSpec={handleCloseSpec}
+            onToggleEdit={handleToggleEdit}
+            onCopySpec={handleCopySpec}
+            onGenerateAudit={handleGenerateAudit}
+            onOpenSaveAuditDialog={openSaveAuditDialog}
+            onOpenSaveSpecDialog={openSaveSpecDialog}
+            onLoadSpec={handleLoadSpec}
+          />
+        </div>
       </div>
 
       {/* Save dialog — handles both spec and audit saves */}

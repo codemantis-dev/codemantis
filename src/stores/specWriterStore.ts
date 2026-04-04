@@ -3,6 +3,7 @@ import { saveTaskBoardState, loadTaskBoardState, closeSpecwriterSession } from "
 import type {
   SpecConversation,
   SpecMessage,
+  SpecAttachment,
   SpecWriterUIState,
   SpecDocumentInfo,
 } from "../types/spec-writer";
@@ -12,6 +13,7 @@ interface PersistedSpecWriterState {
   conversation: SpecConversation | null;
   auditContent?: string | null;
   specContent?: string | null;
+  draftText?: string | null;
 }
 
 interface SpecWriterState {
@@ -38,6 +40,12 @@ interface SpecWriterState {
 
   // Current audit content being previewed (per project)
   currentAuditContent: Map<string, string>;
+
+  // Draft input text (per project) — survives close/reopen + app restart
+  draftText: Map<string, string>;
+
+  // Draft attachments (per project) — survives close/reopen, NOT app restart
+  draftAttachments: Map<string, SpecAttachment[]>;
 
   // Claude Code CLI session IDs for SpecWriter (per project, runtime-only)
   cliSessionIds: Map<string, string>;
@@ -75,6 +83,11 @@ interface SpecWriterState {
   setSlideOverOpen: (projectPath: string, open: boolean) => void;
   setChatWidth: (projectPath: string, width: number) => void;
   setSelectedSavedSpec: (projectPath: string, filename: string | null) => void;
+
+  // Actions - Draft
+  setDraftText: (projectPath: string, text: string) => void;
+  setDraftAttachments: (projectPath: string, attachments: SpecAttachment[]) => void;
+  clearDraft: (projectPath: string) => void;
 
   // Actions - CLI session
   setCliSessionId: (projectPath: string, sessionId: string | null) => void;
@@ -118,6 +131,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   savedSpecs: new Map(),
   fileRequestsPending: new Map(),
   projectContext: new Map(),
+  draftText: new Map(),
+  draftAttachments: new Map(),
   cliSessionIds: new Map(),
 
   // Conversation
@@ -253,11 +268,15 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const currentSpecContent = new Map(state.currentSpecContent);
       const currentAuditContent = new Map(state.currentAuditContent);
       const cliSessionIds = new Map(state.cliSessionIds);
+      const draftText = new Map(state.draftText);
+      const draftAttachments = new Map(state.draftAttachments);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
       cliSessionIds.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds };
+      draftText.delete(projectPath);
+      draftAttachments.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments };
     });
   },
 
@@ -342,6 +361,38 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { uiState };
     }),
 
+  // Draft
+  setDraftText: (projectPath, text) =>
+    set((state) => {
+      const draftText = new Map(state.draftText);
+      if (text === "") {
+        draftText.delete(projectPath);
+      } else {
+        draftText.set(projectPath, text);
+      }
+      return { draftText };
+    }),
+
+  setDraftAttachments: (projectPath, attachments) =>
+    set((state) => {
+      const draftAttachments = new Map(state.draftAttachments);
+      if (attachments.length === 0) {
+        draftAttachments.delete(projectPath);
+      } else {
+        draftAttachments.set(projectPath, attachments);
+      }
+      return { draftAttachments };
+    }),
+
+  clearDraft: (projectPath) =>
+    set((state) => {
+      const draftText = new Map(state.draftText);
+      const draftAttachments = new Map(state.draftAttachments);
+      draftText.delete(projectPath);
+      draftAttachments.delete(projectPath);
+      return { draftText, draftAttachments };
+    }),
+
   // CLI session
   setCliSessionId: (projectPath, sessionId) =>
     set((state) => {
@@ -415,11 +466,15 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const currentSpecContent = new Map(s.currentSpecContent);
       const currentAuditContent = new Map(s.currentAuditContent);
       const cliSessionIds = new Map(s.cliSessionIds);
+      const draftText = new Map(s.draftText);
+      const draftAttachments = new Map(s.draftAttachments);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
       cliSessionIds.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds };
+      draftText.delete(projectPath);
+      draftAttachments.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments };
     });
   },
 
@@ -430,7 +485,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     if (!conversation) return;
     const auditContent = state.currentAuditContent.get(projectPath) ?? null;
     const specContent = state.currentSpecContent.get(projectPath) ?? null;
-    const persisted: PersistedSpecWriterState = { conversation, auditContent, specContent };
+    const draftText = state.draftText.get(projectPath) ?? null;
+    const persisted: PersistedSpecWriterState = { conversation, auditContent, specContent, draftText };
     saveTaskBoardState(projectPath, JSON.stringify(persisted)).catch((e) =>
       console.error("[specWriterStore] Failed to persist state:", e)
     );
@@ -479,7 +535,12 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         if (persisted.auditContent) {
           currentAuditContent.set(projectPath, persisted.auditContent);
         }
-        return { conversations, currentSpecContent, currentAuditContent };
+        // Restore draft text if persisted
+        const draftText = new Map(state.draftText);
+        if (persisted.draftText) {
+          draftText.set(projectPath, persisted.draftText);
+        }
+        return { conversations, currentSpecContent, currentAuditContent, draftText };
       });
       return true;
     } catch (e) {

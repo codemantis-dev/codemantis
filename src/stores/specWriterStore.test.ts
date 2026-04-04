@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const mockSaveTaskBoardState = vi.fn().mockResolvedValue(undefined);
+const mockLoadTaskBoardState = vi.fn().mockResolvedValue(null);
+
 vi.mock("../lib/tauri-commands", () => ({
-  saveTaskBoardState: vi.fn().mockResolvedValue(undefined),
-  loadTaskBoardState: vi.fn().mockResolvedValue(null),
+  saveTaskBoardState: (...args: unknown[]) => mockSaveTaskBoardState(...args),
+  loadTaskBoardState: (...args: unknown[]) => mockLoadTaskBoardState(...args),
   closeSpecwriterSession: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -12,6 +15,7 @@ const PROJECT = "/tmp/test-project";
 
 describe("specWriterStore", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useSpecWriterStore.setState({
       conversations: new Map(),
       uiState: new Map(),
@@ -22,6 +26,8 @@ describe("specWriterStore", () => {
       fileRequestsPending: new Map(),
       projectContext: new Map(),
       cliSessionIds: new Map(),
+      draftText: new Map(),
+      draftAttachments: new Map(),
     });
   });
 
@@ -239,5 +245,216 @@ describe("specWriterStore", () => {
     useSpecWriterStore.getState().setCliSessionId(PROJECT, null);
     expect(useSpecWriterStore.getState().cliSessionIds.has(PROJECT)).toBe(false);
     expect(useSpecWriterStore.getState().getCliSessionId(PROJECT_2)).toBe("cli-session-2");
+  });
+
+  // ── Draft text & attachments tests ────────────────────────────
+
+  it("sets and retrieves draft text", () => {
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Hello world");
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT)).toBe("Hello world");
+  });
+
+  it("deletes draft text when set to empty string", () => {
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Something");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "");
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+  });
+
+  it("sets and retrieves draft attachments", () => {
+    const att = [{ id: "a1", type: "image" as const, name: "test.png", size: 100, mime_type: "image/png", file_path: "" }];
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, att);
+    expect(useSpecWriterStore.getState().draftAttachments.get(PROJECT)).toEqual(att);
+  });
+
+  it("deletes draft attachments when set to empty array", () => {
+    const att = [{ id: "a1", type: "image" as const, name: "test.png", size: 100, mime_type: "image/png", file_path: "" }];
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, att);
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, []);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
+  });
+
+  it("clearDraft removes both text and attachments", () => {
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Draft");
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, [{ id: "a1", type: "image" as const, name: "test.png", size: 100, mime_type: "image/png", file_path: "" }]);
+    useSpecWriterStore.getState().clearDraft(PROJECT);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
+  });
+
+  it("clearConversation also clears draft", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "new_application");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Draft text");
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, [{ id: "a1", type: "image" as const, name: "test.png", size: 100, mime_type: "image/png", file_path: "" }]);
+    useSpecWriterStore.getState().clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
+  });
+
+  it("discardAndStartNew also clears draft", async () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Draft text");
+    await useSpecWriterStore.getState().discardAndStartNew(PROJECT);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
+  });
+
+  it("isolates draft between projects", () => {
+    const PROJECT_2 = "/tmp/other-project";
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Draft A");
+    useSpecWriterStore.getState().setDraftText(PROJECT_2, "Draft B");
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT)).toBe("Draft A");
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT_2)).toBe("Draft B");
+    useSpecWriterStore.getState().clearDraft(PROJECT);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT_2)).toBe("Draft B");
+  });
+
+  it("overwrites existing draft text", () => {
+    useSpecWriterStore.getState().setDraftText(PROJECT, "First");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Second");
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT)).toBe("Second");
+  });
+
+  it("overwrites existing draft attachments", () => {
+    const att1 = [{ id: "a1", type: "image" as const, name: "one.png", size: 100, mime_type: "image/png", file_path: "" }];
+    const att2 = [{ id: "a2", type: "document" as const, name: "two.md", size: 200, mime_type: "text/markdown", file_path: "" }];
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, att1);
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, att2);
+    expect(useSpecWriterStore.getState().draftAttachments.get(PROJECT)).toEqual(att2);
+  });
+
+  it("clearDraft is safe on non-existent project", () => {
+    // Should not throw and should not create entries
+    useSpecWriterStore.getState().clearDraft("/tmp/nonexistent");
+    expect(useSpecWriterStore.getState().draftText.has("/tmp/nonexistent")).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.has("/tmp/nonexistent")).toBe(false);
+  });
+
+  it("isolates draft attachments between projects", () => {
+    const PROJECT_2 = "/tmp/other-project";
+    const att1 = [{ id: "a1", type: "image" as const, name: "one.png", size: 100, mime_type: "image/png", file_path: "" }];
+    const att2 = [{ id: "a2", type: "image" as const, name: "two.png", size: 200, mime_type: "image/png", file_path: "" }];
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT, att1);
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT_2, att2);
+    expect(useSpecWriterStore.getState().draftAttachments.get(PROJECT)).toEqual(att1);
+    expect(useSpecWriterStore.getState().draftAttachments.get(PROJECT_2)).toEqual(att2);
+    useSpecWriterStore.getState().clearDraft(PROJECT);
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().draftAttachments.get(PROJECT_2)).toEqual(att2);
+  });
+
+  // ── Draft persistence tests ──────────────────────────────────
+
+  it("persistState includes draftText in serialized data", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().setDraftText(PROJECT, "My persisted draft");
+    useSpecWriterStore.getState().persistState(PROJECT);
+    expect(mockSaveTaskBoardState).toHaveBeenCalledWith(
+      PROJECT,
+      expect.stringContaining('"draftText":"My persisted draft"')
+    );
+  });
+
+  it("persistState includes null draftText when no draft", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    useSpecWriterStore.getState().persistState(PROJECT);
+    expect(mockSaveTaskBoardState).toHaveBeenCalledWith(
+      PROJECT,
+      expect.stringContaining('"draftText":null')
+    );
+  });
+
+  it("persistState does nothing when no conversation exists", () => {
+    useSpecWriterStore.getState().setDraftText(PROJECT, "Orphaned draft");
+    useSpecWriterStore.getState().persistState(PROJECT);
+    expect(mockSaveTaskBoardState).not.toHaveBeenCalled();
+  });
+
+  it("loadState restores draftText from persisted data", async () => {
+    const persisted = {
+      conversation: {
+        id: "spec-1",
+        project_path: PROJECT,
+        messages: [],
+        ai_provider: "gemini",
+        ai_model: "gemini-2.5-flash",
+        status: "gathering",
+        mode: "feature",
+        context_loaded: false,
+      },
+      specContent: null,
+      auditContent: null,
+      draftText: "Restored draft text",
+    };
+    mockLoadTaskBoardState.mockResolvedValueOnce(JSON.stringify(persisted));
+    const result = await useSpecWriterStore.getState().loadState(PROJECT);
+    expect(result).toBe(true);
+    expect(useSpecWriterStore.getState().draftText.get(PROJECT)).toBe("Restored draft text");
+  });
+
+  it("loadState handles missing draftText gracefully", async () => {
+    const persisted = {
+      conversation: {
+        id: "spec-1",
+        project_path: PROJECT,
+        messages: [],
+        ai_provider: "gemini",
+        ai_model: "gemini-2.5-flash",
+        status: "gathering",
+        mode: "feature",
+        context_loaded: false,
+      },
+      specContent: null,
+      auditContent: null,
+      // no draftText field
+    };
+    mockLoadTaskBoardState.mockResolvedValueOnce(JSON.stringify(persisted));
+    const result = await useSpecWriterStore.getState().loadState(PROJECT);
+    expect(result).toBe(true);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+  });
+
+  it("loadState handles null draftText gracefully", async () => {
+    const persisted = {
+      conversation: {
+        id: "spec-1",
+        project_path: PROJECT,
+        messages: [],
+        ai_provider: "gemini",
+        ai_model: "gemini-2.5-flash",
+        status: "gathering",
+        mode: "feature",
+        context_loaded: false,
+      },
+      specContent: null,
+      auditContent: null,
+      draftText: null,
+    };
+    mockLoadTaskBoardState.mockResolvedValueOnce(JSON.stringify(persisted));
+    const result = await useSpecWriterStore.getState().loadState(PROJECT);
+    expect(result).toBe(true);
+    expect(useSpecWriterStore.getState().draftText.has(PROJECT)).toBe(false);
+  });
+
+  it("loadState does not restore draftAttachments (not persisted)", async () => {
+    const persisted = {
+      conversation: {
+        id: "spec-1",
+        project_path: PROJECT,
+        messages: [],
+        ai_provider: "gemini",
+        ai_model: "gemini-2.5-flash",
+        status: "gathering",
+        mode: "feature",
+        context_loaded: false,
+      },
+      specContent: null,
+      auditContent: null,
+      draftText: "Some text",
+    };
+    mockLoadTaskBoardState.mockResolvedValueOnce(JSON.stringify(persisted));
+    await useSpecWriterStore.getState().loadState(PROJECT);
+    // Attachments are NOT persisted to DB — only in-memory
+    expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
   });
 });
