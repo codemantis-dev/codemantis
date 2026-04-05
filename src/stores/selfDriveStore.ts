@@ -14,6 +14,7 @@ import type {
   RunLogEntry,
 } from "../types/implementation-guide";
 import type { TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
+import type { SessionMode } from "../types/session";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -150,6 +151,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     try {
       await syncSessionMode(sessionId, "auto-accept");
+      useSessionStore.getState().setSessionMode(sessionId, "auto-accept");
     } catch (e) {
       console.warn("[Self-Drive] Failed to switch to auto-accept:", e);
     }
@@ -194,6 +196,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     // Ensure auto-accept mode
     try {
       await syncSessionMode(sessionId, "auto-accept");
+      useSessionStore.getState().setSessionMode(sessionId, "auto-accept");
     } catch { /* ignore */ }
 
     // Re-verify to evaluate after any manual fixes
@@ -578,6 +581,7 @@ async function restoreSessionMode(): Promise<void> {
     if (sessionId) {
       try {
         await syncSessionMode(sessionId, previousMode);
+        useSessionStore.getState().setSessionMode(sessionId, previousMode as SessionMode);
       } catch { /* ignore */ }
     }
     useSelfDriveStore.setState({ previousSessionMode: null });

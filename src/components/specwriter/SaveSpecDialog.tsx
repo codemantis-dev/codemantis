@@ -16,7 +16,6 @@ interface Props {
   lastSavedFile?: string | null;
   onClose: () => void;
   onSaved: (filename: string) => void;
-  onGuideCreated?: () => void;
 }
 
 function slugify(text: string): string {
@@ -27,7 +26,7 @@ function slugify(text: string): string {
     .slice(0, 60);
 }
 
-export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved, onGuideCreated }: Props) {
+export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
   const [filename, setFilename] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -107,7 +106,6 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
                 "info",
               );
               useUiStore.getState().setRightTab("guide");
-              onGuideCreated?.();
             }
           }
         } catch (guideErr) {
@@ -120,7 +118,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
     } finally {
       setSaving(false);
     }
-  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, mode, isAudit, onSaved, onGuideCreated]);
+  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, mode, isAudit, onSaved]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>

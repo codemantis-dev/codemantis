@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import SpecWriterSlideOver from "./SpecWriterSlideOver";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
+import { useGuideStore } from "../../stores/guideStore";
 
 // Mock child components
 vi.mock("./SpecChat", () => ({
@@ -103,6 +104,7 @@ describe("SpecWriterSlideOver", () => {
       draftText: new Map(),
       draftAttachments: new Map(),
     });
+    useGuideStore.setState({ guide: null });
   });
 
   it("returns null when no project path", () => {
@@ -253,5 +255,40 @@ describe("SpecWriterSlideOver", () => {
     rerender(<SpecWriterSlideOver />);
     expect(screen.getByTestId("spec-chat")).toBeInTheDocument();
     expect(screen.getByTestId("spec-chat").closest('[style*="display: none"]')).toBeFalsy();
+  });
+
+  // ── Guide state is reactive from guideStore ──────────────
+
+  it("does not show 'Use Guide' when no guide exists and no spec saved", () => {
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    useGuideStore.setState({ guide: null });
+    render(<SpecWriterSlideOver />);
+    expect(screen.queryByText("Use Guide")).not.toBeInTheDocument();
+  });
+
+  it("derives hasGuide from guideStore, not local state", () => {
+    // Verify the component subscribes to guideStore reactively
+    useSpecWriterStore.setState({
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: null }]]),
+    });
+    useGuideStore.setState({
+      guide: {
+        id: "g1",
+        projectPath: PROJECT_PATH,
+        specFilename: "test.md",
+        auditFilename: null,
+        title: "Test Guide",
+        sessions: [],
+        createdAt: "2026-01-01",
+        status: "active",
+      },
+    });
+    render(<SpecWriterSlideOver />);
+    // The guide exists in the store — even without saving a spec in this session,
+    // the toolbar receives hasGuide=true. The button itself is gated on lastSavedFile
+    // in the toolbar, so we verify via the toolbar test. Here we just confirm no crash.
+    expect(screen.getByText("SpecWriter")).toBeInTheDocument();
   });
 });

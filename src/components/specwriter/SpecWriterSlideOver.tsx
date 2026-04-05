@@ -9,6 +9,7 @@ import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
 import { useDividerResize } from "../../hooks/useDividerResize";
 import { useSavedSpecs } from "../../hooks/useSavedSpecs";
+import { useGuideStore } from "../../stores/guideStore";
 import SpecChat from "./SpecChat";
 import SpecWriterToolbar from "./SpecWriterToolbar";
 import SpecPreviewPanel from "./SpecPreviewPanel";
@@ -51,7 +52,7 @@ export default function SpecWriterSlideOver() {
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [hasGuide, setHasGuide] = useState(false);
+  const hasGuide = useGuideStore((s) => s.guide !== null);
   const { sendMessage: sendChatMessage } = useClaudeSession();
   const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -183,7 +184,6 @@ export default function SpecWriterSlideOver() {
       setLastSavedFile(null);
       setLastSavedAuditFile(null);
       setIsEditing(false);
-      setHasGuide(false);
       // clearConversation already clears draft, but also wipe persisted state
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
@@ -203,10 +203,6 @@ export default function SpecWriterSlideOver() {
   const handleGenerateAudit = useCallback(() => {
     if (activeProjectPath) generateAudit(activeProjectPath);
   }, [activeProjectPath, generateAudit]);
-
-  const handleGuideCreated = useCallback(() => {
-    setHasGuide(true);
-  }, []);
 
   const handleUseGuide = useCallback(() => {
     useUiStore.getState().setRightTab("guide");
@@ -501,7 +497,6 @@ export default function SpecWriterSlideOver() {
           lastSavedFile={lastSavedFile}
           onClose={() => setShowSaveDialog(false)}
           onSaved={handleSaved}
-          onGuideCreated={handleGuideCreated}
         />
       )}
     </>
