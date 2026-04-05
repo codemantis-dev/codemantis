@@ -275,6 +275,95 @@ describe("activityStore", () => {
     });
   });
 
+  describe("clearApprovalState", () => {
+    it("preserves activity entries while clearing approval state", () => {
+      useActivityStore.getState().addEntry("s1", {
+        id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,
+      });
+      useActivityStore.getState().addEntry("s1", {
+        id: "a2", toolUseId: "t2", toolName: "Write", toolInput: {}, status: "done", timestamp: "", messageId: "m2", isError: false,
+      });
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r3", toolUseId: "t3", toolName: "Bash", toolInput: {},
+        sessionId: "s1", timestamp: "",
+      });
+      useActivityStore.getState().addAlwaysAllowedTool("s1", "Bash");
+      useActivityStore.getState().setPendingQuestion("s1", {
+        toolUseId: "t4", requestId: "r4", sessionId: "s1", question: "Allow?",
+      });
+
+      useActivityStore.getState().clearApprovalState("s1");
+
+      // Activity entries must survive
+      expect(useActivityStore.getState().getActiveEntries("s1")).toHaveLength(2);
+      expect(useActivityStore.getState().getActiveEntries("s1")[0].toolName).toBe("Read");
+      expect(useActivityStore.getState().getActiveEntries("s1")[1].toolName).toBe("Write");
+      // Approval state must be cleared
+      expect(useActivityStore.getState().approvalQueue).toHaveLength(0);
+      expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Bash")).toBe(false);
+      expect(useActivityStore.getState().sessionQuestions.get("s1")).toBeNull();
+    });
+
+    it("only clears approval queue for the target session", () => {
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
+        sessionId: "s1", timestamp: "",
+      });
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r2", toolUseId: "t2", toolName: "Write", toolInput: {},
+        sessionId: "s2", timestamp: "",
+      });
+
+      useActivityStore.getState().clearApprovalState("s1");
+
+      expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+      expect(useActivityStore.getState().approvalQueue[0].sessionId).toBe("s2");
+    });
+
+    it("preserves other session's always-allowed tools", () => {
+      useActivityStore.getState().addAlwaysAllowedTool("s1", "Bash");
+      useActivityStore.getState().addAlwaysAllowedTool("s2", "Write");
+
+      useActivityStore.getState().clearApprovalState("s1");
+
+      expect(useActivityStore.getState().isToolAlwaysAllowed("s1", "Bash")).toBe(false);
+      expect(useActivityStore.getState().isToolAlwaysAllowed("s2", "Write")).toBe(true);
+    });
+
+    it("clamps currentApprovalIndex after removing session approvals", () => {
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
+        sessionId: "s1", timestamp: "",
+      });
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r2", toolUseId: "t2", toolName: "Write", toolInput: {},
+        sessionId: "s1", timestamp: "",
+      });
+      useActivityStore.getState().setCurrentApprovalIndex(1);
+
+      useActivityStore.getState().clearApprovalState("s1");
+
+      expect(useActivityStore.getState().currentApprovalIndex).toBe(0);
+    });
+
+    it("removes approvalSeenIds for the target session", () => {
+      useActivityStore.getState().enqueueApproval({
+        requestId: "r1", toolUseId: "t1", toolName: "Bash", toolInput: {},
+        sessionId: "s1", timestamp: "",
+      });
+
+      // Manually add to seenIds to simulate seen state
+      useActivityStore.setState((state) => ({
+        approvalSeenIds: new Set([...state.approvalSeenIds, "t1"]),
+      }));
+      expect(useActivityStore.getState().approvalSeenIds.has("t1")).toBe(true);
+
+      useActivityStore.getState().clearApprovalState("s1");
+
+      expect(useActivityStore.getState().approvalSeenIds.has("t1")).toBe(false);
+    });
+  });
+
   it("clearAllEntries resets everything", () => {
     useActivityStore.getState().addEntry("s1", {
       id: "a1", toolUseId: "t1", toolName: "Read", toolInput: {}, status: "done", timestamp: "", messageId: "m1", isError: false,

@@ -157,7 +157,7 @@ describe("useCommandExecution", () => {
     expect(toasts.some((t) => t.message.includes("Wait for the current response"))).toBe(true);
   });
 
-  it("/clear: clears session data, activity, pauses/resumes process", async () => {
+  it("/clear: clears session data and approval state, but preserves activity entries", async () => {
     setupActiveSession();
     useSessionStore.getState().addMessage(SESSION_ID, {
       id: "msg-1",
@@ -167,6 +167,20 @@ describe("useCommandExecution", () => {
       activityIds: [],
       isStreaming: false,
     });
+    // Add activity entries and approval state before clearing
+    useActivityStore.getState().addEntry(SESSION_ID, {
+      id: "a1", toolUseId: "t1", toolName: "Read", toolInput: { file_path: "src/main.rs" },
+      status: "done", timestamp: "2026-01-01T00:00:00Z", messageId: "msg-1", isError: false,
+    });
+    useActivityStore.getState().addEntry(SESSION_ID, {
+      id: "a2", toolUseId: "t2", toolName: "Write", toolInput: { file_path: "src/lib.rs" },
+      status: "done", timestamp: "2026-01-01T00:01:00Z", messageId: "msg-1", isError: false,
+    });
+    useActivityStore.getState().enqueueApproval({
+      requestId: "r3", toolUseId: "t3", toolName: "Bash", toolInput: { command: "cargo build" },
+      sessionId: SESSION_ID, timestamp: "2026-01-01T00:02:00Z",
+    });
+    useActivityStore.getState().addAlwaysAllowedTool(SESSION_ID, "Read");
 
     const { result } = renderHook(() => useCommandExecution());
 
@@ -179,6 +193,14 @@ describe("useCommandExecution", () => {
     // Session messages should be cleared
     const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
     expect(messages).toHaveLength(0);
+    // Activity entries must be preserved
+    const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].toolName).toBe("Read");
+    expect(entries[1].toolName).toBe("Write");
+    // Approval state must be cleared
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(0);
+    expect(useActivityStore.getState().isToolAlwaysAllowed(SESSION_ID, "Read")).toBe(false);
   });
 
   it("/help: adds system message with help text", async () => {
