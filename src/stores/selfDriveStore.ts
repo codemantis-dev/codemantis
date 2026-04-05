@@ -13,7 +13,7 @@ import type {
   OrchestratorDecision,
   RunLogEntry,
 } from "../types/implementation-guide";
-import type { TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
+import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
 import type { SessionMode } from "../types/session";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
@@ -34,9 +34,7 @@ import {
 
 // ── Module-level listener handles ───────────────────────────────────
 
-let turnCompleteUnlisten: UnlistenFn | null = null;
-let processExitedUnlisten: UnlistenFn | null = null;
-let compactingUnlisten: UnlistenFn | null = null;
+let chatEventUnlisten: UnlistenFn | null = null;
 let activeSessionId: string | null = null;
 
 // ── Store interface ─────────────────────────────────────────────────
@@ -239,43 +237,35 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 // ── Event listeners ─────────────────────────────────────────────────
 
 async function startListeners(sessionId: string): Promise<void> {
-  // Clean up existing first
   stopListeners();
 
-  turnCompleteUnlisten = await listen<TurnCompleteEvent>("turn_complete", (event) => {
+  // Listen on the session-specific channel — the backend emits ALL events
+  // (turn_complete, process_exited, compacting_status, etc.) on claude-chat-{id}
+  chatEventUnlisten = await listen<FrontendEvent>(`claude-chat-${sessionId}`, (event) => {
     const payload = event.payload;
-    if (payload.session_id === sessionId) {
-      handleTurnComplete(payload);
-    }
-  });
-
-  processExitedUnlisten = await listen<ProcessExitedEvent>("process_exited", (event) => {
-    const payload = event.payload;
-    if (payload.session_id === sessionId) {
-      handleProcessCrash(payload);
-    }
-  });
-
-  compactingUnlisten = await listen("compacting_status", (event) => {
-    const payload = event.payload as { session_id: string; is_compacting: boolean };
-    if (payload.session_id === sessionId) {
-      const state = useSelfDriveStore.getState();
-      addLogEntry(
-        state.currentSessionIndex ?? 0,
-        state.currentPhase ?? "building",
-        payload.is_compacting ? "Context compacting..." : "Compaction complete",
-      );
+    switch (payload.type) {
+      case "turn_complete":
+        handleTurnComplete(payload);
+        break;
+      case "process_exited":
+        handleProcessCrash(payload);
+        break;
+      case "compacting_status": {
+        const state = useSelfDriveStore.getState();
+        addLogEntry(
+          state.currentSessionIndex ?? 0,
+          state.currentPhase ?? "building",
+          payload.is_compacting ? "Context compacting..." : "Compaction complete",
+        );
+        break;
+      }
     }
   });
 }
 
 function stopListeners(): void {
-  turnCompleteUnlisten?.();
-  processExitedUnlisten?.();
-  compactingUnlisten?.();
-  turnCompleteUnlisten = null;
-  processExitedUnlisten = null;
-  compactingUnlisten = null;
+  chatEventUnlisten?.();
+  chatEventUnlisten = null;
 }
 
 // ── Core event handler ──────────────────────────────────────────────
@@ -350,8 +340,9 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     return;
   }
 
-  // Execute the decision
-  await executeDecision(decision);
+  // Execute the decision (pass pre-evaluation phase so handleAdvance can
+  // skip test/commit sub-phases that already ran this cycle)
+  await executeDecision(decision, state.currentPhase);
 }
 
 function mapPhaseForOrchestrator(
@@ -371,10 +362,10 @@ function mapPhaseForOrchestrator(
 
 // ── Decision execution ──────────────────────────────────────────────
 
-async function executeDecision(decision: OrchestratorDecision): Promise<void> {
+async function executeDecision(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   switch (decision.action) {
     case "advance":
-      await handleAdvance(decision);
+      await handleAdvance(decision, previousPhase);
       break;
     case "verify":
       await handleVerify();
@@ -402,7 +393,7 @@ async function executeDecision(decision: OrchestratorDecision): Promise<void> {
 
 // ── Step handlers ───────────────────────────────────────────────────
 
-async function handleAdvance(decision: OrchestratorDecision): Promise<void> {
+async function handleAdvance(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
 
@@ -417,20 +408,30 @@ async function handleAdvance(decision: OrchestratorDecision): Promise<void> {
   }
 
   // Mark session complete
-  useGuideStore.getState().markSessionComplete(sessionIndex);
+  const completed = useGuideStore.getState().markSessionComplete(sessionIndex);
+  if (!completed) {
+    // First advance call toggles checks above; if markSessionComplete still
+    // fails, some verify checks weren't matched. Pause for human review.
+    const alreadyDone = useGuideStore.getState().guide?.sessions
+      .find((s) => s.index === sessionIndex)?.status === "done";
+    if (!alreadyDone) {
+      handlePause(`Could not mark Session ${sessionIndex} complete — some verify checks may not have matched`);
+      return;
+    }
+  }
   addLogEntry(sessionIndex, "advancing", `Session ${sessionIndex} complete`);
   showToast(`Session ${sessionIndex} verified`, "success");
 
-  // Optional: run tests between sessions
-  if (state.config.runTests && getTestCommand()) {
+  // Optional: run tests between sessions (skip if coming from test/commit phase)
+  if (state.config.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "testing" });
     addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`);
     await sendMessageToSession(`Run the test suite: ${getTestCommand()}. Report which tests pass and which fail.`);
     return; // wait for turn_complete → orchestrator evaluates
   }
 
-  // Optional: git commit between sessions
-  if (state.config.autoCommit) {
+  // Optional: git commit between sessions (skip if coming from commit phase)
+  if (state.config.autoCommit && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "committing" });
     const plan = getCurrentSessionPlan(sessionIndex);
     addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`);
