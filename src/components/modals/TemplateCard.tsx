@@ -59,13 +59,13 @@ export default function TemplateCard({ template, onSelect }: TemplateCardProps) 
         {visibleTags.map((tag) => (
           <span
             key={tag}
-            className="px-1.5 py-0.5 rounded text-[10px] bg-bg-elevated text-text-dim"
+            className="px-1.5 py-0.5 rounded text-detail bg-bg-elevated text-text-dim"
           >
             {tag}
           </span>
         ))}
         {extraCount > 0 && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-bg-elevated text-text-ghost">
+          <span className="px-1.5 py-0.5 rounded text-detail bg-bg-elevated text-text-ghost">
             +{extraCount}
           </span>
         )}
@@ -74,13 +74,13 @@ export default function TemplateCard({ template, onSelect }: TemplateCardProps) 
       {/* Footer: stars + license */}
       <div className="flex items-center gap-3 mt-auto">
         {template.stars && (
-          <span className="text-[10px] text-text-ghost">
+          <span className="text-detail text-text-ghost">
             {formatStars(template.stars)} stars
           </span>
         )}
-        <span className="text-[10px] text-text-ghost">{template.license}</span>
+        <span className="text-detail text-text-ghost">{template.license}</span>
         {template.scaffold_type === "cli" && (
-          <span className="text-[10px] text-accent/60 ml-auto">CLI</span>
+          <span className="text-detail text-accent/60 ml-auto">CLI</span>
         )}
       </div>
     </button>

@@ -429,7 +429,7 @@ export default function SpecWriterSlideOver() {
               <span className="flex-1">Context loading failed: {contextError}</span>
               <button
                 onClick={() => setContextError(null)}
-                className="text-[10px] px-2 py-0.5 rounded border"
+                className="text-detail px-2 py-0.5 rounded border"
                 style={{ borderColor: "rgba(239,68,68,0.3)" }}
               >
                 Dismiss
@@ -538,7 +538,7 @@ function ContextLoadingOverlay({ projectPath, onCancel }: { projectPath: string;
             Scanning <strong>{projectName}</strong> to understand its structure —
             framework, dependencies, routes, components, hooks, stores, and existing specs.
           </p>
-          <p className="text-[10px] mt-2" style={{ color: "var(--text-ghost)" }}>
+          <p className="text-detail mt-2" style={{ color: "var(--text-ghost)" }}>
             This context helps the AI write specifications that reference your actual codebase.
           </p>
         </div>

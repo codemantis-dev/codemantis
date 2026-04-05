@@ -81,7 +81,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
         style={{ color: "var(--text-secondary)" }}
       >
         <span>Saved Specs ({specsList.length})</span>
-        <span className="text-[10px]">{isCollapsed ? "▸" : "▾"}</span>
+        <span className="text-detail">{isCollapsed ? "▸" : "▾"}</span>
       </button>
 
       {!isCollapsed && (
@@ -105,7 +105,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                   <FileText size={12} className="shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="truncate font-medium">{spec.title}</div>
-                    <div className="text-[10px] opacity-60">
+                    <div className="text-detail opacity-60">
                       {spec.filename}
                       {spec.modified_at && (
                         <span className="ml-1.5">
@@ -128,7 +128,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                     {pendingDelete === spec.filename ? (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(spec.filename); }}
-                        className="px-1.5 py-0.5 rounded text-[10px]"
+                        className="px-1.5 py-0.5 rounded text-detail"
                         style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}
                       >
                         Confirm

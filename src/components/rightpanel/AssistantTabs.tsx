@@ -65,7 +65,7 @@ export default function AssistantTabs({
               size={4}
             />
             <span
-              className="text-[9px] font-bold px-1 rounded leading-none py-0.5"
+              className="text-fine font-bold px-1 rounded leading-none py-0.5"
               style={{ backgroundColor: badge.color + "20", color: badge.color }}
               title={asst.provider}
             >
@@ -73,7 +73,7 @@ export default function AssistantTabs({
             </span>
             <span className="truncate max-w-[60px]" title={asst.name}>{asst.name}</span>
             {costStr && (
-              <span className="text-[9px] text-text-ghost">{costStr}</span>
+              <span className="text-fine text-text-ghost">{costStr}</span>
             )}
             <span
               onClick={(e) => {

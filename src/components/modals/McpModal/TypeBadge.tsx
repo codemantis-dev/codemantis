@@ -7,7 +7,7 @@ export default function TypeBadge({ type }: { type: McpServerType }): React.JSX.
     sse: "bg-purple-500/15 text-purple-400",
   };
   return (
-    <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${colors[type]}`}>
+    <span className={`px-1.5 py-0.5 rounded text-label font-mono ${colors[type]}`}>
       {type}
     </span>
   );

@@ -173,7 +173,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
         {template.tags.map((tag) => (
           <span
             key={tag}
-            className="px-2 py-0.5 rounded-md text-[11px] bg-bg-elevated text-text-secondary"
+            className="px-2 py-0.5 rounded-md text-label bg-bg-elevated text-text-secondary"
           >
             {tag}
           </span>
@@ -195,7 +195,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
                 onClick={runChecks}
                 disabled={checking}
                 title="Re-check prerequisites"
-                className="flex items-center gap-1 text-[10px] text-text-dim hover:text-text-secondary transition-colors"
+                className="flex items-center gap-1 text-detail text-text-dim hover:text-text-secondary transition-colors"
               >
                 <RefreshCw size={10} className={checking ? "animate-spin" : ""} />
                 Re-check
@@ -213,17 +213,17 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
                 {r.label}
               </span>
               {!r.found && !r.required && (
-                <span className="text-text-ghost text-[10px]">optional</span>
+                <span className="text-text-ghost text-detail">optional</span>
               )}
               {!r.found && r.required && (
-                <span className="text-red/60 text-[10px]">required</span>
+                <span className="text-red/60 text-detail">required</span>
               )}
               {!r.found && getInstallCommand(r.command) && (
                 <button
                   onClick={() => handleInstall(r.command)}
                   disabled={installing !== null}
                   title={`Run: ${getInstallCommand(r.command)}`}
-                  className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                  className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-detail bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                 >
                   {installing === r.command ? (
                     <>
@@ -241,7 +241,7 @@ export default function TemplateDetail({ template, onBack, onUseTemplate }: Temp
             </div>
           ))}
           {installError && (
-            <p className="text-red text-[10px] mt-1 leading-snug break-words">{installError}</p>
+            <p className="text-red text-detail mt-1 leading-snug break-words">{installError}</p>
           )}
         </div>
       )}

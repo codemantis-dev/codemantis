@@ -364,7 +364,7 @@ export default function ScaffoldProgress({
                     Show output
                   </summary>
                   <div className="relative mt-1">
-                    <pre className="text-[11px] text-text-dim whitespace-pre-wrap select-text bg-bg-subtle rounded p-2 pr-8 max-h-40 overflow-y-auto font-mono">
+                    <pre className="text-label text-text-dim whitespace-pre-wrap select-text bg-bg-subtle rounded p-2 pr-8 max-h-40 overflow-y-auto font-mono">
                       {state.output}
                     </pre>
                     <button
@@ -406,10 +406,10 @@ export default function ScaffoldProgress({
                         a: ExternalLink,
                         p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
                         code: ({ children }) => (
-                          <code className="bg-bg-subtle px-1 rounded text-[11px] font-mono">{children}</code>
+                          <code className="bg-bg-subtle px-1 rounded text-label font-mono">{children}</code>
                         ),
                         pre: ({ children }) => (
-                          <pre className="bg-bg-subtle rounded p-2 my-1 text-[11px] font-mono overflow-x-auto">{children}</pre>
+                          <pre className="bg-bg-subtle rounded p-2 my-1 text-label font-mono overflow-x-auto">{children}</pre>
                         ),
                       }}
                     >
@@ -431,10 +431,10 @@ export default function ScaffoldProgress({
                       a: ExternalLink,
                       p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
                       code: ({ children }) => (
-                        <code className="bg-bg-subtle px-1 rounded text-[11px] font-mono">{children}</code>
+                        <code className="bg-bg-subtle px-1 rounded text-label font-mono">{children}</code>
                       ),
                       pre: ({ children }) => (
-                        <pre className="bg-bg-subtle rounded p-2 my-1 text-[11px] font-mono overflow-x-auto">{children}</pre>
+                        <pre className="bg-bg-subtle rounded p-2 my-1 text-label font-mono overflow-x-auto">{children}</pre>
                       ),
                     }}
                   >

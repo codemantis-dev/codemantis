@@ -105,7 +105,7 @@ export default function HelpChat({ sessionId, isBusy }: HelpChatProps) {
       {/* AI responding banner */}
       {isBusy && (
         <div
-          className="flex items-center gap-2 px-4 py-1.5 border-b shrink-0 text-[11px]"
+          className="flex items-center gap-2 px-4 py-1.5 border-b shrink-0 text-label"
           style={{ borderColor: "var(--border)", background: "var(--accent-bg, var(--bg-subtle))", color: "var(--accent)" }}
         >
           <span className="relative flex h-2 w-2">

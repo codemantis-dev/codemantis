@@ -22,7 +22,7 @@ export default function TemplatePicker({
         const templates = MCP_TEMPLATES.filter((t) => t.category === cat.id);
         return (
           <div key={cat.id}>
-            <h4 className="text-[11px] font-semibold text-text-dim uppercase tracking-wider mb-2">
+            <h4 className="text-label font-semibold text-text-dim uppercase tracking-wider mb-2">
               {cat.label}
             </h4>
             <div className="grid grid-cols-2 gap-2">
@@ -39,13 +39,13 @@ export default function TemplatePicker({
                         {t.displayName}
                       </span>
                       {cat.id === "api-key" && (
-                        <span className="text-[10px] text-text-ghost">🔑</span>
+                        <span className="text-detail text-text-ghost">🔑</span>
                       )}
                       {cat.id === "cloud" && (
-                        <span className="text-[10px] text-text-ghost">☁</span>
+                        <span className="text-detail text-text-ghost">☁</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-text-dim mt-0.5 truncate">
+                    <p className="text-label text-text-dim mt-0.5 truncate">
                       {t.description}
                     </p>
                   </div>
@@ -66,7 +66,7 @@ export default function TemplatePicker({
           <span className="text-ui font-medium text-text-secondary">
             Manual Configuration
           </span>
-          <p className="text-[11px] text-text-dim mt-0.5">
+          <p className="text-label text-text-dim mt-0.5">
             Start with a blank form
           </p>
         </div>

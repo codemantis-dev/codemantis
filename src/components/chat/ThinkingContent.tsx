@@ -47,12 +47,12 @@ export default function ThinkingContent({ content, isStreaming, maxHeight = 300,
         />
         <span className="text-label text-text-ghost font-medium">Reasoning</span>
         {!expanded && (
-          <span className="text-[10px] text-text-ghost ml-auto">
+          <span className="text-detail text-text-ghost ml-auto">
             {wordCount} words
           </span>
         )}
         {isStreaming && expanded && (
-          <span className="text-[10px] text-text-ghost ml-auto animate-pulse">streaming...</span>
+          <span className="text-detail text-text-ghost ml-auto animate-pulse">streaming...</span>
         )}
       </button>
 

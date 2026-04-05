@@ -13,7 +13,7 @@ export default function ModelCapabilityBadges({ model, showText = false }: Props
     <span className="inline-flex items-center gap-0.5">
       {model.isFree && (
         <span
-          className="px-1 py-px rounded text-[8px] font-medium leading-tight"
+          className="px-1 py-px rounded text-micro font-medium leading-tight"
           style={{ background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }}
           title="Free model"
         >
@@ -22,7 +22,7 @@ export default function ModelCapabilityBadges({ model, showText = false }: Props
       )}
       {supportsImage && (
         <span
-          className="px-1 py-px rounded text-[8px] leading-tight"
+          className="px-1 py-px rounded text-micro leading-tight"
           style={{ background: "color-mix(in srgb, var(--text-dim) 12%, transparent)", color: "var(--text-dim)" }}
           title="Supports image inputs"
         >
@@ -31,7 +31,7 @@ export default function ModelCapabilityBadges({ model, showText = false }: Props
       )}
       {supportsFile && (
         <span
-          className="px-1 py-px rounded text-[8px] leading-tight"
+          className="px-1 py-px rounded text-micro leading-tight"
           style={{ background: "color-mix(in srgb, var(--text-dim) 12%, transparent)", color: "var(--text-dim)" }}
           title="Supports file/document inputs"
         >

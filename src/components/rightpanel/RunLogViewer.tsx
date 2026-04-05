@@ -87,7 +87,7 @@ export default function RunLogViewer({ onClose }: Props) {
         </div>
 
         {/* Log entries */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5 font-mono text-[11px]">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5 font-mono text-label">
           {runLog.length === 0 ? (
             <p className="text-center py-4" style={{ color: "var(--text-ghost)" }}>
               No log entries yet
@@ -102,7 +102,7 @@ export default function RunLogViewer({ onClose }: Props) {
         {/* Summary footer */}
         {runLog.length > 0 && (
           <div className="px-4 py-2.5 border-t" style={{ borderColor: "var(--border-light)" }}>
-            <div className="flex items-center gap-3 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            <div className="flex items-center gap-3 text-detail" style={{ color: "var(--text-secondary)" }}>
               <span>Sessions: {sessionCount}</span>
               <span className="opacity-40">|</span>
               <span>Fixes: {fixCount}</span>
@@ -115,7 +115,7 @@ export default function RunLogViewer({ onClose }: Props) {
             </div>
             {status === "completed" && (
               <div
-                className="mt-1 text-[10px] font-medium"
+                className="mt-1 text-detail font-medium"
                 style={{ color: "var(--color-green, #22c55e)" }}
               >
                 Run completed successfully

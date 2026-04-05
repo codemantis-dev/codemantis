@@ -95,7 +95,7 @@ export default function ChangelogSettingsTab({
               className="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-ui font-mono leading-relaxed outline-none focus:border-accent/40 resize-y"
               placeholder="System prompt for changelog generation..."
             />
-            <p className="text-[11px] text-text-ghost mt-1">
+            <p className="text-label text-text-ghost mt-1">
               The AI receives this as a system instruction. It should ask for JSON output with headline, description, and category fields.
             </p>
           </div>

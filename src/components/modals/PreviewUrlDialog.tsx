@@ -75,7 +75,7 @@ export default function PreviewUrlDialog() {
               <AlertTriangle size={20} className="text-yellow" />
             </div>
             <div>
-              <Dialog.Title className="text-text-primary font-medium text-[15px]">
+              <Dialog.Title className="text-text-primary font-medium text-title">
                 Dev server failed
               </Dialog.Title>
               <Dialog.Description className="text-ui text-text-dim mt-0.5">

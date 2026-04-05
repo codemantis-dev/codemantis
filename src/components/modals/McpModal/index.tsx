@@ -249,13 +249,13 @@ export default function McpModal(): React.JSX.Element {
                               <div className="flex items-center gap-1">
                                 <button
                                   onClick={() => handleDelete(server.name, server.scope)}
-                                  className="px-2 py-0.5 rounded text-[11px] text-red bg-red/10 hover:bg-red/20 transition-colors font-medium"
+                                  className="px-2 py-0.5 rounded text-label text-red bg-red/10 hover:bg-red/20 transition-colors font-medium"
                                 >
                                   Delete
                                 </button>
                                 <button
                                   onClick={() => setConfirmDelete(null)}
-                                  className="px-2 py-0.5 rounded text-[11px] text-text-dim hover:bg-bg-elevated transition-colors"
+                                  className="px-2 py-0.5 rounded text-label text-text-dim hover:bg-bg-elevated transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -274,7 +274,7 @@ export default function McpModal(): React.JSX.Element {
 
                         {/* Summary line */}
                         <div className="px-3 pb-2 -mt-1">
-                          <p className="text-[12px] text-text-dim font-mono truncate">
+                          <p className="text-ui text-text-dim font-mono truncate">
                             {serverSummary(server)}
                           </p>
                         </div>
@@ -285,7 +285,7 @@ export default function McpModal(): React.JSX.Element {
                             {Object.entries(server.env).map(([key, value]) => (
                               <span
                                 key={key}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-elevated text-[11px] font-mono"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-elevated text-label font-mono"
                               >
                                 <span className="text-text-dim">{key}=</span>
                                 <span className="text-text-ghost">
@@ -357,7 +357,7 @@ export default function McpModal(): React.JSX.Element {
               </button>
             </div>
           ) : !editingServer && (
-            <div className="px-5 py-3 border-t border-border text-[11px] text-text-ghost shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="px-5 py-3 border-t border-border text-label text-text-ghost shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="inline-flex items-center gap-1">
                 Global: ~/.claude.json
                 <button

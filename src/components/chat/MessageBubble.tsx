@@ -69,7 +69,7 @@ export default React.memo(function MessageBubble({
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
           </div>
-          <span className="text-[10px] text-text-ghost px-1">{timeStr}</span>
+          <span className="text-detail text-text-ghost px-1">{timeStr}</span>
         </div>
       </div>
     );
@@ -115,7 +115,7 @@ export default React.memo(function MessageBubble({
         {!message.isStreaming && !message.restartable && (
           <div className="mt-1.5 flex items-center gap-2">
             {message.turnStats && <TurnStatsPopover stats={message.turnStats} />}
-            <span className="text-[10px] text-text-ghost">
+            <span className="text-detail text-text-ghost">
               {timeStr}
               {durationMs != null && durationMs > 0 && (
                 <> · took {formatDuration(durationMs, "medium")}</>

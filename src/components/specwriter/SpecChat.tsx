@@ -207,7 +207,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
       >
         <span>SpecWriter Chat</span>
         {isStreaming && (
-          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]"
+          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-detail"
             style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent)" }} />
@@ -277,7 +277,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
             </select>
           </div>
         ) : conversation ? (
-          <span className="ml-auto opacity-60 text-[10px]">
+          <span className="ml-auto opacity-60 text-detail">
             {isClaudeCode ? "Claude Code" : ""} {getSpecModelLabel(conversation.ai_model)}
           </span>
         ) : null}
@@ -343,7 +343,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--accent)" }} />
             <span className="text-ui" style={{ color: "var(--text-dim)" }}>Thinking...</span>
             {elapsed > 0 && (
-              <span className="text-[10px] font-mono" style={{ color: "var(--text-ghost)" }}>
+              <span className="text-detail font-mono" style={{ color: "var(--text-ghost)" }}>
                 {formatDuration(elapsed, "elapsed")}
               </span>
             )}
@@ -384,7 +384,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
 
       {/* Mode indicator / selector */}
       <div
-        className="px-3 py-1.5 border-t text-[10px] flex items-center gap-2"
+        className="px-3 py-1.5 border-t text-detail flex items-center gap-2"
         style={{ borderColor: "var(--border)", color: "var(--text-ghost)" }}
       >
         {conversation && !hasUserMessages ? (
@@ -393,7 +393,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
             <select
               value={conversation.mode}
               onChange={(e) => handleModeChange(e.target.value as 'feature' | 'new_application')}
-              className="px-1 py-0.5 rounded border text-[10px]"
+              className="px-1 py-0.5 rounded border text-detail"
               style={{
                 background: "var(--bg-primary)",
                 borderColor: "var(--border)",

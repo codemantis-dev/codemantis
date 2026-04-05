@@ -216,7 +216,7 @@ export default function ChatPanel() {
                   {isRestoredBoundary && (
                     <div className="flex items-center gap-3 my-4">
                       <div className="flex-1 border-t border-border-light" />
-                      <span className="text-[10px] text-text-ghost font-medium uppercase tracking-wider">
+                      <span className="text-detail text-text-ghost font-medium uppercase tracking-wider">
                         Previous session
                       </span>
                       <div className="flex-1 border-t border-border-light" />

@@ -305,7 +305,7 @@ export default function ApiLogsTab() {
                     <span className="text-text-ghost w-28 shrink-0">{formatTimestamp(log.timestamp)}</span>
                     <span className="text-text-dim capitalize w-16 shrink-0">{log.provider}</span>
                     <span className="text-text-dim shrink-0 font-mono">{log.model}</span>
-                    <span className="text-red flex-1 truncate font-mono text-[11px]">
+                    <span className="text-red flex-1 truncate font-mono text-label">
                       {log.errorMessage || "Unknown error"}
                     </span>
                     <button
@@ -326,7 +326,7 @@ export default function ApiLogsTab() {
                   </div>
                   {expandedErrorId === log.id && log.errorMessage && (
                     <div
-                      className="group/detail mx-3 mt-1 mb-2 px-3 py-2 rounded border border-border-light font-mono text-[11px] text-red whitespace-pre-wrap break-all select-text relative"
+                      className="group/detail mx-3 mt-1 mb-2 px-3 py-2 rounded border border-border-light font-mono text-label text-red whitespace-pre-wrap break-all select-text relative"
                       style={{ background: "var(--bg-primary)" }}
                     >
                       <button
@@ -356,7 +356,7 @@ export default function ApiLogsTab() {
 
       {activeTab === "super-bro" && <SuperBroLogPanel />}
 
-      <p className="text-[11px] text-text-ghost mt-3 shrink-0">
+      <p className="text-label text-text-ghost mt-3 shrink-0">
         Logs older than 5 days are automatically deleted.
       </p>
 
@@ -394,7 +394,7 @@ export default function ApiLogsTab() {
             <FolderOpen size={14} />
             Open in Finder
           </button>
-          <span className="text-[11px] text-text-ghost font-mono truncate">{LOG_FILE_PATH}</span>
+          <span className="text-label text-text-ghost font-mono truncate">{LOG_FILE_PATH}</span>
         </div>
       </div>
     </div>
@@ -487,7 +487,7 @@ function SuperBroLogPanel(): React.ReactElement {
               >
                 {style.label}
               </span>
-              <span className="text-text-secondary flex-1 break-words font-mono text-[11px] leading-relaxed">
+              <span className="text-text-secondary flex-1 break-words font-mono text-label leading-relaxed">
                 {entry.message}
               </span>
             </div>

@@ -209,7 +209,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
                   Send {selectedOptions.size} selected
                 </button>
               )}
-              <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-ghost)' }}>
+              <div className="text-detail mt-0.5" style={{ color: 'var(--text-ghost)' }}>
                 {selectedOptions.size > 0
                   ? "Click more options to add, or press Send"
                   : isMultiSelectDefault
@@ -221,7 +221,7 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
         })()}
 
         <div
-          className="text-[10px] mt-1 opacity-60"
+          className="text-detail mt-1 opacity-60"
           style={{ color: isUser ? "rgba(255,255,255,0.7)" : "var(--text-ghost)" }}
         >
           {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -297,7 +297,7 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
           📂 {entries.length} file{entries.length !== 1 ? 's' : ''} loaded
         </span>
         <span className="ml-auto flex items-center gap-1.5">
-          <span className="text-[10px] opacity-60">
+          <span className="text-detail opacity-60">
             {new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -317,7 +317,7 @@ function FileContextMessage({ content, timestamp }: { content: string; timestamp
                 }}
               >
                 <span className="font-mono truncate flex-1">{entry.path}</span>
-                <span className="text-[10px] shrink-0 opacity-60">
+                <span className="text-detail shrink-0 opacity-60">
                   {entry.found ? entry.lineInfo : '⚠ not found'}
                 </span>
                 {entry.found && (

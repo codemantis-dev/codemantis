@@ -71,7 +71,7 @@ function OpenRouterModelPicker({
       <div className="max-h-[300px] overflow-y-auto">
         {freeModels.length > 0 && (
           <>
-            <div className="px-3 py-1 text-[9px] text-text-ghost uppercase tracking-wider">
+            <div className="px-3 py-1 text-fine text-text-ghost uppercase tracking-wider">
               Free ({freeModels.length})
             </div>
             {freeModels.map((m) => (
@@ -90,7 +90,7 @@ function OpenRouterModelPicker({
         )}
         {paidModels.length > 0 && (
           <>
-            <div className="px-3 py-1 text-[9px] text-text-ghost uppercase tracking-wider mt-1">
+            <div className="px-3 py-1 text-fine text-text-ghost uppercase tracking-wider mt-1">
               Paid ({paidModels.length})
             </div>
             {paidModels.map((m) => (
@@ -153,9 +153,9 @@ export default function AssistantProviderMenu({
               >
                 <span className="text-text-primary">{p.label}</span>
                 {!hasKey ? (
-                  <span className="text-[9px] text-text-ghost">No key</span>
+                  <span className="text-fine text-text-ghost">No key</span>
                 ) : (isApi && (models.length > 0 || isOpenRouter)) ? (
-                  <span className="text-[9px] text-text-ghost">{isExpanded ? "\u25B4" : "\u25BE"}</span>
+                  <span className="text-fine text-text-ghost">{isExpanded ? "\u25B4" : "\u25BE"}</span>
                 ) : null}
               </button>
               {isExpanded && isOpenRouter && (
@@ -210,9 +210,9 @@ export default function AssistantProviderMenu({
             >
               <span className="text-text-primary">{p.label}</span>
               {!hasKey ? (
-                <span className="text-[10px] text-text-ghost">No API key</span>
+                <span className="text-detail text-text-ghost">No API key</span>
               ) : (isApi && (models.length > 0 || isOpenRouter)) ? (
-                <span className="text-[10px] text-text-ghost">{isExpanded ? "\u25B4" : "\u25BE"}</span>
+                <span className="text-detail text-text-ghost">{isExpanded ? "\u25B4" : "\u25BE"}</span>
               ) : null}
             </button>
             {isExpanded && isOpenRouter && (

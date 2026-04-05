@@ -127,7 +127,7 @@ export default function GuideSessionCard({
         {/* Active badge */}
         {isActive && (
           <span
-            className="text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0"
+            className="text-detail px-1.5 py-0.5 rounded-full font-medium shrink-0"
             style={{ background: "var(--accent)", color: "white" }}
           >
             CURRENT
@@ -137,7 +137,7 @@ export default function GuideSessionCard({
         {/* AUTO badge when Self-Drive is active on this session */}
         {isSelfDriveSession && (
           <span
-            className="text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0"
+            className="text-detail px-1.5 py-0.5 rounded-full font-medium shrink-0"
             style={{ background: "var(--purple, #a855f7)", color: "white" }}
           >
             AUTO
@@ -146,7 +146,7 @@ export default function GuideSessionCard({
 
         {/* Done summary */}
         {isDone && (
-          <span className="text-[10px] shrink-0" style={{ color: "var(--text-ghost)" }}>
+          <span className="text-detail shrink-0" style={{ color: "var(--text-ghost)" }}>
             All checks passed
           </span>
         )}
@@ -166,12 +166,12 @@ export default function GuideSessionCard({
           {(session.scope || session.readSections) && (
             <div className="pt-2 space-y-1">
               {session.scope && (
-                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-label" style={{ color: "var(--text-secondary)" }}>
                   <span className="font-medium">Scope:</span> {session.scope}
                 </p>
               )}
               {session.readSections && (
-                <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-label" style={{ color: "var(--text-secondary)" }}>
                   <span className="font-medium">Read:</span> {session.readSections}
                 </p>
               )}
@@ -183,7 +183,7 @@ export default function GuideSessionCard({
             <div>
               <button
                 onClick={() => setFilesExpanded(!filesExpanded)}
-                className="flex items-center gap-1 text-[11px] font-medium"
+                className="flex items-center gap-1 text-label font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
                 <FileText size={11} />
@@ -199,7 +199,7 @@ export default function GuideSessionCard({
                   {session.files.map((f) => (
                     <p
                       key={f}
-                      className="text-[10px] font-mono truncate"
+                      className="text-detail font-mono truncate"
                       style={{ color: "var(--text-ghost)" }}
                     >
                       {f}
@@ -214,7 +214,7 @@ export default function GuideSessionCard({
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopyPrompt}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:opacity-90"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-label font-medium transition-colors hover:opacity-90"
               style={{
                 background: "var(--bg-elevated)",
                 color: "var(--text-secondary)",
@@ -226,7 +226,7 @@ export default function GuideSessionCard({
             </button>
             <button
               onClick={handleSendToChat}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:opacity-90"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-label font-medium transition-colors hover:opacity-90"
               style={{
                 background: "var(--accent)",
                 color: "white",
@@ -244,7 +244,7 @@ export default function GuideSessionCard({
           {session.verifyChecks.length > 0 && (
             <div className="space-y-1">
               <p
-                className="text-[11px] font-medium"
+                className="text-label font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
                 Verify before next session:
@@ -261,7 +261,7 @@ export default function GuideSessionCard({
                     className="mt-0.5 shrink-0 accent-[var(--accent)]"
                   />
                   <span
-                    className="text-[11px] leading-snug"
+                    className="text-label leading-snug"
                     style={{
                       color: check.checked
                         ? "var(--text-ghost)"
@@ -281,7 +281,7 @@ export default function GuideSessionCard({
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleVerifyForMe}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors hover:brightness-95"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-label font-medium transition-colors hover:brightness-95"
                 style={{
                   background: "var(--bg-elevated)",
                   color: "var(--text-secondary)",
@@ -302,7 +302,7 @@ export default function GuideSessionCard({
             <button
               onClick={onMarkComplete}
               disabled={!allChecked}
-              className="w-full py-1.5 rounded-md text-[11px] font-medium transition-colors disabled:opacity-40"
+              className="w-full py-1.5 rounded-md text-label font-medium transition-colors disabled:opacity-40"
               style={{
                 background: allChecked ? "var(--color-green, #22c55e)" : "var(--bg-elevated)",
                 color: allChecked ? "white" : "var(--text-ghost)",

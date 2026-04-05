@@ -122,14 +122,14 @@ export default function GuidePanel() {
           >
             <CheckCircle2 size={13} style={{ color: "var(--color-green, #22c55e)" }} />
             <span
-              className="text-[11px] font-semibold"
+              className="text-label font-semibold"
               style={{ color: "var(--color-green, #22c55e)" }}
             >
               Implementation Complete
             </span>
           </div>
         ) : (
-          <p className="text-[10px] mb-1.5" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-detail mb-1.5" style={{ color: "var(--text-secondary)" }}>
             Implementation Guide &middot; {completedSessions} of {totalSessions} sessions complete
           </p>
         )}
@@ -151,7 +151,7 @@ export default function GuidePanel() {
             <button
               onClick={() => setShowConfirmModal(true)}
               disabled={!activeSessionId || !guide.sessions.some((s) => s.status === "active")}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-detail font-medium transition-all hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               style={{ background: "var(--accent)", color: "white" }}
               title={
                 !activeSessionId
@@ -207,7 +207,7 @@ export default function GuidePanel() {
       >
         <button
           onClick={handleOpenSpec}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] transition-colors hover:bg-bg-elevated"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-label transition-colors hover:bg-bg-elevated"
           style={{ color: "var(--text-secondary)" }}
         >
           <FileText size={11} />
@@ -218,7 +218,7 @@ export default function GuidePanel() {
           <button
             onClick={() => setShowDismissConfirm(true)}
             disabled={selfDriveStatus === "running" || selfDriveStatus === "paused"}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] transition-colors hover:bg-red-500/10 disabled:opacity-30"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-label transition-colors hover:bg-red-500/10 disabled:opacity-30"
             style={{ color: "var(--text-ghost)" }}
           >
             <Trash2 size={11} />
@@ -226,19 +226,19 @@ export default function GuidePanel() {
           </button>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            <span className="text-detail" style={{ color: "var(--text-secondary)" }}>
               Delete guide?
             </span>
             <button
               onClick={handleDismiss}
-              className="px-2 py-1 rounded text-[10px] font-medium"
+              className="px-2 py-1 rounded text-detail font-medium"
               style={{ background: "#ef4444", color: "white" }}
             >
               Yes
             </button>
             <button
               onClick={() => setShowDismissConfirm(false)}
-              className="px-2 py-1 rounded text-[10px]"
+              className="px-2 py-1 rounded text-detail"
               style={{ color: "var(--text-secondary)" }}
             >
               No

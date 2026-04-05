@@ -77,7 +77,7 @@ export default function AssistantHeader({
       )}
 
       {isApiProvider && messages.length === 0 && !streaming?.isStreaming && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] text-text-ghost border-b border-border-light" style={{ background: "var(--bg-secondary)" }}>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 text-detail text-text-ghost border-b border-border-light" style={{ background: "var(--bg-secondary)" }}>
           <Info size={10} />
           <span>Chat only — no file access or tool use. Uses your {activeInstance!.provider} API key.</span>
         </div>

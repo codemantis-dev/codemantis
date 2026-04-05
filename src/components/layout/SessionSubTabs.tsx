@@ -85,7 +85,7 @@ const SessionSubTab = React.memo(function SessionSubTab({
 
       {/* Model badge */}
       {capitalizedModel && (
-        <span className="text-[10px] font-medium text-accent bg-accent-dim rounded px-1 py-px shrink-0">
+        <span className="text-detail font-medium text-accent bg-accent-dim rounded px-1 py-px shrink-0">
           {capitalizedModel}
         </span>
       )}

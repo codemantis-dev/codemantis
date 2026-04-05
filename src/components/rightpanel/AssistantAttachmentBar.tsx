@@ -45,7 +45,7 @@ export default function AssistantAttachmentBar({ attachments, onRemove }: Props)
             )}
             <div className="min-w-0">
               <p className="text-label text-text-secondary truncate max-w-[100px]">{att.fileName}</p>
-              <p className="text-[9px] text-text-ghost">{formatSize(att.fileSize)}</p>
+              <p className="text-fine text-text-ghost">{formatSize(att.fileSize)}</p>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); onRemove(att.id); }}

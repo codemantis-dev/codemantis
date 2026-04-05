@@ -34,7 +34,7 @@ export default function PreviewLoadingModal() {
               <Globe size={24} className="text-accent animate-pulse" />
             </div>
 
-            <Dialog.Title className="text-text-primary font-medium text-[15px]">
+            <Dialog.Title className="text-text-primary font-medium text-title">
               Opening preview&hellip;
             </Dialog.Title>
 

@@ -25,7 +25,7 @@ export default function SpecWriterBadge({ projectPath }: Props) {
 
   return (
     <span
-      className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+      className={`text-detail px-1.5 py-0.5 rounded-full ${
         conversation.status === 'writing' ? "animate-pulse" : ""
       }`}
       style={{

@@ -66,10 +66,10 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
         <div className="flex-1 min-w-0">
           {/* Header: badge + time */}
           <div className="flex items-center gap-2 mb-0.5">
-            <span className={`text-[10px] font-medium ${config.color} bg-bg-elevated rounded px-1 py-px`}>
+            <span className={`text-detail font-medium ${config.color} bg-bg-elevated rounded px-1 py-px`}>
               {config.label}
             </span>
-            <span className="text-[10px] text-text-ghost ml-auto">{time}</span>
+            <span className="text-detail text-text-ghost ml-auto">{time}</span>
             <button
               onClick={handleCopy}
               className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all"
@@ -98,7 +98,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
 
           {/* Tools summary badge */}
           {entry.tools_summary && (
-            <p className="text-[10px] text-text-ghost mt-1 italic">
+            <p className="text-detail text-text-ghost mt-1 italic">
               {entry.tools_summary}
             </p>
           )}
@@ -108,7 +108,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
             <div className="mt-1.5">
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-1 text-[10px] text-text-ghost hover:text-text-dim transition-colors"
+                className="flex items-center gap-1 text-detail text-text-ghost hover:text-text-dim transition-colors"
               >
                 {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 <span>{expanded ? "Hide" : "Show"} details ({detailBullets.length})</span>
@@ -116,7 +116,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
               {expanded && (
                 <ul className="mt-1 ml-1 space-y-0.5">
                   {detailBullets.map((bullet) => (
-                    <li key={bullet} className="text-[11px] text-text-dim leading-snug flex items-start gap-1.5">
+                    <li key={bullet} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
                       <span className="text-text-ghost mt-px shrink-0">&#x2022;</span>
                       <span className="changelog-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownLinkComponents}>{bullet}</ReactMarkdown></span>
                     </li>
@@ -135,7 +135,7 @@ function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId:
                   <span
                     key={file}
                     title={file}
-                    className="text-[10px] text-text-ghost bg-bg-elevated rounded px-1.5 py-px font-mono"
+                    className="text-detail text-text-ghost bg-bg-elevated rounded px-1.5 py-px font-mono"
                   >
                     {fileName}
                   </span>
@@ -212,7 +212,7 @@ export default function ChangelogFeed() {
           />
           {isFiltering && (
             <>
-              <span className="text-[10px] text-text-ghost shrink-0">
+              <span className="text-detail text-text-ghost shrink-0">
                 {filteredEntries.length} of {sortedEntries.length}
               </span>
               <button

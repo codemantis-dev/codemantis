@@ -59,7 +59,7 @@ export default function SessionLogsTab({
                 <option value={0}>Forever</option>
               </select>
             </FieldRow>
-            <p className="text-[11px] text-text-ghost mt-1">
+            <p className="text-label text-text-ghost mt-1">
               Session logs older than this are automatically cleaned up on app launch.
               Set to &ldquo;Forever&rdquo; to keep all logs indefinitely.
             </p>

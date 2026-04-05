@@ -414,7 +414,7 @@ export default function AssistantInputArea({
           )}
         </div>
       </div>
-      <div className="text-[10px] px-2 pb-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
+      <div className="text-detail px-2 pb-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
         <span>{sendShortcutHint(sendShortcut)}</span>
         {busy && <span>Esc to stop</span>}
       </div>

@@ -73,7 +73,7 @@ export default function SelfDriveConfirmModal({ open, onClose, onConfirm }: Prop
             </p>
 
             <div
-              className="px-3 py-2.5 rounded-lg border text-[11px] space-y-1"
+              className="px-3 py-2.5 rounded-lg border text-label space-y-1"
               style={{ background: "var(--bg-elevated)", borderColor: "var(--border-light)", color: "var(--text-secondary)" }}
             >
               <p>For each session:</p>
@@ -88,7 +88,7 @@ export default function SelfDriveConfirmModal({ open, onClose, onConfirm }: Prop
             </div>
 
             <div
-              className="px-3 py-2 rounded-lg text-[11px] space-y-1"
+              className="px-3 py-2 rounded-lg text-label space-y-1"
               style={{
                 background: "rgba(var(--accent-rgb, 99, 102, 241), 0.06)",
                 color: "var(--text-secondary)",
@@ -104,18 +104,18 @@ export default function SelfDriveConfirmModal({ open, onClose, onConfirm }: Prop
               </p>
             </div>
 
-            <div className="flex items-center gap-4 text-[11px]" style={{ color: "var(--text-ghost)" }}>
+            <div className="flex items-center gap-4 text-label" style={{ color: "var(--text-ghost)" }}>
               <span>Orchestrator: {providerLabel} / {modelLabel}</span>
               <span>Est. cost: ~$0.05 - $0.50</span>
             </div>
 
-            <p className="text-[10px] leading-relaxed" style={{ color: "var(--text-ghost)" }}>
+            <p className="text-detail leading-relaxed" style={{ color: "var(--text-ghost)" }}>
               Self-Drive pauses automatically on failures it can't fix. You can also pause manually at any time.
             </p>
 
             {!hasApiKey && (
               <div
-                className="px-3 py-2 rounded-lg border text-[11px]"
+                className="px-3 py-2 rounded-lg border text-label"
                 style={{
                   background: "rgba(239, 68, 68, 0.06)",
                   borderColor: "rgba(239, 68, 68, 0.3)",

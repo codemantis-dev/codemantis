@@ -31,7 +31,7 @@ export default function KeyValueRow({
     <div>
       <label className="text-ui text-text-secondary mb-1.5 block">{label}</label>
       {helpText && (
-        <p className="text-[11px] text-text-ghost mb-1.5 -mt-0.5">{helpText}</p>
+        <p className="text-label text-text-ghost mb-1.5 -mt-0.5">{helpText}</p>
       )}
       <div className="space-y-1.5">
         {pairs.map((pair, i) => (

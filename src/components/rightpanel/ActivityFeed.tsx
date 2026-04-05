@@ -173,7 +173,7 @@ export default function ActivityFeed() {
   const reasoningToggle = (
     <button
       onClick={toggleReasoningPanel}
-      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-label transition-colors ${
         showReasoningPanel
           ? "text-accent bg-accent/10"
           : "text-text-ghost hover:text-text-secondary hover:bg-bg-elevated"
@@ -188,7 +188,7 @@ export default function ActivityFeed() {
   const scopeToggle = (
     <button
       onClick={toggleActivityFeedScope}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
       title={activityFeedScope === "session" ? "Showing active session — click for all project activity" : "Showing all project activity — click for active session only"}
     >
       <Layers size={12} />
@@ -286,7 +286,7 @@ export default function ActivityFeed() {
                 </span>
                 {entry.approvalStatus && (
                   <span
-                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ml-1 ${
+                    className={`text-detail font-medium px-1.5 py-0.5 rounded-full ml-1 ${
                       entry.approvalStatus === "approved"
                         ? "bg-green/15 text-green"
                         : entry.approvalStatus === "denied"
@@ -299,7 +299,7 @@ export default function ActivityFeed() {
                 )}
                 {entry.parentAgentDescription && (
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 max-w-[120px] truncate"
+                    className="text-detail px-1.5 py-0.5 rounded-full shrink-0 max-w-[120px] truncate"
                     style={{ background: "rgba(74,222,128,0.12)", color: "rgb(74,222,128)" }}
                     title={entry.parentAgentDescription}
                   >
@@ -307,19 +307,19 @@ export default function ActivityFeed() {
                   </span>
                 )}
                 {entry.toolName === "Agent" && entry.agentFinalToolCount != null && entry.agentFinalToolCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                  <span className="text-detail px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
                     {entry.agentFinalToolCount} tool uses
                   </span>
                 )}
                 {entry.toolName === "Agent" && entry.agentFinalTokenCount != null && entry.agentFinalTokenCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                  <span className="text-detail px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
                     {entry.agentFinalTokenCount >= 1000
                       ? `${(entry.agentFinalTokenCount / 1000).toFixed(1)}K`
                       : entry.agentFinalTokenCount} tokens
                   </span>
                 )}
                 {showLabels && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+                  <span className="text-detail px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
                     {entry.computedLabel}
                   </span>
                 )}

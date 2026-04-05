@@ -202,7 +202,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
                 )}
                 {cat && (
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                    className="text-detail px-1.5 py-0.5 rounded-full shrink-0"
                     style={{
                       color: cat.color,
                       border: `1px solid ${cat.color}33`,

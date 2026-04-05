@@ -93,7 +93,7 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
   const handleFileDrop = useCallback(async (paths: string[]) => {
     const specAtts = await processDroppedPathsForSpec(paths);
     setAttachments((prev) => [...prev, ...specAtts]);
-  }, []);
+  }, [setAttachments]);
   const { isDragOver } = useFileDrop({
     id: "spec-chat-input",
     containerRef,
@@ -152,7 +152,7 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
         }
       }
     },
-    []
+    [setAttachments]
   );
 
   const handleFileSelect = useCallback(
@@ -191,12 +191,12 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
       }
       e.target.value = "";
     },
-    []
+    [setAttachments]
   );
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  }, [setAttachments]);
 
   return (
     <div
@@ -299,7 +299,7 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
         )}
       </div>
 
-      <div className="text-[10px] mt-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
+      <div className="text-detail mt-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
         <span>{sendShortcutHint(sendShortcut)}</span>
         {isStreaming && <span>Esc to stop</span>}
       </div>

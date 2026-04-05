@@ -82,13 +82,13 @@ export default function SelfDriveStatus() {
       >
         <div className="flex items-center gap-2">
           <CheckCircle2 size={14} style={{ color: "var(--color-green, #22c55e)" }} />
-          <span className="text-[11px] font-semibold" style={{ color: "var(--color-green, #22c55e)" }}>
+          <span className="text-label font-semibold" style={{ color: "var(--color-green, #22c55e)" }}>
             Self-Drive Complete
           </span>
           <div className="flex-1" />
           <button
             onClick={() => setShowLog(true)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors hover:bg-bg-elevated"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-detail transition-colors hover:bg-bg-elevated"
             style={{ color: "var(--text-secondary)" }}
           >
             <ScrollText size={10} />
@@ -112,17 +112,17 @@ export default function SelfDriveStatus() {
       >
         <div className="flex items-center gap-2 mb-1">
           <AlertTriangle size={14} style={{ color: "var(--yellow, #eab308)" }} />
-          <span className="text-[11px] font-semibold" style={{ color: "var(--yellow, #eab308)" }}>
+          <span className="text-label font-semibold" style={{ color: "var(--yellow, #eab308)" }}>
             PAUSED
           </span>
         </div>
-        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        <p className="text-detail mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           {pauseReason}
         </p>
         <div className="flex items-center gap-1.5">
           <button
             onClick={resume}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors hover:brightness-95"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:brightness-95"
             style={{ background: "var(--accent)", color: "white" }}
           >
             <Play size={10} />
@@ -130,7 +130,7 @@ export default function SelfDriveStatus() {
           </button>
           <button
             onClick={stop}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors hover:bg-red-500/10"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:bg-red-500/10"
             style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
           >
             <Square size={10} />
@@ -138,7 +138,7 @@ export default function SelfDriveStatus() {
           </button>
           <button
             onClick={() => setShowLog(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] transition-colors hover:bg-bg-elevated"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail transition-colors hover:bg-bg-elevated"
             style={{ color: "var(--text-ghost)" }}
           >
             <ScrollText size={10} />
@@ -169,7 +169,7 @@ export default function SelfDriveStatus() {
           style={{ color: phaseConfig?.color ?? "var(--accent)" }}
           className={isAnimatedIcon ? "animate-spin" : ""}
         />
-        <span className="text-[11px] font-medium" style={{ color: "var(--text-primary)" }}>
+        <span className="text-label font-medium" style={{ color: "var(--text-primary)" }}>
           {phaseConfig?.label ?? "Working"} Session {sessionIndex}
           {elapsed > 0 && (
             <span className="ml-1.5 font-normal" style={{ color: "var(--text-ghost)" }}>
@@ -180,7 +180,7 @@ export default function SelfDriveStatus() {
         <div className="flex-1" />
         <button
           onClick={pause}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:bg-bg-elevated"
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-detail font-medium transition-colors hover:bg-bg-elevated"
           style={{ color: "var(--text-secondary)" }}
         >
           <Pause size={10} />
@@ -188,7 +188,7 @@ export default function SelfDriveStatus() {
         </button>
       </div>
       {fixAttempt > 0 && (
-        <p className="text-[10px] mt-0.5" style={{ color: "var(--yellow, #eab308)" }}>
+        <p className="text-detail mt-0.5" style={{ color: "var(--yellow, #eab308)" }}>
           Fix attempt {fixAttempt}/{maxFixAttempts}
         </p>
       )}

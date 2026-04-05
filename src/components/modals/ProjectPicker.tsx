@@ -154,7 +154,7 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                   <Icon size={13} />
                   {tab.label}
                   {tab.id === "recent" && recentCount > 0 && (
-                    <span className="text-[10px] text-text-ghost ml-0.5">({recentCount})</span>
+                    <span className="text-detail text-text-ghost ml-0.5">({recentCount})</span>
                   )}
                 </button>
               );

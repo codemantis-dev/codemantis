@@ -161,7 +161,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
               }}
               placeholder={isAudit ? "my-feature.audit.md" : "my-spec.md"}
             />
-            <div className="text-[10px] mt-1" style={{ color: "var(--text-ghost)" }}>
+            <div className="text-detail mt-1" style={{ color: "var(--text-ghost)" }}>
               Saves to: docs/specs/{filename || "..."}
             </div>
           </div>

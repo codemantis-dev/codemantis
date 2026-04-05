@@ -83,7 +83,7 @@ export default function AIProvidersTab({
         {orProvider && (
           <div>
             <label className="text-ui text-text-secondary mb-0.5 block">{orProvider.label}</label>
-            <p className="text-[10px] text-text-ghost mb-1.5">
+            <p className="text-detail text-text-ghost mb-1.5">
               Free models available — no credit card required
             </p>
             <div className="flex items-center gap-2">
@@ -125,7 +125,7 @@ export default function AIProvidersTab({
         {/* Divider between OpenRouter and other providers */}
         {orProvider && nonOrProviders.length > 0 && (
           <div className="border-t border-border-light pt-2">
-            <p className="text-[10px] text-text-ghost mb-2">Other Providers</p>
+            <p className="text-detail text-text-ghost mb-2">Other Providers</p>
           </div>
         )}
 
@@ -225,7 +225,7 @@ export default function AIProvidersTab({
               <h4 className="text-label text-text-dim uppercase tracking-wider mb-1.5 mt-2">
                 OpenRouter ({openRouterModels.length} models)
               </h4>
-              <p className="text-[10px] text-text-ghost mb-1.5">
+              <p className="text-detail text-text-ghost mb-1.5">
                 Pricing is auto-fetched from the OpenRouter API. Free models have $0 cost.
               </p>
               {openRouterModels

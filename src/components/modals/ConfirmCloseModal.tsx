@@ -63,7 +63,7 @@ export default function ConfirmCloseModal({
               <AlertTriangle size={20} className="text-yellow" />
             </div>
             <div>
-              <Dialog.Title className="text-text-primary font-medium text-[15px]">
+              <Dialog.Title className="text-text-primary font-medium text-title">
                 {title}
               </Dialog.Title>
               <Dialog.Description className="text-ui text-text-dim mt-0.5">

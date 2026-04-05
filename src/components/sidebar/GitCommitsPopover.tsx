@@ -129,8 +129,8 @@ export default function GitCommitsPopover({ projectPath, branch }: Props) {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-text-faint">
-                      <span className="text-[10px] truncate">{commit.author}</span>
-                      <span className="text-[10px] shrink-0">{relativeTime(commit.timestamp)}</span>
+                      <span className="text-detail truncate">{commit.author}</span>
+                      <span className="text-detail shrink-0">{relativeTime(commit.timestamp)}</span>
                     </div>
                   </div>
                 ))}

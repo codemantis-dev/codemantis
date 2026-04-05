@@ -28,7 +28,7 @@ export default function ToolBadge({ toolName }: ToolBadgeProps) {
 
   return (
     <span
-      className="inline-flex items-center justify-center rounded font-mono text-[10px] font-bold leading-none"
+      className="inline-flex items-center justify-center rounded font-mono text-detail font-bold leading-none"
       style={{
         color: config.color,
         backgroundColor: config.bg,

@@ -58,7 +58,7 @@ export default function ServerForm({
           {docsUrl && (
             <button
               onClick={() => openUrl(docsUrl)}
-              className="flex items-center gap-1 text-[11px] text-accent hover:text-accent-light transition-colors ml-auto"
+              className="flex items-center gap-1 text-label text-accent hover:text-accent-light transition-colors ml-auto"
             >
               <ExternalLink size={11} />
               Docs
@@ -71,7 +71,7 @@ export default function ServerForm({
       {setupHint && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent/8 border border-accent/15">
           <Info size={14} className="text-accent shrink-0 mt-0.5" />
-          <p className="text-[12px] text-text-secondary leading-relaxed">{setupHint}</p>
+          <p className="text-ui text-text-secondary leading-relaxed">{setupHint}</p>
         </div>
       )}
 
@@ -91,11 +91,11 @@ export default function ServerForm({
           }`}
         />
         {form.name.trim() && !nameValid ? (
-          <p className="text-[11px] text-red mt-0.5">Only letters, numbers, hyphens, underscores</p>
+          <p className="text-label text-red mt-0.5">Only letters, numbers, hyphens, underscores</p>
         ) : !nameUnique ? (
-          <p className="text-[11px] text-red mt-0.5">A server with this name already exists in this scope</p>
+          <p className="text-label text-red mt-0.5">A server with this name already exists in this scope</p>
         ) : (
-          <p className="text-[11px] text-text-ghost mt-0.5">Unique identifier used as the key in your config file</p>
+          <p className="text-label text-text-ghost mt-0.5">Unique identifier used as the key in your config file</p>
         )}
       </div>
 
@@ -128,7 +128,7 @@ export default function ServerForm({
             </label>
           )}
         </div>
-        <p className="text-[11px] text-text-ghost mt-1">
+        <p className="text-label text-text-ghost mt-1">
           Global: ~/.claude.json (all projects). Project: .mcp.json (this project only).
         </p>
       </div>
@@ -147,7 +147,7 @@ export default function ServerForm({
           <option value="http">http</option>
           <option value="sse">sse</option>
         </select>
-        <p className="text-[11px] text-text-ghost mt-0.5">{typeDescriptions[form.serverType]}</p>
+        <p className="text-label text-text-ghost mt-0.5">{typeDescriptions[form.serverType]}</p>
       </div>
 
       {/* Type-specific fields */}
@@ -162,7 +162,7 @@ export default function ServerForm({
               placeholder="npx"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
-            <p className="text-[11px] text-text-ghost mt-0.5">Executable to run (npx, node, python, etc.)</p>
+            <p className="text-label text-text-ghost mt-0.5">Executable to run (npx, node, python, etc.)</p>
           </div>
           <div>
             <label className="text-ui text-text-secondary mb-1 block">Arguments</label>
@@ -173,7 +173,7 @@ export default function ServerForm({
               placeholder="-y, @package/name"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
-            <p className="text-[11px] text-text-ghost mt-0.5">Comma-separated arguments passed to the command</p>
+            <p className="text-label text-text-ghost mt-0.5">Comma-separated arguments passed to the command</p>
           </div>
           <KeyValueRow
             label="Environment Variables"
@@ -197,7 +197,7 @@ export default function ServerForm({
               placeholder="https://api.example.com/mcp/"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
-            <p className="text-[11px] text-text-ghost mt-0.5">The HTTP endpoint of the remote MCP server</p>
+            <p className="text-label text-text-ghost mt-0.5">The HTTP endpoint of the remote MCP server</p>
           </div>
           <KeyValueRow
             label="Headers"
@@ -221,7 +221,7 @@ export default function ServerForm({
               placeholder="https://mcp.example.com/sse"
               className="w-full px-2 py-1.5 rounded bg-bg-elevated border border-border text-text-primary text-ui font-mono outline-none focus:border-accent/40 placeholder:text-text-ghost"
             />
-            <p className="text-[11px] text-text-ghost mt-0.5">The SSE endpoint of the remote MCP server (legacy protocol)</p>
+            <p className="text-label text-text-ghost mt-0.5">The SSE endpoint of the remote MCP server (legacy protocol)</p>
           </div>
           <KeyValueRow
             label="Headers"

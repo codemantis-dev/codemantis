@@ -80,7 +80,7 @@ export default function HelpChatInput({ onSend, onStop, disabled, isBusy }: Help
           )}
         </div>
       </div>
-      <div className="text-[10px] mt-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
+      <div className="text-detail mt-1 flex justify-center gap-3 select-none" style={{ color: "var(--text-ghost)" }}>
         <span>{sendShortcutHint(sendShortcut)}</span>
         {isBusy && <span>Esc to stop</span>}
       </div>

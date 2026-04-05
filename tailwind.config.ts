@@ -42,9 +42,13 @@ export default {
         mono: "var(--font-mono)",
       },
       fontSize: {
-        chat: "var(--font-size-base, 13px)",
-        ui: "calc(var(--font-size-base, 13px) - 1px)",
+        micro: "calc(var(--font-size-base, 13px) - 5px)",
+        fine: "calc(var(--font-size-base, 13px) - 4px)",
+        detail: "calc(var(--font-size-base, 13px) - 3px)",
         label: "calc(var(--font-size-base, 13px) - 2px)",
+        ui: "calc(var(--font-size-base, 13px) - 1px)",
+        chat: "var(--font-size-base, 13px)",
+        title: "calc(var(--font-size-base, 13px) + 2px)",
       },
       keyframes: {
         pulse: {

@@ -348,7 +348,7 @@ export default function InputArea() {
             style={{ background: "color-mix(in srgb, var(--bg-elevated) 90%, transparent)" }}
           >
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
-              <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+              <span className="text-label" style={{ color: "var(--text-secondary)" }}>
                 Self-Drive is active. Click <span className="font-medium">Pause</span> in the Guide panel to send manual messages.
               </span>
             </div>
@@ -500,7 +500,7 @@ export default function InputArea() {
 
           {/* Keyboard shortcut hints */}
           {session && (
-            <div className="flex items-center justify-center gap-4 pb-1.5 -mt-0.5 text-[11px] text-text-ghost select-none">
+            <div className="flex items-center justify-center gap-4 pb-1.5 -mt-0.5 text-label text-text-ghost select-none">
               <span>Shift+Tab to switch mode</span>
               <span>⌘+/⌘− to adjust font size</span>
             </div>

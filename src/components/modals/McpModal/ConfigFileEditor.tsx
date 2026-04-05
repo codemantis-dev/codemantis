@@ -19,7 +19,7 @@ export default function ConfigFileEditor({
 
   return (
     <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
-      <p className="text-[12px] text-text-dim font-mono mb-3 truncate" title={filePath}>
+      <p className="text-ui text-text-dim font-mono mb-3 truncate" title={filePath}>
         {filePath}
       </p>
 

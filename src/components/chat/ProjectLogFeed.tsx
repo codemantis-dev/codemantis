@@ -48,13 +48,13 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
         <div className="flex-1 min-w-0">
           {/* Header: badge + session name + time */}
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span className={`text-[10px] font-medium ${config.color} bg-bg-elevated rounded px-1 py-px`}>
+            <span className={`text-detail font-medium ${config.color} bg-bg-elevated rounded px-1 py-px`}>
               {config.label}
             </span>
-            <span className="text-[10px] font-medium text-accent bg-accent-dim rounded px-1.5 py-px">
+            <span className="text-detail font-medium text-accent bg-accent-dim rounded px-1.5 py-px">
               {entry.session_name}
             </span>
-            <span className="text-[10px] text-text-ghost ml-auto shrink-0">{dateTime}</span>
+            <span className="text-detail text-text-ghost ml-auto shrink-0">{dateTime}</span>
             <button
               onClick={handleCopy}
               className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-text-ghost hover:text-text-secondary transition-all"
@@ -83,7 +83,7 @@ function ProjectLogCard({ entry }: { entry: ProjectChangelogEntry }) {
                   <span
                     key={file}
                     title={file}
-                    className="text-[10px] text-text-ghost bg-bg-elevated rounded px-1.5 py-px font-mono"
+                    className="text-detail text-text-ghost bg-bg-elevated rounded px-1.5 py-px font-mono"
                   >
                     {fileName}
                   </span>
@@ -133,7 +133,7 @@ export default function ProjectLogFeed() {
         <ScrollText size={14} className="text-text-secondary shrink-0" />
         <span className="text-ui font-medium text-text-primary">Project Log</span>
         {entries && (
-          <span className="text-[10px] text-text-ghost bg-bg-elevated rounded px-1.5 py-px">
+          <span className="text-detail text-text-ghost bg-bg-elevated rounded px-1.5 py-px">
             {entries.length}
           </span>
         )}

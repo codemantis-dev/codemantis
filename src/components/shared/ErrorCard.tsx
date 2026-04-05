@@ -74,13 +74,13 @@ export default function ErrorCard({
             <div className="mt-2">
               <button
                 onClick={() => setShowDetails((v) => !v)}
-                className="flex items-center gap-1 text-[11px] text-text-ghost hover:text-text-dim transition-colors"
+                className="flex items-center gap-1 text-label text-text-ghost hover:text-text-dim transition-colors"
               >
                 {showDetails ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                 Technical details
               </button>
               {showDetails && (
-                <pre className="mt-1 text-[11px] font-mono text-text-ghost rounded border border-border-light p-2 overflow-x-auto max-h-[120px] overflow-y-auto whitespace-pre-wrap break-all bg-bg-subtle">
+                <pre className="mt-1 text-label font-mono text-text-ghost rounded border border-border-light p-2 overflow-x-auto max-h-[120px] overflow-y-auto whitespace-pre-wrap break-all bg-bg-subtle">
                   {rawError}
                 </pre>
               )}

@@ -54,16 +54,16 @@ function HistoryCard({
               {entry.name}
             </span>
             {capitalizedModel && (
-              <span className="text-[10px] font-medium text-accent bg-accent-dim rounded px-1 py-px shrink-0">
+              <span className="text-detail font-medium text-accent bg-accent-dim rounded px-1 py-px shrink-0">
                 {capitalizedModel}
               </span>
             )}
             {entry.has_stored_messages && (
-              <span className="text-[9px] font-medium rounded px-1 py-px shrink-0" style={{ color: "var(--green, #22c55e)", background: "color-mix(in srgb, var(--green, #22c55e) 12%, transparent)" }}>
+              <span className="text-fine font-medium rounded px-1 py-px shrink-0" style={{ color: "var(--green, #22c55e)", background: "color-mix(in srgb, var(--green, #22c55e) 12%, transparent)" }}>
                 Saved
               </span>
             )}
-            <span className="text-[10px] text-text-ghost ml-auto shrink-0">
+            <span className="text-detail text-text-ghost ml-auto shrink-0">
               {formatRelativeTime(entry.closed_at)}
             </span>
           </div>
@@ -224,7 +224,7 @@ export default function ClaudeHistory() {
         <History size={14} className="text-text-secondary shrink-0" />
         <span className="text-ui font-medium text-text-primary">Claude History</span>
         {entries && (
-          <span className="text-[10px] text-text-ghost bg-bg-elevated rounded px-1.5 py-px">
+          <span className="text-detail text-text-ghost bg-bg-elevated rounded px-1.5 py-px">
             {entries.length}
           </span>
         )}
@@ -262,7 +262,7 @@ export default function ClaudeHistory() {
             <>
               {searching && <Loader2 size={12} className="text-text-ghost animate-spin shrink-0" />}
               {searchResults && (
-                <span className="text-[10px] text-text-ghost shrink-0">
+                <span className="text-detail text-text-ghost shrink-0">
                   {visibleEntries?.length ?? 0} of {entries.length}
                 </span>
               )}

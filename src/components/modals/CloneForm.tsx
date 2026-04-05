@@ -299,7 +299,7 @@ export default function CloneForm({ onBack, onCloned, onBusyChange }: CloneFormP
                       </p>
                     )}
                     {state?.output && state?.status === "done" && state.output !== state.error && (
-                      <p className="text-[11px] text-text-ghost mt-0.5 truncate">
+                      <p className="text-label text-text-ghost mt-0.5 truncate">
                         {state.output}
                       </p>
                     )}
@@ -416,7 +416,7 @@ export default function CloneForm({ onBack, onCloned, onBusyChange }: CloneFormP
           </button>
         </div>
         {urlError && (
-          <p className="text-[11px] text-red/80 mt-1">{urlError}</p>
+          <p className="text-label text-red/80 mt-1">{urlError}</p>
         )}
       </label>
 
@@ -457,10 +457,10 @@ export default function CloneForm({ onBack, onCloned, onBusyChange }: CloneFormP
           }`}
         />
         {nameError && (
-          <p className="text-[11px] text-red/80 mt-1">{nameError}</p>
+          <p className="text-label text-red/80 mt-1">{nameError}</p>
         )}
         {!nameError && projectName && cloneTo && (
-          <p className="text-[11px] text-text-ghost mt-1 truncate">
+          <p className="text-label text-text-ghost mt-1 truncate">
             {cloneTo}/{projectName}/
           </p>
         )}

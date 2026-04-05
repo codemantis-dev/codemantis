@@ -144,7 +144,7 @@ export default function OpenRouterModelSelect({
 
             {freeCount > 0 && (
               <div
-                className="px-2 py-1 text-[9px] uppercase tracking-wider sticky top-0"
+                className="px-2 py-1 text-fine uppercase tracking-wider sticky top-0"
                 style={{ color: "var(--text-ghost)", background: "var(--bg-secondary)" }}
               >
                 Free Models ({freeCount})
@@ -165,7 +165,7 @@ export default function OpenRouterModelSelect({
 
             {paidCount > 0 && (
               <div
-                className="px-2 py-1 text-[9px] uppercase tracking-wider sticky top-0"
+                className="px-2 py-1 text-fine uppercase tracking-wider sticky top-0"
                 style={{ color: "var(--text-ghost)", background: "var(--bg-secondary)" }}
               >
                 Paid Models ({paidCount})
@@ -220,7 +220,7 @@ function ModelItem({
       <span className="truncate min-w-0">
         {isFree && (
           <span
-            className="text-[9px] font-medium mr-1 px-1 py-px rounded"
+            className="text-fine font-medium mr-1 px-1 py-px rounded"
             style={{
               background: "color-mix(in srgb, var(--accent) 15%, transparent)",
               color: "var(--accent)",

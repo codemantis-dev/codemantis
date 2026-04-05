@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSettingsStore } from "./settingsStore";
 import { getSettings } from "../lib/tauri-commands";
+import type { AppSettings } from "../types/settings";
 
 // Mock Tauri commands
 vi.mock("../lib/tauri-commands", () => ({
@@ -9,6 +10,11 @@ vi.mock("../lib/tauri-commands", () => ({
 }));
 
 const mockGetSettings = vi.mocked(getSettings);
+
+/** Simulate incomplete backend data (fields omitted on purpose to test default-filling) */
+function partialSettings(overrides: Partial<AppSettings>): AppSettings {
+  return overrides as AppSettings;
+}
 
 function resetStore(): void {
   useSettingsStore.setState({
@@ -121,23 +127,23 @@ describe("settingsStore", () => {
 
   describe("loadSettings", () => {
     it("sets loaded=true after loading", async () => {
-      mockGetSettings.mockResolvedValueOnce({
+      mockGetSettings.mockResolvedValueOnce(partialSettings({
         theme: "sand",
         fontSize: 13,
-      } as any);
+      }));
 
       await useSettingsStore.getState().loadSettings();
       expect(useSettingsStore.getState().loaded).toBe(true);
     });
 
     it("applies persisted values from backend", async () => {
-      mockGetSettings.mockResolvedValueOnce({
+      mockGetSettings.mockResolvedValueOnce(partialSettings({
         theme: "ocean",
         fontSize: 16,
         sendShortcut: "cmd+enter",
         selfDriveProvider: "gemini",
         selfDriveModel: "gemini-2.5-flash",
-      } as any);
+      }));
 
       await useSettingsStore.getState().loadSettings();
       const { settings } = useSettingsStore.getState();
@@ -150,7 +156,7 @@ describe("settingsStore", () => {
     it("fills in defaults for fields missing from persisted settings", async () => {
       // Simulate loading settings saved by an older version that had no
       // Self-Drive, Super-Bro, or Session Logs fields
-      mockGetSettings.mockResolvedValueOnce({
+      mockGetSettings.mockResolvedValueOnce(partialSettings({
         theme: "midnight",
         fontSize: 14,
         sendShortcut: "enter",
@@ -180,7 +186,7 @@ describe("settingsStore", () => {
         apiKeyBannerDismissed: false,
         lastCloneDirectory: null,
         // Deliberately omitting: superBro*, selfDrive*, sessionLogs*, taskBoard*
-      } as any);
+      }));
 
       await useSettingsStore.getState().loadSettings();
       const { settings } = useSettingsStore.getState();
@@ -217,7 +223,7 @@ describe("settingsStore", () => {
     });
 
     it("fills in defaults when backend returns empty object", async () => {
-      mockGetSettings.mockResolvedValueOnce({} as any);
+      mockGetSettings.mockResolvedValueOnce(partialSettings({}));
 
       await useSettingsStore.getState().loadSettings();
       const { settings } = useSettingsStore.getState();
@@ -232,7 +238,7 @@ describe("settingsStore", () => {
     });
 
     it("persisted values override defaults when both exist", async () => {
-      mockGetSettings.mockResolvedValueOnce({
+      mockGetSettings.mockResolvedValueOnce(partialSettings({
         selfDriveProvider: "openai",
         selfDriveModel: "gpt-4.1",
         selfDriveMaxFixAttempts: 5,
@@ -242,7 +248,7 @@ describe("settingsStore", () => {
         superBroEnabled: false,
         superBroProvider: "gemini",
         superBroModel: "gemini-2.5-flash-lite",
-      } as any);
+      }));
 
       await useSettingsStore.getState().loadSettings();
       const { settings } = useSettingsStore.getState();
@@ -259,9 +265,9 @@ describe("settingsStore", () => {
     });
 
     it("normalizes invalid theme values when loading", async () => {
-      mockGetSettings.mockResolvedValueOnce({
-        theme: "dark", // legacy value not in THEMES list
-      } as any);
+      mockGetSettings.mockResolvedValueOnce(partialSettings({
+        theme: "dark" as AppSettings["theme"], // legacy value not in THEMES list
+      }));
 
       await useSettingsStore.getState().loadSettings();
       expect(useSettingsStore.getState().settings.theme).toBe("sand");

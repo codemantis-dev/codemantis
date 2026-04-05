@@ -24,20 +24,20 @@ function SubAgentRow({ agent }: { agent: SubAgentInfo }) {
       }`} />
       <span className={`text-label text-text-secondary truncate ${isPreparing ? "italic" : ""}`}>{agent.description}</span>
       {typeLabel && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
+        <span className="text-detail px-1.5 py-0.5 rounded-full bg-bg-elevated text-text-ghost shrink-0">
           {typeLabel}
         </span>
       )}
       {agent.toolCount != null && agent.toolCount > 0 && (
-        <span className="text-[10px] text-text-ghost shrink-0">· {agent.toolCount} tool uses</span>
+        <span className="text-detail text-text-ghost shrink-0">· {agent.toolCount} tool uses</span>
       )}
       {agent.tokenCount != null && agent.tokenCount > 0 && (
-        <span className="text-[10px] text-text-ghost shrink-0">
+        <span className="text-detail text-text-ghost shrink-0">
           · {agent.tokenCount >= 1000 ? `${(agent.tokenCount / 1000).toFixed(1)}K` : agent.tokenCount} tokens
         </span>
       )}
       {agent.elapsed > 0 && (
-        <span className="text-[10px] text-text-ghost font-mono shrink-0 ml-auto">
+        <span className="text-detail text-text-ghost font-mono shrink-0 ml-auto">
           {formatSecondsElapsed(agent.elapsed)}
         </span>
       )}
@@ -70,14 +70,14 @@ function SubAgentPanel({ agents }: { agents: SubAgentInfo[] }) {
         className="flex items-center gap-2 w-full text-left"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-[10px] text-text-ghost select-none">{expanded ? "▼" : "▶"}</span>
+        <span className="text-detail text-text-ghost select-none">{expanded ? "▼" : "▶"}</span>
         <span className="text-label text-text-dim font-medium">
           {agents.length === 1
             ? `1 sub-agent running`
             : `${agents.length} sub-agents running`}
         </span>
         {totalTokens > 0 && (
-          <span className="text-[10px] text-text-ghost ml-auto">
+          <span className="text-detail text-text-ghost ml-auto">
             {totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}K` : totalTokens} tokens
           </span>
         )}
@@ -94,7 +94,7 @@ function SubAgentPanel({ agents }: { agents: SubAgentInfo[] }) {
 
       {/* Live activity line from Phase 2 data */}
       {hasActivity && (
-        <div className="mt-1 text-[10px] text-text-ghost truncate">
+        <div className="mt-1 text-detail text-text-ghost truncate">
           {agents.find((a) => a.currentActivity)?.currentActivity}
         </div>
       )}
