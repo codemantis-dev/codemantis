@@ -169,7 +169,7 @@ export default function SuperBroStrip() {
         tabIndex={-1}
         className="shrink-0 border-t border-l-2 border-accent overflow-y-auto transition-all duration-300 ease-out"
         style={{
-          maxHeight: 150,
+          maxHeight: 300,
           background: "var(--bg-secondary)",
           borderTopColor: "var(--border)",
         }}
