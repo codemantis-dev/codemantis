@@ -45,6 +45,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import { usePreviewWindow } from "./usePreviewWindow";
 import { useSessionStore } from "../stores/sessionStore";
 import { usePreviewStore } from "../stores/previewStore";
+import { useAttachmentStore } from "../stores/attachmentStore";
 
 describe("usePreviewWindow", () => {
   beforeEach(() => {
@@ -57,6 +58,9 @@ describe("usePreviewWindow", () => {
       sessions: new Map(),
       activeSessionId: null,
     });
+
+    // Reset attachment store
+    useAttachmentStore.setState({ attachments: new Map() });
 
     // Reset preview store
     usePreviewStore.setState({
@@ -342,6 +346,46 @@ describe("usePreviewWindow", () => {
     });
 
     expect(mockReadFileBytes).toHaveBeenCalledWith("/tmp/codemantis-screenshot-123.png");
+
+    // Verify attachment was added to the store
+    const attachments = useAttachmentStore.getState().attachments.get("session-1") ?? [];
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].fileName).toBe("preview-screenshot.png");
+    expect(attachments[0].isImage).toBe(true);
+    expect(attachments[0].mimeType).toBe("image/png");
+    expect(attachments[0].id).toMatch(/^screenshot-\d+-[a-z0-9]+$/);
+  });
+
+  it("cancelled listener ignores screenshot events after unmount", async () => {
+    useSessionStore.setState({
+      activeProjectPath: "/test/project",
+      activeSessionId: "session-1",
+      sessions: new Map(),
+    });
+
+    mockReadFileBytes.mockResolvedValueOnce([0x89, 0x50, 0x4e, 0x47]);
+
+    const { unmount } = renderHook(() => usePreviewWindow());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const screenshotListener = eventListeners.get("preview-screenshot-taken");
+    expect(screenshotListener).toBeDefined();
+
+    // Unmount sets cancelled = true
+    unmount();
+
+    // Fire event on the now-stale listener
+    await act(async () => {
+      screenshotListener!({ payload: "/tmp/stale-screenshot.png" });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // Should NOT have read the file or added an attachment
+    expect(mockReadFileBytes).not.toHaveBeenCalled();
+    const attachments = useAttachmentStore.getState().attachments.get("session-1");
+    expect(attachments ?? []).toHaveLength(0);
   });
 
   it("screenshot event does nothing without active session", async () => {

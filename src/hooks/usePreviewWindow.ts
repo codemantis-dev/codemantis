@@ -32,6 +32,7 @@ export function usePreviewWindow(): {
     let unlistenFn: (() => void) | null = null;
 
     listen<string>("preview-screenshot-taken", async (e) => {
+      if (cancelled) return;
       const filePath = e.payload;
       const sessionId = useSessionStore.getState().activeSessionId;
       if (!sessionId) return;
@@ -43,12 +44,12 @@ export function usePreviewWindow(): {
         fileSize = bytes.length;
         const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
         thumbnailUrl = URL.createObjectURL(blob);
-      } catch {
-        // thumbnail optional
+      } catch (err) {
+        console.warn("[usePreviewWindow] Failed to read screenshot bytes:", err);
       }
 
       useAttachmentStore.getState().addAttachment(sessionId, {
-        id: `screenshot-${Date.now()}`,
+        id: `screenshot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         fileName: "preview-screenshot.png",
         filePath,
         fileSize,
@@ -79,6 +80,7 @@ export function usePreviewWindow(): {
     let unlistenFn: (() => void) | null = null;
 
     listen<string>("preview-window-closed", (event) => {
+      if (cancelled) return;
       const projectPath = event.payload || activeProjectPathRef.current;
       if (projectPath) {
         usePreviewStore.getState().setPreviewOpen(projectPath, false);

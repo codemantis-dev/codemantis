@@ -44,11 +44,11 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         const bytes = await readFileBytes(filePath);
         const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
         thumbnailUrl = URL.createObjectURL(blob);
-      } catch {
-        // Preview thumbnail optional
+      } catch (err) {
+        console.warn("[TitleBar] Failed to read screenshot bytes:", err);
       }
       const attachment: Attachment = {
-        id: `screenshot-${Date.now()}`,
+        id: `screenshot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         fileName: "preview-screenshot.png",
         filePath,
         fileSize: 0,
