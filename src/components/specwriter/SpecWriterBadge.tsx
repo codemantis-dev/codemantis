@@ -6,6 +6,7 @@ interface Props {
 
 export default function SpecWriterBadge({ projectPath }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
+  const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
 
   if (!conversation) return null;
 
@@ -16,17 +17,19 @@ export default function SpecWriterBadge({ projectPath }: Props) {
       case 'gathering': return hasMessages ? 'In progress' : '';
       case 'ready_to_write': return 'Spec ready';
       case 'writing': return 'Writing...';
-      case 'done': return 'Done';
+      case 'done': return isStreaming ? 'Working...' : 'Done';
       default: return '';
     }
   })();
 
   if (!statusLabel) return null;
 
+  const showPulse = conversation.status === 'writing' || (conversation.status === 'done' && isStreaming);
+
   return (
     <span
       className={`text-detail px-1.5 py-0.5 rounded-full ${
-        conversation.status === 'writing' ? "animate-pulse" : ""
+        showPulse ? "animate-pulse" : ""
       }`}
       style={{
         background: "var(--accent-bg)",

@@ -102,4 +102,30 @@ describe("SpecWriterBadge", () => {
     render(<SpecWriterBadge projectPath={PROJECT_PATH} />);
     expect(screen.getByText("Done")).toBeInTheDocument();
   });
+
+  it("shows 'Working...' with pulse when done but still streaming (audit generation)", () => {
+    useSpecWriterStore.setState({
+      conversations: new Map([
+        [PROJECT_PATH, makeConversation({ status: "done" })],
+      ]),
+      planningStreaming: new Map([[PROJECT_PATH, true]]),
+    });
+    render(<SpecWriterBadge projectPath={PROJECT_PATH} />);
+    const badge = screen.getByText("Working...");
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain("animate-pulse");
+  });
+
+  it("shows 'Done' without pulse when done and not streaming", () => {
+    useSpecWriterStore.setState({
+      conversations: new Map([
+        [PROJECT_PATH, makeConversation({ status: "done" })],
+      ]),
+      planningStreaming: new Map([[PROJECT_PATH, false]]),
+    });
+    render(<SpecWriterBadge projectPath={PROJECT_PATH} />);
+    const badge = screen.getByText("Done");
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).not.toContain("animate-pulse");
+  });
 });
