@@ -1,16 +1,33 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { Session } from "../../types/session";
 import type { FrontendEvent } from "../../types/claude-events";
 import {
   handleChatEvent,
   nextMessageId,
   flushThinkingBuffer,
+  flushStreamingBuffer,
   thinkingBuffers,
   thinkingFrames,
   streamingBuffers,
   pendingFrames,
 } from "./chat";
+
+// Mock tauri-commands (lifecycle and process handlers import from it)
+vi.mock("../../lib/tauri-commands", () => ({
+  generateChangelogEntry: vi.fn(),
+  checkProcessAlive: vi.fn().mockResolvedValue(true),
+  sendMessage: vi.fn(),
+  readFileContent: vi.fn().mockResolvedValue(""),
+  syncSessionMode: vi.fn(),
+}));
+
+vi.mock("../../stores/toastStore", () => ({
+  showToast: vi.fn(),
+}));
+
+import { showToast } from "../../stores/toastStore";
 
 describe("nextMessageId", () => {
   it("generates unique IDs across many calls", () => {
@@ -230,5 +247,256 @@ describe("chat event handler — thinking events", () => {
       const streaming = useSessionStore.getState().sessionStreaming.get("s1");
       expect(streaming?.isStreaming).toBe(true);
     });
+  });
+});
+
+// ── Additional chat event handler tests ──
+
+describe("chat event handler — text events", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    streamingBuffers.clear();
+    pendingFrames.clear();
+    thinkingBuffers.clear();
+    thinkingFrames.clear();
+    vi.clearAllMocks();
+  });
+
+  describe("text_delta", () => {
+    it("creates a new streaming message when none exists", () => {
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hello" });
+      const messages = useSessionStore.getState().sessionMessages.get("s1");
+      expect(messages).toHaveLength(1);
+      expect(messages![0].role).toBe("assistant");
+      expect(messages![0].isStreaming).toBe(true);
+    });
+
+    it("does not create duplicate messages on subsequent deltas", () => {
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hello" });
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: " world" });
+      const messages = useSessionStore.getState().sessionMessages.get("s1");
+      expect(messages).toHaveLength(1);
+    });
+
+    it("sets session as busy", () => {
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hi" });
+      expect(useSessionStore.getState().sessionBusy.get("s1")).toBe(true);
+    });
+
+    it("sets activity label to 'Generating response...'", () => {
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hi" });
+      expect(useSessionStore.getState().sessionActivity.get("s1")?.label).toBe("Generating response...");
+    });
+  });
+
+  describe("text_complete", () => {
+    it("finalizes an active streaming message", () => {
+      handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hel" });
+      handleChatEvent("s1", { type: "text_complete", session_id: "s1", full_text: "Hello world" });
+      const streaming = useSessionStore.getState().sessionStreaming.get("s1");
+      expect(streaming?.isStreaming).toBeFalsy();
+    });
+
+    it("creates standalone message when no streaming was active", () => {
+      handleChatEvent("s1", { type: "text_complete", session_id: "s1", full_text: "Full message" });
+      const messages = useSessionStore.getState().sessionMessages.get("s1");
+      expect(messages).toHaveLength(1);
+      expect(messages![0].content).toBe("Full message");
+      expect(messages![0].isStreaming).toBe(false);
+    });
+  });
+});
+
+describe("chat event handler — turn_complete", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    streamingBuffers.clear();
+    pendingFrames.clear();
+    thinkingBuffers.clear();
+    thinkingFrames.clear();
+    vi.clearAllMocks();
+    useSettingsStore.setState({
+      settings: { defaultContextWindow: 200000, changelogEnabled: false } as ReturnType<typeof useSettingsStore.getState>["settings"],
+      loaded: true,
+    });
+  });
+
+  it("clears busy state", () => {
+    useSessionStore.getState().ensureBusy("s1");
+    handleChatEvent("s1", {
+      type: "turn_complete", session_id: "s1",
+      duration_ms: 5000, usage: { input_tokens: 1000, output_tokens: 500 }, cost_usd: 0.01,
+    });
+    expect(useSessionStore.getState().sessionBusy.get("s1")).toBeFalsy();
+  });
+
+  it("finalizes active streaming", () => {
+    handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hi" });
+    handleChatEvent("s1", {
+      type: "turn_complete", session_id: "s1",
+      duration_ms: 1000, usage: { input_tokens: 100, output_tokens: 50 }, cost_usd: 0.005,
+    });
+    expect(useSessionStore.getState().sessionStreaming.get("s1")?.isStreaming).toBeFalsy();
+  });
+
+  it("updates context with aggregate estimation when no incremental updates", () => {
+    handleChatEvent("s1", {
+      type: "turn_complete", session_id: "s1",
+      duration_ms: 1000, usage: { input_tokens: 5000, output_tokens: 2000 }, cost_usd: 0.01,
+    });
+    const ctx = useSessionStore.getState().sessionContext.get("s1");
+    expect(ctx).toBeDefined();
+    expect(ctx!.used).toBe(7000); // (5000 + 2000) / max(0, 1)
+  });
+
+  it("attaches turn stats to completed assistant message", () => {
+    handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Response" });
+    handleChatEvent("s1", { type: "text_complete", session_id: "s1", full_text: "Response" });
+    handleChatEvent("s1", {
+      type: "turn_complete", session_id: "s1",
+      duration_ms: 3000, usage: { input_tokens: 1000, output_tokens: 500 }, cost_usd: 0.02,
+    });
+    const messages = useSessionStore.getState().sessionMessages.get("s1");
+    const assistantMsg = messages?.find((m) => m.role === "assistant");
+    expect(assistantMsg?.turnStats).toBeDefined();
+    expect(assistantMsg?.turnStats?.costUsd).toBe(0.02);
+    expect(assistantMsg?.turnStats?.durationMs).toBe(3000);
+  });
+});
+
+describe("chat event handler — system events", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    streamingBuffers.clear();
+    pendingFrames.clear();
+    vi.clearAllMocks();
+    useSettingsStore.setState({
+      settings: { defaultContextWindow: 200000 } as ReturnType<typeof useSettingsStore.getState>["settings"],
+      loaded: true,
+    });
+  });
+
+  describe("session_init", () => {
+    it("updates model in session store", () => {
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "claude-opus-4-6" });
+      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
+    });
+
+    it("sets context max based on model", () => {
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "claude-sonnet-4-20250514" });
+      const ctx = useSessionStore.getState().sessionContext.get("s1");
+      expect(ctx?.max).toBeGreaterThan(0);
+    });
+
+    it("sets thinking effort when provided", () => {
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "sonnet", thinking_effort: "high" });
+      expect(useSessionStore.getState().sessionEffort.get("s1")).toBe("high");
+    });
+
+    it("ignores invalid thinking effort values", () => {
+      // Ensure no prior effort is set
+      const effortMap = new Map(useSessionStore.getState().sessionEffort);
+      effortMap.delete("s1");
+      useSessionStore.setState({ sessionEffort: effortMap });
+
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "sonnet", thinking_effort: "ULTRA" });
+      expect(useSessionStore.getState().sessionEffort.get("s1")).toBeUndefined();
+    });
+  });
+
+  describe("compacting_status", () => {
+    it("shows toast when compacting starts", () => {
+      handleChatEvent("s1", { type: "compacting_status", session_id: "s1", is_compacting: true });
+      expect(useSessionStore.getState().sessionCompacting.get("s1")).toBe(true);
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Compacting"), "info", 5000);
+    });
+
+    it("does not show toast when compacting ends", () => {
+      handleChatEvent("s1", { type: "compacting_status", session_id: "s1", is_compacting: false });
+      expect(showToast).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("compact_complete", () => {
+    it("shows toast with token info", () => {
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "auto", pre_tokens: 150000 });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("150K"), "info", 6000);
+    });
+  });
+
+  describe("rate_limit_warning", () => {
+    it("shows error toast at 90%+ utilization", () => {
+      handleChatEvent("s1", { type: "rate_limit_warning", session_id: "s1", utilization: 0.95, resets_at: Date.now() + 60000 });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("95%"), "error", 10000);
+    });
+
+    it("shows info toast at 70-89% utilization", () => {
+      handleChatEvent("s1", { type: "rate_limit_warning", session_id: "s1", utilization: 0.75, resets_at: Date.now() + 60000 });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("75%"), "info", 6000);
+    });
+
+    it("stores utilization in session store", () => {
+      handleChatEvent("s1", { type: "rate_limit_warning", session_id: "s1", utilization: 0.82, resets_at: Date.now() + 60000 });
+      expect(useSessionStore.getState().rateLimitUtilization.get("s1")).toBe(0.82);
+    });
+  });
+
+  describe("interrupt_result", () => {
+    it("sets Stopping activity on success", () => {
+      handleChatEvent("s1", { type: "interrupt_result", session_id: "s1", success: true });
+      expect(useSessionStore.getState().sessionActivity.get("s1")?.label).toBe("Stopping...");
+    });
+
+    it("shows error toast on failure", () => {
+      handleChatEvent("s1", { type: "interrupt_result", session_id: "s1", success: false, error: "not found" });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("not found"), "error");
+    });
+  });
+
+  describe("model_changed", () => {
+    it("updates model and shows toast on success", () => {
+      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "claude-opus-4-6", success: true });
+      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("claude-opus-4-6"), "info", 3000);
+    });
+
+    it("shows error toast on failure", () => {
+      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "bad", success: false, error: "unavailable" });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("unavailable"), "error");
+    });
+  });
+
+  describe("capabilities_discovered", () => {
+    it("stores capabilities", () => {
+      handleChatEvent("s1", {
+        type: "capabilities_discovered", session_id: "s1",
+        models: ["sonnet"], commands: ["/help"], agents: [], account: { tier: "pro" }, output_styles: [],
+      } as FrontendEvent);
+      expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeDefined();
+    });
+  });
+});
+
+describe("streaming buffer utilities", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    streamingBuffers.clear();
+    pendingFrames.clear();
+    thinkingBuffers.clear();
+    thinkingFrames.clear();
+  });
+
+  it("flushStreamingBuffer is no-op when buffer is empty", () => {
+    flushStreamingBuffer("s1");
+    expect(streamingBuffers.get("s1")).toBeUndefined();
+  });
+
+  it("flushThinkingBuffer is no-op when buffer is empty", () => {
+    flushThinkingBuffer("s1");
+    expect(thinkingBuffers.get("s1")).toBeUndefined();
   });
 });

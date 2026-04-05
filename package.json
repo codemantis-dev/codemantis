@@ -15,7 +15,10 @@
     "lint": "eslint src",
     "tsc": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --coverage",
+    "test:all": "vitest run && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -55,6 +58,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.4.21",
     "eslint": "^10.0.3",
     "eslint-plugin-react-hooks": "^7.0.1",

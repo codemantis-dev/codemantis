@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { cleanup } from "@testing-library/react";
 
 // Polyfill ResizeObserver for jsdom
 global.ResizeObserver = class ResizeObserver {
@@ -7,6 +8,42 @@ global.ResizeObserver = class ResizeObserver {
   unobserve() {}
   disconnect() {}
 };
+
+// Polyfill IntersectionObserver for jsdom (ActivityFeed, ChatPanel lazy loading)
+global.IntersectionObserver = class IntersectionObserver {
+  readonly root: Element | null = null;
+  readonly rootMargin: string = "";
+  readonly thresholds: ReadonlyArray<number> = [];
+  constructor() {}
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+};
+
+// Polyfill matchMedia for jsdom (theme-aware components)
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+
+// Mock scrollIntoView (used by chat scroll logic)
+Element.prototype.scrollIntoView = vi.fn();
+
+// Mock URL.createObjectURL/revokeObjectURL (attachment previews)
+URL.createObjectURL = vi.fn(() => "blob:mock-url");
+URL.revokeObjectURL = vi.fn();
 
 // Mock @tauri-apps/api/core
 vi.mock("@tauri-apps/api/core", () => ({
@@ -31,3 +68,8 @@ vi.mock("@tauri-apps/api/window", () => ({
     onCloseRequested: vi.fn(() => Promise.resolve(() => {})),
   })),
 }));
+
+// Clean up after each test to prevent state leaks
+afterEach(() => {
+  cleanup();
+});

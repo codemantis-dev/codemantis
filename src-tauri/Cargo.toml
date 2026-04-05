@@ -45,3 +45,8 @@ raw-window-handle = "0.6"
 objc2 = "0.6"
 
 [dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.13"
+rstest = "0.24"
+insta = { version = "1", features = ["json"] }
+pretty_assertions = "1"

@@ -517,3 +517,219 @@ impl Drop for ClaudeProcess {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── build_hook_settings_json ──
+
+    #[test]
+    fn build_hook_settings_json_produces_valid_json() {
+        let result = build_hook_settings_json("/path/to/hook.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result)
+            .expect("should be valid JSON");
+        assert!(parsed.is_object());
+    }
+
+    #[test]
+    fn build_hook_settings_json_contains_hook_command() {
+        let result = build_hook_settings_json("/path/to/hook.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let command = parsed
+            .pointer("/hooks/PreToolUse/0/hooks/0/command")
+            .and_then(|v| v.as_str())
+            .expect("should have command field");
+        assert!(command.contains("/path/to/hook.sh"));
+        assert!(command.starts_with("bash "));
+    }
+
+    #[test]
+    fn build_hook_settings_json_sets_timeout_300() {
+        let result = build_hook_settings_json("/any/path.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let timeout = parsed
+            .pointer("/hooks/PreToolUse/0/hooks/0/timeout")
+            .and_then(|v| v.as_u64())
+            .expect("should have timeout field");
+        assert_eq!(timeout, 300);
+    }
+
+    #[test]
+    fn build_hook_settings_json_sets_matcher_wildcard() {
+        let result = build_hook_settings_json("/hook.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let matcher = parsed
+            .pointer("/hooks/PreToolUse/0/matcher")
+            .and_then(|v| v.as_str())
+            .expect("should have matcher field");
+        assert_eq!(matcher, ".*");
+    }
+
+    #[test]
+    fn build_hook_settings_json_handles_path_with_spaces() {
+        let result = build_hook_settings_json("/path with spaces/hook.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let command = parsed
+            .pointer("/hooks/PreToolUse/0/hooks/0/command")
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert!(command.contains("/path with spaces/hook.sh"));
+    }
+
+    // ── ensure_hook_script ──
+
+    #[test]
+    fn ensure_hook_script_creates_executable_file() {
+        // This test uses the real home directory; it's safe because
+        // ensure_hook_script always writes to ~/.codemantis/ which we own.
+        let path = ensure_hook_script().expect("should succeed");
+        assert!(path.exists());
+        assert!(path.to_string_lossy().ends_with("approval-hook.sh"));
+
+        // Verify content
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("#!/bin/bash"));
+        assert!(content.contains("CODEMANTIS_SESSION_ID"));
+        assert!(content.contains("tool-approval"));
+
+        // Verify executable permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o755, 0o755);
+        }
+    }
+
+    // ── cleanup_legacy_hook_config ──
+
+    #[test]
+    fn cleanup_legacy_hook_config_noop_when_file_missing() {
+        // Should not panic when settings file doesn't exist
+        cleanup_legacy_hook_config("/nonexistent/project/path");
+    }
+
+    #[test]
+    fn cleanup_legacy_hook_config_removes_codemantis_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings_dir = tmp.path().join(".claude");
+        std::fs::create_dir_all(&settings_dir).unwrap();
+        let settings_path = settings_dir.join("settings.local.json");
+
+        let settings = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": ".*",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "bash \"/Users/test/.codemantis/approval-hook.sh\""
+                        }]
+                    }
+                ]
+            },
+            "otherSetting": true
+        });
+        std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+
+        cleanup_legacy_hook_config(tmp.path().to_str().unwrap());
+
+        let content = std::fs::read_to_string(&settings_path).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // The hooks key should be cleaned up (empty after removal)
+        assert!(result.get("hooks").is_none(), "hooks key should be removed when empty");
+        // Other settings should be preserved
+        assert_eq!(result["otherSetting"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn cleanup_legacy_hook_config_preserves_other_hooks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings_dir = tmp.path().join(".claude");
+        std::fs::create_dir_all(&settings_dir).unwrap();
+        let settings_path = settings_dir.join("settings.local.json");
+
+        let settings = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": ".*",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "bash \"/Users/test/.codemantis/approval-hook.sh\""
+                        }]
+                    },
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "echo 'custom hook'"
+                        }]
+                    }
+                ]
+            }
+        });
+        std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+
+        cleanup_legacy_hook_config(tmp.path().to_str().unwrap());
+
+        let content = std::fs::read_to_string(&settings_path).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // Custom hook should remain
+        let pre_tool_use = result.pointer("/hooks/PreToolUse").unwrap().as_array().unwrap();
+        assert_eq!(pre_tool_use.len(), 1);
+        let remaining_command = pre_tool_use[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(remaining_command.contains("custom hook"));
+    }
+
+    #[test]
+    fn cleanup_legacy_hook_config_handles_claudeforge_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings_dir = tmp.path().join(".claude");
+        std::fs::create_dir_all(&settings_dir).unwrap();
+        let settings_path = settings_dir.join("settings.local.json");
+
+        let settings = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "bash \"/Users/test/.claudeforge/approval-hook.sh\""
+                    }]
+                }]
+            }
+        });
+        std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+
+        cleanup_legacy_hook_config(tmp.path().to_str().unwrap());
+
+        let content = std::fs::read_to_string(&settings_path).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(result.get("hooks").is_none(), "claudeforge entry should be removed");
+    }
+
+    #[test]
+    fn cleanup_legacy_hook_config_noop_when_no_hooks_section() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings_dir = tmp.path().join(".claude");
+        std::fs::create_dir_all(&settings_dir).unwrap();
+        let settings_path = settings_dir.join("settings.local.json");
+
+        let settings = serde_json::json!({ "theme": "dark" });
+        std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+
+        cleanup_legacy_hook_config(tmp.path().to_str().unwrap());
+
+        let content = std::fs::read_to_string(&settings_path).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&content).unwrap();
+        // File should be unchanged
+        assert_eq!(result["theme"], serde_json::json!("dark"));
+    }
+}

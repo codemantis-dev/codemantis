@@ -1,11 +1,14 @@
 mod changelog;
 mod claude;
 mod commands;
-mod errors;
+pub mod errors;
 mod preview;
-mod storage;
+pub mod storage;
 mod terminal;
 mod utils;
+
+#[cfg(test)]
+pub mod test_helpers;
 
 use claude::approval_server::start_approval_server;
 use claude::session::AppState;

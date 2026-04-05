@@ -76,3 +76,40 @@ Add entry to `RELEASES.md` with every version bump.
 - **CSS:** Tailwind only, CSS variables for theme colors (defined in `index.css`)
 - **Naming:** camelCase (TS/JS), snake_case (Rust), PascalCase (components)
 - **Files:** one component per file, default export. One Rust module per file.
+
+## Testing Standards
+
+### Running Tests
+```bash
+pnpm test                         # All TS unit tests
+pnpm test:integration             # TS integration tests (30s timeout)
+pnpm test:coverage                # TS unit tests with coverage report
+pnpm test -- src/stores/          # Tests in a specific directory
+cd src-tauri && cargo test         # All Rust unit + integration tests
+cd src-tauri && cargo test --test '*'  # Rust integration tests only
+```
+
+### When to Write Which Type
+- **Unit tests** (required for all new code): pure functions, individual store actions, serde types, event classification, command parsing
+- **Integration tests** (required for cross-module features): hooks orchestrating multiple stores, event flows (CLI → event-classifier → stores → components), Tauri command → database roundtrips, approval server flows
+
+### File Conventions
+- **Unit tests:** co-located with source. `Foo.ts` → `Foo.test.ts`, `Foo.tsx` → `Foo.test.tsx`
+- **Integration tests (TS):** `src/test/integration/` with `.integration.test.ts` suffix
+- **Integration tests (Rust):** `src-tauri/tests/` directory
+- **Test helpers (TS):** `src/test/helpers/` (store-reset, event-fixtures, event-simulator, tauri-mock-factory)
+- **Test helpers (Rust):** `src-tauri/src/test_helpers.rs` (database fixtures, AppState builders)
+- Always reset stores in `beforeEach` via `resetAllStores()` from `src/test/helpers/store-reset.ts`
+
+### Coverage Requirements
+- **New features:** must include tests for all public functions/exports
+- **Bug fixes:** must include a regression test that fails without the fix
+- **Stores:** every action must have at least one test
+- **Hooks:** every hook must have tests for primary return values and side effects
+- **Rust commands:** every `#[tauri::command]` must have tests for success and at least one error path
+
+### Mocking Policy
+- **Always mock:** Tauri IPC (`invoke`, `listen`, `emit`), filesystem, network, timers
+- **Never mock:** Zustand stores (use real stores, reset in `beforeEach`), pure utility functions
+- **Prefer real over mock:** if a dependency is a Zustand store or pure function, use the real thing. Only mock at system boundaries
+- Use `src/test/helpers/tauri-mock-factory.ts` for configurable invoke mocks

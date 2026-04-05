@@ -1,0 +1,77 @@
+# CodeMantis Test Coverage Tracking
+# Updated: 2026-04-05
+# Run `pnpm test` and `cd src-tauri && cargo test` to verify counts
+
+meta:
+  total_ts_tests: 2616
+  total_rust_tests: 918
+  total_integration_tests: 0  # Update as integration tests are added
+  last_full_audit: "2026-04-05"
+
+# Coverage Levels: none | partial | comprehensive
+# Priority: critical | high | medium | low
+
+typescript:
+  stores:
+    - { name: "sessionStore", tests: 38, coverage: "comprehensive", priority: "critical" }
+    - { name: "selfDriveStore", tests: 53, coverage: "comprehensive", priority: "critical" }
+    - { name: "specWriterStore", tests: 45, coverage: "comprehensive", priority: "critical" }
+    - { name: "assistantStore", tests: 19, coverage: "comprehensive", priority: "critical" }
+    - { name: "superBroStore", tests: 30, coverage: "comprehensive", priority: "high" }
+    - { name: "activityStore", tests: 30, coverage: "comprehensive", priority: "critical" }
+    - { name: "fileViewerStore", tests: 44, coverage: "comprehensive", priority: "high" }
+    - { name: "uiStore", tests: 28, coverage: "comprehensive", priority: "high" }
+    - { name: "previewStore", tests: 41, coverage: "comprehensive", priority: "high" }
+    - { name: "settingsStore", tests: 15, coverage: "comprehensive", priority: "high" }
+    - { name: "guideStore", tests: 11, coverage: "comprehensive", priority: "medium" }
+    - { name: "changelogStore", tests: 9, coverage: "partial", priority: "medium" }
+    - { name: "terminalStore", tests: 11, coverage: "comprehensive", priority: "medium" }
+    - { name: "mcpStore", tests: 23, coverage: "comprehensive", priority: "medium" }
+    - { name: "openRouterStore", tests: 21, coverage: "comprehensive", priority: "medium" }
+    - { name: "toastStore", tests: 13, coverage: "comprehensive", priority: "low" }
+    - { name: "attachmentStore", tests: 9, coverage: "comprehensive", priority: "low" }
+
+  event_handlers:
+    - { name: "chat.ts", tests: 38, coverage: "comprehensive", priority: "critical" }
+    - { name: "activity.ts", tests: 20, coverage: "comprehensive", priority: "critical" }
+    - { name: "process.ts", tests: 11, coverage: "comprehensive", priority: "critical" }
+    - { name: "lifecycle.ts", tests: 10, coverage: "comprehensive", priority: "critical" }
+
+  hooks:
+    - { name: "useClaudeSession", tests: 20, coverage: "partial", priority: "critical" }
+    - { name: "useAssistantSession", tests: 16, coverage: "partial", priority: "critical" }
+    - { name: "useSpecConversation", tests: 0, coverage: "none", priority: "critical", notes: "Needs integration test" }
+    - { name: "useSpecConversationClaude", tests: 0, coverage: "none", priority: "high" }
+    - { name: "useSuperBro", tests: 14, coverage: "partial", priority: "high" }
+    - { name: "useAssistantAttachments", tests: 0, coverage: "none", priority: "high" }
+    - { name: "useUpdatePoller", tests: 0, coverage: "none", priority: "medium" }
+    - { name: "useDividerResize", tests: 0, coverage: "none", priority: "low" }
+    - { name: "useSavedSpecs", tests: 0, coverage: "none", priority: "low" }
+
+  lib:
+    - { name: "self-drive-orchestrator", tests: 20, coverage: "comprehensive", priority: "critical" }
+    - { name: "tauri-commands", tests: 200, coverage: "comprehensive", priority: "critical" }
+    - { name: "event-classifier", tests: 100, coverage: "comprehensive", priority: "critical" }
+    - { name: "error-messages", tests: 27, coverage: "comprehensive", priority: "high" }
+    - { name: "spec-prompts", tests: 92, coverage: "comprehensive", priority: "high" }
+    - { name: "update-checker", tests: 0, coverage: "none", priority: "medium" }
+
+rust:
+  - { name: "claude/event_types", tests: 101, coverage: "comprehensive", priority: "critical" }
+  - { name: "claude/process", tests: 11, coverage: "partial", priority: "critical" }
+  - { name: "claude/tests (NDJSON)", tests: 70, coverage: "comprehensive", priority: "critical" }
+  - { name: "claude/message_router", tests: 49, coverage: "comprehensive", priority: "critical" }
+  - { name: "claude/approval_server", tests: 27, coverage: "partial", priority: "critical" }
+  - { name: "claude/stream_parser", tests: 7, coverage: "partial", priority: "high" }
+  - { name: "claude/session (AppState)", tests: 0, coverage: "none", priority: "high", notes: "Need serde roundtrip tests" }
+  - { name: "storage/database", tests: 33, coverage: "partial", priority: "critical" }
+  - { name: "commands/claude_md", tests: 122, coverage: "comprehensive", priority: "high" }
+  - { name: "commands/scaffold", tests: 46, coverage: "comprehensive", priority: "medium" }
+  - { name: "commands/session", tests: 17, coverage: "partial", priority: "critical" }
+  - { name: "commands/settings", tests: 33, coverage: "comprehensive", priority: "medium" }
+  - { name: "commands/files", tests: 26, coverage: "partial", priority: "high" }
+  - { name: "errors", tests: 7, coverage: "comprehensive", priority: "medium" }
+  - { name: "terminal/pty_manager", tests: 6, coverage: "partial", priority: "high" }
+  - { name: "preview/port_detector", tests: 72, coverage: "comprehensive", priority: "medium" }
+  - { name: "utils/pid_tracker", tests: 21, coverage: "comprehensive", priority: "medium" }
+  - { name: "changelog/summarizer", tests: 0, coverage: "none", priority: "medium" }
