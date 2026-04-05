@@ -100,7 +100,7 @@ export function useCommandExecution(): {
     switch (command.name) {
       case "clear": {
         useSessionStore.getState().clearSessionData(sessionId);
-        useActivityStore.getState().clearEntries(sessionId);
+        useActivityStore.getState().clearApprovalState(sessionId);
         try {
           await pauseSessionProcess(sessionId);
           await resumeSessionProcess(sessionId);

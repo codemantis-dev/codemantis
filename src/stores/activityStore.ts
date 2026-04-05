@@ -68,6 +68,7 @@ interface ActivityState {
   getEntriesForMessage: (sessionId: string, messageId: string) => ActivityEntry[];
   getActiveEntries: (sessionId: string) => ActivityEntry[];
   clearEntries: (sessionId: string) => void;
+  clearApprovalState: (sessionId: string) => void;
   clearAllEntries: () => void;
 }
 
@@ -226,6 +227,34 @@ export const useActivityStore = create<ActivityState>((set, get) => ({
       alwaysAllowedTools.delete(sessionId);
       return {
         sessionEntries,
+        sessionQuestions,
+        approvalQueue,
+        approvalSeenIds,
+        currentApprovalIndex,
+        alwaysAllowedTools,
+      };
+    }),
+
+  clearApprovalState: (sessionId) =>
+    set((state) => {
+      const sessionQuestions = new Map(state.sessionQuestions);
+      sessionQuestions.set(sessionId, null);
+      const approvalQueue = state.approvalQueue.filter(
+        (a) => a.sessionId !== sessionId
+      );
+      const approvalSeenIds = new Set(state.approvalSeenIds);
+      for (const a of state.approvalQueue) {
+        if (a.sessionId === sessionId) {
+          approvalSeenIds.delete(a.toolUseId);
+        }
+      }
+      const currentApprovalIndex = Math.min(
+        state.currentApprovalIndex,
+        Math.max(0, approvalQueue.length - 1)
+      );
+      const alwaysAllowedTools = new Map(state.alwaysAllowedTools);
+      alwaysAllowedTools.delete(sessionId);
+      return {
         sessionQuestions,
         approvalQueue,
         approvalSeenIds,
