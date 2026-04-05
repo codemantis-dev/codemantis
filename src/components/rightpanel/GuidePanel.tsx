@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
-import { FileText, Trash2, Loader2, BookOpen, CheckCircle2 } from "lucide-react";
+import { FileText, Trash2, Loader2, BookOpen, CheckCircle2, Rocket, Settings } from "lucide-react";
 import { useGuideStore } from "../../stores/guideStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useSelfDriveStore } from "../../stores/selfDriveStore";
 import { showToast } from "../../stores/toastStore";
 import { readSpecDocument } from "../../lib/tauri-commands";
 import GuideSessionCard from "./GuideSessionCard";
+import SelfDriveStatus from "./SelfDriveStatus";
+import SelfDriveConfirmModal from "../modals/SelfDriveConfirmModal";
 
 export default function GuidePanel() {
   const guide = useGuideStore((s) => s.guide);
@@ -18,8 +22,13 @@ export default function GuidePanel() {
   const markVerifyRequested = useGuideStore((s) => s.markVerifyRequested);
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const selfDriveStatus = useSelfDriveStore((s) => s.status);
+  const selfDriveStart = useSelfDriveStore((s) => s.start);
+  const settings = useSettingsStore((s) => s.settings);
 
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Load guide when project changes
   useEffect(() => {
@@ -124,19 +133,53 @@ export default function GuidePanel() {
             Implementation Guide &middot; {completedSessions} of {totalSessions} sessions complete
           </p>
         )}
-        {/* Progress bar */}
-        <div
-          className="h-1 rounded-full overflow-hidden"
-          style={{ background: "var(--bg-elevated)" }}
-        >
+        {/* Progress bar + Self-Drive button */}
+        <div className="flex items-center gap-2">
           <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${progressPercent}%`,
-              background: isComplete ? "var(--color-green, #22c55e)" : "var(--accent)",
-            }}
-          />
+            className="flex-1 h-1 rounded-full overflow-hidden"
+            style={{ background: "var(--bg-elevated)" }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${progressPercent}%`,
+                background: isComplete ? "var(--color-green, #22c55e)" : "var(--accent)",
+              }}
+            />
+          </div>
+          {!isComplete && selfDriveStatus === "idle" && (
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              disabled={!activeSessionId || !guide.sessions.some((s) => s.status === "active")}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-all hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              style={{ background: "var(--accent)", color: "white" }}
+              title={
+                !activeSessionId
+                  ? "Start Claude Code first"
+                  : !settings.apiKeys[settings.selfDriveProvider]?.trim()
+                    ? "Configure AI provider in Settings"
+                    : "Start Self-Drive — autonomous implementation"
+              }
+            >
+              <Rocket size={10} />
+              Self-Drive
+            </button>
+          )}
+          {!isComplete && selfDriveStatus === "idle" && (
+            <button
+              onClick={() => {
+                useUiStore.getState().openSettingsToTab("self-drive");
+              }}
+              className="p-1 rounded hover:bg-bg-elevated transition-colors shrink-0"
+              title="Self-Drive settings"
+            >
+              <Settings size={11} style={{ color: "var(--text-ghost)" }} />
+            </button>
+          )}
         </div>
+
+        {/* Self-Drive status strip */}
+        <SelfDriveStatus />
       </div>
 
       {/* Session list */}
@@ -174,7 +217,8 @@ export default function GuidePanel() {
         {!showDismissConfirm ? (
           <button
             onClick={() => setShowDismissConfirm(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] transition-colors hover:bg-red-500/10"
+            disabled={selfDriveStatus === "running" || selfDriveStatus === "paused"}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] transition-colors hover:bg-red-500/10 disabled:opacity-30"
             style={{ color: "var(--text-ghost)" }}
           >
             <Trash2 size={11} />
@@ -202,6 +246,16 @@ export default function GuidePanel() {
           </div>
         )}
       </div>
+
+      {/* Self-Drive confirm modal */}
+      <SelfDriveConfirmModal
+        open={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={() => {
+          setShowConfirmModal(false);
+          selfDriveStart();
+        }}
+      />
     </div>
   );
 }

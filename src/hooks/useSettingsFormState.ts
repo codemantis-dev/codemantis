@@ -82,6 +82,14 @@ export function useSettingsFormState() {
   const [superBroProvider, setSuperBroProvider] = useState(settings.superBroProvider);
   const [superBroModel, setSuperBroModel] = useState(settings.superBroModel);
 
+  // --- Self-Drive ---
+  const [selfDriveProvider, setSelfDriveProvider] = useState(settings.selfDriveProvider);
+  const [selfDriveModel, setSelfDriveModel] = useState(settings.selfDriveModel);
+  const [selfDriveMaxFixAttempts, setSelfDriveMaxFixAttempts] = useState(settings.selfDriveMaxFixAttempts);
+  const [selfDriveRunBuildCheck, setSelfDriveRunBuildCheck] = useState(settings.selfDriveRunBuildCheck);
+  const [selfDriveRunTests, setSelfDriveRunTests] = useState(settings.selfDriveRunTests);
+  const [selfDriveAutoCommit, setSelfDriveAutoCommit] = useState(settings.selfDriveAutoCommit);
+
   // --- Task Board ---
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
   const [taskBoardMaxTokens, setTaskBoardMaxTokens] = useState(settings.taskBoardMaxTokens ?? 64000);
@@ -130,6 +138,12 @@ export function useSettingsFormState() {
       setSuperBroEnabled(settings.superBroEnabled);
       setSuperBroProvider(settings.superBroProvider);
       setSuperBroModel(settings.superBroModel);
+      setSelfDriveProvider(settings.selfDriveProvider);
+      setSelfDriveModel(settings.selfDriveModel);
+      setSelfDriveMaxFixAttempts(settings.selfDriveMaxFixAttempts);
+      setSelfDriveRunBuildCheck(settings.selfDriveRunBuildCheck);
+      setSelfDriveRunTests(settings.selfDriveRunTests);
+      setSelfDriveAutoCommit(settings.selfDriveAutoCommit);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
       setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
@@ -187,6 +201,12 @@ export function useSettingsFormState() {
       superBroEnabled,
       superBroProvider,
       superBroModel,
+      selfDriveProvider,
+      selfDriveModel,
+      selfDriveMaxFixAttempts,
+      selfDriveRunBuildCheck,
+      selfDriveRunTests,
+      selfDriveAutoCommit,
     });
 
     // Trigger OpenRouter model fetch if key changed
@@ -359,6 +379,20 @@ export function useSettingsFormState() {
     setSuperBroProvider,
     superBroModel,
     setSuperBroModel,
+
+    // Self-Drive tab
+    selfDriveProvider,
+    setSelfDriveProvider,
+    selfDriveModel,
+    setSelfDriveModel,
+    selfDriveMaxFixAttempts,
+    setSelfDriveMaxFixAttempts,
+    selfDriveRunBuildCheck,
+    setSelfDriveRunBuildCheck,
+    selfDriveRunTests,
+    setSelfDriveRunTests,
+    selfDriveAutoCommit,
+    setSelfDriveAutoCommit,
 
     // Task Board tab
     taskBoardPlanningModel,

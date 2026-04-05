@@ -103,6 +103,14 @@ export interface AppSettings {
   superBroEnabled: boolean;
   superBroProvider: string;
   superBroModel: string;
+
+  // Self-Drive
+  selfDriveProvider: string;
+  selfDriveModel: string;
+  selfDriveMaxFixAttempts: number;
+  selfDriveRunBuildCheck: boolean;
+  selfDriveRunTests: boolean;
+  selfDriveAutoCommit: boolean;
 }
 
 export { getDefaultModelPricing };

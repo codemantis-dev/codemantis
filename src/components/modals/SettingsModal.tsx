@@ -15,6 +15,7 @@ import ShortcutsTab from "./settings/ShortcutsTab";
 import ApiLogsTab from "./settings/ApiLogsTab";
 import SessionLogsTab from "./settings/SessionLogsTab";
 import SuperBroTab from "./settings/SuperBroTab";
+import SelfDriveTab from "./settings/SelfDriveTab";
 import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
 export default function SettingsModal() {
@@ -203,6 +204,24 @@ export default function SettingsModal() {
                 onEnabledChange={state.setSuperBroEnabled}
                 onProviderChange={state.setSuperBroProvider}
                 onModelChange={state.setSuperBroModel}
+              />
+            )}
+
+            {state.activeTab === "self-drive" && (
+              <SelfDriveTab
+                provider={state.selfDriveProvider}
+                model={state.selfDriveModel}
+                maxFixAttempts={state.selfDriveMaxFixAttempts}
+                runBuildCheck={state.selfDriveRunBuildCheck}
+                runTests={state.selfDriveRunTests}
+                autoCommit={state.selfDriveAutoCommit}
+                apiKeys={state.apiKeys}
+                onProviderChange={state.setSelfDriveProvider}
+                onModelChange={state.setSelfDriveModel}
+                onMaxFixAttemptsChange={state.setSelfDriveMaxFixAttempts}
+                onRunBuildCheckChange={state.setSelfDriveRunBuildCheck}
+                onRunTestsChange={state.setSelfDriveRunTests}
+                onAutoCommitChange={state.setSelfDriveAutoCommit}
               />
             )}
 

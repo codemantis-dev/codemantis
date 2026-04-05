@@ -63,12 +63,17 @@ export default {
           "0%": { opacity: "0", transform: "translateX(100%)" },
           "100%": { opacity: "1", transform: "translateX(0)" },
         },
+        "pulse-subtle": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.85" },
+        },
       },
       animation: {
         pulse: "pulse 2s ease-in-out infinite",
         blink: "blink 1.06s step-end infinite",
         "trivia-fade-in": "trivia-fade-in 3s ease-out",
         "detail-slide-in": "detail-slide-in 0.2s ease-out",
+        "pulse-subtle": "pulse-subtle 2.5s ease-in-out infinite",
       },
     },
   },

@@ -250,7 +250,7 @@ describe("buildClaudeCodePrompt", () => {
 
   it("contains hard constraint about not writing files", () => {
     const result = buildClaudeCodePrompt("new_application", templateCatalog, "");
-    expect(result).toContain("Do NOT write, edit, create, or delete any files");
+    expect(result).toContain("Do NOT use Write, Edit, Bash, NotebookEdit, or any file-modifying tool");
   });
 
   it("contains hard constraint about not running bash", () => {
@@ -258,9 +258,9 @@ describe("buildClaudeCodePrompt", () => {
     expect(result).toContain("Do NOT run bash commands");
   });
 
-  it("contains hard constraint about not suggesting code changes", () => {
+  it("contains hard constraint about being a spec writer not implementer", () => {
     const result = buildClaudeCodePrompt("feature", templateCatalog, projectContext);
-    expect(result).toContain("Do NOT suggest code changes directly");
+    expect(result).toContain("You are a specification writer,\nnot an implementer");
   });
 
   it("contains permission to read project files", () => {
@@ -527,7 +527,7 @@ describe("buildClaudeCodePrompt", () => {
 
   it("contains HARD CONSTRAINTS section from the wrapper", () => {
     const result = buildClaudeCodePrompt("feature", templateCatalog, projectContext);
-    expect(result).toContain("HARD CONSTRAINTS:");
+    expect(result).toContain("HARD CONSTRAINTS — INFRASTRUCTURE-ENFORCED:");
   });
 
   it("contains RESPONSE FORMAT section from the wrapper", () => {

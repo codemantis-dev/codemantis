@@ -72,6 +72,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   superBroEnabled: true,
   superBroProvider: "auto",
   superBroModel: "auto",
+  selfDriveProvider: "anthropic",
+  selfDriveModel: "claude-haiku-4-5",
+  selfDriveMaxFixAttempts: 3,
+  selfDriveRunBuildCheck: true,
+  selfDriveRunTests: true,
+  selfDriveAutoCommit: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -80,7 +86,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   loadSettings: async () => {
     try {
-      const settings = await getSettings();
+      const raw = await getSettings();
+      // Merge with defaults so newly added fields are never undefined
+      const settings = { ...DEFAULT_SETTINGS, ...raw };
       settings.theme = normalizeTheme(settings.theme);
       applyTheme(settings.theme);
       applyFontSize(settings.fontSize ?? 13);

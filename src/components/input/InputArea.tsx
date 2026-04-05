@@ -17,6 +17,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import SuperBroToggle from "../chat/SuperBroToggle";
 import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
+import { useSelfDriveStore } from "../../stores/selfDriveStore";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
@@ -121,14 +122,23 @@ export default function InputArea() {
     }
   }, [pendingInputInsert, setPendingInputInsert]);
 
-  // Global Escape key to interrupt generation
+  // Global Escape key to interrupt generation (or pause Self-Drive)
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (!activeSessionId || !isBusy) return;
       // Don't intercept if a modal is open
       const ui = useUiStore.getState();
       if (ui.showSettingsModal || ui.showClaudeHistory) return;
+
+      // If Self-Drive is running, Escape pauses it
+      const sdStatus = useSelfDriveStore.getState().status;
+      if (sdStatus === "running") {
+        e.preventDefault();
+        useSelfDriveStore.getState().pause();
+        return;
+      }
+
+      if (!activeSessionId || !isBusy) return;
       e.preventDefault();
       interruptSession(activeSessionId).catch((e) =>
         console.error("Failed to interrupt session:", e)
@@ -321,7 +331,9 @@ export default function InputArea() {
     ? s.sessionEffort.get(s.activeSessionId) ?? "high"
     : "high");
 
-  const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming;
+  const selfDriveRunning = useSelfDriveStore((s) => s.status === "running");
+
+  const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming && !selfDriveRunning;
 
   return (
     <div
@@ -329,6 +341,19 @@ export default function InputArea() {
       className={`relative border-t border-border px-4 py-3 ${dragOver ? "bg-accent/5" : ""}`}
     >
       <div className="max-w-[1080px] mx-auto relative">
+        {/* Self-Drive lockout overlay */}
+        {selfDriveRunning && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-xl"
+            style={{ background: "color-mix(in srgb, var(--bg-elevated) 90%, transparent)" }}
+          >
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
+              <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                Self-Drive is active. Click <span className="font-medium">Pause</span> in the Guide panel to send manual messages.
+              </span>
+            </div>
+          </div>
+        )}
         {/* Command palette dropdown */}
         {showCommandPalette && session && (
           <CommandPalette

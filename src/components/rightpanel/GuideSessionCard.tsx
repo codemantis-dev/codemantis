@@ -14,6 +14,7 @@ import type { GuideSession } from "../../types/implementation-guide";
 import { showToast } from "../../stores/toastStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useSelfDriveStore } from "../../stores/selfDriveStore";
 import { buildSessionVerifyPrompt } from "../../lib/guide-verify-prompt";
 
 interface Props {
@@ -37,6 +38,10 @@ export default function GuideSessionCard({
 }: Props) {
   const [expanded, setExpanded] = useState(session.status === "active");
   const [filesExpanded, setFilesExpanded] = useState(false);
+
+  const selfDriveStatus = useSelfDriveStore((s) => s.status);
+  const selfDriveSessionIndex = useSelfDriveStore((s) => s.currentSessionIndex);
+  const isSelfDriveSession = (selfDriveStatus === "running" || selfDriveStatus === "paused") && selfDriveSessionIndex === session.index;
 
   const isDone = session.status === "done";
   const isActive = session.status === "active";
@@ -88,7 +93,7 @@ export default function GuideSessionCard({
 
   return (
     <div
-      className="rounded-lg overflow-hidden transition-all"
+      className={`rounded-lg overflow-hidden transition-all ${isSelfDriveSession ? "animate-pulse-subtle" : ""}`}
       style={{
         background: "var(--bg-primary)",
         border: `1px solid ${isDone ? "var(--color-green, #22c55e)" : isActive ? "var(--accent)" : "var(--border-light)"}`,
@@ -126,6 +131,16 @@ export default function GuideSessionCard({
             style={{ background: "var(--accent)", color: "white" }}
           >
             CURRENT
+          </span>
+        )}
+
+        {/* AUTO badge when Self-Drive is active on this session */}
+        {isSelfDriveSession && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0"
+            style={{ background: "var(--purple, #a855f7)", color: "white" }}
+          >
+            AUTO
           </span>
         )}
 

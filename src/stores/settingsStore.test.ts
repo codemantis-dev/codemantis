@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSettingsStore } from "./settingsStore";
+import { getSettings } from "../lib/tauri-commands";
 
 // Mock Tauri commands
 vi.mock("../lib/tauri-commands", () => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn().mockResolvedValue(undefined),
 }));
+
+const mockGetSettings = vi.mocked(getSettings);
 
 function resetStore(): void {
   useSettingsStore.setState({
@@ -48,6 +51,12 @@ function resetStore(): void {
       superBroEnabled: true,
       superBroProvider: "auto",
       superBroModel: "auto",
+      selfDriveProvider: "anthropic",
+      selfDriveModel: "claude-haiku-4-5",
+      selfDriveMaxFixAttempts: 3,
+      selfDriveRunBuildCheck: true,
+      selfDriveRunTests: true,
+      selfDriveAutoCommit: false,
     },
     loaded: false,
   });
@@ -106,5 +115,163 @@ describe("settingsStore", () => {
   it("updateSettings updates theme", async () => {
     await useSettingsStore.getState().updateSettings({ theme: "ocean" });
     expect(useSettingsStore.getState().settings.theme).toBe("ocean");
+  });
+
+  // ── loadSettings ──
+
+  describe("loadSettings", () => {
+    it("sets loaded=true after loading", async () => {
+      mockGetSettings.mockResolvedValueOnce({
+        theme: "sand",
+        fontSize: 13,
+      } as any);
+
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().loaded).toBe(true);
+    });
+
+    it("applies persisted values from backend", async () => {
+      mockGetSettings.mockResolvedValueOnce({
+        theme: "ocean",
+        fontSize: 16,
+        sendShortcut: "cmd+enter",
+        selfDriveProvider: "gemini",
+        selfDriveModel: "gemini-2.5-flash",
+      } as any);
+
+      await useSettingsStore.getState().loadSettings();
+      const { settings } = useSettingsStore.getState();
+      expect(settings.theme).toBe("ocean");
+      expect(settings.fontSize).toBe(16);
+      expect(settings.selfDriveProvider).toBe("gemini");
+      expect(settings.selfDriveModel).toBe("gemini-2.5-flash");
+    });
+
+    it("fills in defaults for fields missing from persisted settings", async () => {
+      // Simulate loading settings saved by an older version that had no
+      // Self-Drive, Super-Bro, or Session Logs fields
+      mockGetSettings.mockResolvedValueOnce({
+        theme: "midnight",
+        fontSize: 14,
+        sendShortcut: "enter",
+        terminalShell: null,
+        terminalFontSize: 13,
+        quickCommands: [],
+        apiKeys: { openai: "sk-test" },
+        modelPricing: {},
+        changelogEnabled: false,
+        changelogProvider: "gemini",
+        changelogModel: "gemini-2.5-flash-lite",
+        changelogPrompt: "",
+        assistantShortcuts: [],
+        assistantDefaultProvider: "claude-code",
+        assistantDefaultModel: {},
+        previewDefaultWidth: 1024,
+        previewDefaultHeight: 768,
+        previewAutoStart: false,
+        previewCustomDevCommand: null,
+        previewConsoleAutoOpen: true,
+        previewLastUrls: {},
+        triviaEnabled: true,
+        defaultContextWindow: 200000,
+        autoOpenFiles: false,
+        claudeBinaryOverride: null,
+        onboardingCompleted: true,
+        apiKeyBannerDismissed: false,
+        lastCloneDirectory: null,
+        // Deliberately omitting: superBro*, selfDrive*, sessionLogs*, taskBoard*
+      } as any);
+
+      await useSettingsStore.getState().loadSettings();
+      const { settings } = useSettingsStore.getState();
+
+      // Persisted values preserved
+      expect(settings.theme).toBe("midnight");
+      expect(settings.fontSize).toBe(14);
+      expect(settings.apiKeys).toEqual({ openai: "sk-test" });
+      expect(settings.onboardingCompleted).toBe(true);
+
+      // Self-Drive fields filled from defaults
+      expect(settings.selfDriveProvider).toBe("anthropic");
+      expect(settings.selfDriveModel).toBe("claude-haiku-4-5");
+      expect(settings.selfDriveMaxFixAttempts).toBe(3);
+      expect(settings.selfDriveRunBuildCheck).toBe(true);
+      expect(settings.selfDriveRunTests).toBe(true);
+      expect(settings.selfDriveAutoCommit).toBe(false);
+
+      // Super-Bro fields filled from defaults
+      expect(settings.superBroEnabled).toBe(true);
+      expect(settings.superBroProvider).toBe("auto");
+      expect(settings.superBroModel).toBe("auto");
+
+      // Session Logs fields filled from defaults
+      expect(settings.sessionLogsEnabled).toBe(true);
+      expect(settings.sessionLogsRetentionDays).toBe(30);
+
+      // Task Board fields filled from defaults
+      expect(settings.taskBoardPlanningModel).toBe("gemini-3-flash-preview");
+      expect(settings.taskBoardMaxTokens).toBe(64000);
+      expect(settings.taskBoardMaxRetries).toBe(3);
+      expect(settings.taskBoardAutoStartNext).toBe(true);
+      expect(settings.taskBoardAutoOpenSlideOver).toBe(true);
+    });
+
+    it("fills in defaults when backend returns empty object", async () => {
+      mockGetSettings.mockResolvedValueOnce({} as any);
+
+      await useSettingsStore.getState().loadSettings();
+      const { settings } = useSettingsStore.getState();
+
+      // Every field should equal its default
+      expect(settings.selfDriveProvider).toBe("anthropic");
+      expect(settings.selfDriveModel).toBe("claude-haiku-4-5");
+      expect(settings.superBroEnabled).toBe(true);
+      expect(settings.sessionLogsEnabled).toBe(true);
+      expect(settings.theme).toBe("sand"); // normalizeTheme converts undefined → "sand"
+      expect(settings.fontSize).toBe(13);
+    });
+
+    it("persisted values override defaults when both exist", async () => {
+      mockGetSettings.mockResolvedValueOnce({
+        selfDriveProvider: "openai",
+        selfDriveModel: "gpt-4.1",
+        selfDriveMaxFixAttempts: 5,
+        selfDriveRunBuildCheck: false,
+        selfDriveRunTests: false,
+        selfDriveAutoCommit: true,
+        superBroEnabled: false,
+        superBroProvider: "gemini",
+        superBroModel: "gemini-2.5-flash-lite",
+      } as any);
+
+      await useSettingsStore.getState().loadSettings();
+      const { settings } = useSettingsStore.getState();
+
+      expect(settings.selfDriveProvider).toBe("openai");
+      expect(settings.selfDriveModel).toBe("gpt-4.1");
+      expect(settings.selfDriveMaxFixAttempts).toBe(5);
+      expect(settings.selfDriveRunBuildCheck).toBe(false);
+      expect(settings.selfDriveRunTests).toBe(false);
+      expect(settings.selfDriveAutoCommit).toBe(true);
+      expect(settings.superBroEnabled).toBe(false);
+      expect(settings.superBroProvider).toBe("gemini");
+      expect(settings.superBroModel).toBe("gemini-2.5-flash-lite");
+    });
+
+    it("normalizes invalid theme values when loading", async () => {
+      mockGetSettings.mockResolvedValueOnce({
+        theme: "dark", // legacy value not in THEMES list
+      } as any);
+
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().settings.theme).toBe("sand");
+    });
+
+    it("sets loaded=true even when getSettings throws", async () => {
+      mockGetSettings.mockRejectedValueOnce(new Error("Backend not ready"));
+
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().loaded).toBe(true);
+    });
   });
 });

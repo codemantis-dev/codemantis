@@ -136,6 +136,12 @@ function resetStores(): void {
       superBroEnabled: true,
       superBroProvider: "auto",
       superBroModel: "auto",
+      selfDriveProvider: "anthropic",
+      selfDriveModel: "claude-haiku-4-5",
+      selfDriveMaxFixAttempts: 3,
+      selfDriveRunBuildCheck: true,
+      selfDriveRunTests: true,
+      selfDriveAutoCommit: false,
     },
     loaded: true,
   });
