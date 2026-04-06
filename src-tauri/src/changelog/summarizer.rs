@@ -414,3 +414,223 @@ fn validate_response(raw: RawSummarizeResponse) -> SummarizeResponse {
         output_tokens: 0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    // ── extract_api_error ────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_api_error_json_format() {
+        let body = r#"{"error":{"message":"rate limited","code":429}}"#;
+        let result = extract_api_error("OpenRouter", StatusCode::TOO_MANY_REQUESTS, body);
+        assert!(result.contains("OpenRouter API error 429"));
+        assert!(result.contains("rate limited"));
+    }
+
+    #[test]
+    fn test_extract_api_error_json_without_code_uses_status() {
+        let body = r#"{"error":{"message":"something went wrong"}}"#;
+        let result = extract_api_error("OpenAI", StatusCode::INTERNAL_SERVER_ERROR, body);
+        assert!(result.contains("OpenAI API error 500"));
+        assert!(result.contains("something went wrong"));
+    }
+
+    #[test]
+    fn test_extract_api_error_html_with_title() {
+        let body = r#"<!DOCTYPE html><html><head><title>Access Denied</title></head><body>Blocked</body></html>"#;
+        let result = extract_api_error("Gemini", StatusCode::FORBIDDEN, body);
+        assert!(result.contains("Gemini API error 403"));
+        assert!(result.contains("Access Denied"));
+        assert!(result.contains("error page"));
+    }
+
+    #[test]
+    fn test_extract_api_error_html_without_title() {
+        let body = r#"<html><body>Error</body></html>"#;
+        let result = extract_api_error("Anthropic", StatusCode::BAD_GATEWAY, body);
+        assert!(result.contains("Anthropic API error 502"));
+        assert!(result.contains("HTML error page"));
+    }
+
+    #[test]
+    fn test_extract_api_error_raw_text() {
+        let body = "Service temporarily unavailable";
+        let result = extract_api_error("OpenRouter", StatusCode::SERVICE_UNAVAILABLE, body);
+        assert!(result.contains("OpenRouter API error 503"));
+        assert!(result.contains("Service temporarily unavailable"));
+    }
+
+    #[test]
+    fn test_extract_api_error_truncates_long_json_message() {
+        let long_msg = "x".repeat(500);
+        let body = format!(r#"{{"error":{{"message":"{}"}}}}"#, long_msg);
+        let result = extract_api_error("OpenAI", StatusCode::BAD_REQUEST, &body);
+        // Message should be truncated to 300 chars
+        assert!(result.len() < body.len());
+        // The error message portion should be at most 300 chars
+        let msg_part = result.split(": ").last().unwrap();
+        assert!(msg_part.len() <= 300);
+    }
+
+    #[test]
+    fn test_extract_api_error_truncates_long_raw_body() {
+        let long_body = "y".repeat(1000);
+        let result = extract_api_error("Gemini", StatusCode::BAD_REQUEST, &long_body);
+        // Raw body truncated to 500 chars plus prefix
+        let raw_part = result.split(": ").last().unwrap();
+        assert!(raw_part.len() <= 500);
+    }
+
+    // ── build_prompt ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_prompt_includes_user_prompt_and_summary() {
+        let request = SummarizeRequest {
+            user_prompt: "Fix the login bug".to_string(),
+            assistant_summary: "I fixed the authentication flow".to_string(),
+            tools_used: vec!["Read file: auth.rs".to_string()],
+            session_mode: "normal".to_string(),
+        };
+
+        let prompt = build_prompt(&request);
+        assert!(prompt.contains("Fix the login bug"));
+        assert!(prompt.contains("I fixed the authentication flow"));
+        assert!(prompt.contains("Read file: auth.rs"));
+    }
+
+    #[test]
+    fn test_build_prompt_truncates_long_inputs() {
+        let request = SummarizeRequest {
+            user_prompt: "a".repeat(1000),
+            assistant_summary: "b".repeat(2000),
+            tools_used: vec!["c".repeat(5000)],
+            session_mode: "normal".to_string(),
+        };
+
+        let prompt = build_prompt(&request);
+        // user_prompt truncated to 500
+        assert!(!prompt.contains(&"a".repeat(501)));
+        // assistant_summary truncated to 800
+        assert!(!prompt.contains(&"b".repeat(801)));
+        // tools truncated to 2000
+        assert!(!prompt.contains(&"c".repeat(2001)));
+    }
+
+    #[test]
+    fn test_build_prompt_plan_mode_hint() {
+        let request = SummarizeRequest {
+            user_prompt: "Plan the refactor".to_string(),
+            assistant_summary: "Here is the plan".to_string(),
+            tools_used: vec![],
+            session_mode: "plan".to_string(),
+        };
+
+        let prompt = build_prompt(&request);
+        assert!(prompt.contains("PLAN MODE"));
+        assert!(prompt.contains("category \"plan\""));
+    }
+
+    #[test]
+    fn test_build_prompt_no_plan_hint_for_normal_mode() {
+        let request = SummarizeRequest {
+            user_prompt: "Add a button".to_string(),
+            assistant_summary: "Added the button".to_string(),
+            tools_used: vec![],
+            session_mode: "normal".to_string(),
+        };
+
+        let prompt = build_prompt(&request);
+        assert!(!prompt.contains("PLAN MODE"));
+    }
+
+    // ── parse_response ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_response_valid_json() {
+        let json = r#"{"headline":"Added login","description":"Implemented login flow","category":"feature","technical_details":"- auth.rs","tools_summary":"1 file"}"#;
+        let resp = parse_response(json).unwrap();
+        assert_eq!(resp.headline, "Added login");
+        assert_eq!(resp.description, "Implemented login flow");
+        assert_eq!(resp.category, "feature");
+        assert_eq!(resp.technical_details, "- auth.rs");
+        assert_eq!(resp.tools_summary, "1 file");
+    }
+
+    #[test]
+    fn test_parse_response_with_surrounding_text() {
+        let text = r#"Here is the changelog entry:
+{"headline":"Fixed bug","description":"Fixed crash on login","category":"bugfix","technical_details":"","tools_summary":""}
+Hope this helps!"#;
+        let resp = parse_response(text).unwrap();
+        assert_eq!(resp.headline, "Fixed bug");
+        assert_eq!(resp.category, "bugfix");
+    }
+
+    #[test]
+    fn test_parse_response_invalid_json_returns_error() {
+        let text = "This is not JSON at all";
+        let result = parse_response(text);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to parse"));
+    }
+
+    #[test]
+    fn test_parse_response_partial_json_returns_error() {
+        let text = r#"{"headline":"incomplete"#;
+        let result = parse_response(text);
+        assert!(result.is_err());
+    }
+
+    // ── validate_response (via parse_response) ───────────────────────────
+
+    #[test]
+    fn test_validate_category_accepts_valid_values() {
+        let valid = ["feature", "bugfix", "refactor", "docs", "config", "test", "plan"];
+        for cat in &valid {
+            let json = format!(
+                r#"{{"headline":"test","description":"test","category":"{}","technical_details":"","tools_summary":""}}"#,
+                cat
+            );
+            let resp = parse_response(&json).unwrap();
+            assert_eq!(resp.category, *cat, "Category '{}' should be accepted as-is", cat);
+        }
+    }
+
+    #[test]
+    fn test_validate_category_defaults_invalid_to_feature() {
+        let json = r#"{"headline":"test","description":"test","category":"UNKNOWN","technical_details":"","tools_summary":""}"#;
+        let resp = parse_response(json).unwrap();
+        assert_eq!(resp.category, "feature");
+    }
+
+    #[test]
+    fn test_validate_headline_truncation() {
+        let long_headline = "H".repeat(120);
+        let json = format!(
+            r#"{{"headline":"{}","description":"test","category":"feature","technical_details":"","tools_summary":""}}"#,
+            long_headline
+        );
+        let resp = parse_response(&json).unwrap();
+        assert_eq!(resp.headline.len(), 80);
+    }
+
+    #[test]
+    fn test_parse_response_defaults_optional_fields() {
+        // technical_details and tools_summary have #[serde(default)]
+        let json = r#"{"headline":"test","description":"test","category":"feature"}"#;
+        let resp = parse_response(json).unwrap();
+        assert_eq!(resp.technical_details, "");
+        assert_eq!(resp.tools_summary, "");
+    }
+
+    #[test]
+    fn test_parse_response_sets_zero_tokens() {
+        let json = r#"{"headline":"test","description":"test","category":"feature","technical_details":"","tools_summary":""}"#;
+        let resp = parse_response(json).unwrap();
+        assert_eq!(resp.input_tokens, 0);
+        assert_eq!(resp.output_tokens, 0);
+    }
+}

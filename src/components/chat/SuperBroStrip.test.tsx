@@ -236,4 +236,44 @@ describe("SuperBroStrip", () => {
     fireEvent.click(screen.getByText("Pause"));
     expect(pauseMock).toHaveBeenCalledOnce();
   });
+
+  it("shows thinking animation when isThinking", () => {
+    setupStores({ isThinking: true });
+    render(<SuperBroStrip />);
+    expect(screen.getByText("Super-Bro · analysing...")).toBeInTheDocument();
+    // Should not show idle "watching" text while thinking
+    expect(screen.queryByText(/watching/)).not.toBeInTheDocument();
+  });
+
+  it("shows all-good message when checkResult is good", () => {
+    setupStores({ lastCheckResult: "all_good" });
+    render(<SuperBroStrip />);
+    expect(screen.getByText("Super-Bro · all good")).toBeInTheDocument();
+    // Should not show thinking or idle state
+    expect(screen.queryByText(/watching/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/analysing/)).not.toBeInTheDocument();
+  });
+
+  it("handles missing message gracefully", () => {
+    setupStores({ currentMessage: null });
+    render(<SuperBroStrip />);
+    // With no current message, the strip should render the idle "watching" state
+    expect(screen.getByText(/watching/)).toBeInTheDocument();
+    // Should not show any guidance text
+    expect(screen.queryByText("Consider adding error handling here.")).not.toBeInTheDocument();
+  });
+
+  it("renders idle state when no active session", () => {
+    setupStores({ activeSessionId: null });
+    render(<SuperBroStrip />);
+    // With no active session, the strip still renders the idle "watching" state
+    expect(screen.getByText(/watching/)).toBeInTheDocument();
+  });
+
+  it("resume button calls resume() when paused", () => {
+    setupStores({ isPaused: true });
+    render(<SuperBroStrip />);
+    fireEvent.click(screen.getByText("Resume"));
+    expect(resumeMock).toHaveBeenCalledOnce();
+  });
 });

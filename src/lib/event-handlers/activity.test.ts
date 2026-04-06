@@ -4,9 +4,7 @@ import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useAssistantStore } from "../../stores/assistantStore";
 import type { Session } from "../../types/session";
-import type { FrontendEvent } from "../../types/claude-events";
 
 // Mock tauri-commands so dynamic imports resolve
 vi.mock("../tauri-commands", () => ({
@@ -19,7 +17,6 @@ import {
   preEditContentCache,
   turnToolCallCount,
   modeControlToolIds,
-  MUTATING_TOOLS,
 } from "./activity";
 
 const SESSION_ID = "test-session-1";
@@ -433,7 +430,7 @@ describe("activity event handler", () => {
         },
       });
 
-      const openFileSpy = vi.spyOn(useFileViewerStore.getState(), "openFile");
+      vi.spyOn(useFileViewerStore.getState(), "openFile");
 
       handleActivityEvent(SESSION_ID, {
         type: "tool_use_start",

@@ -26,7 +26,6 @@ import {
   createSubAgentStartedEvent,
   createSubAgentCompleteEvent,
   createSimpleTurnSequence,
-  createToolUseTurnSequence,
   TEST_SESSION_ID,
 } from "../helpers/event-fixtures";
 import { useSessionStore } from "../../stores/sessionStore";

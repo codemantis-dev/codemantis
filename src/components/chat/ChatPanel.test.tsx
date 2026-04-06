@@ -114,4 +114,65 @@ describe("ChatPanel", () => {
     const separators = screen.getAllByText("Previous session");
     expect(separators).toHaveLength(1);
   });
+
+  it("shows ThinkingIndicator when busy with no streaming", () => {
+    useSessionStore.setState({
+      sessions: new Map([[SESSION.id, SESSION]]),
+      activeSessionId: SESSION.id,
+      sessionMessages: new Map([[SESSION.id, [
+        { id: "m1", role: "user", content: "Do something", timestamp: "", activityIds: [], isStreaming: false },
+      ]]]),
+      sessionStreaming: new Map([[SESSION.id, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([[SESSION.id, { used: 0, max: 200000 }]]),
+      sessionBusy: new Map([[SESSION.id, true]]),
+      tabOrder: [SESSION.id],
+    });
+    render(<ChatPanel />);
+    // ThinkingIndicator is rendered when isBusy && !isStreaming — it contains a status bar area
+    // The ThinkingIndicator's container div should be in the document
+    const thinkingContainer = document.querySelector("[class*='shrink-0'][class*='border-t']");
+    expect(thinkingContainer).toBeInTheDocument();
+  });
+
+  it("renders without crashing when session is not busy", () => {
+    useSessionStore.setState({
+      sessions: new Map([[SESSION.id, SESSION]]),
+      activeSessionId: SESSION.id,
+      sessionMessages: new Map([[SESSION.id, [
+        { id: "m1", role: "user", content: "Hello", timestamp: "", activityIds: [], isStreaming: false },
+      ]]]),
+      sessionStreaming: new Map([[SESSION.id, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([[SESSION.id, { used: 0, max: 200000 }]]),
+      sessionBusy: new Map([[SESSION.id, false]]),
+      tabOrder: [SESSION.id],
+    });
+    const { container } = render(<ChatPanel />);
+    expect(container).toBeTruthy();
+  });
+
+  it("shows compacting indicator when session is compacting", () => {
+    useSessionStore.setState({
+      sessions: new Map([[SESSION.id, SESSION]]),
+      activeSessionId: SESSION.id,
+      sessionMessages: new Map([[SESSION.id, []]]),
+      sessionStreaming: new Map([[SESSION.id, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([[SESSION.id, { used: 0, max: 200000 }]]),
+      sessionBusy: new Map([[SESSION.id, false]]),
+      sessionCompacting: new Map([[SESSION.id, true]]),
+      tabOrder: [SESSION.id],
+    });
+    render(<ChatPanel />);
+    // SessionStatusBar is always rendered when activeSessionId exists and shows "Compacting" status
+    expect(screen.getByText("Compacting")).toBeInTheDocument();
+  });
+
+  it("handles empty message array without crashing", () => {
+    setSessionState(SESSION, []);
+    const { container } = render(<ChatPanel />);
+    expect(container).toBeTruthy();
+    // Should show the empty state prompt
+    expect(screen.getByText("Send a message to start the conversation")).toBeInTheDocument();
+    // Should not show any message bubbles
+    expect(screen.queryByText("Previous session")).not.toBeInTheDocument();
+  });
 });

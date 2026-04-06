@@ -948,4 +948,83 @@ mod tests {
         assert_eq!(restored.id, "msg-1");
         assert_eq!(restored.thinking_content, Some("thinking".to_string()));
     }
+
+    // ── derive_session_base_name edge cases ──
+
+    #[test]
+    fn base_name_from_dot_path() {
+        // Relative path "." — function falls back to "New Session" for non-meaningful names
+        let result = derive_session_base_name(".");
+        assert_eq!(result, "New Session");
+    }
+
+    #[test]
+    fn base_name_from_home_dir() {
+        assert_eq!(derive_session_base_name("/Users/hr"), "hr");
+    }
+
+    #[test]
+    fn base_name_from_windows_style_path() {
+        // On macOS/Linux, backslashes are valid filename chars
+        // Path treats the whole thing as a single component
+        let result = derive_session_base_name("C:\\Users\\hr\\projects");
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn base_name_unicode_path() {
+        assert_eq!(
+            derive_session_base_name("/Users/hr/\u{30d7}\u{30ed}\u{30b8}\u{30a7}\u{30af}\u{30c8}"),
+            "\u{30d7}\u{30ed}\u{30b8}\u{30a7}\u{30af}\u{30c8}"
+        );
+    }
+
+    // ── format_session_name edge cases ──
+
+    #[test]
+    fn format_name_empty_base() {
+        assert_eq!(format_session_name("", 0), "");
+        assert_eq!(format_session_name("", 1), " 2");
+    }
+
+    #[test]
+    fn format_name_large_count() {
+        assert_eq!(format_session_name("app", 99), "app 100");
+    }
+
+    #[test]
+    fn format_name_base_with_existing_number() {
+        // If the base already ends with a number, it still appends
+        assert_eq!(format_session_name("app 2", 1), "app 2 2");
+    }
+
+    // ── session_mode_to_cli exhaustive coverage ──
+
+    #[test]
+    fn mode_to_cli_roundtrip_consistency() {
+        // Verify all modes map to distinct CLI strings
+        let modes = [SessionMode::Normal, SessionMode::AutoAccept, SessionMode::Plan];
+        let cli_strings: Vec<&str> = modes.iter().map(session_mode_to_cli).collect();
+        // All must be unique
+        let unique: std::collections::HashSet<&&str> = cli_strings.iter().collect();
+        assert_eq!(unique.len(), 3, "All session modes must map to distinct CLI strings");
+    }
+
+    // ── SessionMessagePayload edge cases ──
+
+    #[test]
+    fn session_message_payload_without_thinking() {
+        let payload = SessionMessagePayload {
+            id: "msg-2".to_string(),
+            role: "assistant".to_string(),
+            content: "Response".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            thinking_content: None,
+            sort_order: 1,
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert!(json["thinkingContent"].is_null());
+        let restored: SessionMessagePayload = serde_json::from_value(json).unwrap();
+        assert!(restored.thinking_content.is_none());
+    }
 }

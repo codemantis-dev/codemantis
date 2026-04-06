@@ -188,4 +188,51 @@ describe("ActivityFeed", () => {
       expect(screen.queryByText("s2-file.ts")).not.toBeInTheDocument();
     });
   });
+
+  it("renders activity entries for session with correct tool badges", () => {
+    setEntries([
+      makeEntry({ id: "a1", toolName: "Read", toolInput: { file_path: "config.json" }, timestamp: "2026-01-01T12:00:00Z" }),
+      makeEntry({ id: "a2", toolName: "Bash", toolInput: { command: "ls -la" }, timestamp: "2026-01-01T12:00:01Z" }),
+    ]);
+    render(<ActivityFeed />);
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByText("config.json")).toBeInTheDocument();
+    expect(screen.getByText("ls -la")).toBeInTheDocument();
+  });
+
+  it("shows error status indicator for failed tools", () => {
+    setEntries([
+      makeEntry({
+        id: "a1",
+        toolName: "Write",
+        toolInput: { file_path: "readonly.ts" },
+        status: "error",
+        isError: true,
+        result: "Permission denied: readonly.ts",
+        timestamp: "2026-01-01T12:00:00Z",
+      }),
+    ]);
+    render(<ActivityFeed />);
+    expect(screen.getByText("Write")).toBeInTheDocument();
+    expect(screen.getByText(/Permission denied/)).toBeInTheDocument();
+  });
+
+  it("handles empty entry list without crashing", () => {
+    setEntries([]);
+    render(<ActivityFeed />);
+    expect(screen.getByText("No activity yet")).toBeInTheDocument();
+  });
+
+  it("renders multiple entries in chronological order", () => {
+    setEntries([
+      makeEntry({ id: "a1", toolName: "Read", toolInput: { file_path: "first.ts" }, timestamp: "2026-01-01T12:00:00Z" }),
+      makeEntry({ id: "a2", toolName: "Edit", toolInput: { file_path: "second.ts" }, timestamp: "2026-01-01T12:00:01Z" }),
+      makeEntry({ id: "a3", toolName: "Bash", toolInput: { command: "third-cmd" }, timestamp: "2026-01-01T12:00:02Z" }),
+    ]);
+    render(<ActivityFeed />);
+    expect(screen.getByText("first.ts")).toBeInTheDocument();
+    expect(screen.getByText("second.ts")).toBeInTheDocument();
+    expect(screen.getByText("third-cmd")).toBeInTheDocument();
+  });
 });

@@ -13,9 +13,9 @@ import {
 } from "./process";
 
 // Mock tauri-commands (dynamically imported in process.ts for retry logic)
-const mockSendMessage = vi.fn(() => Promise.resolve());
+const mockSendMessage = vi.fn<(sessionId: string, message: string) => Promise<void>>(() => Promise.resolve());
 vi.mock("../tauri-commands", () => ({
-  sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+  sendMessage: (sessionId: string, message: string) => mockSendMessage(sessionId, message),
   checkProcessAlive: vi.fn(() => Promise.resolve(true)),
 }));
 

@@ -396,4 +396,80 @@ mod tests {
         assert_eq!(shell_quote("foo&bar"), "'foo&bar'");
         assert_eq!(shell_quote("a|b"), "'a|b'");
     }
+
+    #[test]
+    fn test_shell_quote_backticks() {
+        // Backticks trigger command substitution in shell — must be quoted
+        assert_eq!(shell_quote("`whoami`"), "'`whoami`'");
+        assert_eq!(shell_quote("echo `id`"), "'echo `id`'");
+    }
+
+    #[test]
+    fn test_shell_quote_dollar_signs() {
+        // Dollar signs can expand variables or run subshells
+        assert_eq!(shell_quote("$HOME"), "'$HOME'");
+        assert_eq!(shell_quote("${PATH}"), "'${PATH}'");
+        assert_eq!(shell_quote("price is $5"), "'price is $5'");
+    }
+
+    #[test]
+    fn test_shell_quote_semicolons_prevent_injection() {
+        // Semicolons allow command chaining — verify they get quoted
+        assert_eq!(shell_quote("ls; rm -rf /"), "'ls; rm -rf /'");
+        assert_eq!(shell_quote("a;b;c"), "'a;b;c'");
+    }
+
+    #[test]
+    fn test_shell_quote_complex_injection_attempts() {
+        // Common shell injection patterns must all be safely quoted
+        let quoted = shell_quote("'; drop table --");
+        assert!(quoted.starts_with("'"), "Must start with single quote");
+        assert!(quoted.ends_with("'"), "Must end with single quote");
+        assert!(quoted.contains("drop table"), "Must contain the command text");
+        // The single quote in the input must be escaped, preventing injection
+        assert_ne!(quoted, "'; drop table --");
+        assert_eq!(shell_quote("$(rm -rf /)"), "'$(rm -rf /)'");
+        assert_eq!(shell_quote("foo\nbar"), "'foo\nbar'");
+    }
+
+    #[tokio::test]
+    async fn terminal_pool_new_is_empty() {
+        let pool = TerminalPool::new();
+        let terminals = pool.terminals.lock().await;
+        assert!(terminals.is_empty());
+        let session_terminals = pool.session_terminals.lock().await;
+        assert!(session_terminals.is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_nonexistent_terminal_is_noop() {
+        let pool = TerminalPool::new();
+        // Closing a terminal that doesn't exist should return Ok, not error
+        let result = pool.close_terminal("nonexistent-id").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn list_for_nonexistent_session_returns_empty() {
+        let pool = TerminalPool::new();
+        let list = pool.list_for_session("no-such-session").await;
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_all_for_nonexistent_session_is_noop() {
+        let pool = TerminalPool::new();
+        // Should not panic or error
+        pool.close_all_for_session("no-such-session").await;
+        let list = pool.list_for_session("no-such-session").await;
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_all_terminals_on_empty_pool() {
+        let pool = TerminalPool::new();
+        pool.close_all_terminals().await;
+        let terminals = pool.terminals.lock().await;
+        assert!(terminals.is_empty());
+    }
 }

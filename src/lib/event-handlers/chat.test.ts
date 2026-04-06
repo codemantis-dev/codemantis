@@ -327,7 +327,7 @@ describe("chat event handler — turn_complete", () => {
     useSessionStore.getState().ensureBusy("s1");
     handleChatEvent("s1", {
       type: "turn_complete", session_id: "s1",
-      duration_ms: 5000, usage: { input_tokens: 1000, output_tokens: 500 }, cost_usd: 0.01,
+      duration_ms: 5000, usage: { input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, cost_usd: 0.01,
     });
     expect(useSessionStore.getState().sessionBusy.get("s1")).toBeFalsy();
   });
@@ -336,7 +336,7 @@ describe("chat event handler — turn_complete", () => {
     handleChatEvent("s1", { type: "text_delta", session_id: "s1", text: "Hi" });
     handleChatEvent("s1", {
       type: "turn_complete", session_id: "s1",
-      duration_ms: 1000, usage: { input_tokens: 100, output_tokens: 50 }, cost_usd: 0.005,
+      duration_ms: 1000, usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, cost_usd: 0.005,
     });
     expect(useSessionStore.getState().sessionStreaming.get("s1")?.isStreaming).toBeFalsy();
   });
@@ -344,7 +344,7 @@ describe("chat event handler — turn_complete", () => {
   it("updates context with aggregate estimation when no incremental updates", () => {
     handleChatEvent("s1", {
       type: "turn_complete", session_id: "s1",
-      duration_ms: 1000, usage: { input_tokens: 5000, output_tokens: 2000 }, cost_usd: 0.01,
+      duration_ms: 1000, usage: { input_tokens: 5000, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, cost_usd: 0.01,
     });
     const ctx = useSessionStore.getState().sessionContext.get("s1");
     expect(ctx).toBeDefined();
@@ -356,7 +356,7 @@ describe("chat event handler — turn_complete", () => {
     handleChatEvent("s1", { type: "text_complete", session_id: "s1", full_text: "Response" });
     handleChatEvent("s1", {
       type: "turn_complete", session_id: "s1",
-      duration_ms: 3000, usage: { input_tokens: 1000, output_tokens: 500 }, cost_usd: 0.02,
+      duration_ms: 3000, usage: { input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, cost_usd: 0.02,
     });
     const messages = useSessionStore.getState().sessionMessages.get("s1");
     const assistantMsg = messages?.find((m) => m.role === "assistant");
@@ -446,7 +446,7 @@ describe("chat event handler — system events", () => {
 
   describe("interrupt_result", () => {
     it("sets Stopping activity on success", () => {
-      handleChatEvent("s1", { type: "interrupt_result", session_id: "s1", success: true });
+      handleChatEvent("s1", { type: "interrupt_result", session_id: "s1", success: true, error: null });
       expect(useSessionStore.getState().sessionActivity.get("s1")?.label).toBe("Stopping...");
     });
 
@@ -458,7 +458,7 @@ describe("chat event handler — system events", () => {
 
   describe("model_changed", () => {
     it("updates model and shows toast on success", () => {
-      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "claude-opus-4-6", success: true });
+      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "claude-opus-4-6", success: true, error: null });
       expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
       expect(showToast).toHaveBeenCalledWith(expect.stringContaining("claude-opus-4-6"), "info", 3000);
     });
@@ -473,7 +473,9 @@ describe("chat event handler — system events", () => {
     it("stores capabilities", () => {
       handleChatEvent("s1", {
         type: "capabilities_discovered", session_id: "s1",
-        models: ["sonnet"], commands: ["/help"], agents: [], account: { tier: "pro" }, output_styles: [],
+        models: [{ value: "sonnet", displayName: "Sonnet", description: "Sonnet model" }],
+        commands: [{ name: "/help", description: "Show help" }],
+        agents: [], account: null, output_styles: [],
       } as FrontendEvent);
       expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeDefined();
     });

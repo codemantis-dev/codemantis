@@ -116,7 +116,7 @@ function makeActivityEntry(toolName: string, toolInput: Record<string, unknown> 
     toolUseId: `tu-${Math.random().toString(36).slice(2)}`,
     toolName,
     toolInput,
-    status: "completed",
+    status: "done",
     timestamp: new Date().toISOString(),
     messageId: "msg-1",
     isError: false,

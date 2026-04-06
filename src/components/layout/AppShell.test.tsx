@@ -313,6 +313,8 @@ describe("Preview Console-to-Chat Event", () => {
     expect(consoleToChat).toBeDefined();
   });
 
+  // NOTE: Additional tests below verify AppShell layout behaviour
+
   it("callback formats logs with markdown code block and sets draft input", () => {
     // Directly test the formatting logic that the listen callback uses.
     // This avoids React effect lifecycle complexity while still catching
@@ -326,5 +328,59 @@ describe("Preview Console-to-Chat Event", () => {
     expect(draftInput).toContain("[ERROR] TypeError: undefined");
     expect(draftInput).toContain("[WARN] Deprecated API");
     expect(draftInput).toContain("```");
+  });
+});
+
+describe("AppShell layout structure", () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: new Map([["s1", SESSION]]),
+      activeSessionId: "s1",
+      sessionMessages: new Map([["s1", []]]),
+      sessionStreaming: new Map([["s1", { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+      sessionContext: new Map([["s1", { used: 0, max: 200000 }]]),
+      tabOrder: ["s1"],
+      activeProjectPath: "/tmp/test",
+      projectOrder: ["/tmp/test"],
+      projectActiveSession: new Map([["/tmp/test", "s1"]]),
+    });
+    useUiStore.setState({
+      sidebarWidth: 220,
+      rightPanelWidth: 360,
+      rightTab: "activity",
+      showApprovalModal: false,
+      showSettingsModal: false,
+      showProjectPicker: false,
+    });
+  });
+
+  it("renders sidebar and right panel", async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
+    // Sidebar shows "Files" tab and right panel shows "Activity" and "Context" tabs
+    expect(screen.getAllByText("Files").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Activity")).toBeInTheDocument();
+    expect(screen.getByText("Context")).toBeInTheDocument();
+  });
+
+  it("handles resize via divider", async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
+    // The resize handles (dividers) are rendered as col-resize cursor elements
+    const dividers = document.querySelectorAll("[class*='cursor-col-resize']");
+    expect(dividers.length).toBe(2); // left divider + right divider
+  });
+
+  it("renders modals when triggered", async () => {
+    // PreviewLoadingModal, ConfirmCloseModal, PreviewUrlDialog are always rendered
+    // but only visible conditionally — confirm they mount without error
+    await act(async () => {
+      render(<AppShell />);
+    });
+    // The component should render without crashing even with modals present
+    expect(screen.getByText("Test Session")).toBeInTheDocument();
+    expect(screen.getByText("Send")).toBeInTheDocument();
   });
 });

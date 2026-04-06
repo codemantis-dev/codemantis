@@ -1558,4 +1558,571 @@ mod tests {
         let obs = db.list_observations("/project/a").unwrap();
         assert_eq!(obs.len(), 50);
     }
+
+    // ── Task Plan CRUD ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_insert_and_get_active_task_plan() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", r#"{"tasks":["build UI"]}"#).unwrap();
+
+        let plan = db.get_task_plan("/project/a").unwrap();
+        assert!(plan.is_some());
+        assert_eq!(plan.unwrap(), r#"{"tasks":["build UI"]}"#);
+    }
+
+    #[test]
+    fn test_get_active_plan_id() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-42", "/project/x", "{}").unwrap();
+
+        let id = db.get_active_plan_id("/project/x").unwrap();
+        assert_eq!(id, Some("tp-42".to_string()));
+    }
+
+    #[test]
+    fn test_archive_task_plan_changes_status() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", r#"{"done":false}"#).unwrap();
+
+        // Active plan exists before archiving
+        assert!(db.get_task_plan("/project/a").unwrap().is_some());
+
+        db.archive_task_plan("tp-1").unwrap();
+
+        // After archiving, get_task_plan should return None (only active plans)
+        assert!(db.get_task_plan("/project/a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_task_plan_removes_entry() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", "{}").unwrap();
+        assert!(db.get_task_plan("/project/a").unwrap().is_some());
+
+        db.delete_task_plan_by_id("tp-1").unwrap();
+
+        assert!(db.get_task_plan("/project/a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_active_returns_none_for_archived_plans() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", r#"{"step":"plan"}"#).unwrap();
+        db.archive_task_plan("tp-1").unwrap();
+
+        assert!(db.get_task_plan("/project/a").unwrap().is_none());
+        assert!(db.get_active_plan_id("/project/a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_update_task_plan() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", r#"{"v":1}"#).unwrap();
+
+        db.update_task_plan("/project/a", r#"{"v":2}"#).unwrap();
+
+        let plan = db.get_task_plan("/project/a").unwrap().unwrap();
+        assert_eq!(plan, r#"{"v":2}"#);
+    }
+
+    #[test]
+    fn test_multiple_plans_per_project_with_archive() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_task_plan("tp-1", "/project/a", r#"{"plan":1}"#).unwrap();
+        db.archive_task_plan("tp-1").unwrap();
+        db.insert_task_plan("tp-2", "/project/a", r#"{"plan":2}"#).unwrap();
+
+        // Only the active plan should be returned
+        let plan = db.get_task_plan("/project/a").unwrap().unwrap();
+        assert_eq!(plan, r#"{"plan":2}"#);
+        let id = db.get_active_plan_id("/project/a").unwrap().unwrap();
+        assert_eq!(id, "tp-2");
+    }
+
+    #[test]
+    fn test_get_task_plan_empty_project() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.get_task_plan("/nonexistent").unwrap().is_none());
+        assert!(db.get_active_plan_id("/nonexistent").unwrap().is_none());
+    }
+
+    // ── Guide CRUD ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_insert_and_get_guide() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_guide("g-1", "/project/a", r#"{"steps":["step1"]}"#).unwrap();
+
+        let result = db.get_guide_for_project("/project/a").unwrap();
+        assert!(result.is_some());
+        let (id, data) = result.unwrap();
+        assert_eq!(id, "g-1");
+        assert_eq!(data, r#"{"steps":["step1"]}"#);
+    }
+
+    #[test]
+    fn test_update_guide_data_modifies_content() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_guide("g-1", "/project/a", r#"{"v":1}"#).unwrap();
+
+        db.update_guide("g-1", r#"{"v":2,"extra":"field"}"#).unwrap();
+
+        let (_, data) = db.get_guide_for_project("/project/a").unwrap().unwrap();
+        assert_eq!(data, r#"{"v":2,"extra":"field"}"#);
+    }
+
+    #[test]
+    fn test_delete_guide_removes_entry() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_guide("g-1", "/project/a", "{}").unwrap();
+        assert!(db.get_guide_for_project("/project/a").unwrap().is_some());
+
+        db.delete_guide("g-1").unwrap();
+
+        assert!(db.get_guide_for_project("/project/a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_guides_for_project_removes_all_for_project() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_guide("g-1", "/project/a", r#"{"guide":1}"#).unwrap();
+        db.insert_guide("g-2", "/project/a", r#"{"guide":2}"#).unwrap();
+        db.insert_guide("g-3", "/project/b", r#"{"guide":3}"#).unwrap();
+
+        db.delete_guides_for_project("/project/a").unwrap();
+
+        // Project A guides are gone
+        assert!(db.get_guide_for_project("/project/a").unwrap().is_none());
+        // Project B guide is preserved
+        assert!(db.get_guide_for_project("/project/b").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_get_guide_empty_project() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.get_guide_for_project("/nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_guide_returns_a_guide_when_multiple_exist() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_guide("g-1", "/project/a", r#"{"guide":1}"#).unwrap();
+        db.insert_guide("g-2", "/project/a", r#"{"guide":2}"#).unwrap();
+
+        // Should return one of the guides (ORDER BY updated_at DESC LIMIT 1)
+        let result = db.get_guide_for_project("/project/a").unwrap();
+        assert!(result.is_some());
+        let (id, _data) = result.unwrap();
+        assert!(id == "g-1" || id == "g-2", "Expected g-1 or g-2, got {}", id);
+    }
+
+    // ── Additional Session Tests ────────────────────────────────────────
+
+    #[test]
+    fn test_close_session_with_details_sets_fields() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        db.close_session_with_details("s1", Some("cli-abc-123"), Some("claude-3.5-sonnet"), "2026-01-01T01:00:00Z").unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].status, "closed");
+        assert_eq!(sessions[0].cli_session_id, Some("cli-abc-123".to_string()));
+        assert_eq!(sessions[0].model, Some("claude-3.5-sonnet".to_string()));
+        assert_eq!(sessions[0].closed_at, Some("2026-01-01T01:00:00Z".to_string()));
+    }
+
+    #[test]
+    fn test_close_session_preserves_existing_model_when_none() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3-opus"), 0).unwrap();
+
+        // Pass model=None, should keep the original model via COALESCE
+        db.close_session_with_details("s1", Some("cli-id"), None, "2026-01-01T01:00:00Z").unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions[0].model, Some("claude-3-opus".to_string()));
+    }
+
+    #[test]
+    fn test_list_closed_sessions_for_project_returns_only_closed() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Closed", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+
+        db.insert_session("s2", "Active", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+
+        db.insert_session("s3", "Other project", "/other", "closed", "2026-01-03T00:00:00Z", None, 2).unwrap();
+        db.close_session_with_details("s3", Some("cli3"), None, "2026-01-03T01:00:00Z").unwrap();
+
+        let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].id, "s1");
+        assert_eq!(closed[0].status, "closed");
+    }
+
+    #[test]
+    fn test_list_closed_sessions_requires_cli_session_id() {
+        let db = Database::new(":memory:").unwrap();
+        // Closed but without cli_session_id
+        db.insert_session("s1", "Closed no CLI", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", None, None, "2026-01-01T01:00:00Z").unwrap();
+
+        // Closed with cli_session_id
+        db.insert_session("s2", "Closed with CLI", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+
+        let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].id, "s2");
+    }
+
+    #[test]
+    fn test_list_closed_sessions_respects_limit() {
+        let db = Database::new(":memory:").unwrap();
+        for i in 0..5 {
+            let id = format!("s{}", i);
+            let closed_at = format!("2026-01-{:02}T01:00:00Z", i + 1);
+            db.insert_session(&id, "Session", "/project", "closed", &format!("2026-01-{:02}T00:00:00Z", i + 1), None, i).unwrap();
+            db.close_session_with_details(&id, Some(&format!("cli{}", i)), None, &closed_at).unwrap();
+        }
+
+        let closed = db.list_closed_sessions_for_project("/project", 3).unwrap();
+        assert_eq!(closed.len(), 3);
+    }
+
+    #[test]
+    fn test_get_next_icon_index_with_no_sessions() {
+        let db = Database::new(":memory:").unwrap();
+        assert_eq!(db.get_next_icon_index().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_get_next_icon_index_wraps_at_10() {
+        let db = Database::new(":memory:").unwrap();
+        for i in 0..10 {
+            db.insert_session(&format!("s{}", i), "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        }
+        // 10 sessions % 10 = 0
+        assert_eq!(db.get_next_icon_index().unwrap(), 0);
+
+        db.insert_session("s10", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        // 11 sessions % 10 = 1
+        assert_eq!(db.get_next_icon_index().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_insert_session_with_model() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3.5-sonnet"), 3).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions[0].model, Some("claude-3.5-sonnet".to_string()));
+        assert_eq!(sessions[0].icon_index, 3);
+    }
+
+    #[test]
+    fn test_update_session_model() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        db.update_session_model("s1", "claude-3-opus").unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions[0].model, Some("claude-3-opus".to_string()));
+    }
+
+    // ── API Log Tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_insert_and_list_api_logs() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_api_log("log-1", "2026-01-01T00:00:00Z", "openai", "gpt-4", "s1", 100, 50, 0.005, true, None).unwrap();
+        db.insert_api_log("log-2", "2026-01-02T00:00:00Z", "anthropic", "claude-3", "s2", 200, 80, 0.01, true, None).unwrap();
+
+        let logs = db.list_api_logs().unwrap();
+        assert_eq!(logs.len(), 2);
+        // Most recent first
+        assert_eq!(logs[0].id, "log-2");
+        assert_eq!(logs[0].provider, "anthropic");
+        assert_eq!(logs[1].id, "log-1");
+    }
+
+    #[test]
+    fn test_api_log_with_error() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_api_log("log-1", "2026-01-01T00:00:00Z", "openai", "gpt-4", "s1", 50, 0, 0.0, false, Some("Rate limited")).unwrap();
+
+        let logs = db.list_api_logs().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert!(!logs[0].success);
+        assert_eq!(logs[0].error_message, Some("Rate limited".to_string()));
+    }
+
+    #[test]
+    fn test_delete_old_api_logs_respects_age() {
+        let db = Database::new(":memory:").unwrap();
+
+        // Insert a log from 60 days ago
+        let old_timestamp = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
+        db.insert_api_log("old-log", &old_timestamp, "openai", "gpt-4", "s1", 100, 50, 0.005, true, None).unwrap();
+
+        // Insert a log from 5 days ago
+        let recent_timestamp = (chrono::Utc::now() - chrono::Duration::days(5)).to_rfc3339();
+        db.insert_api_log("recent-log", &recent_timestamp, "openai", "gpt-4", "s2", 100, 50, 0.005, true, None).unwrap();
+
+        // Delete logs older than 30 days
+        let deleted = db.delete_old_api_logs(30).unwrap();
+        assert_eq!(deleted, 1);
+
+        let logs = db.list_api_logs().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].id, "recent-log");
+    }
+
+    #[test]
+    fn test_delete_old_api_logs_keeps_all_when_none_old() {
+        let db = Database::new(":memory:").unwrap();
+        let recent = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        db.insert_api_log("log-1", &recent, "openai", "gpt-4", "s1", 100, 50, 0.005, true, None).unwrap();
+
+        let deleted = db.delete_old_api_logs(30).unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(db.list_api_logs().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_api_cost_summary() {
+        let db = Database::new(":memory:").unwrap();
+        let ts = "2026-01-01T00:00:00Z";
+        db.insert_api_log("l1", ts, "openai", "gpt-4", "s1", 100, 50, 0.01, true, None).unwrap();
+        db.insert_api_log("l2", ts, "openai", "gpt-4", "s1", 200, 80, 0.02, true, None).unwrap();
+        db.insert_api_log("l3", ts, "anthropic", "claude-3", "s1", 50, 30, 0.005, true, None).unwrap();
+
+        let summary = db.get_api_cost_summary().unwrap();
+        assert_eq!(summary.total_calls, 3);
+        assert!((summary.total_cost - 0.035).abs() < 0.0001);
+        assert_eq!(summary.by_provider.len(), 2);
+
+        let openai_row = summary.by_provider.iter().find(|r| r.provider == "openai").unwrap();
+        assert_eq!(openai_row.calls, 2);
+        assert!((openai_row.cost - 0.03).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_api_cost_summary_empty() {
+        let db = Database::new(":memory:").unwrap();
+        let summary = db.get_api_cost_summary().unwrap();
+        assert_eq!(summary.total_calls, 0);
+        assert!((summary.total_cost - 0.0).abs() < 0.0001);
+        assert!(summary.by_provider.is_empty());
+    }
+
+    // ── Edge Cases ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_empty_database_returns_empty_sessions() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.list_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_empty_database_returns_empty_changelog() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.list_changelog_entries("nonexistent").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_empty_database_returns_empty_api_logs() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.list_api_logs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_empty_database_returns_empty_messages() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.load_session_messages("nonexistent").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_empty_database_returns_empty_observations() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.list_observations("/nonexistent").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_empty_database_returns_none_for_task_plan() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.get_task_plan("/nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_empty_database_returns_none_for_guide() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.get_guide_for_project("/nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_very_long_string_fields_persist() {
+        let db = Database::new(":memory:").unwrap();
+        let long_name = "x".repeat(10_000);
+        let long_path = "/".to_string() + &"a".repeat(10_000);
+        db.insert_session("s1", &long_name, &long_path, "connected", "2026-01-01T00:00:00Z", Some(&"m".repeat(5_000)), 0).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions[0].name.len(), 10_000);
+        assert_eq!(sessions[0].project_path.len(), 10_001);
+        assert_eq!(sessions[0].model.as_ref().unwrap().len(), 5_000);
+    }
+
+    #[test]
+    fn test_very_long_plan_json_persists() {
+        let db = Database::new(":memory:").unwrap();
+        let long_json = "{\"data\":\"".to_string() + &"x".repeat(50_000) + "\"}";
+        db.insert_task_plan("tp-1", "/project", &long_json).unwrap();
+
+        let plan = db.get_task_plan("/project").unwrap().unwrap();
+        assert_eq!(plan.len(), long_json.len());
+    }
+
+    #[test]
+    fn test_very_long_guide_data_persists() {
+        let db = Database::new(":memory:").unwrap();
+        let long_data = "d".repeat(50_000);
+        db.insert_guide("g-1", "/project", &long_data).unwrap();
+
+        let (_, data) = db.get_guide_for_project("/project").unwrap().unwrap();
+        assert_eq!(data.len(), 50_000);
+    }
+
+    #[test]
+    fn test_very_long_observation_text_persists() {
+        let db = Database::new(":memory:").unwrap();
+        let long_text = "o".repeat(20_000);
+        db.insert_observation("obs-1", "/project", &long_text, "pattern", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z").unwrap();
+
+        let obs = db.list_observations("/project").unwrap();
+        assert_eq!(obs[0].text.len(), 20_000);
+    }
+
+    #[test]
+    fn test_null_optional_fields_work() {
+        let db = Database::new(":memory:").unwrap();
+        // model = None, cli_session_id and closed_at default to None
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert!(sessions[0].model.is_none());
+        assert!(sessions[0].cli_session_id.is_none());
+        assert!(sessions[0].closed_at.is_none());
+    }
+
+    #[test]
+    fn test_null_thinking_content_in_messages() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        let msgs = vec![
+            SessionMessageRow {
+                id: "m1".into(), session_id: "s1".into(), role: "user".into(),
+                content: "Hello".into(), timestamp: "2026-01-01T00:01:00Z".into(),
+                thinking_content: None, sort_order: 0,
+            },
+        ];
+        db.save_session_messages("s1", &msgs).unwrap();
+
+        let loaded = db.load_session_messages("s1").unwrap();
+        assert!(loaded[0].thinking_content.is_none());
+    }
+
+    #[test]
+    fn test_null_error_message_in_api_log() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_api_log("log-1", "2026-01-01T00:00:00Z", "openai", "gpt-4", "s1", 100, 50, 0.005, true, None).unwrap();
+
+        let logs = db.list_api_logs().unwrap();
+        assert!(logs[0].error_message.is_none());
+    }
+
+    #[test]
+    fn test_changelog_insert_and_list() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+
+        db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "Added feature", "Added login flow", "feature", "[\"auth.rs\"]", 0, "- Modified auth.rs", "1 file edited").unwrap();
+        db.insert_changelog_entry("e2", "s1", "2026-01-01T02:00:00Z", "Fixed bug", "Fixed login crash", "bugfix", "[]", 1, "", "").unwrap();
+
+        let entries = db.list_changelog_entries("s1").unwrap();
+        assert_eq!(entries.len(), 2);
+        // Newest first
+        assert_eq!(entries[0].id, "e2");
+        assert_eq!(entries[0].category, "bugfix");
+        assert_eq!(entries[1].id, "e1");
+        assert_eq!(entries[1].technical_details, "- Modified auth.rs");
+        assert_eq!(entries[1].tools_summary, "1 file edited");
+    }
+
+    #[test]
+    fn test_changelog_delete_entry() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "Test", "desc", "feature", "[]", 0, "", "").unwrap();
+
+        db.delete_changelog_entry("e1").unwrap();
+
+        assert!(db.list_changelog_entries("s1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_session_insert_or_replace() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Original", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        // Inserting with same ID replaces (INSERT OR REPLACE)
+        db.insert_session("s1", "Replaced", "/tmp2", "closed", "2026-01-02T00:00:00Z", Some("model"), 5).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].name, "Replaced");
+        assert_eq!(sessions[0].project_path, "/tmp2");
+    }
+
+    #[test]
+    fn test_list_sessions_ordered_by_created_at_desc() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "First", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s2", "Second", "/tmp", "connected", "2026-01-03T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s3", "Third", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 2).unwrap();
+
+        let sessions = db.list_sessions().unwrap();
+        assert_eq!(sessions[0].name, "Second");  // 2026-01-03 newest
+        assert_eq!(sessions[1].name, "Third");   // 2026-01-02
+        assert_eq!(sessions[2].name, "First");   // 2026-01-01 oldest
+    }
+
+    #[test]
+    fn test_delete_nonexistent_session_succeeds() {
+        let db = Database::new(":memory:").unwrap();
+        // Should not error even though session does not exist
+        db.delete_session("nonexistent").unwrap();
+    }
+
+    #[test]
+    fn test_delete_nonexistent_guide_succeeds() {
+        let db = Database::new(":memory:").unwrap();
+        db.delete_guide("nonexistent").unwrap();
+    }
+
+    #[test]
+    fn test_delete_nonexistent_task_plan_succeeds() {
+        let db = Database::new(":memory:").unwrap();
+        db.delete_task_plan_by_id("nonexistent").unwrap();
+    }
+
+    #[test]
+    fn test_archive_nonexistent_task_plan_succeeds() {
+        let db = Database::new(":memory:").unwrap();
+        db.archive_task_plan("nonexistent").unwrap();
+    }
 }

@@ -513,4 +513,59 @@ mod tests {
         assert!(dst.is_dir());
         assert_eq!(std::fs::read_dir(&dst).unwrap().count(), 0);
     }
+
+    #[test]
+    fn file_read_write_roundtrip_through_tempdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("roundtrip.txt");
+        let content = "Hello, CodeMantis!\nLine 2\nUnicode: \u{1f600}\u{4e16}\u{754c}";
+
+        std::fs::write(&file_path, content).unwrap();
+        let read_back = std::fs::read_to_string(&file_path).unwrap();
+
+        assert_eq!(read_back, content);
+    }
+
+    #[test]
+    fn copy_dir_all_preserves_file_contents_exactly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+
+        std::fs::create_dir_all(src.join("a/b")).unwrap();
+        let binary_content: Vec<u8> = (0..=255).collect();
+        std::fs::write(src.join("a/b/binary.bin"), &binary_content).unwrap();
+        std::fs::write(src.join("a/text.txt"), "preserve me").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert_eq!(
+            std::fs::read(dst.join("a/b/binary.bin")).unwrap(),
+            binary_content
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("a/text.txt")).unwrap(),
+            "preserve me"
+        );
+    }
+
+    #[test]
+    fn copy_dir_all_handles_empty_nested_subdirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+
+        std::fs::create_dir_all(src.join("a/b/c")).unwrap();
+        std::fs::create_dir_all(src.join("d")).unwrap();
+        // Only put a file in the top level; nested dirs are empty
+        std::fs::write(src.join("root.txt"), "top").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert!(dst.join("a/b/c").is_dir());
+        assert!(dst.join("d").is_dir());
+        assert_eq!(std::fs::read_to_string(dst.join("root.txt")).unwrap(), "top");
+        // Empty nested dirs should exist but have no files
+        assert_eq!(std::fs::read_dir(dst.join("a/b/c")).unwrap().count(), 0);
+    }
 }

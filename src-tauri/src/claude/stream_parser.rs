@@ -403,4 +403,112 @@ mod tests {
             other => panic!("Expected ContentBlockStop, got {:?}", other),
         }
     }
+
+    // ── Tool-use flow via content_block_start + input_json_delta ──
+
+    #[tokio::test]
+    async fn parses_tool_use_flow_with_input_json_delta() {
+        let ndjson = concat!(
+            "{\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"Bash\",\"input\":{}}}\n",
+            "{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"command\\\":\"}}\n",
+            "{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"ls -la\\\"}\"}}\n",
+            "{\"type\":\"content_block_stop\",\"index\":1}\n",
+        );
+        let events = parse_ndjson(ndjson).await;
+        assert_eq!(events.len(), 4);
+        // content_block_start with tool_use
+        match &events[0] {
+            RawStreamEvent::ContentBlockStart { index, content_block, .. } => {
+                assert_eq!(*index, Some(1));
+                match content_block.as_ref().unwrap() {
+                    crate::claude::event_types::ContentBlock::ToolUse { id, name, .. } => {
+                        assert_eq!(id, "toolu_01");
+                        assert_eq!(name, "Bash");
+                    }
+                    other => panic!("Expected ToolUse, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockStart, got {:?}", other),
+        }
+        // input_json_delta events
+        match &events[1] {
+            RawStreamEvent::ContentBlockDelta { delta, .. } => {
+                match delta.as_ref().unwrap() {
+                    crate::claude::event_types::StreamDelta::InputJsonDelta { partial_json } => {
+                        assert!(partial_json.is_some());
+                    }
+                    other => panic!("Expected InputJsonDelta, got {:?}", other),
+                }
+            }
+            other => panic!("Expected ContentBlockDelta, got {:?}", other),
+        }
+        // content_block_stop
+        assert!(matches!(events[3], RawStreamEvent::ContentBlockStop { .. }));
+    }
+
+    // ── Rate-limit event ──
+
+    #[tokio::test]
+    async fn parses_rate_limit_event() {
+        let ndjson = "{\"type\":\"rate_limit_event\",\"rate_limit_info\":{\"status\":\"allowed_warning\",\"resetsAt\":1741800000,\"utilization\":0.92,\"rateLimitType\":\"five_hour\",\"isUsingOverage\":false}}\n";
+        let events = parse_ndjson(ndjson).await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RawStreamEvent::RateLimitEvent { rate_limit_info, .. } => {
+                let info = rate_limit_info.as_ref().unwrap();
+                assert_eq!(info.status.as_deref(), Some("allowed_warning"));
+                assert!((info.utilization.unwrap() - 0.92).abs() < f64::EPSILON);
+                assert_eq!(info.rate_limit_type.as_deref(), Some("five_hour"));
+            }
+            other => panic!("Expected RateLimitEvent, got {:?}", other),
+        }
+    }
+
+    // ── Full conversation sequence ──
+
+    #[tokio::test]
+    async fn parses_full_conversation_sequence() {
+        // Simulates a realistic conversation: system init → content_block_start → text deltas → stop → result
+        let ndjson = concat!(
+            "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"claude-sonnet-4-20250514\"}\n",
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"\"}]}}\n",
+            "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n",
+            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n",
+            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n",
+            "{\"type\":\"content_block_stop\",\"index\":0}\n",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":1200,\"cost_usd\":0.005,\"num_turns\":1}\n",
+        );
+        let events = parse_ndjson(ndjson).await;
+        assert_eq!(events.len(), 7);
+        assert!(matches!(events[0], RawStreamEvent::System { .. }));
+        assert!(matches!(events[1], RawStreamEvent::Assistant { .. }));
+        assert!(matches!(events[2], RawStreamEvent::ContentBlockStart { .. }));
+        assert!(matches!(events[3], RawStreamEvent::ContentBlockDelta { .. }));
+        assert!(matches!(events[4], RawStreamEvent::ContentBlockDelta { .. }));
+        assert!(matches!(events[5], RawStreamEvent::ContentBlockStop { .. }));
+        assert!(matches!(events[6], RawStreamEvent::Result { .. }));
+    }
+
+    // ── Mixed valid and invalid lines: valid events survive ──
+
+    #[tokio::test]
+    async fn mixed_valid_and_invalid_lines_skips_invalid() {
+        let ndjson = concat!(
+            "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"sonnet\"}\n",
+            "this is not json\n",
+            "{totally broken\n",
+            "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n",
+            "{\"type\":\"unknown_future_thing\",\"data\":123}\n",
+            "\n",
+            "   \n",
+            "{\"type\":\"result\",\"duration_ms\":50}\n",
+        );
+        let events = parse_ndjson(ndjson).await;
+        // system + content_block_delta + unknown + result = 4 events
+        assert_eq!(events.len(), 4);
+        assert!(matches!(events[0], RawStreamEvent::System { .. }));
+        assert!(matches!(events[1], RawStreamEvent::ContentBlockDelta { .. }));
+        assert!(matches!(events[2], RawStreamEvent::Unknown));
+        assert!(matches!(events[3], RawStreamEvent::Result { .. }));
+    }
 }

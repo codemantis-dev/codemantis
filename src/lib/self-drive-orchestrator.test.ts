@@ -148,7 +148,7 @@ describe("buildUserMessage", () => {
     capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
     await promise;
 
-    const userMessage: string = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content;
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
 
     expect(userMessage).toContain("Phase: building");
     expect(userMessage).toContain("Session: 1 — Foundation");
@@ -169,7 +169,7 @@ describe("buildUserMessage", () => {
     capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
     await promise;
 
-    const userMessage: string = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content;
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
 
     // The fix prompt should be truncated — it must NOT contain the full 300-char string
     expect(userMessage).not.toContain(longPrompt);
@@ -192,7 +192,7 @@ describe("buildUserMessage", () => {
     capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
     await promise;
 
-    const userMessage: string = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content;
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
 
     expect(userMessage).toContain("Tech stack: Rust + Tauri");
     expect(userMessage).toContain("Build command: cargo build");

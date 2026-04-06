@@ -1505,4 +1505,164 @@ mod tests {
             other => panic!("Expected System, got {:?}", other),
         }
     }
+
+    // ── classify_permission_mode additional cases ──
+
+    #[test]
+    fn classify_bypass_permissions_falls_back_to_normal() {
+        // A mode string that might appear in future CLI versions
+        assert_eq!(classify_permission_mode("bypassPermissions"), SessionMode::Normal);
+    }
+
+    #[test]
+    fn classify_case_sensitive() {
+        // "Plan" (capitalized) is not the same as "plan"
+        assert_eq!(classify_permission_mode("Plan"), SessionMode::Normal);
+        assert_eq!(classify_permission_mode("AcceptEdits"), SessionMode::Normal);
+    }
+
+    // ── extract_thinking_effort additional cases ──
+
+    #[test]
+    fn extract_thinking_effort_non_string_value_returns_none() {
+        let extra = serde_json::json!({
+            "thinking": { "effort": 42 }
+        });
+        // effort is a number, not a string — as_str() returns None
+        assert!(extract_thinking_effort(&extra).is_none());
+    }
+
+    #[test]
+    fn extract_thinking_effort_fallback_chain() {
+        // Only flat `effort` key present — should use the second fallback
+        let extra = serde_json::json!({
+            "thinking": { "other": "data" },
+            "effort": "medium"
+        });
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some("medium"));
+
+        // Only `thinking_effort` present — should use the third fallback
+        let extra2 = serde_json::json!({
+            "thinking": { "other": "data" },
+            "thinking_effort": "low"
+        });
+        assert_eq!(extract_thinking_effort(&extra2).as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn extract_thinking_effort_empty_string_is_some() {
+        let extra = serde_json::json!({
+            "thinking": { "effort": "" }
+        });
+        // Empty string is still a valid string
+        assert_eq!(extract_thinking_effort(&extra).as_deref(), Some(""));
+    }
+
+    // ── should_emit_rate_limit_warning additional cases ──
+
+    #[test]
+    fn rate_limit_warning_utilization_none_defaults_to_zero() {
+        let info = RateLimitInfo {
+            status: None,
+            resets_at: None,
+            utilization: None, // defaults to 0.0 via unwrap_or
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+            extra: Default::default(),
+        };
+        assert!(!should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_warning_at_full_utilization() {
+        let info = RateLimitInfo {
+            status: None,
+            resets_at: None,
+            utilization: Some(1.0),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+            extra: Default::default(),
+        };
+        assert!(should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_warning_status_allowed_is_not_warning() {
+        let info = RateLimitInfo {
+            status: Some("allowed".to_string()),
+            resets_at: None,
+            utilization: Some(0.5),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+            extra: Default::default(),
+        };
+        assert!(!should_emit_rate_limit_warning(&info));
+    }
+
+    #[test]
+    fn rate_limit_warning_both_triggers_active() {
+        // Both high utilization AND allowed_warning status
+        let info = RateLimitInfo {
+            status: Some("allowed_warning".to_string()),
+            resets_at: None,
+            utilization: Some(0.95),
+            rate_limit_type: None,
+            overage_status: None,
+            overage_disabled_reason: None,
+            is_using_overage: None,
+            extra: Default::default(),
+        };
+        assert!(should_emit_rate_limit_warning(&info));
+    }
+
+    // ── tool_result_content_to_string additional cases ──
+
+    #[test]
+    fn tool_result_content_bool() {
+        let content = Some(serde_json::json!(true));
+        assert_eq!(tool_result_content_to_string(&content).as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn tool_result_content_null() {
+        let content = Some(serde_json::Value::Null);
+        assert_eq!(tool_result_content_to_string(&content).as_deref(), Some("null"));
+    }
+
+    #[test]
+    fn tool_result_content_empty_string() {
+        let content = Some(serde_json::Value::String(String::new()));
+        assert_eq!(tool_result_content_to_string(&content).as_deref(), Some(""));
+    }
+
+    // ── extract_model_usage_info additional cases ──
+
+    #[test]
+    fn extract_model_usage_with_multiple_models_uses_first() {
+        // HashMap iteration order isn't guaranteed, but the function takes iter().next()
+        let model_usage = Some(serde_json::json!({
+            "model-a": { "contextWindow": 100000 }
+        }));
+        let (name, cw, _mot) = extract_model_usage_info(&model_usage);
+        assert_eq!(name.as_deref(), Some("model-a"));
+        assert_eq!(cw, Some(100000));
+    }
+
+    #[test]
+    fn extract_model_usage_inner_not_object() {
+        // Value is a string instead of an object with context info
+        let model_usage = Some(serde_json::json!({
+            "sonnet": "not_an_object"
+        }));
+        let (name, cw, mot) = extract_model_usage_info(&model_usage);
+        assert_eq!(name.as_deref(), Some("sonnet"));
+        assert!(cw.is_none());
+        assert!(mot.is_none());
+    }
 }

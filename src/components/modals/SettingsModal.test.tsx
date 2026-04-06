@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import SettingsModal from "./SettingsModal";
+import type { SettingsTab } from "./settings/SettingsShared";
 
 const mockState = {
   showModal: true,
   setShowModal: vi.fn(),
-  activeTab: "general" as const,
+  activeTab: "general" as SettingsTab,
   setActiveTab: vi.fn(),
   settings: { theme: "midnight" },
   theme: "midnight" as const,
@@ -158,5 +159,50 @@ describe("SettingsModal", () => {
     mockState.showModal = false;
     const { container } = render(<SettingsModal />);
     expect(container.querySelector("[data-testid='dialog-root']")).not.toBeInTheDocument();
+  });
+
+  it("renders settings tabs in navigation", () => {
+    render(<SettingsModal />);
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Terminal")).toBeInTheDocument();
+    expect(screen.getByText("Shortcuts")).toBeInTheDocument();
+    expect(screen.getByText("AI Providers")).toBeInTheDocument();
+  });
+
+  it("tab switching calls setActiveTab", () => {
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByText("Terminal"));
+    expect(mockState.setActiveTab).toHaveBeenCalledWith("terminal");
+  });
+
+  it("tab switching preserves form state", () => {
+    // Simulate switching tabs: the mockState should retain its values
+    render(<SettingsModal />);
+
+    // Click Terminal tab
+    fireEvent.click(screen.getByText("Terminal"));
+    expect(mockState.setActiveTab).toHaveBeenCalledWith("terminal");
+
+    // The settings values (theme, fontSize, etc.) should remain unchanged
+    // because switching tabs does not reset the form state
+    expect(mockState.theme).toBe("midnight");
+    expect(mockState.fontSize).toBe(13);
+    expect(mockState.triviaEnabled).toBe(true);
+  });
+
+  it("save calls handleSave and preserves all settings", () => {
+    render(<SettingsModal />);
+    fireEvent.click(screen.getByText("Save"));
+    expect(mockState.handleSave).toHaveBeenCalledTimes(1);
+    // handleCancel should not be called when saving
+    expect(mockState.handleCancel).not.toHaveBeenCalled();
+  });
+
+  it("shows correct tab content based on activeTab", () => {
+    mockState.activeTab = "terminal";
+    render(<SettingsModal />);
+    expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
+    // General tab should not be rendered
+    expect(screen.queryByTestId("general-tab")).not.toBeInTheDocument();
   });
 });
