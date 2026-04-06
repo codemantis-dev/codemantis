@@ -1,5 +1,29 @@
 # CodeMantis Releases
 
+## 1.0.2
+
+### Self-Drive Mode (New Feature)
+- Autonomous implementation guide with orchestrator and settings
+- Session-scoped chat events and advance phase handling
+
+### SpecWriter
+- Persist drafts and keep panel mounted when closed
+- Fix badge showing "Working..." when done but still streaming
+- Derive hasGuide from guideStore; sync Self-Drive mode in UI
+- Fix approval-server session IDs, Plan mode writes, and spec prompts
+
+### Testing Infrastructure
+- 296 new tests with comprehensive test infrastructure and testing docs
+- Complete test coverage plan: hooks, components, integrations, Rust expansion
+- Resolve all pre-existing TypeScript type errors in test files
+- Add enforcement rules to CLAUDE.md to prevent test coverage drift
+
+### UI & Fixes
+- Semantic font-size tokens from --font-size-base
+- /clear resets approvals without clearing activity feed
+- Increase Super Bro strip max height
+- Fix stale screenshot events after preview unmount; unique attachment IDs
+
 ## 1.0.1
 
 - SpecWriter: batched completeTurn, persist spec content, and audit tab sync
