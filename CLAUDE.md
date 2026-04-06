@@ -113,3 +113,24 @@ cd src-tauri && cargo test --test '*'  # Rust integration tests only
 - **Never mock:** Zustand stores (use real stores, reset in `beforeEach`), pure utility functions
 - **Prefer real over mock:** if a dependency is a Zustand store or pure function, use the real thing. Only mock at system boundaries
 - Use `src/test/helpers/tauri-mock-factory.ts` for configurable invoke mocks
+
+### Enforcement Rules (NO DRIFT ALLOWED)
+These rules are non-negotiable. Every code change must satisfy ALL of them:
+
+1. **All tests must pass before committing.** Run `pnpm test`, `pnpm test:integration`, and `cd src-tauri && cargo test`. Zero failures allowed.
+2. **`tsc --noEmit` must produce zero errors.** No type errors in any file — test files included.
+3. **No code change without corresponding tests.** New features need unit tests. Cross-module features need integration tests. Bug fixes need a regression test.
+4. **No `test.skip`, `test.only`, or `#[ignore]` in committed code.** All tests must run, always.
+5. **Test count floors — never decrease:**
+   - TS unit tests: **2,762** minimum
+   - TS integration tests: **84** minimum
+   - Rust unit tests: **1,028** minimum
+   - Rust integration tests: **10** minimum
+6. **Integration tests required for cross-module changes.** If a change touches 2+ stores, a hook + store, or the event pipeline, there must be an integration test covering the interaction.
+7. **No mocking Zustand stores.** Use real stores with `resetAllStores()` in `beforeEach`. Mocking stores hides real integration bugs.
+8. **Test infrastructure lives in `src/test/helpers/` (TS) and `src-tauri/src/test_helpers.rs` (Rust).** Use the existing helpers — don't reinvent per-file.
+
+### CI Pipeline
+Tests run automatically on push/PR via `.github/workflows/test.yml`:
+- TypeScript: type check → lint → unit tests → integration tests
+- Rust: unit tests → integration tests → clippy
