@@ -64,13 +64,14 @@ function makeGuide(): ImplementationGuide {
 describe("extractToolsFromTurn", () => {
   it("extracts tool names from activity IDs", () => {
     const messages: Message[] = [
-      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [] },
+      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
       {
         id: "m2",
         role: "assistant",
         content: "Done",
         timestamp: "",
         activityIds: ["read-123456", "write-789012", "bash-345678"],
+        isStreaming: false,
       },
     ];
 
@@ -82,13 +83,14 @@ describe("extractToolsFromTurn", () => {
 
   it("extracts tool names from content patterns", () => {
     const messages: Message[] = [
-      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [] },
+      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
       {
         id: "m2",
         role: "assistant",
         content: "I used Read to view the file and Grep to search",
         timestamp: "",
         activityIds: [],
+        isStreaming: false,
       },
     ];
 
@@ -105,14 +107,16 @@ describe("extractToolsFromTurn", () => {
         content: "Old turn with Bash",
         timestamp: "",
         activityIds: ["bash-111"],
+        isStreaming: false,
       },
-      { id: "m2", role: "user", content: "New turn", timestamp: "", activityIds: [] },
+      { id: "m2", role: "user", content: "New turn", timestamp: "", activityIds: [], isStreaming: false },
       {
         id: "m3",
         role: "assistant",
         content: "New turn using Read",
         timestamp: "",
         activityIds: ["read-222"],
+        isStreaming: false,
       },
     ];
 
@@ -135,6 +139,7 @@ describe("extractToolsFromTurn", () => {
         content: "Read then Read again",
         timestamp: "",
         activityIds: ["read-111", "read-222"],
+        isStreaming: false,
       },
     ];
 

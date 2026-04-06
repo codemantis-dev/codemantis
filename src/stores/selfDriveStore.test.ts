@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
-import type { ImplementationGuide, OrchestratorDecision } from "../types/implementation-guide";
+import type { ImplementationGuide, OrchestratorDecision, OrchestratorInput } from "../types/implementation-guide";
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 
@@ -14,10 +14,10 @@ const {
   mockFindCheckByLabel,
   mockGetCurrentSessionPlan,
 } = vi.hoisted(() => ({
-  mockListen: vi.fn(() => Promise.resolve(vi.fn())),
+  mockListen: vi.fn<(channel: string, handler: (event: { payload: FrontendEvent }) => void) => Promise<() => void>>(() => Promise.resolve(vi.fn())),
   mockSendMessage: vi.fn(() => Promise.resolve()),
   mockSyncSessionMode: vi.fn(() => Promise.resolve()),
-  mockCallOrchestrator: vi.fn<() => Promise<OrchestratorDecision>>(),
+  mockCallOrchestrator: vi.fn<(input: OrchestratorInput, provider: string, apiKey: string, model: string) => Promise<OrchestratorDecision>>(),
   mockBuildSessionVerifyPrompt: vi.fn(() => "Verify session prompt"),
   mockShowToast: vi.fn(),
   mockFindCheckByLabel: vi.fn(),
@@ -174,7 +174,7 @@ function setupReadyState(): void {
       icon_index: 0,
     }]]),
     sessionMessages: new Map([[SESSION_ID, [
-      { id: "msg-1", role: "assistant", content: "Done building foundation.", timestamp: "", activityIds: [] },
+      { id: "msg-1", role: "assistant", content: "Done building foundation.", timestamp: "", activityIds: [], isStreaming: false },
     ]]]),
     sessionBusy: new Map(),
     sessionModes: new Map([[SESSION_ID, "normal"]]),
