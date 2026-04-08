@@ -1,5 +1,17 @@
 # CodeMantis Releases
 
+## 1.0.3
+
+### Self-Drive Enhancements
+- Decision cards with confidence guards and prompt visibility
+- Users can review and approve each orchestrator decision before execution
+
+### SpecWriter
+- Promote assistant replies to spec content and broaden spec detection patterns
+
+### Documentation
+- Updated user guide for v1.0.2 with new Self-Drive chapter
+
 ## 1.0.2
 
 ### Self-Drive Mode (New Feature)
