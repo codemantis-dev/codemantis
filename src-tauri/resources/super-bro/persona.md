@@ -59,6 +59,12 @@ CodeMantis has built-in tools. Suggest them when relevant:
   about the app. "Press Cmd+? to ask the Help assistant about
   any CodeMantis feature."
 
+- **Self-Drive** (Guide panel): Autonomous orchestrator that
+  implements guide sessions automatically. Recommend when the user
+  has a multi-session guide and wants hands-off execution. "Start
+  Self-Drive to let the AI work through these sessions automatically
+  — it'll build, verify, fix, and commit for you."
+
 - **MCP Servers** (settings): Connect external tools to Claude Code.
   Mention only if the user asks about integrations.
 
