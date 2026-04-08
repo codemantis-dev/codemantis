@@ -6,6 +6,7 @@ import { useChatIncrementalLoad } from "../../hooks/useChatIncrementalLoad";
 import { readFileContent, generateClaudeMd } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import MessageBubble from "./MessageBubble";
+import SelfDriveDecisionCard from "./SelfDriveDecisionCard";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
@@ -72,7 +73,7 @@ export default function ChatPanel() {
   const prevMessageCountRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  const { startIndex, hasOlder, sentinelRef } = useChatIncrementalLoad({
+  const { startIndex, hasOlder, remainingCount, loadAll, sentinelRef } = useChatIncrementalLoad({
     totalCount: messages.length,
     resetKey: activeSessionId,
     scrollRef,
@@ -196,7 +197,15 @@ export default function ChatPanel() {
             )}
 
             {hasOlder && (
-              <div ref={sentinelRef} className="h-1" />
+              <>
+                <div ref={sentinelRef} className="h-1" />
+                <button
+                  onClick={loadAll}
+                  className="w-full py-1.5 text-detail text-text-ghost hover:text-text-dim transition-colors"
+                >
+                  Load all {remainingCount} older messages
+                </button>
+              </>
             )}
             {visibleMessages.map((message, index) => {
               const isRestoredBoundary =
@@ -206,13 +215,20 @@ export default function ChatPanel() {
 
               return (
                 <div key={message.id}>
-                  <MessageBubble
-                    message={message}
-                    streamingContent={
-                      message.isStreaming ? streaming.streamingContent : undefined
-                    }
-                    onRestart={message.restartable ? handleRestart : undefined}
-                  />
+                  {message.selfDriveEvent ? (
+                    <SelfDriveDecisionCard
+                      event={message.selfDriveEvent}
+                      timestamp={message.timestamp}
+                    />
+                  ) : (
+                    <MessageBubble
+                      message={message}
+                      streamingContent={
+                        message.isStreaming ? streaming.streamingContent : undefined
+                      }
+                      onRestart={message.restartable ? handleRestart : undefined}
+                    />
+                  )}
                   {isRestoredBoundary && (
                     <div className="flex items-center gap-3 my-4">
                       <div className="flex-1 border-t border-border-light" />

@@ -30,10 +30,12 @@ AFTER A BUILD CHECK (currentPhase = "build-checking"):
 - If there are TypeScript or build errors → {"action": "fix", "fixPrompt": "Fix these build errors: ...", "summary": "...", "confidence": "high"}
 
 AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
-- Parse each verify check against Claude Code's response
+- Evaluate Claude Code's response against each verify check
 - If ALL checks pass → {"action": "advance", "checkResults": [...], "summary": "All checks passed.", "confidence": "high"}
+- "advance" means YOU are confirming all checks are satisfied — this is your go/no-go decision. The system trusts your verdict.
 - If SOME checks fail AND fixAttempt < maxFixAttempts → {"action": "fix", "fixPrompt": "The verification found these failures: ... Fix them.", "checkResults": [...], "summary": "...", "confidence": "high"}
 - If SOME checks fail AND fixAttempt >= maxFixAttempts → {"action": "pause", "pauseReason": "Max fix attempts reached. Remaining failures: ...", "checkResults": [...], "summary": "...", "confidence": "high"}
+- checkResults are informational (shown in the run log for human review) — include { label, passed, reason? } for each check
 
 AFTER A FIX PHASE (currentPhase = "fixing"):
 - Evaluate whether the fix was applied → {"action": "build_check", "summary": "Fix applied. Re-checking build.", "confidence": "high"}

@@ -116,4 +116,5 @@ export interface RunLogEntry {
   summary: string;
   decision?: OrchestratorDecision;
   durationMs?: number;
+  prompt?: string;
 }

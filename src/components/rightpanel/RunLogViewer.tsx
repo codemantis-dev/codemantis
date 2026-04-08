@@ -2,8 +2,8 @@
 // Run Log Viewer — scrollable timestamped log of Self-Drive events
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, ChevronRight, ChevronDown } from "lucide-react";
 import { useSelfDriveStore } from "../../stores/selfDriveStore";
 import type { RunLogEntry } from "../../types/implementation-guide";
 
@@ -129,28 +129,54 @@ export default function RunLogViewer({ onClose }: Props) {
 }
 
 function LogLine({ entry }: { entry: RunLogEntry }) {
+  const [expanded, setExpanded] = useState(false);
   const icon = PHASE_ICONS[entry.phase] ?? "\u2022"; // bullet fallback
   const isError = entry.phase === "paused" || entry.phase === "aborted" || entry.phase === "crash";
   const isSuccess = entry.phase === "completed" || entry.phase === "advancing";
 
   return (
-    <div className="flex gap-2 leading-relaxed py-0.5">
-      <span style={{ color: "var(--text-ghost)" }} className="shrink-0 w-[60px]">
-        {formatTimestamp(entry.timestamp)}
-      </span>
-      <span className="shrink-0 w-[18px] text-center">{icon}</span>
-      <span
-        className="flex-1 break-words"
-        style={{
-          color: isError
-            ? "var(--yellow, #eab308)"
-            : isSuccess
-              ? "var(--color-green, #22c55e)"
-              : "var(--text-secondary)",
-        }}
-      >
-        {entry.summary}
-      </span>
+    <div>
+      <div className="flex gap-2 leading-relaxed py-0.5">
+        <span style={{ color: "var(--text-ghost)" }} className="shrink-0 w-[60px]">
+          {formatTimestamp(entry.timestamp)}
+        </span>
+        <span className="shrink-0 w-[18px] text-center">{icon}</span>
+        <span
+          className="flex-1 break-words"
+          style={{
+            color: isError
+              ? "var(--yellow, #eab308)"
+              : isSuccess
+                ? "var(--color-green, #22c55e)"
+                : "var(--text-secondary)",
+          }}
+        >
+          {entry.summary}
+        </span>
+        {entry.prompt && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-detail transition-colors hover:bg-bg-elevated"
+            style={{ color: "var(--text-ghost)" }}
+            title={expanded ? "Hide prompt" : "Show prompt"}
+          >
+            {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            Prompt
+          </button>
+        )}
+      </div>
+      {expanded && entry.prompt && (
+        <pre
+          className="ml-[80px] mr-2 mt-0.5 mb-1 p-2 rounded text-detail overflow-x-auto whitespace-pre-wrap max-h-[200px] overflow-y-auto"
+          style={{
+            background: "var(--bg-elevated)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border-light)",
+          }}
+        >
+          {entry.prompt}
+        </pre>
+      )}
     </div>
   );
 }

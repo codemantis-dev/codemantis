@@ -55,7 +55,6 @@ vi.mock("../../lib/guide-verify-prompt", () => ({
 vi.mock("../../lib/self-drive-utils", () => ({
   extractToolsFromTurn: vi.fn(() => []),
   truncateResponse: vi.fn((s: string) => s),
-  findCheckByLabel: vi.fn(),
   getCurrentSessionPlan: vi.fn(),
   getProjectTechStack: vi.fn(() => "React + TypeScript"),
   getBuildCommand: vi.fn(() => "pnpm tsc --noEmit"),
@@ -398,5 +397,74 @@ describe("Self-Drive Orchestration (Integration)", () => {
     expect(phases).toContain("paused");
     expect(phases).toContain("resumed");
     expect(phases).toContain("stopped");
+  });
+
+  // ─── lowConfidenceCount resets on start() ─────────────────────────────
+
+  it("lowConfidenceCount is reset to 0 on start()", async () => {
+    setupReadyState();
+
+    // Artificially set a high count
+    useSelfDriveStore.setState({ lowConfidenceCount: 5 });
+    expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(5);
+
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(0);
+  });
+
+  // ─── stop() cleans up and restores mode ────────────────────────────────
+
+  it("stop() restores session mode from auto-accept to original", async () => {
+    setupReadyState();
+
+    // Set mode to "plan" before starting
+    useSessionStore.getState().setSessionMode(SESSION_ID, "plan");
+
+    await useSelfDriveStore.getState().start();
+
+    // start() should have switched to auto-accept
+    expect(mockSyncSessionMode).toHaveBeenCalledWith(SESSION_ID, "auto-accept");
+
+    await useSelfDriveStore.getState().stop();
+
+    // stop() should restore original mode
+    const calls = mockSyncSessionMode.mock.calls as unknown as string[][];
+    expect(calls.length).toBeGreaterThan(0);
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[0]).toBe(SESSION_ID);
+    // The mode should be restored (either "plan" or "normal")
+    expect(lastCall[1]).not.toBe("auto-accept");
+  });
+
+  // ─── Run log entries include prompts ───────────────────────────────────
+
+  it("building log entry includes the session prompt text", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    const buildEntry = useSelfDriveStore.getState().runLog.find(
+      (e) => e.phase === "building",
+    );
+    expect(buildEntry).toBeDefined();
+    expect(buildEntry!.prompt).toBe("Build foundation.");
+  });
+
+  // ─── Decision messages injected into session ───────────────────────────
+
+  it("pause/resume/stop cycle does not leak stale listeners", async () => {
+    setupReadyState();
+
+    // Start -> pause -> resume -> stop
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.getState().pause();
+    await useSelfDriveStore.getState().resume();
+    await useSelfDriveStore.getState().stop();
+
+    // Final state should be clean
+    expect(useSelfDriveStore.getState().status).toBe("idle");
+    expect(useSelfDriveStore.getState().currentPhase).toBeNull();
+    expect(useSelfDriveStore.getState().currentSessionIndex).toBeNull();
+    expect(useSelfDriveStore.getState().pauseReason).toBeNull();
   });
 });

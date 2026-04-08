@@ -93,6 +93,50 @@ describe("RunLogViewer", () => {
     expect(screen.getByText("No log entries yet")).toBeInTheDocument();
   });
 
+  it("shows Prompt button when log entry has a prompt", () => {
+    useSelfDriveStore.setState({
+      runLog: [
+        makeLogEntry({ summary: "Building session 1", prompt: "Build the foundation..." }),
+      ],
+      startedAt: Date.now() - 5000,
+    });
+
+    render(<RunLogViewer onClose={onClose} />);
+    expect(screen.getByText("Prompt")).toBeInTheDocument();
+  });
+
+  it("does not show Prompt button when log entry has no prompt", () => {
+    useSelfDriveStore.setState({
+      runLog: [
+        makeLogEntry({ summary: "AI decided something" }),
+      ],
+      startedAt: Date.now() - 5000,
+    });
+
+    render(<RunLogViewer onClose={onClose} />);
+    expect(screen.queryByText("Prompt")).toBeNull();
+  });
+
+  it("clicking Prompt button expands to show prompt text", () => {
+    useSelfDriveStore.setState({
+      runLog: [
+        makeLogEntry({ summary: "Fix session", prompt: "Fix these TypeScript errors in src/main.ts" }),
+      ],
+      startedAt: Date.now() - 5000,
+    });
+
+    render(<RunLogViewer onClose={onClose} />);
+
+    // Prompt text should not be visible initially
+    expect(screen.queryByText("Fix these TypeScript errors in src/main.ts")).toBeNull();
+
+    // Click the Prompt button
+    fireEvent.click(screen.getByText("Prompt"));
+
+    // Now prompt text should be visible
+    expect(screen.getByText("Fix these TypeScript errors in src/main.ts")).toBeInTheDocument();
+  });
+
   it("shows summary footer with session and fix counts", () => {
     useSelfDriveStore.setState({
       runLog: [

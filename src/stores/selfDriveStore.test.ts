@@ -11,7 +11,6 @@ const {
   mockCallOrchestrator,
   mockBuildSessionVerifyPrompt,
   mockShowToast,
-  mockFindCheckByLabel,
   mockGetCurrentSessionPlan,
 } = vi.hoisted(() => ({
   mockListen: vi.fn<(channel: string, handler: (event: { payload: FrontendEvent }) => void) => Promise<() => void>>(() => Promise.resolve(vi.fn())),
@@ -20,7 +19,6 @@ const {
   mockCallOrchestrator: vi.fn<(input: OrchestratorInput, provider: string, apiKey: string, model: string) => Promise<OrchestratorDecision>>(),
   mockBuildSessionVerifyPrompt: vi.fn(() => "Verify session prompt"),
   mockShowToast: vi.fn(),
-  mockFindCheckByLabel: vi.fn(),
   mockGetCurrentSessionPlan: vi.fn((sessionIndex: number) => ({
     index: sessionIndex,
     name: `Session ${sessionIndex}`,
@@ -63,7 +61,6 @@ vi.mock("./toastStore", () => ({
 vi.mock("../lib/self-drive-utils", () => ({
   extractToolsFromTurn: vi.fn(() => ["Read", "Write"]),
   truncateResponse: vi.fn((s: string) => s),
-  findCheckByLabel: mockFindCheckByLabel,
   getCurrentSessionPlan: mockGetCurrentSessionPlan,
   getProjectTechStack: vi.fn(() => "React + TypeScript"),
   getBuildCommand: vi.fn(() => "pnpm tsc --noEmit"),
@@ -74,18 +71,6 @@ import { useSelfDriveStore } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
-
-// Configure findCheckByLabel to look up checks from the actual guide store.
-// Must be done after imports so useGuideStore is available.
-mockFindCheckByLabel.mockImplementation((sessionIndex: number, label: string) => {
-  const guide = useGuideStore.getState().guide;
-  if (!guide) return null;
-  const session = guide.sessions.find((s: { index: number }) => s.index === sessionIndex);
-  if (!session) return null;
-  return session.verifyChecks.find(
-    (c: { label: string }) => c.label.toLowerCase() === label.toLowerCase(),
-  ) || null;
-});
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -695,10 +680,10 @@ describe("selfDriveStore", () => {
   // ── handleAdvance — markSessionComplete ─────────────────────────
 
   describe("handleAdvance markSessionComplete", () => {
-    it("pauses when markSessionComplete fails and session is not done", async () => {
+    it("trust-based advance marks ALL checks and completes session", async () => {
       setupReadyState();
-      // Session 1 checks are NOT checked — markSessionComplete will return false
-      // and the orchestrator doesn't provide matching checkResults
+      // Session 1 checks are NOT checked — but advance trusts the orchestrator
+      // and marks all checks as passed regardless of checkResults content
       mockCallOrchestrator.mockResolvedValue({
         action: "advance",
         summary: "All done",
@@ -715,8 +700,13 @@ describe("selfDriveStore", () => {
       emit(makeTurnCompleteEvent());
 
       await vi.waitFor(() => {
-        expect(useSelfDriveStore.getState().status).toBe("paused");
-        expect(useSelfDriveStore.getState().pauseReason).toContain("verify checks");
+        // Trust-based: advance marks all checks, session completes
+        const guide = useGuideStore.getState().guide!;
+        const session1 = guide.sessions[0];
+        expect(session1.verifyChecks[0].checked).toBe(true);
+        expect(session1.verifyChecks[1].checked).toBe(true);
+        expect(session1.status).toBe("done");
+        expect(useSelfDriveStore.getState().status).toBe("running");
       });
     });
 
@@ -1235,5 +1225,384 @@ describe("selfDriveStore integration — full lifecycle", () => {
 
     // Verify mode was restored
     expect(mockSyncSessionMode).toHaveBeenLastCalledWith(SESSION_ID, "normal");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Low-confidence handling
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — low-confidence handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("low-confidence fix action proceeds without pausing", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValue({
+      action: "fix",
+      fixPrompt: "Fix something",
+      summary: "Unsure fix",
+      confidence: "low",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => {
+      // Should proceed to fixing, not pause
+      expect(useSelfDriveStore.getState().currentPhase).toBe("fixing");
+      expect(useSelfDriveStore.getState().status).toBe("running");
+      expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(1);
+    });
+  });
+
+  it("low-confidence advance action pauses immediately", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValue({
+      action: "advance",
+      summary: "Maybe done",
+      confidence: "low",
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+    const emit = captureListenCallback();
+
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+      expect(useSelfDriveStore.getState().pauseReason).toContain("advance");
+    });
+  });
+
+  it("3 consecutive low-confidence decisions trigger pause", async () => {
+    setupReadyState();
+
+    let callCount = 0;
+    mockCallOrchestrator.mockImplementation(async () => {
+      callCount++;
+      return {
+        action: "build_check",
+        summary: `Low confidence call ${callCount}`,
+        confidence: "low",
+      };
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // First low-confidence: proceeds
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(1));
+
+    // Second low-confidence: proceeds
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(2));
+
+    // Third low-confidence: pauses
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+      expect(useSelfDriveStore.getState().pauseReason).toContain("3 consecutive");
+    });
+  });
+
+  it("non-low-confidence decision resets counter", async () => {
+    setupReadyState();
+
+    let callCount = 0;
+    mockCallOrchestrator.mockImplementation(async () => {
+      callCount++;
+      if (callCount <= 2) {
+        return { action: "build_check", summary: "Low", confidence: "low" };
+      }
+      return { action: "verify", summary: "High confidence", confidence: "high" };
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Two low-confidence calls
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(1));
+
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(2));
+
+    // High-confidence call resets counter
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(0));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Prompt logging in run log
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — prompt logging", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("building log entry includes the session prompt", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    const buildEntry = useSelfDriveStore.getState().runLog.find(
+      (e) => e.phase === "building",
+    );
+    expect(buildEntry).toBeDefined();
+    expect(buildEntry!.prompt).toBe("Build foundation.");
+  });
+
+  it("fix log entry includes the fix prompt", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValue({
+      action: "fix",
+      fixPrompt: "Fix the TypeScript errors in src/main.ts",
+      summary: "Fixing errors",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      const fixEntry = useSelfDriveStore.getState().runLog.find(
+        (e) => e.phase === "fixing",
+      );
+      expect(fixEntry).toBeDefined();
+      expect(fixEntry!.prompt).toBe("Fix the TypeScript errors in src/main.ts");
+    });
+  });
+
+  it("verify log entry includes the verify prompt", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValue({
+      action: "verify",
+      summary: "Build clean",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      const verifyEntry = useSelfDriveStore.getState().runLog.find(
+        (e) => e.phase === "verifying",
+      );
+      expect(verifyEntry).toBeDefined();
+      expect(verifyEntry!.prompt).toBeDefined();
+      expect(verifyEntry!.prompt).toBe("Verify session prompt");
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Decision message injection
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — decision message injection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("injects a selfDriveEvent message into the session after orchestrator decision", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValue({
+      action: "verify",
+      summary: "Build clean. Proceeding to verification.",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+      const sdMessage = messages.find((m) => m.selfDriveEvent !== undefined);
+      expect(sdMessage).toBeDefined();
+      expect(sdMessage!.selfDriveEvent!.action).toBe("verify");
+      expect(sdMessage!.selfDriveEvent!.summary).toBe("Build clean. Proceeding to verification.");
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Pause/Stop reliability
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — pause/stop reliability", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("pause prevents handleTurnComplete from calling orchestrator", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Pause
+    useSelfDriveStore.getState().pause();
+    expect(useSelfDriveStore.getState().status).toBe("paused");
+
+    // Emit turn_complete while paused
+    mockCallOrchestrator.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    // Give async handler time to run (it should bail early)
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockCallOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it("stop resets state to idle with null phase and session index", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().status).toBe("running");
+    expect(useSelfDriveStore.getState().currentPhase).toBe("building");
+
+    await useSelfDriveStore.getState().stop();
+
+    expect(useSelfDriveStore.getState().status).toBe("idle");
+    expect(useSelfDriveStore.getState().currentPhase).toBeNull();
+    expect(useSelfDriveStore.getState().currentSessionIndex).toBeNull();
+    expect(useSelfDriveStore.getState().pauseReason).toBeNull();
+  });
+
+  it("stop restores original session mode", async () => {
+    setupReadyState();
+    // Set initial mode to "plan"
+    useSessionStore.getState().setSessionMode(SESSION_ID, "plan");
+    // Start will save "plan" as previousSessionMode
+    useSelfDriveStore.setState({ previousSessionMode: null });
+    await useSelfDriveStore.getState().start();
+
+    await useSelfDriveStore.getState().stop();
+
+    // Should restore mode — the last call to syncSessionMode should be restoring
+    const calls = mockSyncSessionMode.mock.calls as unknown as string[][];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1][0]).toBe(SESSION_ID);
+  });
+
+  it("status re-check guard discards late orchestrator decisions after pause", async () => {
+    setupReadyState();
+
+    // Make orchestrator slow — it resolves after we pause
+    let resolveOrchestrator: ((value: OrchestratorDecision) => void) | null = null;
+    mockCallOrchestrator.mockImplementation(() => new Promise<OrchestratorDecision>((resolve) => {
+      resolveOrchestrator = resolve;
+    }));
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Trigger turn_complete — orchestrator starts awaiting
+    emit(makeTurnCompleteEvent());
+
+    // Wait for evaluating phase
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentPhase).toBe("evaluating");
+    });
+
+    // Pause while orchestrator is still pending
+    useSelfDriveStore.getState().pause();
+    expect(useSelfDriveStore.getState().status).toBe("paused");
+
+    // Now resolve the orchestrator — decision should be discarded
+    resolveOrchestrator!({
+      action: "advance",
+      summary: "This should be discarded",
+      confidence: "high",
+    });
+
+    // Wait for the async handler to process
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Should still be paused, not have advanced
+    expect(useSelfDriveStore.getState().status).toBe("paused");
+
+    // The run log should contain a "discarded" entry
+    const log = useSelfDriveStore.getState().runLog;
+    const discardedEntry = log.find((e) => e.summary.includes("discarded"));
+    expect(discardedEntry).toBeDefined();
+  });
+
+  it("pause then resume re-registers listeners", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    useSelfDriveStore.getState().pause();
+
+    mockListen.mockClear();
+    await useSelfDriveStore.getState().resume();
+
+    // Should have re-registered listener
+    expect(mockListen).toHaveBeenCalledWith(
+      `claude-chat-${SESSION_ID}`,
+      expect.any(Function),
+    );
+  });
+
+  it("lowConfidenceCount is reset on start", async () => {
+    setupReadyState();
+    useSelfDriveStore.setState({ lowConfidenceCount: 5 });
+
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().lowConfidenceCount).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Orchestrator retry on parse failure
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — orchestrator retry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("retries once on parse failure then uses second result", async () => {
+    setupReadyState();
+
+    let callCount = 0;
+    mockCallOrchestrator.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          action: "pause",
+          pauseReason: "Could not parse AI response: No JSON object found",
+          summary: "Parse error — pausing",
+          confidence: "low",
+        };
+      }
+      return {
+        action: "verify",
+        summary: "Build clean, verifying",
+        confidence: "high",
+      };
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      // Second call should succeed — should be in verifying phase
+      expect(useSelfDriveStore.getState().currentPhase).toBe("verifying");
+      expect(callCount).toBe(2);
+    });
   });
 });

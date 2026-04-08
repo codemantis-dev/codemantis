@@ -3,7 +3,6 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import type { Message } from "../types/session";
-import type { VerifyCheck } from "../types/implementation-guide";
 import { useGuideStore } from "../stores/guideStore";
 
 /**
@@ -43,7 +42,7 @@ export function extractToolsFromTurn(messages: Message[]): string[] {
  * Smart truncation that keeps the beginning and end of a response.
  * This ensures the orchestrator sees both the initial context and the conclusion.
  */
-export function truncateResponse(content: string, maxChars: number = 4000): string {
+export function truncateResponse(content: string, maxChars: number = 6000): string {
   if (content.length <= maxChars) return content;
 
   const headSize = Math.floor(maxChars * 0.7);
@@ -55,37 +54,6 @@ export function truncateResponse(content: string, maxChars: number = 4000): stri
   return `${head}\n\n[...truncated...]\n\n${tail}`;
 }
 
-/**
- * Fuzzy-match a check label from the orchestrator's response against actual verify checks.
- * Returns the matching VerifyCheck or null.
- */
-export function findCheckByLabel(
-  sessionIndex: number,
-  label: string,
-): VerifyCheck | null {
-  const guide = useGuideStore.getState().guide;
-  if (!guide) return null;
-
-  const session = guide.sessions.find((s) => s.index === sessionIndex);
-  if (!session) return null;
-
-  const normalizedLabel = label.toLowerCase().trim();
-
-  // Exact match first
-  for (const check of session.verifyChecks) {
-    if (check.label.toLowerCase().trim() === normalizedLabel) return check;
-  }
-
-  // Partial match — label contains or is contained
-  for (const check of session.verifyChecks) {
-    const checkLabel = check.label.toLowerCase().trim();
-    if (checkLabel.includes(normalizedLabel) || normalizedLabel.includes(checkLabel)) {
-      return check;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Detect the project's tech stack from CLAUDE.md content or common patterns.

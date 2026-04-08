@@ -46,6 +46,13 @@ export default function SelfDriveStatus() {
   const resume = useSelfDriveStore((s) => s.resume);
   const stop = useSelfDriveStore((s) => s.stop);
 
+  const lastPrompt = useSelfDriveStore((s) => {
+    for (let i = s.runLog.length - 1; i >= 0; i--) {
+      if (s.runLog[i].prompt) return s.runLog[i].prompt!;
+    }
+    return null;
+  });
+
   const [showLog, setShowLog] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -190,6 +197,15 @@ export default function SelfDriveStatus() {
       {fixAttempt > 0 && (
         <p className="text-detail mt-0.5" style={{ color: "var(--yellow, #eab308)" }}>
           Fix attempt {fixAttempt}/{maxFixAttempts}
+        </p>
+      )}
+      {lastPrompt && (
+        <p
+          className="text-detail mt-0.5 truncate"
+          style={{ color: "var(--text-ghost)" }}
+          title={lastPrompt}
+        >
+          {lastPrompt.length > 80 ? `${lastPrompt.slice(0, 80)}...` : lastPrompt}
         </p>
       )}
       {showLog && <RunLogViewer onClose={() => setShowLog(false)} />}

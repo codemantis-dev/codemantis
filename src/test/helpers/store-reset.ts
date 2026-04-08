@@ -80,6 +80,7 @@ export function resetAllStores(): void {
     fixAttempt: 0,
     maxFixAttempts: 3,
     previousFixPrompts: [],
+    lowConfidenceCount: 0,
     runLog: [],
     startedAt: null,
     sessionStartedAt: null,

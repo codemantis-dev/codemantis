@@ -25,7 +25,6 @@ import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import {
   extractToolsFromTurn,
   truncateResponse,
-  findCheckByLabel,
   getCurrentSessionPlan,
   getProjectTechStack,
   getBuildCommand,
@@ -48,6 +47,7 @@ interface SelfDriveState {
   fixAttempt: number;
   maxFixAttempts: number;
   previousFixPrompts: string[];
+  lowConfidenceCount: number;
 
   runLog: RunLogEntry[];
 
@@ -88,6 +88,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   fixAttempt: 0,
   maxFixAttempts: 3,
   previousFixPrompts: [],
+  lowConfidenceCount: 0,
   runLog: [],
   startedAt: null,
   sessionStartedAt: null,
@@ -139,6 +140,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       previousSessionMode: currentMode,
       fixAttempt: 0,
       previousFixPrompts: [],
+      lowConfidenceCount: 0,
       runLog: [],
       startedAt: Date.now(),
       sessionStartedAt: Date.now(),
@@ -161,7 +163,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     // Send first build prompt
     set({ currentPhase: "building" });
-    addLogEntry(firstActive.index, "building", `Starting Session ${firstActive.index}: ${firstActive.name}`);
+    addLogEntry(firstActive.index, "building", `Starting Session ${firstActive.index}: ${firstActive.name}`, undefined, firstActive.prompt);
 
     try {
       await sendMessage(sessionId, firstActive.prompt);
@@ -305,28 +307,31 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     return;
   }
 
+  const orchestratorInput = {
+    currentPhase: mapPhaseForOrchestrator(state.currentPhase),
+    sessionPlan,
+    claudeCodeResponse: truncateResponse(lastAssistant?.content || ""),
+    claudeCodeToolsUsed: toolsUsed,
+    turnDurationMs: payload.duration_ms || 0,
+    fixAttempt: state.fixAttempt,
+    maxFixAttempts: state.maxFixAttempts,
+    previousFixPrompts: state.previousFixPrompts,
+    techStack: getProjectTechStack(),
+    testCommand: getTestCommand(),
+    buildCommand: getBuildCommand(),
+    specFilename: guide.specFilename,
+    auditFilename: guide.auditFilename,
+  };
+
   let decision: OrchestratorDecision;
   try {
-    decision = await callOrchestrator(
-      {
-        currentPhase: mapPhaseForOrchestrator(state.currentPhase),
-        sessionPlan,
-        claudeCodeResponse: truncateResponse(lastAssistant?.content || "", 4000),
-        claudeCodeToolsUsed: toolsUsed,
-        turnDurationMs: payload.duration_ms || 0,
-        fixAttempt: state.fixAttempt,
-        maxFixAttempts: state.maxFixAttempts,
-        previousFixPrompts: state.previousFixPrompts,
-        techStack: getProjectTechStack(),
-        testCommand: getTestCommand(),
-        buildCommand: getBuildCommand(),
-        specFilename: guide.specFilename,
-        auditFilename: guide.auditFilename,
-      },
-      config.provider,
-      apiKey,
-      config.model,
-    );
+    decision = await callOrchestrator(orchestratorInput, config.provider, apiKey, config.model);
+
+    // Retry once on parse failure (transient LLM format errors)
+    if (decision.action === "pause" && decision.pauseReason?.includes("Could not parse AI response")) {
+      addLogEntry(state.currentSessionIndex!, "evaluating", "Orchestrator parse error — retrying...");
+      decision = await callOrchestrator(orchestratorInput, config.provider, apiKey, config.model);
+    }
   } catch (err) {
     handlePause(`AI orchestrator error: ${err}. Check your API key and network.`);
     return;
@@ -334,9 +339,35 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
 
   addLogEntry(state.currentSessionIndex!, "decision", decision.summary, decision);
 
-  // Low-confidence guard
+  // Inject decision card into the chat
+  injectDecisionMessage(decision, state.currentSessionIndex!, state.currentPhase ?? "evaluating");
+
+  // Low-confidence guard — graduated response
   if (decision.confidence === "low") {
-    handlePause(`Orchestrator is uncertain: ${decision.summary}. Review the conversation and Resume or Stop.`);
+    // High-stakes actions: pause immediately
+    if (decision.action === "advance" || decision.action === "abort") {
+      handlePause(`Orchestrator uncertain on "${decision.action}": ${decision.summary}`);
+      return;
+    }
+    // Recoverable actions: proceed, but track consecutive low-confidence count
+    const newCount = useSelfDriveStore.getState().lowConfidenceCount + 1;
+    useSelfDriveStore.setState({ lowConfidenceCount: newCount });
+    if (newCount >= 3) {
+      handlePause(`${newCount} consecutive low-confidence decisions. Review the conversation.`);
+      return;
+    }
+    addLogEntry(state.currentSessionIndex!, "decision",
+      `Low-confidence "${decision.action}" — proceeding (${newCount}/3)`, decision);
+  }
+  if (decision.confidence !== "low") {
+    useSelfDriveStore.setState({ lowConfidenceCount: 0 });
+  }
+
+  // Re-check status before executing — closes race window if user clicked Pause
+  // while orchestrator was awaiting
+  if (useSelfDriveStore.getState().status !== "running") {
+    addLogEntry(state.currentSessionIndex ?? 0, "decision",
+      `Decision discarded (${decision.action}) — Self-Drive was paused/stopped`);
     return;
   }
 
@@ -396,28 +427,36 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
 async function handleAdvance(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
+  const guide = useGuideStore.getState().guide;
+  const session = guide?.sessions.find((s) => s.index === sessionIndex);
 
-  // Mark verify checks based on AI's analysis
-  if (decision.checkResults) {
-    for (const result of decision.checkResults) {
-      const check = findCheckByLabel(sessionIndex, result.label);
-      if (check && result.passed && !check.checked) {
+  // The orchestrator decided to advance — trust its go/no-go decision.
+  // Mark ALL verify checks as passed.
+  if (session) {
+    for (const check of session.verifyChecks) {
+      if (!check.checked) {
         useGuideStore.getState().toggleVerifyCheck(sessionIndex, check.id);
       }
     }
   }
 
-  // Mark session complete
+  // Mark session complete (should always succeed — all checks are toggled)
   const completed = useGuideStore.getState().markSessionComplete(sessionIndex);
   if (!completed) {
-    // First advance call toggles checks above; if markSessionComplete still
-    // fails, some verify checks weren't matched. Pause for human review.
-    const alreadyDone = useGuideStore.getState().guide?.sessions
+    const alreadyDone = guide?.sessions
       .find((s) => s.index === sessionIndex)?.status === "done";
     if (!alreadyDone) {
-      handlePause(`Could not mark Session ${sessionIndex} complete — some verify checks may not have matched`);
+      handlePause(`Could not mark Session ${sessionIndex} complete — unexpected state`);
       return;
     }
+  }
+
+  // Log check details for human review (informational only)
+  if (decision.checkResults?.length) {
+    const checkSummary = decision.checkResults
+      .map((r) => `${r.passed ? "PASS" : "FAIL"}: ${r.label}`)
+      .join("; ");
+    addLogEntry(sessionIndex, "advancing", checkSummary);
   }
   addLogEntry(sessionIndex, "advancing", `Session ${sessionIndex} complete`);
   showToast(`Session ${sessionIndex} verified`, "success");
@@ -425,8 +464,9 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // Optional: run tests between sessions (skip if coming from test/commit phase)
   if (state.config.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "testing" });
-    addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`);
-    await sendMessageToSession(`Run the test suite: ${getTestCommand()}. Report which tests pass and which fail.`);
+    const testPrompt = `Run the test suite: ${getTestCommand()}. Report which tests pass and which fail.`;
+    addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`, undefined, testPrompt);
+    await sendMessageToSession(testPrompt);
     return; // wait for turn_complete → orchestrator evaluates
   }
 
@@ -434,10 +474,9 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   if (state.config.autoCommit && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "committing" });
     const plan = getCurrentSessionPlan(sessionIndex);
-    addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`);
-    await sendMessageToSession(
-      `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`,
-    );
+    const commitPrompt = `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`;
+    addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`, undefined, commitPrompt);
+    await sendMessageToSession(commitPrompt);
     return; // wait for turn_complete → then advance
   }
 
@@ -455,9 +494,9 @@ async function handleVerify(): Promise<void> {
   if (!session) return;
 
   useSelfDriveStore.setState({ currentPhase: "verifying" });
-  addLogEntry(sessionIndex, "verifying", `Verifying Session ${sessionIndex}`);
 
   const verifyPrompt = buildSessionVerifyPrompt(session, guide.specFilename, guide.auditFilename);
+  addLogEntry(sessionIndex, "verifying", `Verifying Session ${sessionIndex}`, undefined, verifyPrompt);
   await sendMessageToSession(verifyPrompt);
   useGuideStore.getState().markVerifyRequested(sessionIndex);
 }
@@ -481,6 +520,8 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
     state.currentSessionIndex!,
     "fixing",
     `Fix attempt ${fixAttempt}/${state.maxFixAttempts}: ${decision.summary}`,
+    undefined,
+    decision.fixPrompt,
   );
 
   showToast(`Fix applied, re-checking... (${fixAttempt}/${state.maxFixAttempts})`, "info");
@@ -491,16 +532,18 @@ async function handleBuildCheck(decision: OrchestratorDecision): Promise<void> {
   const state = useSelfDriveStore.getState();
   useSelfDriveStore.setState({ currentPhase: "build-checking" });
   const cmd = decision.buildCommand || getBuildCommand() || "pnpm tsc --noEmit";
-  addLogEntry(state.currentSessionIndex!, "build-checking", `Build check: ${cmd}`);
-  await sendMessageToSession(`Run \`${cmd}\` and report any errors. If there are zero errors, say "Build clean."`);
+  const buildPrompt = `Run \`${cmd}\` and report any errors. If there are zero errors, say "Build clean."`;
+  addLogEntry(state.currentSessionIndex!, "build-checking", `Build check: ${cmd}`, undefined, buildPrompt);
+  await sendMessageToSession(buildPrompt);
 }
 
 async function handleTest(decision: OrchestratorDecision): Promise<void> {
   const state = useSelfDriveStore.getState();
   useSelfDriveStore.setState({ currentPhase: "testing" });
   const cmd = decision.testCommand || getTestCommand() || "pnpm test";
-  addLogEntry(state.currentSessionIndex!, "testing", `Running tests: ${cmd}`);
-  await sendMessageToSession(`Run \`${cmd}\`. Report which tests pass and which fail.`);
+  const testPrompt = `Run \`${cmd}\`. Report which tests pass and which fail.`;
+  addLogEntry(state.currentSessionIndex!, "testing", `Running tests: ${cmd}`, undefined, testPrompt);
+  await sendMessageToSession(testPrompt);
 }
 
 async function handleCommit(): Promise<void> {
@@ -539,7 +582,7 @@ async function startNextSession(): Promise<void> {
     sessionStartedAt: Date.now(),
   });
 
-  addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`);
+  addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`, undefined, nextSession.prompt);
   await sendMessageToSession(nextSession.prompt);
   useGuideStore.getState().markPromptSent(nextSession.index);
 }
@@ -596,6 +639,7 @@ function addLogEntry(
   phase: RunLogEntry["phase"],
   summary: string,
   decision?: OrchestratorDecision,
+  prompt?: string,
 ): void {
   const entry: RunLogEntry = {
     timestamp: Date.now(),
@@ -604,6 +648,7 @@ function addLogEntry(
     event: phase,
     summary,
     decision,
+    prompt,
   };
   useSelfDriveStore.setState((prev) => ({
     runLog: [...prev.runLog, entry],
@@ -622,6 +667,34 @@ async function sendMessageToSession(prompt: string): Promise<void> {
   } catch (e) {
     handlePause(`Failed to send message to Claude Code: ${e}`);
   }
+}
+
+/**
+ * Inject an orchestrator decision message into the chat session.
+ * These appear as center-aligned cards in the ChatPanel, distinct from normal messages.
+ */
+function injectDecisionMessage(
+  decision: OrchestratorDecision,
+  sessionIndex: number,
+  phase: string,
+): void {
+  const sessionId = activeSessionId;
+  if (!sessionId) return;
+  useSessionStore.getState().addMessage(sessionId, {
+    id: `sd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    role: "assistant",
+    content: decision.summary,
+    timestamp: new Date().toISOString(),
+    activityIds: [],
+    isStreaming: false,
+    selfDriveEvent: {
+      action: decision.action,
+      summary: decision.summary,
+      confidence: decision.confidence,
+      sessionIndex,
+      phase,
+    },
+  });
 }
 
 function formatDuration(ms: number): string {

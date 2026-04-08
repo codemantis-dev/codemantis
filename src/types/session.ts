@@ -40,6 +40,13 @@ export interface Message {
   retryable?: boolean;
   thinkingContent?: string;
   isRestored?: boolean;
+  selfDriveEvent?: {
+    action: string;
+    summary: string;
+    confidence: string;
+    sessionIndex: number;
+    phase: string;
+  };
 }
 
 export interface SessionStats {

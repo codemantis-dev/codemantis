@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 
 interface UseChatIncrementalLoadOptions {
   totalCount: number;
@@ -11,13 +11,15 @@ interface UseChatIncrementalLoadOptions {
 interface UseChatIncrementalLoadReturn {
   startIndex: number;
   hasOlder: boolean;
+  remainingCount: number;
+  loadAll: () => void;
   sentinelRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export function useChatIncrementalLoad({
   totalCount,
-  initialCount = 30,
-  batchSize = 30,
+  initialCount = 80,
+  batchSize = 80,
   resetKey = null,
   scrollRef,
 }: UseChatIncrementalLoadOptions): UseChatIncrementalLoadReturn {
@@ -47,7 +49,7 @@ export function useChatIncrementalLoad({
           setLoadedCount((prev) => Math.min(prev + batchSize, totalCount));
         }
       },
-      { rootMargin: "200px" }
+      { root: scrollRef.current, rootMargin: "200px" }
     );
 
     const sentinel = sentinelRef.current;
@@ -74,5 +76,9 @@ export function useChatIncrementalLoad({
   const startIndex = Math.max(0, totalCount - loadedCount);
   const hasOlder = startIndex > 0;
 
-  return { startIndex, hasOlder, sentinelRef };
+  const loadAll = useCallback(() => {
+    setLoadedCount(totalCount);
+  }, [totalCount]);
+
+  return { startIndex, hasOlder, remainingCount: startIndex, loadAll, sentinelRef };
 }

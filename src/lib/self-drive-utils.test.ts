@@ -15,7 +15,6 @@ import { useGuideStore } from "../stores/guideStore";
 import {
   extractToolsFromTurn,
   truncateResponse,
-  findCheckByLabel,
   getCurrentSessionPlan,
 } from "./self-drive-utils";
 
@@ -172,64 +171,16 @@ describe("truncateResponse", () => {
     expect(result.endsWith("END")).toBe(true);
   });
 
-  it("defaults to 4000 char limit", () => {
-    const long = "A".repeat(5000);
+  it("defaults to 6000 char limit", () => {
+    const long = "A".repeat(7000);
     const result = truncateResponse(long);
-    expect(result.length).toBeLessThan(5000);
+    expect(result.length).toBeLessThan(7000);
     expect(result).toContain("[...truncated...]");
   });
 
   it("returns unchanged when exactly at limit", () => {
-    const exact = "A".repeat(4000);
-    expect(truncateResponse(exact, 4000)).toBe(exact);
-  });
-});
-
-// ── findCheckByLabel ──────────────────────────────────────────────
-
-describe("findCheckByLabel", () => {
-  beforeEach(() => {
-    useGuideStore.setState({ guide: makeGuide() });
-  });
-
-  it("finds exact match", () => {
-    const check = findCheckByLabel(1, "TypeScript compiles");
-    expect(check).not.toBeNull();
-    expect(check!.id).toBe("v-1-0");
-  });
-
-  it("finds case-insensitive match", () => {
-    const check = findCheckByLabel(1, "typescript compiles");
-    expect(check).not.toBeNull();
-    expect(check!.id).toBe("v-1-0");
-  });
-
-  it("finds partial match (label contains search)", () => {
-    const check = findCheckByLabel(1, "TypeScript");
-    expect(check).not.toBeNull();
-    expect(check!.label).toContain("TypeScript");
-  });
-
-  it("finds partial match (search contains label)", () => {
-    const check = findCheckByLabel(1, "TypeScript compiles cleanly with no errors");
-    expect(check).not.toBeNull();
-    expect(check!.id).toBe("v-1-0");
-  });
-
-  it("returns null for non-matching label", () => {
-    const check = findCheckByLabel(1, "completely unrelated check");
-    expect(check).toBeNull();
-  });
-
-  it("returns null for non-existent session", () => {
-    const check = findCheckByLabel(99, "TypeScript compiles");
-    expect(check).toBeNull();
-  });
-
-  it("returns null when no guide is loaded", () => {
-    useGuideStore.setState({ guide: null });
-    const check = findCheckByLabel(1, "TypeScript compiles");
-    expect(check).toBeNull();
+    const exact = "A".repeat(6000);
+    expect(truncateResponse(exact, 6000)).toBe(exact);
   });
 });
 

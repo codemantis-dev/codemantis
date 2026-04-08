@@ -371,4 +371,20 @@ describe("callOrchestrator", () => {
     expect(call.model).toBe("claude-sonnet-4-20250514");
     expect(call.maxTokens).toBe(1024);
   });
+
+  it("system prompt declares advance as go/no-go decision", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    // System prompt should state that advance = orchestrator's go/no-go
+    expect(systemPrompt).toContain("go/no-go decision");
+    // And that checkResults are informational
+    expect(systemPrompt).toContain("informational");
+  });
 });

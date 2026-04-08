@@ -126,6 +126,54 @@ describe("SelfDriveStatus", () => {
     expect(screen.getByText("Log")).toBeInTheDocument();
   });
 
+  it("shows prompt preview when running and runLog has prompt", () => {
+    useSelfDriveStore.setState({
+      status: "running",
+      currentPhase: "building",
+      currentSessionIndex: 1,
+      sessionStartedAt: Date.now(),
+      runLog: [
+        {
+          timestamp: Date.now(),
+          sessionIndex: 1,
+          phase: "building",
+          event: "building",
+          summary: "Starting session 1",
+          prompt: "Build the database schema and API endpoints for user management",
+        },
+      ],
+    });
+
+    render(<SelfDriveStatus />);
+    expect(screen.getByText(/Build the database schema/)).toBeInTheDocument();
+  });
+
+  it("does not show prompt preview when runLog has no prompts", () => {
+    useSelfDriveStore.setState({
+      status: "running",
+      currentPhase: "evaluating",
+      currentSessionIndex: 1,
+      sessionStartedAt: Date.now(),
+      runLog: [
+        {
+          timestamp: Date.now(),
+          sessionIndex: 1,
+          phase: "evaluating",
+          event: "evaluating",
+          summary: "AI orchestrator evaluating...",
+        },
+      ],
+    });
+
+    render(<SelfDriveStatus />);
+    // Should show the phase label but no prompt preview
+    expect(screen.getByText(/AI deciding/)).toBeInTheDocument();
+    // No prompt text should appear
+    const container = screen.getByText(/AI deciding/).closest("div.mx-1");
+    const allText = container?.textContent ?? "";
+    expect(allText).not.toContain("Build ");
+  });
+
   it("shows fix attempt indicator when fixAttempt > 0", () => {
     useSelfDriveStore.setState({
       status: "running",

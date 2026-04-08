@@ -48,19 +48,19 @@ function makeScrollRef(scrollHeight = 1000): React.RefObject<HTMLDivElement | nu
 }
 
 describe("useChatIncrementalLoad", () => {
-  it("computes correct startIndex (100 messages, 30 loaded → startIndex 70)", () => {
+  it("computes correct startIndex (200 messages, 80 loaded → startIndex 120)", () => {
     const scrollRef = makeScrollRef();
     const { result } = renderHook(() =>
-      useChatIncrementalLoad({ totalCount: 100, scrollRef })
+      useChatIncrementalLoad({ totalCount: 200, scrollRef })
     );
-    expect(result.current.startIndex).toBe(70);
+    expect(result.current.startIndex).toBe(120);
     expect(result.current.hasOlder).toBe(true);
   });
 
-  it("defaults initialCount to 30", () => {
+  it("defaults initialCount to 80", () => {
     const scrollRef = makeScrollRef();
     const { result } = renderHook(() =>
-      useChatIncrementalLoad({ totalCount: 50, scrollRef })
+      useChatIncrementalLoad({ totalCount: 100, scrollRef })
     );
     expect(result.current.startIndex).toBe(20);
   });
@@ -101,7 +101,7 @@ describe("useChatIncrementalLoad", () => {
     const scrollRef = makeScrollRef();
     const { result, rerender } = renderHook(
       ({ resetKey }: { resetKey: string }) =>
-        useChatIncrementalLoad({ totalCount: 100, initialCount: 30, resetKey, scrollRef }),
+        useChatIncrementalLoad({ totalCount: 100, initialCount: 30, batchSize: 30, resetKey, scrollRef }),
       { initialProps: { resetKey: "session-1" } }
     );
 
@@ -135,5 +135,30 @@ describe("useChatIncrementalLoad", () => {
     );
     unmount();
     expect(disconnectMock).toHaveBeenCalled();
+  });
+
+  it("remainingCount equals startIndex", () => {
+    const scrollRef = makeScrollRef();
+    const { result } = renderHook(() =>
+      useChatIncrementalLoad({ totalCount: 200, initialCount: 30, scrollRef })
+    );
+    expect(result.current.remainingCount).toBe(170);
+    expect(result.current.remainingCount).toBe(result.current.startIndex);
+  });
+
+  it("loadAll loads all messages at once", () => {
+    const scrollRef = makeScrollRef();
+    const { result } = renderHook(() =>
+      useChatIncrementalLoad({ totalCount: 200, initialCount: 30, scrollRef })
+    );
+    expect(result.current.startIndex).toBe(170);
+
+    act(() => {
+      result.current.loadAll();
+    });
+
+    expect(result.current.startIndex).toBe(0);
+    expect(result.current.hasOlder).toBe(false);
+    expect(result.current.remainingCount).toBe(0);
   });
 });
