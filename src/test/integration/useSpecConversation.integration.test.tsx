@@ -41,6 +41,7 @@ vi.mock("../../lib/spec-prompts", () => ({
   SPEC_START_PATTERN: /^# Specification/m,
   AUDIT_START_PATTERN: /^# Verification Audit/m,
   AUDIT_FILE_PATTERN: /audit saved to: (.+)/i,
+  isLikelySpecDocument: vi.fn().mockReturnValue(false),
   buildSystemPrompt: vi.fn().mockReturnValue("system prompt"),
 }));
 

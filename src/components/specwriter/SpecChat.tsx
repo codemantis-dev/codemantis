@@ -24,12 +24,13 @@ interface Props {
   contextLoading?: boolean;
   contextError?: string | null;
   onOptionAction?: (option: string) => boolean;
+  onPromoteToSpec?: (messageId: string) => void;
   sendMessage: (projectPath: string, content: string, attachments?: SpecAttachment[]) => Promise<void>;
   writeSpec: (projectPath: string) => void;
   cancelStream: (projectPath: string) => void;
 }
 
-export default function SpecChat({ projectPath, isOpen, contextLoading, contextError, onOptionAction, sendMessage, writeSpec, cancelStream }: Props) {
+export default function SpecChat({ projectPath, isOpen, contextLoading, contextError, onOptionAction, onPromoteToSpec, sendMessage, writeSpec, cancelStream }: Props) {
   const conversation = useSpecWriterStore((s) => s.conversations.get(projectPath));
   const isStreaming = useSpecWriterStore((s) => s.planningStreaming.get(projectPath) ?? false);
   const isLoadingFiles = useSpecWriterStore((s) => s.fileRequestsPending.get(projectPath) ?? false);
@@ -335,6 +336,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
               message={msg}
               isLastAssistant={isLastAssistant}
               onSelectOption={handleSelectOption}
+              onPromoteToSpec={onPromoteToSpec}
             />
           );
         })}

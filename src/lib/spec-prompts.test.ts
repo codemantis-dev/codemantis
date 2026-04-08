@@ -7,6 +7,7 @@ import {
   AUDIT_START_PATTERN,
   AUDIT_FILE_PATTERN,
   FILE_REQUEST_PATTERN,
+  isLikelySpecDocument,
   NEW_APP_PROMPT,
   FEATURE_MODE_PROMPT,
 } from "./spec-prompts";
@@ -92,9 +93,99 @@ describe("SPEC_START_PATTERN", () => {
     expect(SPEC_START_PATTERN.test("# My App — Specification")).toBe(true);
   });
 
-  it("does not match regular headings", () => {
+  it("matches 'Implementation & Testing Plan' heading", () => {
+    expect(SPEC_START_PATTERN.test("# MyFeature — Implementation & Testing Plan")).toBe(true);
+  });
+
+  it("matches 'Technical Specification' heading", () => {
+    expect(SPEC_START_PATTERN.test("# Dashboard — Technical Specification")).toBe(true);
+  });
+
+  it("matches 'Design Document' heading", () => {
+    expect(SPEC_START_PATTERN.test("# Auth Flow — Design Document")).toBe(true);
+  });
+
+  it("matches 'System Blueprint' heading", () => {
+    expect(SPEC_START_PATTERN.test("# Payment System - System Blueprint")).toBe(true);
+  });
+
+  it("matches shortened 'Spec' heading", () => {
+    expect(SPEC_START_PATTERN.test("# My App — Spec")).toBe(true);
+  });
+
+  it("matches 'Comprehensive Repair' style heading", () => {
+    expect(SPEC_START_PATTERN.test("# SpecLoom Comprehensive Repair — Requirements Specification")).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    expect(SPEC_START_PATTERN.test("# My App — feature specification")).toBe(true);
+  });
+
+  it("matches within multi-line content", () => {
+    const content = "Some preamble\n\n# My App — Implementation Plan\n\n## 1. Overview";
+    expect(SPEC_START_PATTERN.test(content)).toBe(true);
+  });
+
+  it("does not match regular headings without dash separator", () => {
     expect(SPEC_START_PATTERN.test("# Introduction")).toBe(false);
     expect(SPEC_START_PATTERN.test("## Some Section")).toBe(false);
+  });
+
+  it("does not match headings with dash but no document-type noun", () => {
+    expect(SPEC_START_PATTERN.test("# Just a heading - nothing special")).toBe(false);
+  });
+});
+
+describe("isLikelySpecDocument", () => {
+  it("returns false for short content", () => {
+    expect(isLikelySpecDocument("# Hello\n\nShort message")).toBe(false);
+  });
+
+  it("returns false for content not starting with --- or #", () => {
+    const content = "Some text\n" + "## Section\n".repeat(10) + "a".repeat(2000);
+    expect(isLikelySpecDocument(content)).toBe(false);
+  });
+
+  it("returns true for document with 3+ numbered H2 sections", () => {
+    const spec = "---\n\n# App — Custom Title\n\n" +
+      "## 1. Overview\nSome overview text about the application.\n\n" +
+      "## 2. Data Model\nEntity definitions and relationships.\n\n" +
+      "## 3. API Design\nEndpoints and routes.\n\n" +
+      "## 4. UI Components\nComponent hierarchy.\n\n" +
+      "x".repeat(1500);
+    expect(isLikelySpecDocument(spec)).toBe(true);
+  });
+
+  it("returns true for document starting with # and having numbered sections", () => {
+    const spec = "# My Feature Plan\n\n" +
+      "## 1. Overview\nApplication overview.\n\n" +
+      "## 2. Requirements\nRequirements list.\n\n" +
+      "## 3. Implementation\nImplementation approach.\n\n" +
+      "x".repeat(1500);
+    expect(isLikelySpecDocument(spec)).toBe(true);
+  });
+
+  it("returns true for document with 5+ H2s and spec keywords", () => {
+    const spec = "# My Feature\n\n" +
+      "## Overview\nApplication overview and architecture.\n\n" +
+      "## Requirements\nFunctional requirements list.\n\n" +
+      "## Implementation\nImplementation approach.\n\n" +
+      "## Components\nUI component structure.\n\n" +
+      "## API Routes\nAPI route design.\n\n" +
+      "## Checklist\nImplementation checklist.\n\n" +
+      "x".repeat(1500);
+    expect(isLikelySpecDocument(spec)).toBe(true);
+  });
+
+  it("returns false for conversational response with few sections", () => {
+    const chat = "# Question\n\n## Answer\nHere is what I think.\n\n## Follow-up\nAnything else?\n" + "x".repeat(2000);
+    expect(isLikelySpecDocument(chat)).toBe(false);
+  });
+
+  it("returns false for content under 1500 characters even with structure", () => {
+    const short = "---\n\n# App\n\n## 1. A\nText\n\n## 2. B\nText\n\n## 3. C\nText";
+    expect(short.length).toBeLessThan(1500);
+    expect(isLikelySpecDocument(short)).toBe(false);
   });
 });
 

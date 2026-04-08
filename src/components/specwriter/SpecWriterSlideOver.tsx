@@ -43,6 +43,7 @@ export default function SpecWriterSlideOver() {
   const setProjectContext = useSpecWriterStore((s) => s.setProjectContext);
   const addMessage = useSpecWriterStore((s) => s.addMessage);
   const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
+  const promoteMessageToSpec = useSpecWriterStore((s) => s.promoteMessageToSpec);
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
@@ -316,6 +317,13 @@ export default function SpecWriterSlideOver() {
     }
   }, [activeProjectPath, sendSpecMessage]);
 
+  const handlePromoteToSpec = useCallback((messageId: string) => {
+    if (activeProjectPath) {
+      promoteMessageToSpec(activeProjectPath, messageId);
+      showToast("Message promoted to spec preview", "success");
+    }
+  }, [activeProjectPath, promoteMessageToSpec]);
+
   const handleSendToChat = useCallback(async () => {
     if (!lastSavedFile || !activeSessionId) {
       showToast("No active chat session", "error");
@@ -444,6 +452,7 @@ export default function SpecWriterSlideOver() {
               contextLoading={contextLoading}
               contextError={contextError}
               onOptionAction={handleOptionAction}
+              onPromoteToSpec={handlePromoteToSpec}
               sendMessage={sendSpecMessage}
               writeSpec={writeSpec}
               cancelStream={cancelStream}

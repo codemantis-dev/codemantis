@@ -457,4 +457,102 @@ describe("specWriterStore", () => {
     // Attachments are NOT persisted to DB — only in-memory
     expect(useSpecWriterStore.getState().draftAttachments.has(PROJECT)).toBe(false);
   });
+
+  // ── promoteMessageToSpec ─────────────────────────────────────────
+
+  it("promoteMessageToSpec sets content, message type, and status", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.addMessage(PROJECT, {
+      id: "msg-user",
+      role: "user",
+      content: "Build a dashboard",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    store.addMessage(PROJECT, {
+      id: "msg-spec",
+      role: "assistant",
+      content: "# Dashboard — Implementation Plan\n\n## 1. Overview\nA dashboard...",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+
+    store.promoteMessageToSpec(PROJECT, "msg-spec");
+
+    const state = useSpecWriterStore.getState();
+    // Spec content is set
+    expect(state.currentSpecContent.get(PROJECT)).toBe(
+      "# Dashboard — Implementation Plan\n\n## 1. Overview\nA dashboard..."
+    );
+    // Message type updated
+    const conv = state.conversations.get(PROJECT)!;
+    const promoted = conv.messages.find((m) => m.id === "msg-spec");
+    expect(promoted!.message_type).toBe("spec_document");
+    // Conversation status is 'done'
+    expect(conv.status).toBe("done");
+  });
+
+  it("promoteMessageToSpec adds audit offer when no audit exists", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.addMessage(PROJECT, {
+      id: "msg-spec",
+      role: "assistant",
+      content: "# Spec content here",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+
+    store.promoteMessageToSpec(PROJECT, "msg-spec");
+
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT)!;
+    const auditOffer = conv.messages.find((m) => m.content.includes("Generate a Verification Audit?"));
+    expect(auditOffer).toBeDefined();
+    expect(auditOffer!.parsedOptions).toHaveLength(2);
+  });
+
+  it("promoteMessageToSpec skips audit offer when audit already exists", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.addMessage(PROJECT, {
+      id: "msg-spec",
+      role: "assistant",
+      content: "# Spec content here",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+    store.setCurrentAuditContent(PROJECT, "# Audit content");
+
+    store.promoteMessageToSpec(PROJECT, "msg-spec");
+
+    const conv = useSpecWriterStore.getState().conversations.get(PROJECT)!;
+    const auditOffer = conv.messages.find((m) => m.content.includes("Generate a Verification Audit?"));
+    expect(auditOffer).toBeUndefined();
+  });
+
+  it("promoteMessageToSpec ignores non-existent message ID", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+
+    store.promoteMessageToSpec(PROJECT, "nonexistent");
+
+    expect(useSpecWriterStore.getState().currentSpecContent.has(PROJECT)).toBe(false);
+  });
+
+  it("promoteMessageToSpec ignores non-assistant messages", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.addMessage(PROJECT, {
+      id: "msg-user",
+      role: "user",
+      content: "Build something",
+      message_type: "conversation",
+      timestamp: new Date().toISOString(),
+    });
+
+    store.promoteMessageToSpec(PROJECT, "msg-user");
+
+    expect(useSpecWriterStore.getState().currentSpecContent.has(PROJECT)).toBe(false);
+  });
 });

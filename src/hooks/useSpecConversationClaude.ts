@@ -19,6 +19,7 @@ import {
   SPEC_START_PATTERN,
   AUDIT_START_PATTERN,
   AUDIT_FILE_PATTERN,
+  isLikelySpecDocument,
   buildClaudeCodePrompt,
 } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
@@ -189,7 +190,7 @@ export function useSpecConversationClaude(): {
         if (!buf) return;
         const currentStore = useSpecWriterStore.getState();
         currentStore.updateLastAssistantMessage(projectPath, buf);
-        if (specDetectedRef.current || SPEC_START_PATTERN.test(buf)) {
+        if (specDetectedRef.current || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
           specDetectedRef.current = true;
           currentStore.setCurrentSpecContent(projectPath, buf);
         }
@@ -219,7 +220,7 @@ export function useSpecConversationClaude(): {
 
           const finalContent = streamBufferRef.current;
           const parsed = parseSelectableOptions(finalContent);
-          const isSpec = SPEC_START_PATTERN.test(finalContent);
+          const isSpec = SPEC_START_PATTERN.test(finalContent) || isLikelySpecDocument(finalContent);
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
           const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
 

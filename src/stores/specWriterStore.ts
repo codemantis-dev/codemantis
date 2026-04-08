@@ -72,6 +72,9 @@ interface SpecWriterState {
   // Actions - Spec content
   setCurrentSpecContent: (projectPath: string, content: string | null) => void;
 
+  // Actions - Manual spec promotion
+  promoteMessageToSpec: (projectPath: string, messageId: string) => void;
+
   // Actions - Audit content
   setCurrentAuditContent: (projectPath: string, content: string | null) => void;
 
@@ -319,6 +322,45 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       }
       return { currentAuditContent };
     }),
+
+  // Manual spec promotion — atomically sets content, message type, status, and offers audit
+  promoteMessageToSpec: (projectPath, messageId) => {
+    set((state) => {
+      const conversations = new Map(state.conversations);
+      const conv = conversations.get(projectPath);
+      if (!conv) return {};
+
+      const messages = [...conv.messages];
+      const msgIdx = messages.findIndex((m) => m.id === messageId);
+      if (msgIdx < 0 || messages[msgIdx].role !== 'assistant') return {};
+
+      const content = messages[msgIdx].content;
+      messages[msgIdx] = { ...messages[msgIdx], message_type: 'spec_document' as const };
+      conversations.set(projectPath, { ...conv, messages, status: 'done' });
+
+      const currentSpecContent = new Map(state.currentSpecContent);
+      currentSpecContent.set(projectPath, content);
+
+      return { conversations, currentSpecContent };
+    });
+
+    // Post-promotion: offer audit generation if none exists
+    const state = get();
+    const existingAudit = state.currentAuditContent.get(projectPath);
+    if (!existingAudit) {
+      state.addMessage(projectPath, {
+        id: `msg-audit-offer-${Date.now()}`,
+        role: "system",
+        content: "Spec promoted! **Generate a Verification Audit?** This is a companion document that Claude Code uses to self-check its implementation \u2014 it opens every file, reads the actual code, and verifies it matches the spec.\n\nThis is the single most important step for implementation quality.",
+        message_type: "conversation",
+        timestamp: new Date().toISOString(),
+        parsedOptions: [
+          "\u{1F4CB} Yes, generate the Verification Audit",
+          "Not now \u2014 I'll generate it later",
+        ],
+      });
+    }
+  },
 
   // Saved specs
   setSavedSpecs: (projectPath, specs) =>

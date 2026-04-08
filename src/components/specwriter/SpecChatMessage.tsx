@@ -3,17 +3,18 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownLinkComponents } from "../../lib/external-links";
 import type { SpecMessage } from "../../types/spec-writer";
-import { Copy, Check, Send, Info, FolderOpen, ChevronDown, ChevronRight } from "lucide-react";
+import { Copy, Check, Send, Info, FolderOpen, ChevronDown, ChevronRight, PanelRightOpen } from "lucide-react";
 
 interface Props {
   message: SpecMessage;
   isLastAssistant?: boolean;
   onSelectOption?: (option: string) => void;
+  onPromoteToSpec?: (messageId: string) => void;
 }
 
 const REMARK_PLUGINS = [remarkGfm];
 
-export default React.memo(function SpecChatMessage({ message, isLastAssistant, onSelectOption }: Props) {
+export default React.memo(function SpecChatMessage({ message, isLastAssistant, onSelectOption, onPromoteToSpec }: Props) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isAssistant = message.role === "assistant";
@@ -106,14 +107,26 @@ export default React.memo(function SpecChatMessage({ message, isLastAssistant, o
         }}
       >
         {isAssistant && (
-          <button
-            onClick={handleCopy}
-            title={copied ? "Copied" : "Copy message"}
-            className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ color: "var(--text-ghost)", background: "var(--bg-primary)" }}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
+          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {onPromoteToSpec && message.message_type !== 'spec_document' && (
+              <button
+                onClick={() => onPromoteToSpec(message.id)}
+                title="Use as Spec"
+                className="p-1 rounded transition-colors hover:brightness-90"
+                style={{ color: "var(--text-ghost)", background: "var(--bg-primary)" }}
+              >
+                <PanelRightOpen size={12} />
+              </button>
+            )}
+            <button
+              onClick={handleCopy}
+              title={copied ? "Copied" : "Copy message"}
+              className="p-1 rounded transition-colors hover:brightness-90"
+              style={{ color: "var(--text-ghost)", background: "var(--bg-primary)" }}
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+          </div>
         )}
         {isAssistant ? (
           <div className="markdown-content text-chat" style={{ color: "var(--text-primary)" }}>
