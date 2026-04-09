@@ -14,7 +14,7 @@ import type { GuideSession } from "../../types/implementation-guide";
 import { showToast } from "../../stores/toastStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
-import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { useSelfDriveStore, useSelfDriveActiveForActiveProject } from "../../stores/selfDriveStore";
 import { buildSessionVerifyPrompt } from "../../lib/guide-verify-prompt";
 
 interface Props {
@@ -39,9 +39,9 @@ export default function GuideSessionCard({
   const [expanded, setExpanded] = useState(session.status === "active");
   const [filesExpanded, setFilesExpanded] = useState(false);
 
-  const selfDriveStatus = useSelfDriveStore((s) => s.status);
+  const selfDriveActive = useSelfDriveActiveForActiveProject();
   const selfDriveSessionIndex = useSelfDriveStore((s) => s.currentSessionIndex);
-  const isSelfDriveSession = (selfDriveStatus === "running" || selfDriveStatus === "paused") && selfDriveSessionIndex === session.index;
+  const isSelfDriveSession = selfDriveActive && selfDriveSessionIndex === session.index;
 
   const isDone = session.status === "done";
   const isActive = session.status === "active";

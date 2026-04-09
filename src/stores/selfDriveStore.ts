@@ -40,6 +40,7 @@ let activeSessionId: string | null = null;
 
 interface SelfDriveState {
   status: SelfDriveStatus;
+  projectPath: string | null;
   currentSessionIndex: number | null;
   currentPhase: SelfDrivePhase | null;
 
@@ -82,6 +83,7 @@ function getConfigFromSettings(): SelfDriveConfig {
 
 export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   status: "idle",
+  projectPath: null,
   currentSessionIndex: null,
   currentPhase: null,
   previousSessionMode: null,
@@ -103,8 +105,16 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   },
 
   start: async () => {
+    // Prevent starting if Self-Drive is already running/paused for another project
+    const currentState = get();
+    if (currentState.status === "running" || currentState.status === "paused") {
+      showToast(`Self-Drive is already ${currentState.status} for another project. Stop it first.`, "error");
+      return;
+    }
+
     const sessionId = useSessionStore.getState().activeSessionId;
-    if (!sessionId) {
+    const projectPath = useSessionStore.getState().activeProjectPath;
+    if (!sessionId || !projectPath) {
       showToast("No active Claude Code session", "error");
       return;
     }
@@ -135,6 +145,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     set({
       status: "running",
+      projectPath,
       currentSessionIndex: firstActive.index,
       currentPhase: "preparing",
       previousSessionMode: currentMode,
@@ -179,9 +190,16 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     const state = get();
     if (state.status !== "paused") return;
 
-    const sessionId = useSessionStore.getState().activeSessionId;
+    // Use the session from Self-Drive's own project, not the globally active one
+    const selfDriveProjectPath = state.projectPath;
+    if (!selfDriveProjectPath) {
+      showToast("No project associated with Self-Drive", "error");
+      return;
+    }
+
+    const sessionId = useSessionStore.getState().projectActiveSession.get(selfDriveProjectPath) ?? null;
     if (!sessionId) {
-      showToast("No active session to resume", "error");
+      showToast("No active session in Self-Drive project", "error");
       return;
     }
 
@@ -219,6 +237,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     set({
       status: "idle",
+      projectPath: null,
       currentPhase: null,
       currentSessionIndex: null,
       pauseReason: null,
@@ -279,6 +298,18 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   const sessionId = activeSessionId;
   if (!sessionId) return;
 
+  // Safety check: ensure the guide store still has OUR project's guide
+  // (user may have switched projects, causing the guide store to reload)
+  const guide = useGuideStore.getState().guide;
+  if (!guide) {
+    handlePause("Guide was dismissed during Self-Drive");
+    return;
+  }
+  if (state.projectPath && guide.projectPath !== state.projectPath) {
+    handlePause("Project switched — switch back to Self-Drive's project to resume.");
+    return;
+  }
+
   // Gather Claude Code's response
   const messages = useSessionStore.getState().sessionMessages.get(sessionId) || [];
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -287,12 +318,6 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   const sessionPlan = getCurrentSessionPlan(state.currentSessionIndex!);
   if (!sessionPlan) {
     handlePause("Could not get session plan — guide may have been dismissed");
-    return;
-  }
-
-  const guide = useGuideStore.getState().guide;
-  if (!guide) {
-    handlePause("Guide was dismissed during Self-Drive");
     return;
   }
 
@@ -620,14 +645,13 @@ function handleProcessCrash(payload: ProcessExitedEvent): void {
 
 async function restoreSessionMode(): Promise<void> {
   const previousMode = useSelfDriveStore.getState().previousSessionMode;
-  if (previousMode) {
-    const sessionId = useSessionStore.getState().activeSessionId;
-    if (sessionId) {
-      try {
-        await syncSessionMode(sessionId, previousMode);
-        useSessionStore.getState().setSessionMode(sessionId, previousMode as SessionMode);
-      } catch { /* ignore */ }
-    }
+  // Use Self-Drive's own activeSessionId, not the globally active one
+  // (user may have switched to a different project)
+  if (previousMode && activeSessionId) {
+    try {
+      await syncSessionMode(activeSessionId, previousMode);
+      useSessionStore.getState().setSessionMode(activeSessionId, previousMode as SessionMode);
+    } catch { /* ignore */ }
     useSelfDriveStore.setState({ previousSessionMode: null });
   }
 }
@@ -721,4 +745,31 @@ export function useSelfDriveRunning(): boolean {
 
 export function useSelfDriveActive(): boolean {
   return useSelfDriveStore((s) => s.status === "running" || s.status === "paused");
+}
+
+// ── Project-scoped selectors ─────────────────────────────────────────
+
+/** Is Self-Drive running for the CURRENTLY ACTIVE project? */
+export function useSelfDriveRunningForActiveProject(): boolean {
+  const sdProjectPath = useSelfDriveStore((s) => s.projectPath);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const status = useSelfDriveStore((s) => s.status);
+  return status === "running" && sdProjectPath === activeProjectPath;
+}
+
+/** Is Self-Drive active (running or paused) for the CURRENTLY ACTIVE project? */
+export function useSelfDriveActiveForActiveProject(): boolean {
+  const sdProjectPath = useSelfDriveStore((s) => s.projectPath);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const status = useSelfDriveStore((s) => s.status);
+  return (status === "running" || status === "paused") && sdProjectPath === activeProjectPath;
+}
+
+/** Self-Drive status scoped to the active project. Returns "idle" if Self-Drive belongs to a different project. */
+export function useSelfDriveStatusForActiveProject(): SelfDriveStatus {
+  const sdProjectPath = useSelfDriveStore((s) => s.projectPath);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
+  const status = useSelfDriveStore((s) => s.status);
+  if (sdProjectPath !== activeProjectPath) return "idle";
+  return status;
 }

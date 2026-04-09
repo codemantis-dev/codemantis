@@ -149,6 +149,9 @@ function setupReadyState(): void {
   // Session store: active session with a message
   useSessionStore.setState({
     activeSessionId: SESSION_ID,
+    activeProjectPath: "/test",
+    projectOrder: ["/test"],
+    projectActiveSession: new Map([["/test", SESSION_ID]]),
     sessions: new Map([[SESSION_ID, {
       id: SESSION_ID,
       name: "Test",
@@ -236,6 +239,7 @@ function captureListenCallback(): (event: FrontendEvent) => void {
 function resetStores(): void {
   useSelfDriveStore.setState({
     status: "idle",
+    projectPath: null,
     currentSessionIndex: null,
     currentPhase: null,
     previousSessionMode: null,
@@ -249,10 +253,13 @@ function resetStores(): void {
   });
   useSessionStore.setState({
     activeSessionId: null,
+    activeProjectPath: null,
     sessions: new Map(),
     sessionMessages: new Map(),
     sessionBusy: new Map(),
     sessionModes: new Map(),
+    projectActiveSession: new Map(),
+    projectOrder: [],
   });
   useGuideStore.setState({ guide: null, loading: false });
 }
@@ -284,7 +291,7 @@ describe("selfDriveStore", () => {
   });
 
   it("start fails without guide", async () => {
-    useSessionStore.setState({ activeSessionId: SESSION_ID });
+    useSessionStore.setState({ activeSessionId: SESSION_ID, activeProjectPath: "/test" });
     await useSelfDriveStore.getState().start();
     expect(mockShowToast).toHaveBeenCalledWith("No guide loaded", "error");
   });
@@ -1603,6 +1610,115 @@ describe("selfDriveStore — orchestrator retry", () => {
       // Second call should succeed — should be in verifying phase
       expect(useSelfDriveStore.getState().currentPhase).toBe("verifying");
       expect(callCount).toBe(2);
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Project-scoping isolation
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — project isolation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("start() captures projectPath from session store", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().projectPath).toBe("/test");
+    expect(useSelfDriveStore.getState().status).toBe("running");
+  });
+
+  it("start() rejects if Self-Drive is already running for another project", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    // Switch to a different project
+    useSessionStore.setState({
+      activeSessionId: "session-xyz",
+      activeProjectPath: "/other-project",
+      projectActiveSession: new Map([
+        ["/test", SESSION_ID],
+        ["/other-project", "session-xyz"],
+      ]),
+    });
+
+    // Try to start Self-Drive again — should be rejected
+    await useSelfDriveStore.getState().start();
+
+    expect(mockShowToast).toHaveBeenCalledWith(
+      "Self-Drive is already running for another project. Stop it first.",
+      "error",
+    );
+    // Should still be running for the original project
+    expect(useSelfDriveStore.getState().projectPath).toBe("/test");
+  });
+
+  it("stop() resets projectPath to null", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().projectPath).toBe("/test");
+
+    await useSelfDriveStore.getState().stop();
+
+    expect(useSelfDriveStore.getState().projectPath).toBeNull();
+    expect(useSelfDriveStore.getState().status).toBe("idle");
+  });
+
+  it("resume() uses Self-Drive project's session, not globally active one", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    useSelfDriveStore.getState().pause();
+    expect(useSelfDriveStore.getState().status).toBe("paused");
+
+    // Simulate user switching to a different project
+    useSessionStore.setState({
+      activeSessionId: "session-xyz",
+      activeProjectPath: "/other-project",
+      projectActiveSession: new Map([
+        ["/test", SESSION_ID],
+        ["/other-project", "session-xyz"],
+      ]),
+    });
+
+    mockListen.mockClear();
+    await useSelfDriveStore.getState().resume();
+
+    // Should resume using the ORIGINAL project's session, not the active one
+    expect(mockListen).toHaveBeenCalledWith(
+      `claude-chat-${SESSION_ID}`,
+      expect.any(Function),
+    );
+    expect(useSelfDriveStore.getState().status).toBe("running");
+  });
+
+  it("pauses on guide project mismatch during handleTurnComplete", async () => {
+    setupReadyState();
+
+    mockCallOrchestrator.mockResolvedValue({
+      action: "verify",
+      summary: "Verifying",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Simulate guide store loading a different project's guide
+    useGuideStore.setState({
+      guide: makeGuide({ projectPath: "/other-project" }),
+    });
+
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+      expect(useSelfDriveStore.getState().pauseReason).toContain("Project switched");
     });
   });
 });

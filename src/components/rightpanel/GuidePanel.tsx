@@ -4,7 +4,7 @@ import { useGuideStore } from "../../stores/guideStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { useSelfDriveStore, useSelfDriveStatusForActiveProject } from "../../stores/selfDriveStore";
 import { showToast } from "../../stores/toastStore";
 import { readSpecDocument } from "../../lib/tauri-commands";
 import GuideSessionCard from "./GuideSessionCard";
@@ -23,7 +23,7 @@ export default function GuidePanel() {
 
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const selfDriveStatus = useSelfDriveStore((s) => s.status);
+  const selfDriveStatus = useSelfDriveStatusForActiveProject();
   const selfDriveStart = useSelfDriveStore((s) => s.start);
   const settings = useSettingsStore((s) => s.settings);
 

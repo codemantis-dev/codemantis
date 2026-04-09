@@ -17,7 +17,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import SuperBroToggle from "../chat/SuperBroToggle";
 import { shouldSend, sendShortcutLabel, sendShortcutHint } from "../../lib/keyboard";
 import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
-import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { useSelfDriveStore, useSelfDriveRunningForActiveProject } from "../../stores/selfDriveStore";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
@@ -130,11 +130,12 @@ export default function InputArea() {
       const ui = useUiStore.getState();
       if (ui.showSettingsModal || ui.showClaudeHistory) return;
 
-      // If Self-Drive is running, Escape pauses it
-      const sdStatus = useSelfDriveStore.getState().status;
-      if (sdStatus === "running") {
+      // If Self-Drive is running for the active project, Escape pauses it
+      const sdState = useSelfDriveStore.getState();
+      const activeProject = useSessionStore.getState().activeProjectPath;
+      if (sdState.status === "running" && sdState.projectPath === activeProject) {
         e.preventDefault();
-        useSelfDriveStore.getState().pause();
+        sdState.pause();
         return;
       }
 
@@ -331,7 +332,7 @@ export default function InputArea() {
     ? s.sessionEffort.get(s.activeSessionId) ?? "high"
     : "high");
 
-  const selfDriveRunning = useSelfDriveStore((s) => s.status === "running");
+  const selfDriveRunning = useSelfDriveRunningForActiveProject();
 
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming && !selfDriveRunning;
 

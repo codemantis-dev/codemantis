@@ -74,6 +74,7 @@ export function resetAllStores(): void {
 
   useSelfDriveStore.setState({
     status: "idle",
+    projectPath: null,
     currentSessionIndex: null,
     currentPhase: null,
     previousSessionMode: null,

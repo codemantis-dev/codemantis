@@ -19,6 +19,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { useSessionStore } from "../../stores/sessionStore";
 import type { SelfDrivePhase } from "../../types/implementation-guide";
 import RunLogViewer from "./RunLogViewer";
 
@@ -35,6 +36,8 @@ const PHASE_CONFIG: Record<SelfDrivePhase, { icon: typeof Hammer; label: string;
 };
 
 export default function SelfDriveStatus() {
+  const sdProjectPath = useSelfDriveStore((s) => s.projectPath);
+  const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const status = useSelfDriveStore((s) => s.status);
   const phase = useSelfDriveStore((s) => s.currentPhase);
   const sessionIndex = useSelfDriveStore((s) => s.currentSessionIndex);
@@ -68,7 +71,8 @@ export default function SelfDriveStatus() {
     return () => clearInterval(interval);
   }, [status, sessionStartedAt]);
 
-  if (status === "idle") return null;
+  // Don't show Self-Drive status for a different project
+  if (status === "idle" || sdProjectPath !== activeProjectPath) return null;
 
   const formatElapsed = (ms: number): string => {
     const totalSec = Math.floor(ms / 1000);
