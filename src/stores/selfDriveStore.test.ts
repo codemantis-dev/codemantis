@@ -1722,3 +1722,94 @@ describe("selfDriveStore — project isolation", () => {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// Self-Drive prompts visible in chat
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — prompt visibility in chat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("start() adds the build prompt as a user message to the session", async () => {
+    setupReadyState();
+    await useSelfDriveStore.getState().start();
+
+    const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+    const userMessages = messages.filter((m) => m.role === "user");
+
+    // Should have at least one user message with the build prompt
+    expect(userMessages.length).toBeGreaterThanOrEqual(1);
+    expect(userMessages[userMessages.length - 1].content).toBe("Build foundation.");
+  });
+
+  it("sendMessageToSession adds prompt as user message before sending", async () => {
+    setupReadyState();
+
+    mockCallOrchestrator.mockResolvedValue({
+      action: "verify",
+      summary: "Build done, verifying",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Trigger a turn_complete to cause orchestrator to call verify → sendMessageToSession
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentPhase).toBe("verifying");
+    });
+
+    const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+    const userMessages = messages.filter((m) => m.role === "user");
+
+    // Should have the verify prompt added as a user message
+    expect(userMessages.length).toBeGreaterThanOrEqual(2); // build prompt + verify prompt
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Auto-commit uses live settings
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("selfDriveStore — auto-commit live config", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("handleAdvance reads autoCommit from live settings, not cached config", async () => {
+    setupReadyState();
+
+    // Start with autoCommit OFF
+    await useSelfDriveStore.getState().start();
+    const emit = captureListenCallback();
+
+    // Cached config has autoCommit: false (from setupReadyState settings)
+    expect(useSelfDriveStore.getState().config.autoCommit).toBe(false);
+
+    // Enable autoCommit in settings mid-run
+    useSettingsStore.setState((prev) => ({
+      settings: { ...prev.settings, selfDriveAutoCommit: true },
+    }));
+
+    // Make orchestrator advance → triggers handleAdvance
+    mockCallOrchestrator.mockResolvedValue({
+      action: "advance",
+      summary: "Session complete",
+      confidence: "high",
+      checkResults: [],
+    });
+
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      // Should have sent a commit prompt (phase should be "committing")
+      expect(useSelfDriveStore.getState().currentPhase).toBe("committing");
+    });
+  });
+});

@@ -177,6 +177,18 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     addLogEntry(firstActive.index, "building", `Starting Session ${firstActive.index}: ${firstActive.name}`, undefined, firstActive.prompt);
 
     try {
+      // Add user message to chat so the prompt is visible
+      const msgId = `sd-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      useSessionStore.getState().addMessage(sessionId, {
+        id: msgId,
+        role: "user",
+        content: firstActive.prompt,
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+      });
+      useSessionStore.getState().setSessionBusy(sessionId, true);
+
       await sendMessage(sessionId, firstActive.prompt);
       useGuideStore.getState().markPromptSent(firstActive.index);
     } catch (e) {
@@ -486,8 +498,11 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   addLogEntry(sessionIndex, "advancing", `Session ${sessionIndex} complete`);
   showToast(`Session ${sessionIndex} verified`, "success");
 
+  // Re-read config from settings (user may have toggled options mid-run)
+  const liveConfig = getConfigFromSettings();
+
   // Optional: run tests between sessions (skip if coming from test/commit phase)
-  if (state.config.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
+  if (liveConfig.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "testing" });
     const testPrompt = `Run the test suite: ${getTestCommand()}. Report which tests pass and which fail.`;
     addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`, undefined, testPrompt);
@@ -496,7 +511,7 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   }
 
   // Optional: git commit between sessions (skip if coming from commit phase)
-  if (state.config.autoCommit && previousPhase !== "committing") {
+  if (liveConfig.autoCommit && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "committing" });
     const plan = getCurrentSessionPlan(sessionIndex);
     const commitPrompt = `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`;
@@ -685,6 +700,18 @@ async function sendMessageToSession(prompt: string): Promise<void> {
     handlePause("No active session — cannot send message");
     return;
   }
+
+  // Add user message to the chat so Self-Drive prompts are visible
+  const msgId = `sd-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  useSessionStore.getState().addMessage(sessionId, {
+    id: msgId,
+    role: "user",
+    content: prompt,
+    timestamp: new Date().toISOString(),
+    activityIds: [],
+    isStreaming: false,
+  });
+  useSessionStore.getState().setSessionBusy(sessionId, true);
 
   try {
     await sendMessage(sessionId, prompt);
