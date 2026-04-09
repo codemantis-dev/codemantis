@@ -22,6 +22,31 @@ const AUTO_APPROVED_TOOLS: &[&str] = &[
     "TodoRead",
 ];
 
+/// Additional tools auto-approved in Plan mode.
+/// The CLI's plan mode system prompt constrains the model to only write
+/// the plan file and use read-only commands. These tools are needed for
+/// plan mode to function at all.
+const PLAN_MODE_ALLOWED_TOOLS: &[&str] = &[
+    "Write",
+    "Edit",
+    "Agent",
+    "WebSearch",
+    "WebFetch",
+    "AskUserQuestion",
+    "ToolSearch",
+    "TodoWrite",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "LSP",
+    "NotebookEdit",
+    "EnterWorktree",
+    "ExitWorktree",
+];
+
 
 /// JSON payload received from the PreToolUse hook (via the CLI).
 #[derive(Debug, Clone, Deserialize)]
@@ -346,21 +371,22 @@ async fn handle_tool_approval(
                     return (StatusCode::OK, Json(HookResponse::allow()));
                 }
                 SessionMode::Plan => {
-                    // Plan mode: DENY all write operations at the infrastructure level.
-                    // The CLI's --dangerously-skip-permissions flag bypasses its own
-                    // permission system, so the approval server is the ONLY enforcement
-                    // point. Read-only tools (Read, Glob, Grep, etc.) are already
-                    // auto-approved above. Everything else is denied.
+                    // Plan mode: auto-approve tools needed for planning (Write for
+                    // the plan file, Agent for subagent research, etc.). Tools not
+                    // on the list (e.g. Bash, MCP tools) fall through to the normal
+                    // user-approval flow so the user can inspect and approve/deny.
+                    if PLAN_MODE_ALLOWED_TOOLS.contains(&tool_name) {
+                        info!(
+                            "[approval-server] Auto-approving tool {} in Plan mode (session: {})",
+                            tool_name, forge_session_id
+                        );
+                        return (StatusCode::OK, Json(HookResponse::allow()));
+                    }
                     info!(
-                        "[approval-server] DENIED tool {} in Plan mode (session: {})",
+                        "[approval-server] Tool {} in Plan mode requires user approval (session: {})",
                         tool_name, forge_session_id
                     );
-                    return (
-                        StatusCode::OK,
-                        Json(HookResponse::deny(Some(
-                            "Tool not allowed in Plan mode. Only read operations (Read, Glob, Grep, ListDirectory) are permitted.".to_string(),
-                        ))),
-                    );
+                    // Fall through to normal approval flow
                 }
                 SessionMode::Normal => {
                     // Fall through to normal approval flow
@@ -778,6 +804,35 @@ mod tests {
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Edit"));
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Bash"));
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Delete"));
+    }
+
+    // ── PLAN_MODE_ALLOWED_TOOLS tests ──
+
+    #[test]
+    fn plan_mode_allows_write_edit_and_agent() {
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"Write"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"Edit"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"Agent"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"WebSearch"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"WebFetch"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"AskUserQuestion"));
+        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"ToolSearch"));
+    }
+
+    #[test]
+    fn bash_requires_approval_in_plan_mode() {
+        assert!(!PLAN_MODE_ALLOWED_TOOLS.contains(&"Bash"));
+    }
+
+    #[test]
+    fn plan_mode_allowed_does_not_overlap_auto_approved() {
+        for tool in PLAN_MODE_ALLOWED_TOOLS {
+            assert!(
+                !AUTO_APPROVED_TOOLS.contains(tool),
+                "{} is in both AUTO_APPROVED_TOOLS and PLAN_MODE_ALLOWED_TOOLS",
+                tool
+            );
+        }
     }
 
     // ── HookInput extra fields ──
