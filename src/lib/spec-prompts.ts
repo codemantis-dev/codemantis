@@ -400,6 +400,29 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Run full test suite: \`{test_command}\` — all pass including
         new tests
 
+DEPLOYMENT ITEMS IN PHASES:
+Every phase that creates deployment artifacts MUST end with
+deployment checklist items. These are not optional.
+
+WRONG (deployment missing from phase):
+  ### Phase 1: Database + Types
+  - [ ] Create migration file
+  - [ ] Write migration SQL
+  - [ ] Update types
+
+RIGHT (deployment included in phase):
+  ### Phase 1: Database + Types
+  - [ ] Create migration file
+  - [ ] Write migration SQL
+  - [ ] Apply migration: \`supabase db push\`
+  - [ ] Verify: new column exists in database
+  - [ ] Update types
+
+The deployment items MUST appear AFTER the artifact is created
+and BEFORE any code that depends on the deployed artifact.
+Sequence matters: migrate before the service layer queries the
+new column. Deploy the Edge Function before the frontend calls it.
+
 ## 10. Session Plan — Multi-Session Implementation Breakdown
 
 If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
@@ -449,11 +472,44 @@ explicitly says to.
 \`\`\`
 
 **Verify before next session:**
+- [ ] {deployment verification — if this session deployed anything}
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
 - [ ] Tests written for all new functions/components in this session
 - [ ] Test suite passes: \`{test_command}\` (including new tests)
 - [ ] TypeScript compiles: \`{typecheck_command}\`
+
+VERIFY CHECKS — DEPLOYMENT AWARENESS:
+If the session includes deployment commands, the verify section MUST
+include checks that confirm deployment succeeded:
+
+  Migration applied:
+  - [ ] Migration applied: \`{verify_command}\` (e.g., check table exists)
+    Supabase: SELECT column_name FROM information_schema.columns
+    WHERE table_name = '{table}' AND column_name = '{new_column}'
+    Prisma: npx prisma db pull (should not show drift)
+
+  Edge Function deployed:
+  - [ ] Edge Function deployed: \`supabase functions list\` shows {name}
+    OR: curl the function endpoint and confirm it responds
+
+  Container rebuilt:
+  - [ ] Container running new code: \`docker compose ps\` shows healthy
+    OR: check the app behavior reflects the code change
+
+  Dependencies installed:
+  - [ ] Dependencies installed: build succeeds (implicit in tsc check)
+
+These checks go BEFORE the generic "TypeScript compiles" check —
+deployment must succeed before code correctness matters.
+
+EXAMPLE verify section with deployment:
+
+**Verify before next session:**
+- [ ] Migration applied: user_id column exists on chat_sessions table
+- [ ] Edge Function deployed: \`supabase functions list\` shows \`chat\`
+- [ ] TypeScript compiles: \`pnpm tsc --noEmit\`
+- [ ] getPrivate() exists in chatService.ts
 
 EVERY session prompt MUST use the exact structure shown above. NEVER
 write a session prompt that says "Read the spec first" or "Read
@@ -485,6 +541,75 @@ SESSION SIZING GUIDANCE:
   they're bundled with feature work
 - If unsure, prefer more sessions over fewer — each session is
   a clean context window with focused instructions
+
+DEPLOYMENT ACTIONS — MANDATORY IN SESSION PROMPTS:
+If a session creates or modifies any of the following, the session
+prompt MUST include the corresponding deployment command. These
+commands go INSIDE the prompt's fenced code block, AFTER the
+implementation steps and BEFORE the "Do NOT modify files" line.
+
+  Database migration files → "Apply the migration: {command}"
+    • Supabase: \`supabase db push\` or \`supabase migration up\`
+    • Prisma: \`npx prisma migrate dev\`
+    • Django: \`python manage.py migrate\`
+    • Alembic: \`alembic upgrade head\`
+    • Drizzle: \`npx drizzle-kit push\`
+    • Raw SQL: \`psql -f migrations/xxx.sql\`
+
+  Edge Functions / Serverless functions → "Deploy the function: {command}"
+    • Supabase: \`supabase functions deploy {function-name} --no-verify-jwt\`
+    • Vercel: \`vercel deploy\`
+    • Netlify: \`netlify deploy\`
+    • AWS Lambda: deployment command from CLAUDE.md
+
+  Docker / Container code → "Rebuild containers: {command}"
+    • \`docker compose up --build -d\`
+    • \`docker build -t {image} .\`
+
+  Package dependencies (new imports) → "Install dependencies: {command}"
+    • npm/pnpm/yarn/bun install (detect from lock file)
+    • pip install -r requirements.txt
+
+  Environment variables → "Note: new env vars added. Restart dev server."
+
+  Config files (vite.config, next.config, tsconfig) → "Restart dev server."
+
+ORDER WITHIN THE PROMPT:
+Deployment commands MUST appear in this sequence:
+  1. Implementation steps (create/modify files)
+  2. Install dependencies (if any new ones)
+  3. Apply migrations (if any schema changes)
+  4. Deploy functions (if any serverless changes)
+  5. Rebuild containers (if Docker project)
+  6. Restart dev server (if config changed)
+  7. "Do NOT modify files from previous sessions..."
+
+EXAMPLE — Session prompt with deployment actions:
+
+**Prompt for Claude Code:**
+\`\`\`
+Read docs/specs/private-chat.md — but ONLY these sections:
+- Section 3 (Data Model Changes) — for migration SQL
+- Section 6 (API / Data Layer) — for service methods + Edge Function
+- Section 9, Phase 1 and Phase 2 — for checklist items
+
+IGNORE all other sections. Do NOT read ahead.
+
+1. Create the migration file with \`supabase migration new add_private_chat\`
+2. Write the migration SQL from Section 3
+3. Update types in src/types/index.ts: add 'private' to ChatLevel
+4. Add getPrivate() method to chatService.ts
+5. Update the Edge Function: handle 'private' in cascadeLevels
+
+Deploy:
+6. Apply migration: \`supabase db push\`
+7. Deploy Edge Function: \`supabase functions deploy chat --no-verify-jwt\`
+
+Do NOT modify any frontend files yet.
+\`\`\`
+
+NOTE: The "Deploy:" label is optional but helps Claude Code understand
+the sequence. The commands themselves are mandatory.
 
 LAST SESSION — AUDIT REFERENCE (MANDATORY):
 The LAST session in the Session Plan has a special verify section.
@@ -1364,6 +1489,29 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] Run full test suite: \`{test_command}\` — all pass including
         new tests
 
+DEPLOYMENT ITEMS IN PHASES:
+Every phase that creates deployment artifacts MUST end with
+deployment checklist items. These are not optional.
+
+WRONG (deployment missing from phase):
+  ### Phase 1: Database + Types
+  - [ ] Create migration file
+  - [ ] Write migration SQL
+  - [ ] Update types
+
+RIGHT (deployment included in phase):
+  ### Phase 1: Database + Types
+  - [ ] Create migration file
+  - [ ] Write migration SQL
+  - [ ] Apply migration: \`supabase db push\`
+  - [ ] Verify: new column exists in database
+  - [ ] Update types
+
+The deployment items MUST appear AFTER the artifact is created
+and BEFORE any code that depends on the deployed artifact.
+Sequence matters: migrate before the service layer queries the
+new column. Deploy the Edge Function before the frontend calls it.
+
 ## 10. Session Plan — Multi-Session Implementation Breakdown
 
 If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
@@ -1413,11 +1561,44 @@ explicitly says to.
 \`\`\`
 
 **Verify before next session:**
+- [ ] {deployment verification — if this session deployed anything}
 - [ ] {concrete verification step}
 - [ ] {concrete verification step}
 - [ ] Tests written for all new functions/components in this session
 - [ ] Test suite passes: \`{test_command}\` (including new tests)
 - [ ] TypeScript compiles: \`{typecheck_command}\`
+
+VERIFY CHECKS — DEPLOYMENT AWARENESS:
+If the session includes deployment commands, the verify section MUST
+include checks that confirm deployment succeeded:
+
+  Migration applied:
+  - [ ] Migration applied: \`{verify_command}\` (e.g., check table exists)
+    Supabase: SELECT column_name FROM information_schema.columns
+    WHERE table_name = '{table}' AND column_name = '{new_column}'
+    Prisma: npx prisma db pull (should not show drift)
+
+  Edge Function deployed:
+  - [ ] Edge Function deployed: \`supabase functions list\` shows {name}
+    OR: curl the function endpoint and confirm it responds
+
+  Container rebuilt:
+  - [ ] Container running new code: \`docker compose ps\` shows healthy
+    OR: check the app behavior reflects the code change
+
+  Dependencies installed:
+  - [ ] Dependencies installed: build succeeds (implicit in tsc check)
+
+These checks go BEFORE the generic "TypeScript compiles" check —
+deployment must succeed before code correctness matters.
+
+EXAMPLE verify section with deployment:
+
+**Verify before next session:**
+- [ ] Migration applied: user_id column exists on chat_sessions table
+- [ ] Edge Function deployed: \`supabase functions list\` shows \`chat\`
+- [ ] TypeScript compiles: \`pnpm tsc --noEmit\`
+- [ ] getPrivate() exists in chatService.ts
 
 EVERY session prompt MUST use the exact structure shown above. NEVER
 write a session prompt that says "Read the spec first" or "Read
@@ -1449,6 +1630,75 @@ SESSION SIZING GUIDANCE:
   they're bundled with feature work
 - If unsure, prefer more sessions over fewer — each session is
   a clean context window with focused instructions
+
+DEPLOYMENT ACTIONS — MANDATORY IN SESSION PROMPTS:
+If a session creates or modifies any of the following, the session
+prompt MUST include the corresponding deployment command. These
+commands go INSIDE the prompt's fenced code block, AFTER the
+implementation steps and BEFORE the "Do NOT modify files" line.
+
+  Database migration files → "Apply the migration: {command}"
+    • Supabase: \`supabase db push\` or \`supabase migration up\`
+    • Prisma: \`npx prisma migrate dev\`
+    • Django: \`python manage.py migrate\`
+    • Alembic: \`alembic upgrade head\`
+    • Drizzle: \`npx drizzle-kit push\`
+    • Raw SQL: \`psql -f migrations/xxx.sql\`
+
+  Edge Functions / Serverless functions → "Deploy the function: {command}"
+    • Supabase: \`supabase functions deploy {function-name} --no-verify-jwt\`
+    • Vercel: \`vercel deploy\`
+    • Netlify: \`netlify deploy\`
+    • AWS Lambda: deployment command from CLAUDE.md
+
+  Docker / Container code → "Rebuild containers: {command}"
+    • \`docker compose up --build -d\`
+    • \`docker build -t {image} .\`
+
+  Package dependencies (new imports) → "Install dependencies: {command}"
+    • npm/pnpm/yarn/bun install (detect from lock file)
+    • pip install -r requirements.txt
+
+  Environment variables → "Note: new env vars added. Restart dev server."
+
+  Config files (vite.config, next.config, tsconfig) → "Restart dev server."
+
+ORDER WITHIN THE PROMPT:
+Deployment commands MUST appear in this sequence:
+  1. Implementation steps (create/modify files)
+  2. Install dependencies (if any new ones)
+  3. Apply migrations (if any schema changes)
+  4. Deploy functions (if any serverless changes)
+  5. Rebuild containers (if Docker project)
+  6. Restart dev server (if config changed)
+  7. "Do NOT modify files from previous sessions..."
+
+EXAMPLE — Session prompt with deployment actions:
+
+**Prompt for Claude Code:**
+\`\`\`
+Read docs/specs/private-chat.md — but ONLY these sections:
+- Section 3 (Data Model Changes) — for migration SQL
+- Section 6 (API / Data Layer) — for service methods + Edge Function
+- Section 9, Phase 1 and Phase 2 — for checklist items
+
+IGNORE all other sections. Do NOT read ahead.
+
+1. Create the migration file with \`supabase migration new add_private_chat\`
+2. Write the migration SQL from Section 3
+3. Update types in src/types/index.ts: add 'private' to ChatLevel
+4. Add getPrivate() method to chatService.ts
+5. Update the Edge Function: handle 'private' in cascadeLevels
+
+Deploy:
+6. Apply migration: \`supabase db push\`
+7. Deploy Edge Function: \`supabase functions deploy chat --no-verify-jwt\`
+
+Do NOT modify any frontend files yet.
+\`\`\`
+
+NOTE: The "Deploy:" label is optional but helps Claude Code understand
+the sequence. The commands themselves are mandatory.
 
 LAST SESSION — AUDIT REFERENCE (MANDATORY):
 The LAST session in the Session Plan has a special verify section.
