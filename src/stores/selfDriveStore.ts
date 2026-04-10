@@ -229,14 +229,31 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       useSessionStore.getState().setSessionMode(sessionId, "auto-accept");
     } catch { /* ignore */ }
 
-    // Re-verify to evaluate after any manual fixes
-    const phase = state.currentPhase;
-    if (phase === "verifying" || phase === "fixing") {
-      await handleVerify();
-    } else if (phase === "building" || phase === "build-checking") {
-      await handleBuildCheck({ action: "build_check", summary: "Re-checking after resume", confidence: "high" });
+    // Determine resume action from guide session flags (not the ambiguous currentPhase)
+    const guide = useGuideStore.getState().guide;
+    const session = guide?.sessions.find((s) => s.index === state.currentSessionIndex);
+
+    if (!session) {
+      handlePause("Could not find current session in guide");
+      return;
+    }
+
+    if (session.status === "done") {
+      // Already completed — advance to next session
+      await startNextSession();
+    } else if (!session.promptSent) {
+      // Creation prompt never sent — send it now
+      set({ currentPhase: "building", fixAttempt: 0, previousFixPrompts: [] });
+      addLogEntry(session.index, "building",
+        `Resuming: sending creation prompt for Session ${session.index}`,
+        undefined, session.prompt);
+      await sendMessageToSession(session.prompt);
+      useGuideStore.getState().markPromptSent(session.index);
+    } else if (!session.verifyRequested) {
+      // Build was attempted but verification hasn't started — re-check build
+      await handleBuildCheck({ action: "build_check", summary: "Re-checking build after resume", confidence: "high" });
     } else {
-      // Default: re-verify
+      // Verification was already requested — re-verify
       await handleVerify();
     }
 

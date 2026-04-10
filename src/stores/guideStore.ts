@@ -71,13 +71,17 @@ export const useGuideStore = create<GuideState>((set, get) => ({
   },
 
   createGuide: async (projectPath, specFilename, auditFilename, parsedPlan) => {
+    // Replace any AI-hallucinated spec filename references with the actual filename
+    const fixSpecReference = (prompt: string): string =>
+      prompt.replace(/docs\/specs\/[\w-]+\.md/g, `docs/specs/${specFilename}`);
+
     const sessions: GuideSession[] = parsedPlan.sessions.map((s, i) => ({
       index: s.index,
       name: s.name,
       scope: s.scope,
       readSections: s.readSections,
       files: s.files,
-      prompt: s.prompt,
+      prompt: fixSpecReference(s.prompt),
       verifyChecks: s.verifyChecks.map((label, ci) => ({
         id: `verify-${s.index}-${ci}`,
         label,

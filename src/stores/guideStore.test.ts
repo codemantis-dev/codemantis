@@ -151,6 +151,75 @@ describe("guideStore", () => {
     expect(guide!.status).toBe("active");
   });
 
+  it("createGuide replaces hallucinated spec filenames in prompts", async () => {
+    const plan: ParsedSessionPlan = {
+      title: "Test App",
+      sessions: [
+        {
+          index: 1,
+          name: "Foundation",
+          scope: "Phase 1",
+          readSections: "Sections 1, 2",
+          files: ["src/db.ts"],
+          prompt: "Read docs/specs/hallucinated-name.md — but ONLY these sections:\n- Section 1",
+          verifyChecks: ["TypeScript compiles"],
+        },
+        {
+          index: 2,
+          name: "Features",
+          scope: "Phase 2",
+          readSections: "Sections 3",
+          files: ["src/api.ts"],
+          prompt: "Read docs/specs/wrong-slug.md — but ONLY these sections:\n- Section 3",
+          verifyChecks: ["API responds"],
+        },
+      ],
+    };
+
+    await useGuideStore.getState().createGuide(PROJECT, "actual-spec-name.md", null, plan);
+    const guide = useGuideStore.getState().guide;
+
+    expect(guide!.sessions[0].prompt).toContain("docs/specs/actual-spec-name.md");
+    expect(guide!.sessions[0].prompt).not.toContain("hallucinated-name");
+    expect(guide!.sessions[1].prompt).toContain("docs/specs/actual-spec-name.md");
+    expect(guide!.sessions[1].prompt).not.toContain("wrong-slug");
+  });
+
+  it("createGuide preserves prompt text outside spec filename references", async () => {
+    const plan: ParsedSessionPlan = {
+      title: "Test App",
+      sessions: [
+        {
+          index: 1,
+          name: "Foundation",
+          scope: "Phase 1",
+          readSections: "Sections 1",
+          files: [],
+          prompt: "Read docs/specs/foo.md — ONLY section 1.\n\nDo NOT modify files from previous sessions.",
+          verifyChecks: ["Check"],
+        },
+        {
+          index: 2,
+          name: "More",
+          scope: "Phase 2",
+          readSections: "Sections 2",
+          files: [],
+          prompt: "No spec reference here.",
+          verifyChecks: ["Check"],
+        },
+      ],
+    };
+
+    await useGuideStore.getState().createGuide(PROJECT, "real.md", null, plan);
+    const guide = useGuideStore.getState().guide;
+
+    expect(guide!.sessions[0].prompt).toBe(
+      "Read docs/specs/real.md — ONLY section 1.\n\nDo NOT modify files from previous sessions.",
+    );
+    // Prompt without spec reference should be unchanged
+    expect(guide!.sessions[1].prompt).toBe("No spec reference here.");
+  });
+
   it("toggleVerifyCheck flips the checked state", () => {
     useGuideStore.setState({ guide: makeGuide() });
 

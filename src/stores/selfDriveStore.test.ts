@@ -971,6 +971,88 @@ describe("selfDriveStore", () => {
       const listenCalls = mockListen.mock.calls.map((c) => c[0]);
       expect(listenCalls).toContain(`claude-chat-${SESSION_ID}`);
     });
+
+    it("resume sends build check when promptSent=true but verifyRequested=false", async () => {
+      setupReadyState();
+      // Mark session as having received prompt but not yet verified
+      const guide = useGuideStore.getState().guide!;
+      guide.sessions[0].promptSent = true;
+      guide.sessions[0].verifyRequested = false;
+      useGuideStore.setState({ guide: { ...guide } });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.getState().pause();
+
+      mockSendMessage.mockClear();
+      await useSelfDriveStore.getState().resume();
+
+      // Should send build check, not verification
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("tsc --noEmit"),
+      );
+      expect(mockBuildSessionVerifyPrompt).not.toHaveBeenCalled();
+    });
+
+    it("resume sends verify when verifyRequested=true", async () => {
+      setupReadyState();
+      // Mark session as having received both prompt and verify
+      const guide = useGuideStore.getState().guide!;
+      guide.sessions[0].promptSent = true;
+      guide.sessions[0].verifyRequested = true;
+      useGuideStore.setState({ guide: { ...guide } });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.getState().pause();
+
+      mockBuildSessionVerifyPrompt.mockClear();
+      await useSelfDriveStore.getState().resume();
+
+      // Should call verification
+      expect(mockBuildSessionVerifyPrompt).toHaveBeenCalled();
+    });
+
+    it("resume sends creation prompt when promptSent=false", async () => {
+      setupReadyState();
+
+      // Simulate: start() failed to send the prompt (sendMessage threw),
+      // so promptSent stayed false and Self-Drive paused itself.
+      mockSendMessage.mockRejectedValueOnce(new Error("send failed"));
+      await useSelfDriveStore.getState().start();
+
+      // start() should have paused due to the send failure
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+      // promptSent should still be false
+      expect(useGuideStore.getState().guide!.sessions[0].promptSent).toBe(false);
+
+      mockSendMessage.mockClear();
+      mockSendMessage.mockResolvedValue(undefined);
+      await useSelfDriveStore.getState().resume();
+
+      // Should send the creation prompt
+      expect(mockSendMessage).toHaveBeenCalledWith(SESSION_ID, "Build foundation.");
+      // Should set phase to building
+      expect(useSelfDriveStore.getState().currentPhase).toBe("building");
+    });
+
+    it("resume does not jump to verify when paused during fixing phase pre-verify", async () => {
+      setupReadyState();
+      const guide = useGuideStore.getState().guide!;
+      guide.sessions[0].promptSent = true;
+      guide.sessions[0].verifyRequested = false;
+      useGuideStore.setState({ guide: { ...guide } });
+
+      await useSelfDriveStore.getState().start();
+      // Simulate being in fixing phase (from a build failure, not verify failure)
+      useSelfDriveStore.setState({ currentPhase: "fixing" });
+      useSelfDriveStore.getState().pause();
+
+      mockBuildSessionVerifyPrompt.mockClear();
+      await useSelfDriveStore.getState().resume();
+
+      // Should NOT call verification — we haven't passed build check yet
+      expect(mockBuildSessionVerifyPrompt).not.toHaveBeenCalled();
+    });
   });
 
   // ── Run log ────────────────────────────────────────────────────
