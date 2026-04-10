@@ -1,5 +1,24 @@
 # CodeMantis Releases
 
+## 1.0.4
+
+### Self-Drive
+- Scope autonomous runs to the active project — switching projects no longer leaks state from a running session into another
+- Mirror every orchestrator prompt into the chat panel as a synthetic user message so users can see exactly what Self-Drive sent during autonomous execution
+- Honor live setting changes (run tests, auto-commit) mid-run instead of using the cached startup config
+
+### Approval Server
+- Replace blanket Plan-mode denial with a fine-grained allowlist (Write, Edit, Agent, web tools, tasks, LSP, etc.) so the CLI can use planning tools when it skips permissions
+- Tools not on the allowlist (e.g. Bash) now fall through to the normal user-approval flow instead of being auto-denied
+
+### SpecWriter
+- Require deployment steps (migrations, deploy, install, restart) in implementation-guide phases that produce deployable artifacts
+- Add deployment-aware verify-before-next-session guidance with concrete examples for databases, Edge Functions, containers, and dependencies
+
+### Documentation
+- Updated user guide with Self-Drive decision cards and confidence-guard behavior
+- Added Self-Drive and SpecWriter guide screenshots
+
 ## 1.0.3
 
 ### Self-Drive Enhancements
