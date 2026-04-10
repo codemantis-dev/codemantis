@@ -10,7 +10,7 @@
 - Promote assistant replies to spec content and broaden spec detection patterns
 
 ### Documentation
-- Updated user guide for v1.0.2 with new Self-Drive chapter
+- Updated user guide for v1.0.3 with Self-Drive decision cards, confidence guards, and version bump
 
 ## 1.0.2
 
