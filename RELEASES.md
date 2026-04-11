@@ -1,5 +1,30 @@
 # CodeMantis Releases
 
+## 1.0.5
+
+### Plan Mode
+- Capture plan files written by Claude into the UI and auto-open them in the File Viewer when the session exits plan mode
+- Show the plan filename in the Plan Complete modal for quick reference
+
+### Activity Feed
+- Show in Finder action on file detail panels — reveal the current file directly in macOS Finder
+
+### Preview
+- Probe dev-server ports on both IPv4 (127.0.0.1) and IPv6 (::1) so Vite and other servers binding to IPv6 are detected correctly
+
+### Self-Drive
+- Smarter resume logic: use per-session flags (done, promptSent, verifyRequested) instead of currentPhase so pausing during a fix cycle no longer skips back to verify
+- Handle completed sessions by advancing to the next phase and retry unsent prompts after failed starts
+
+### SpecWriter
+- Rewrite `docs/specs/*.md` references in session prompts to the actual saved spec filename so implementation plans always point at the correct file
+
+### Approval Server
+- Remove AskUserQuestion from the plan-mode auto-allow list so interactive prompts go through user approval
+
+### Documentation
+- Updated README with Self-Drive highlights, screenshots, and refreshed demo video
+
 ## 1.0.4
 
 ### Self-Drive
