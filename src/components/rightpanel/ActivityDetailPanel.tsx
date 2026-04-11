@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useCallback } from "react";
 import { DiffEditor } from "@monaco-editor/react";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, FolderOpen } from "lucide-react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -175,6 +176,15 @@ export default function ActivityDetailPanel() {
     }
   };
 
+  const handleRevealInFinder = async () => {
+    if (!filePath) return;
+    try {
+      await revealItemInDir(filePath);
+    } catch (e) {
+      console.error("Failed to reveal file in Finder:", e);
+    }
+  };
+
   return (
     <div
       className="absolute inset-0 z-20 flex flex-col animate-detail-slide-in"
@@ -342,6 +352,13 @@ export default function ActivityDetailPanel() {
           >
             <ExternalLink size={12} />
             {isEdit ? "Open Diff in File Viewer" : "Open in File Viewer"}
+          </button>
+          <button
+            onClick={handleRevealInFinder}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-text-secondary hover:bg-bg-elevated transition-colors"
+          >
+            <FolderOpen size={12} />
+            Show in Finder
           </button>
         </div>
       )}

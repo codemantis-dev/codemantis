@@ -133,6 +133,7 @@ export function resetAllStores(): void {
     initialSettingsTab: null,
     showPlanCompleteModal: false,
     planCompleteSessionId: null,
+    planCompleteFilePath: null,
     activityFeedScope: "session",
     showReasoningPanel: false,
     imagePreview: null,

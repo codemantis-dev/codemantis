@@ -85,6 +85,7 @@ function resetStores(): void {
   useUiStore.setState({
     showPlanCompleteModal: false,
     planCompleteSessionId: null,
+    planCompleteFilePath: null,
     fileTreeRefreshTrigger: 0,
     rightTab: "activity",
   });
@@ -584,6 +585,67 @@ describe("activity event handler", () => {
       const activity = useSessionStore.getState().sessionActivity.get(SESSION_ID);
       expect(activity?.label).toBe("Launching agent...");
       expect(activity?.toolName).toBe("Agent");
+    });
+  });
+
+  describe("plan file path tracking", () => {
+    it("tracks plan file path when Write targets .claude/plans/*.md in plan mode", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-write-plan",
+        tool_name: "Write",
+        tool_input: {
+          file_path: "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
+          content: "# Plan\n\nSome plan content",
+        },
+      });
+
+      expect(useUiStore.getState().planCompleteFilePath).toBe(
+        "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md"
+      );
+    });
+
+    it("does not track plan file path for Write in normal mode", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "normal"]]),
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-write-normal",
+        tool_name: "Write",
+        tool_input: {
+          file_path: "/Users/hr/.claude/plans/some-plan.md",
+          content: "# Plan",
+        },
+      });
+
+      expect(useUiStore.getState().planCompleteFilePath).toBeNull();
+    });
+
+    it("does not track non-plan file paths in plan mode", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-write-other",
+        tool_name: "Write",
+        tool_input: {
+          file_path: "/Users/hr/project/src/main.ts",
+          content: "const x = 1;",
+        },
+      });
+
+      expect(useUiStore.getState().planCompleteFilePath).toBeNull();
     });
   });
 });

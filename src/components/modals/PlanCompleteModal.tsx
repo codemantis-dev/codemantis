@@ -10,6 +10,7 @@ import { handleError } from "../../lib/error-handler";
 export default function PlanCompleteModal() {
   const showModal = useUiStore((s) => s.showPlanCompleteModal);
   const sessionId = useUiStore((s) => s.planCompleteSessionId);
+  const planFilePath = useUiStore((s) => s.planCompleteFilePath);
   const setShowModal = useUiStore((s) => s.setShowPlanCompleteModal);
   const [autoAccept, setAutoAccept] = useState(false);
 
@@ -117,6 +118,19 @@ export default function PlanCompleteModal() {
               <X size={16} />
             </button>
           </div>
+
+          {/* Plan file info */}
+          {planFilePath && (
+            <div className="px-3 py-2.5 rounded-lg border border-border bg-bg-subtle mb-4">
+              <span className="text-label text-text-dim block mb-1">Plan file</span>
+              <span className="text-ui text-text-secondary font-mono text-[12px] break-all">
+                {planFilePath.split("/").pop() ?? planFilePath}
+              </span>
+              <span className="text-label text-text-ghost block mt-0.5">
+                Opened in File Viewer
+              </span>
+            </div>
+          )}
 
           {/* Auto-accept toggle */}
           <label className="flex items-start gap-3 px-3 py-3 rounded-lg border border-border bg-bg-subtle cursor-pointer hover:border-accent/30 transition-colors mb-5">

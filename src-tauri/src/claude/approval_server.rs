@@ -32,7 +32,6 @@ const PLAN_MODE_ALLOWED_TOOLS: &[&str] = &[
     "Agent",
     "WebSearch",
     "WebFetch",
-    "AskUserQuestion",
     "ToolSearch",
     "TodoWrite",
     "TaskCreate",
@@ -815,13 +814,17 @@ mod tests {
         assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"Agent"));
         assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"WebSearch"));
         assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"WebFetch"));
-        assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"AskUserQuestion"));
         assert!(PLAN_MODE_ALLOWED_TOOLS.contains(&"ToolSearch"));
     }
 
     #[test]
     fn bash_requires_approval_in_plan_mode() {
         assert!(!PLAN_MODE_ALLOWED_TOOLS.contains(&"Bash"));
+    }
+
+    #[test]
+    fn ask_user_question_requires_approval_in_plan_mode() {
+        assert!(!PLAN_MODE_ALLOWED_TOOLS.contains(&"AskUserQuestion"));
     }
 
     #[test]

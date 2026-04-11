@@ -192,4 +192,30 @@ describe("uiStore", () => {
       expect(useUiStore.getState().sessionRightTab.size).toBe(0);
     });
   });
+
+  describe("planCompleteFilePath", () => {
+    it("sets and gets planCompleteFilePath", () => {
+      useUiStore.getState().setPlanCompleteFilePath("/path/to/plan.md");
+      expect(useUiStore.getState().planCompleteFilePath).toBe("/path/to/plan.md");
+    });
+
+    it("clears planCompleteFilePath when modal is closed", () => {
+      useUiStore.setState({
+        showPlanCompleteModal: true,
+        planCompleteSessionId: "s1",
+        planCompleteFilePath: "/path/to/plan.md",
+      });
+      useUiStore.getState().setShowPlanCompleteModal(false);
+      expect(useUiStore.getState().planCompleteFilePath).toBeNull();
+      expect(useUiStore.getState().planCompleteSessionId).toBeNull();
+    });
+
+    it("preserves planCompleteFilePath when modal is opened", () => {
+      useUiStore.setState({
+        planCompleteFilePath: "/path/to/plan.md",
+      });
+      useUiStore.getState().setShowPlanCompleteModal(true);
+      expect(useUiStore.getState().planCompleteFilePath).toBe("/path/to/plan.md");
+    });
+  });
 });

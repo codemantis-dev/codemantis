@@ -84,4 +84,26 @@ describe("PlanCompleteModal", () => {
     fireEvent.click(screen.getByText("Later"));
     expect(setShowModal).toHaveBeenCalledWith(false);
   });
+
+  it("shows plan file info when planCompleteFilePath is set", () => {
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+      planCompleteFilePath: "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
+    });
+    render(<PlanCompleteModal />);
+    expect(screen.getByText("Plan file")).toBeInTheDocument();
+    expect(screen.getByText("jazzy-prancing-wilkes.md")).toBeInTheDocument();
+    expect(screen.getByText("Opened in File Viewer")).toBeInTheDocument();
+  });
+
+  it("does not show plan file info when planCompleteFilePath is null", () => {
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+      planCompleteFilePath: null,
+    });
+    render(<PlanCompleteModal />);
+    expect(screen.queryByText("Plan file")).not.toBeInTheDocument();
+  });
 });

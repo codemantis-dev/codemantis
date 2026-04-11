@@ -94,25 +94,34 @@ pub fn scan_for_dev_server_url(line: &str) -> Option<(u16, String)> {
 
 /// Probe a port to check if an HTTP server is listening.
 ///
-/// Uses `127.0.0.1` instead of `localhost` to avoid IPv6 resolution issues
-/// on macOS where `localhost` may resolve to `::1` first, causing timeouts
-/// when the dev server only binds to IPv4 (`0.0.0.0`).
+/// Tries both IPv4 (`127.0.0.1`) and IPv6 (`[::1]`) concurrently so that
+/// dev servers binding to either protocol are detected without added latency.
+/// Modern Vite on macOS binds to `localhost` which resolves to `::1` (IPv6),
+/// while older servers bind to `0.0.0.0` (IPv4 only).
 pub async fn probe_port(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{}", port);
-    match reqwest::Client::new()
-        .head(&url)
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            debug!("Port {} is responding to HTTP (status: {})", port, resp.status());
-            true
-        }
-        Err(e) => {
-            debug!("Port {} probe failed: {}", port, e);
-            false
-        }
+    let client = reqwest::Client::new();
+    let timeout = std::time::Duration::from_secs(2);
+
+    let ipv4 = client
+        .head(format!("http://127.0.0.1:{}", port))
+        .timeout(timeout)
+        .send();
+    let ipv6 = client
+        .head(format!("http://[::1]:{}", port))
+        .timeout(timeout)
+        .send();
+
+    let (v4, v6) = tokio::join!(ipv4, ipv6);
+
+    if v4.is_ok() {
+        debug!("Port {} responding on IPv4 (127.0.0.1)", port);
+        true
+    } else if v6.is_ok() {
+        debug!("Port {} responding on IPv6 (::1)", port);
+        true
+    } else {
+        debug!("Port {} probe failed on both IPv4 and IPv6", port);
+        false
     }
 }
 

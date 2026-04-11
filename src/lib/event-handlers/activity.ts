@@ -89,8 +89,43 @@ function handleToolUseStart(
       const uiState = useUiStore.getState();
       uiState.setPlanCompleteSessionId(sessionId);
       uiState.setShowPlanCompleteModal(true);
+
+      // Auto-open the plan file in FileViewer
+      const planFilePath = uiState.planCompleteFilePath;
+      if (planFilePath) {
+        const session = sessionStore.sessions.get(sessionId);
+        const projectPath = session?.project_path;
+        if (projectPath) {
+          import("../tauri-commands").then(({ readFileContent }) => {
+            readFileContent(planFilePath).then((content) => {
+              const fileName = planFilePath.split("/").pop() ?? planFilePath;
+              useFileViewerStore.getState().openFile(projectPath, {
+                filePath: planFilePath,
+                fileName,
+                language: "markdown",
+                extension: "md",
+                fileSize: new Blob([content]).size,
+                content,
+                isDiff: false,
+              });
+              useUiStore.getState().setRightTab("files");
+            }).catch((e) => {
+              console.error("Failed to auto-open plan file:", e);
+            });
+          });
+        }
+      }
     }
     return; // Don't add to activity feed — mode badge already reflects the change
+  }
+
+  // Track plan file path: when Write targets ~/.claude/plans/*.md during plan mode
+  const sessionMode = sessionStore.sessionModes.get(sessionId);
+  if (event.tool_name === "Write" && sessionMode === "plan") {
+    const writePath = event.tool_input?.file_path as string | undefined;
+    if (writePath && writePath.includes(".claude/plans/") && writePath.endsWith(".md")) {
+      useUiStore.getState().setPlanCompleteFilePath(writePath);
+    }
   }
 
   // Check main session store first, then assistant store for the streaming messageId

@@ -40,6 +40,7 @@ interface UiState {
   initialSettingsTab: SettingsTab | null;
   showPlanCompleteModal: boolean;
   planCompleteSessionId: string | null;
+  planCompleteFilePath: string | null;
   activityFeedScope: ActivityFeedScope;
   showReasoningPanel: boolean;
   imagePreview: ImagePreview | null;
@@ -81,6 +82,7 @@ interface UiState {
   openSettingsToTab: (tab: SettingsTab) => void;
   setShowPlanCompleteModal: (show: boolean) => void;
   setPlanCompleteSessionId: (id: string | null) => void;
+  setPlanCompleteFilePath: (path: string | null) => void;
   toggleActivityFeedScope: () => void;
   toggleReasoningPanel: () => void;
   setImagePreview: (preview: ImagePreview | null) => void;
@@ -122,6 +124,7 @@ export const useUiStore = create<UiState>((set) => ({
   initialSettingsTab: null,
   showPlanCompleteModal: false,
   planCompleteSessionId: null,
+  planCompleteFilePath: null,
   activityFeedScope: "session",
   showReasoningPanel: false,
   imagePreview: null,
@@ -185,8 +188,9 @@ export const useUiStore = create<UiState>((set) => ({
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
   openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
-  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null } : {}) }),
+  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null, planCompleteFilePath: null } : {}) }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
+  setPlanCompleteFilePath: (path) => set({ planCompleteFilePath: path }),
   toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
   toggleReasoningPanel: () => set((s) => ({ showReasoningPanel: !s.showReasoningPanel })),
   setImagePreview: (preview) => set((s) => {

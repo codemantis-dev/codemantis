@@ -37,6 +37,12 @@ vi.mock("../../lib/tauri-commands", () => ({
   readFileContent: (path: string) => mockReadFileContent(path),
 }));
 
+// Mock @tauri-apps/plugin-opener
+const mockRevealItemInDir = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve());
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  revealItemInDir: (path: string) => mockRevealItemInDir(path),
+}));
+
 function makeEntry(overrides: Partial<ActivityEntry> = {}): ActivityEntry {
   return {
     id: "a1",
@@ -62,6 +68,7 @@ describe("ActivityDetailPanel", () => {
     useUiStore.setState({ selectedActivityEntry: null, rightTab: "activity" });
     useSessionStore.setState({ activeProjectPath: "/project" });
     mockReadFileContent.mockReset().mockResolvedValue("file content");
+    mockRevealItemInDir.mockReset().mockResolvedValue(undefined);
   });
 
   it("renders nothing when no entry is selected", () => {
@@ -252,5 +259,46 @@ describe("ActivityDetailPanel", () => {
     render(<ActivityDetailPanel />);
     expect(screen.getByText("supabase: execute_sql")).toBeInTheDocument();
     expect(screen.getByText("MC")).toBeInTheDocument();
+  });
+
+  it("renders Show in Finder button when file_path is present", () => {
+    showEntry(
+      makeEntry({
+        toolName: "Write",
+        toolInput: { file_path: "src/main.ts", content: "const x = 1;" },
+        result: "written",
+      })
+    );
+    render(<ActivityDetailPanel />);
+    expect(screen.getByText("Show in Finder")).toBeInTheDocument();
+  });
+
+  it("calls revealItemInDir when Show in Finder is clicked", async () => {
+    showEntry(
+      makeEntry({
+        toolName: "Read",
+        toolInput: { file_path: "src/main.ts" },
+        result: "contents",
+      })
+    );
+    render(<ActivityDetailPanel />);
+
+    fireEvent.click(screen.getByText("Show in Finder"));
+
+    await vi.waitFor(() => {
+      expect(mockRevealItemInDir).toHaveBeenCalledWith("src/main.ts");
+    });
+  });
+
+  it("does not render Show in Finder when no file_path", () => {
+    showEntry(
+      makeEntry({
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+        result: "passed",
+      })
+    );
+    render(<ActivityDetailPanel />);
+    expect(screen.queryByText("Show in Finder")).not.toBeInTheDocument();
   });
 });
