@@ -4,10 +4,11 @@ import SpecPreviewPanel from "./SpecPreviewPanel";
 
 // Mock child components to isolate SpecPreviewPanel
 vi.mock("./SpecPreview", () => ({
-  default: ({ content, auditContent, activeTab, isEditing }: {
+  default: ({ content, auditContent, activeTab, onTabChange, isEditing }: {
     content: string | null;
     auditContent: string | null;
     activeTab: string;
+    onTabChange: (tab: string) => void;
     isEditing: boolean;
   }) => (
     <div data-testid="spec-preview">
@@ -15,6 +16,12 @@ vi.mock("./SpecPreview", () => ({
       {activeTab === "audit" && auditContent && <div data-testid="audit-content">{auditContent}</div>}
       {!content && !auditContent && <div data-testid="empty-state">No content</div>}
       {isEditing && <div data-testid="editing-indicator">Editing</div>}
+      {content && auditContent && (
+        <>
+          <button data-testid="tab-spec" onClick={() => onTabChange("spec")}>Specification</button>
+          <button data-testid="tab-audit" onClick={() => onTabChange("audit")}>Verification Audit</button>
+        </>
+      )}
     </div>
   ),
 }));
@@ -78,7 +85,30 @@ describe("SpecPreviewPanel", () => {
     expect(onCopySpec).toHaveBeenCalledOnce();
   });
 
-  it("shows audit content when in audit mode", () => {
+  it("auto-switches to audit tab when audit content first appears", () => {
+    const { rerender } = render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent="# Spec"
+        currentAuditContent={null}
+      />,
+    );
+    // Initially on spec tab
+    expect(screen.getByTestId("spec-content")).toBeInTheDocument();
+
+    // Audit content appears — should auto-switch
+    rerender(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent="# Spec"
+        currentAuditContent="## Audit Report"
+      />,
+    );
+    expect(screen.getByTestId("audit-content")).toBeInTheDocument();
+    expect(screen.getByText("## Audit Report")).toBeInTheDocument();
+  });
+
+  it("allows switching back to spec tab when both documents exist", () => {
     render(
       <SpecPreviewPanel
         {...defaultProps}
@@ -86,8 +116,38 @@ describe("SpecPreviewPanel", () => {
         currentAuditContent="## Audit Report"
       />,
     );
-    // The useEffect switches to audit tab when auditContent is present
+    // Starts on audit tab (auto-switched)
     expect(screen.getByTestId("audit-content")).toBeInTheDocument();
-    expect(screen.getByText("## Audit Report")).toBeInTheDocument();
+
+    // Click spec tab — should switch and stay
+    fireEvent.click(screen.getByTestId("tab-spec"));
+    expect(screen.getByTestId("spec-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-content")).not.toBeInTheDocument();
+  });
+
+  it("does not snap back to audit tab after user switches to spec", () => {
+    const { rerender } = render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent="# Spec"
+        currentAuditContent="## Audit Report"
+      />,
+    );
+
+    // User clicks spec tab
+    fireEvent.click(screen.getByTestId("tab-spec"));
+    expect(screen.getByTestId("spec-content")).toBeInTheDocument();
+
+    // Re-render with same audit content (simulates parent re-render)
+    rerender(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent="# Spec"
+        currentAuditContent="## Audit Report"
+      />,
+    );
+    // Should remain on spec tab
+    expect(screen.getByTestId("spec-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("audit-content")).not.toBeInTheDocument();
   });
 });

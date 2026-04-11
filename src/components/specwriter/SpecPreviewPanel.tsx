@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Pencil, Eye, ClipboardCheck, FileDown } from "lucide-react";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -40,13 +40,17 @@ export default function SpecPreviewPanel({
   onOpenSaveSpecDialog,
   onLoadSpec,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>('spec');
+  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>(currentAuditContent ? 'audit' : 'spec');
+  const prevHadAuditRef = useRef(!!currentAuditContent);
 
-  // Sync active tab with audit content: switch to audit when it appears, back to spec when cleared
+  // Auto-switch tab only on transitions: show audit when it first appears, revert when cleared
   useEffect(() => {
-    if (currentAuditContent) {
+    const hadAudit = prevHadAuditRef.current;
+    prevHadAuditRef.current = !!currentAuditContent;
+
+    if (currentAuditContent && !hadAudit) {
       setActiveTab('audit');
-    } else {
+    } else if (!currentAuditContent && hadAudit) {
       setActiveTab('spec');
     }
   }, [currentAuditContent]);
