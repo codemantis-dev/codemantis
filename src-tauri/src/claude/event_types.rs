@@ -63,6 +63,7 @@ pub enum RawStreamEvent {
         num_turns: Option<u32>,
         duration_api_ms: Option<u64>,
         stop_reason: Option<String>,
+        terminal_reason: Option<String>,
         #[serde(rename = "modelUsage")]
         model_usage: Option<serde_json::Value>,
         #[serde(flatten)]
@@ -195,6 +196,19 @@ pub struct UsageInfo {
     pub cache_read_input_tokens: Option<u64>,
     pub service_tier: Option<String>,
     pub server_tool_use: Option<ServerToolUse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<Vec<UsageIteration>>,
+}
+
+/// Per-iteration token breakdown added in CLI v2.1.97+.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageIteration {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(rename = "type")]
+    pub iteration_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +285,8 @@ pub enum FrontendEvent {
         duration_api_ms: Option<u64>,
         num_turns: Option<u32>,
         stop_reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        terminal_reason: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         model_name: Option<String>,
         context_window: Option<u64>,
@@ -1356,6 +1372,7 @@ mod tests {
                 web_search_requests: Some(1),
                 web_fetch_requests: None,
             }),
+            iterations: None,
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: UsageInfo = serde_json::from_str(&json_str).unwrap();
@@ -1529,11 +1546,13 @@ mod tests {
                 cache_read_input_tokens: None,
                 service_tier: None,
                 server_tool_use: None,
+                iterations: None,
             }),
             cost_usd: Some(0.01),
             duration_api_ms: Some(2500),
             num_turns: Some(1),
             stop_reason: Some("end_turn".into()),
+            terminal_reason: Some("completed".into()),
             model_name: Some("sonnet".into()),
             context_window: Some(200000),
             max_output_tokens: Some(16384),
@@ -1547,6 +1566,7 @@ mod tests {
         assert_eq!(val["duration_api_ms"], 2500);
         assert_eq!(val["num_turns"], 1);
         assert_eq!(val["stop_reason"], "end_turn");
+        assert_eq!(val["terminal_reason"], "completed");
         assert_eq!(val["model_name"], "sonnet");
         assert_eq!(val["context_window"], 200000);
         assert_eq!(val["max_output_tokens"], 16384);
@@ -1562,6 +1582,7 @@ mod tests {
             duration_api_ms: None,
             num_turns: None,
             stop_reason: None,
+            terminal_reason: None,
             model_name: None,
             context_window: None,
             max_output_tokens: None,
@@ -1570,8 +1591,9 @@ mod tests {
         assert_eq!(val["type"], "turn_complete");
         assert!(val["duration_ms"].is_null());
         assert!(val["usage"].is_null());
-        // model_name has skip_serializing_if, so it should be absent
+        // model_name and terminal_reason have skip_serializing_if, so they should be absent
         assert!(val.get("model_name").is_none());
+        assert!(val.get("terminal_reason").is_none());
     }
 
     #[test]
@@ -1708,6 +1730,7 @@ mod tests {
                 cache_read_input_tokens: Some(800),
                 service_tier: Some("standard".into()),
                 server_tool_use: None,
+                iterations: None,
             },
         };
         let val = serde_json::to_value(&fe).unwrap();

@@ -396,6 +396,7 @@ async fn handle_result(
     duration_api_ms: Option<u64>,
     num_turns: Option<u32>,
     stop_reason: Option<String>,
+    terminal_reason: Option<String>,
     model_usage: &Option<serde_json::Value>,
     state: &mut RouterState,
 ) {
@@ -403,7 +404,12 @@ async fn handle_result(
         maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
     }
 
-    if is_error == Some(true) {
+    // CLI v2.1.101+ sets is_error=true for user-initiated interrupts
+    // (terminal_reason="aborted_streaming"). Treat these as normal turn
+    // completions so the frontend doesn't show a spurious error toast.
+    let is_abort = terminal_reason.as_deref() == Some("aborted_streaming");
+
+    if is_error == Some(true) && !is_abort {
         let error_msg = result.unwrap_or_else(|| "Unknown error".to_string());
         let fe = FrontendEvent::ProcessError {
             session_id: session_id.to_string(),
@@ -422,6 +428,7 @@ async fn handle_result(
             duration_api_ms,
             num_turns,
             stop_reason,
+            terminal_reason,
             model_name,
             context_window,
             max_output_tokens,
@@ -799,14 +806,15 @@ pub async fn route_events(
                 num_turns,
                 duration_api_ms,
                 stop_reason,
+                terminal_reason,
                 model_usage,
                 ..
             } => {
                 handle_result(
                     &app_handle, &session_id, &chat_event,
                     &cli_sid, is_error, result, duration_ms, usage, cost_usd,
-                    duration_api_ms, num_turns, stop_reason, &model_usage,
-                    &mut state,
+                    duration_api_ms, num_turns, stop_reason, terminal_reason,
+                    &model_usage, &mut state,
                 ).await;
             }
 
@@ -1665,5 +1673,107 @@ mod tests {
         assert_eq!(name.as_deref(), Some("sonnet"));
         assert!(cw.is_none());
         assert!(mot.is_none());
+    }
+
+    // ── terminal_reason & interrupt handling (P0/P2) ──
+
+    #[test]
+    fn result_with_terminal_reason_parses() {
+        let json = r#"{"type":"result","subtype":"success","duration_ms":5000,"terminal_reason":"completed","stop_reason":"end_turn"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Result { terminal_reason, stop_reason, .. } => {
+                assert_eq!(terminal_reason.as_deref(), Some("completed"));
+                assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn interrupted_result_has_aborted_streaming_terminal_reason() {
+        // Matches real CLI v2.1.101 interrupt output
+        let json = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming","duration_ms":2878,"num_turns":2,"stop_reason":null}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Result { is_error, terminal_reason, stop_reason, .. } => {
+                assert_eq!(*is_error, Some(true));
+                assert_eq!(terminal_reason.as_deref(), Some("aborted_streaming"));
+                assert!(stop_reason.is_none());
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn result_without_terminal_reason_still_parses() {
+        // Pre-v2.1.101 result events don't have terminal_reason
+        let json = r#"{"type":"result","subtype":"success","duration_ms":1000}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::Result { terminal_reason, .. } => {
+                assert!(terminal_reason.is_none());
+            }
+            other => panic!("Expected Result, got {:?}", other),
+        }
+    }
+
+    // ── UsageInfo iterations (P3a) ──
+
+    #[test]
+    fn usage_info_with_iterations_deserializes() {
+        let json = r#"{
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "cache_read_input_tokens": 12047,
+            "cache_creation_input_tokens": 5146,
+            "iterations": [
+                {
+                    "input_tokens": 3,
+                    "output_tokens": 4,
+                    "cache_read_input_tokens": 12047,
+                    "cache_creation_input_tokens": 5146,
+                    "type": "message"
+                }
+            ]
+        }"#;
+        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.input_tokens, Some(3));
+        let iters = usage.iterations.unwrap();
+        assert_eq!(iters.len(), 1);
+        assert_eq!(iters[0].input_tokens, Some(3));
+        assert_eq!(iters[0].output_tokens, Some(4));
+        assert_eq!(iters[0].iteration_type.as_deref(), Some("message"));
+    }
+
+    #[test]
+    fn usage_info_without_iterations_deserializes() {
+        let json = r#"{"input_tokens": 500, "output_tokens": 200}"#;
+        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.input_tokens, Some(500));
+        assert!(usage.iterations.is_none());
+    }
+
+    #[test]
+    fn usage_info_with_empty_iterations_deserializes() {
+        let json = r#"{"input_tokens": 500, "output_tokens": 200, "iterations": []}"#;
+        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        let iters = usage.iterations.unwrap();
+        assert!(iters.is_empty());
+    }
+
+    #[test]
+    fn usage_info_iterations_skipped_when_none_in_serialization() {
+        let usage = crate::claude::event_types::UsageInfo {
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            service_tier: None,
+            server_tool_use: None,
+            iterations: None,
+        };
+        let val = serde_json::to_value(&usage).unwrap();
+        assert!(val.get("iterations").is_none(), "iterations should be omitted when None");
     }
 }

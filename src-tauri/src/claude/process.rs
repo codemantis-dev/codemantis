@@ -43,7 +43,7 @@ fi
 
 # Auto-approve read-only tools without network roundtrip
 case "$TOOL_NAME" in
-  Read|Glob|Grep|ListDirectory|LS|TodoRead)
+  Read|Glob|Grep|ListDirectory|LS|TodoRead|Monitor)
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
     exit 0
     ;;
@@ -79,11 +79,82 @@ fi
     Ok(script_path)
 }
 
+/// Ensure the title hook script exists at ~/.codemantis/title-hook.sh.
+/// This hook runs on UserPromptSubmit and sets the CLI session title
+/// from the first ~80 characters of the user's message.
+pub fn ensure_title_hook_script() -> Result<std::path::PathBuf, AppError> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        AppError::ClaudeCliError("Cannot determine home directory".into())
+    })?;
+    let dir = home.join(".codemantis");
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        AppError::ClaudeCliError(format!("Failed to create ~/.codemantis: {}", e))
+    })?;
+
+    let script_path = dir.join("title-hook.sh");
+    let script = r#"#!/bin/bash
+# CodeMantis session title hook — DO NOT EDIT (auto-generated)
+# Reads UserPromptSubmit JSON from stdin, extracts the user message,
+# and returns a sessionTitle for the CLI's resume picker.
+
+INPUT=$(cat)
+
+# Extract the user message text (try "message" field, then "content")
+if command -v jq >/dev/null 2>&1; then
+    MSG=$(echo "$INPUT" | jq -r '(.message // .content // "") | tostring' 2>/dev/null)
+else
+    MSG=$(echo "$INPUT" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [ -z "$MSG" ]; then
+        MSG=$(echo "$INPUT" | grep -o '"content":"[^"]*"' | head -1 | cut -d'"' -f4)
+    fi
+fi
+
+# Skip empty messages or very short ones
+if [ -z "$MSG" ] || [ ${#MSG} -lt 3 ]; then
+    exit 0
+fi
+
+# Truncate to ~80 chars at a word boundary
+TITLE=$(echo "$MSG" | head -c 80 | sed 's/ [^ ]*$//')
+if [ ${#MSG} -gt 80 ]; then
+    TITLE="${TITLE}..."
+fi
+
+# Output sessionTitle (safe JSON via jq if available)
+if command -v jq >/dev/null 2>&1; then
+    jq -nc --arg t "$TITLE" '{"hookSpecificOutput":{"sessionTitle":$t}}'
+else
+    # Escape double quotes in title for safe JSON
+    SAFE_TITLE=$(echo "$TITLE" | sed 's/"/\\"/g')
+    echo "{\"hookSpecificOutput\":{\"sessionTitle\":\"${SAFE_TITLE}\"}}"
+fi
+"#;
+
+    std::fs::write(&script_path, script).map_err(|e| {
+        AppError::ClaudeCliError(format!("Failed to write title hook script: {}", e))
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).map_err(|e| {
+            AppError::ClaudeCliError(format!("Failed to chmod title hook script: {}", e))
+        })?;
+    }
+
+    Ok(script_path)
+}
+
 /// Build an inline settings JSON string containing our hook config.
 /// Passed via --settings to the CLI so it only affects CodeMantis's process,
 /// not other Claude Code instances in the same project.
-fn build_hook_settings_json(hook_script_path: &str) -> String {
+fn build_hook_settings_json(
+    hook_script_path: &str,
+    title_hook_script_path: &str,
+) -> String {
     let hook_command = format!("bash \"{}\"", hook_script_path);
+    let title_hook_command = format!("bash \"{}\"", title_hook_script_path);
     let settings = serde_json::json!({
         "hooks": {
             "PreToolUse": [
@@ -94,6 +165,18 @@ fn build_hook_settings_json(hook_script_path: &str) -> String {
                             "type": "command",
                             "command": hook_command,
                             "timeout": 300
+                        }
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "matcher": ".*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": title_hook_command,
+                            "timeout": 10
                         }
                     ]
                 }
@@ -218,8 +301,10 @@ impl ClaudeProcess {
         // so it only affects THIS process, not other Claude Code instances.
         if let Some(port) = approval_server_port {
             let hook_script = ensure_hook_script()?;
+            let title_hook_script = ensure_title_hook_script()?;
             let settings_json = build_hook_settings_json(
                 hook_script.to_str().unwrap_or("~/.codemantis/approval-hook.sh"),
+                title_hook_script.to_str().unwrap_or("~/.codemantis/title-hook.sh"),
             );
             cmd.args(["--settings", &settings_json]);
             debug!("Hook config passed via --settings for port {}", port);
@@ -527,7 +612,7 @@ mod tests {
 
     #[test]
     fn build_hook_settings_json_produces_valid_json() {
-        let result = build_hook_settings_json("/path/to/hook.sh");
+        let result = build_hook_settings_json("/path/to/hook.sh", "/path/to/title.sh");
         let parsed: serde_json::Value = serde_json::from_str(&result)
             .expect("should be valid JSON");
         assert!(parsed.is_object());
@@ -535,7 +620,7 @@ mod tests {
 
     #[test]
     fn build_hook_settings_json_contains_hook_command() {
-        let result = build_hook_settings_json("/path/to/hook.sh");
+        let result = build_hook_settings_json("/path/to/hook.sh", "/path/to/title.sh");
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let command = parsed
@@ -548,7 +633,7 @@ mod tests {
 
     #[test]
     fn build_hook_settings_json_sets_timeout_300() {
-        let result = build_hook_settings_json("/any/path.sh");
+        let result = build_hook_settings_json("/any/path.sh", "/any/title.sh");
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let timeout = parsed
@@ -560,7 +645,7 @@ mod tests {
 
     #[test]
     fn build_hook_settings_json_sets_matcher_wildcard() {
-        let result = build_hook_settings_json("/hook.sh");
+        let result = build_hook_settings_json("/hook.sh", "/title.sh");
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let matcher = parsed
@@ -572,13 +657,38 @@ mod tests {
 
     #[test]
     fn build_hook_settings_json_handles_path_with_spaces() {
-        let result = build_hook_settings_json("/path with spaces/hook.sh");
+        let result = build_hook_settings_json("/path with spaces/hook.sh", "/path with spaces/title.sh");
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let command = parsed
             .pointer("/hooks/PreToolUse/0/hooks/0/command")
             .and_then(|v| v.as_str())
             .unwrap();
         assert!(command.contains("/path with spaces/hook.sh"));
+    }
+
+    #[test]
+    fn build_hook_settings_json_contains_user_prompt_submit_hook() {
+        let result = build_hook_settings_json("/hook.sh", "/title.sh");
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let command = parsed
+            .pointer("/hooks/UserPromptSubmit/0/hooks/0/command")
+            .and_then(|v| v.as_str())
+            .expect("should have UserPromptSubmit hook command");
+        assert!(command.contains("/title.sh"));
+        assert!(command.starts_with("bash "));
+
+        let timeout = parsed
+            .pointer("/hooks/UserPromptSubmit/0/hooks/0/timeout")
+            .and_then(|v| v.as_u64())
+            .expect("should have timeout");
+        assert_eq!(timeout, 10);
+
+        let matcher = parsed
+            .pointer("/hooks/UserPromptSubmit/0/matcher")
+            .and_then(|v| v.as_str())
+            .expect("should have matcher");
+        assert_eq!(matcher, ".*");
     }
 
     // ── ensure_hook_script ──
@@ -598,6 +708,24 @@ mod tests {
         assert!(content.contains("tool-approval"));
 
         // Verify executable permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o755, 0o755);
+        }
+    }
+
+    #[test]
+    fn ensure_title_hook_script_creates_executable_file() {
+        let path = ensure_title_hook_script().expect("should succeed");
+        assert!(path.exists());
+        assert!(path.to_string_lossy().ends_with("title-hook.sh"));
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("#!/bin/bash"));
+        assert!(content.contains("sessionTitle"));
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

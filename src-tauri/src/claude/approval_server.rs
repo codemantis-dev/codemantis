@@ -20,6 +20,7 @@ const AUTO_APPROVED_TOOLS: &[&str] = &[
     "ListDirectory",
     "LS",
     "TodoRead",
+    "Monitor",
 ];
 
 /// Additional tools auto-approved in Plan mode.
@@ -795,6 +796,7 @@ mod tests {
         assert!(AUTO_APPROVED_TOOLS.contains(&"ListDirectory"));
         assert!(AUTO_APPROVED_TOOLS.contains(&"LS"));
         assert!(AUTO_APPROVED_TOOLS.contains(&"TodoRead"));
+        assert!(AUTO_APPROVED_TOOLS.contains(&"Monitor"));
     }
 
     #[test]
@@ -803,6 +805,11 @@ mod tests {
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Edit"));
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Bash"));
         assert!(!AUTO_APPROVED_TOOLS.contains(&"Delete"));
+    }
+
+    #[test]
+    fn schedule_wakeup_not_auto_approved() {
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"ScheduleWakeup"));
     }
 
     // ── PLAN_MODE_ALLOWED_TOOLS tests ──

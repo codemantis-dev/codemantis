@@ -67,6 +67,8 @@ export interface TurnCompleteEvent {
   duration_api_ms?: number | null;
   num_turns?: number | null;
   stop_reason?: string | null;
+  /** Why the turn ended: "completed", "aborted_streaming" (interrupt), etc. Added in CLI v2.1.101. */
+  terminal_reason?: string | null;
   model_name?: string | null;
   context_window?: number | null;
   max_output_tokens?: number | null;
@@ -99,6 +101,16 @@ export interface UsageInfo {
   cache_read_input_tokens: number | null;
   service_tier?: string | null;
   server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } | null;
+  /** Per-iteration token breakdown, added in CLI v2.1.97+. */
+  iterations?: UsageIteration[] | null;
+}
+
+export interface UsageIteration {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  type?: string | null;
 }
 
 export interface CompactingStatusEvent {
