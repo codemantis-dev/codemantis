@@ -203,7 +203,7 @@ pub(crate) async fn run_command(
         Command::new(cmd)
             .args(args)
             .current_dir(cwd)
-            .env("PATH", &login_shell_path())
+            .env("PATH", login_shell_path())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -256,7 +256,7 @@ fn validate_shell_command(command_str: &str) -> Result<(), String> {
     if basename.is_empty() {
         return Err("Empty shell command".to_string());
     }
-    if ALLOWED_SCAFFOLD_COMMANDS.iter().any(|allowed| basename == *allowed) {
+    if ALLOWED_SCAFFOLD_COMMANDS.contains(&basename) {
         return Ok(());
     }
     Err(format!(
@@ -285,7 +285,7 @@ pub(crate) async fn run_shell(command_str: &str, cwd: &Path, timeout_secs: u64) 
             .arg(flag)
             .arg(command_str)
             .current_dir(cwd)
-            .env("PATH", &login_shell_path())
+            .env("PATH", login_shell_path())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -750,9 +750,8 @@ pub async fn scaffold_from_template(
         120,
     )
     .await
-    .map_err(|e| {
-        emit_progress(&app_handle, "clone", "error", Some(&e));
-        e
+    .inspect_err(|e| {
+        emit_progress(&app_handle, "clone", "error", Some(e));
     })?;
 
     if !output.success {
@@ -794,9 +793,8 @@ pub async fn scaffold_from_template(
     // Init fresh git repo
     let output = run_command("git", &["init"], &target_dir, 10)
         .await
-        .map_err(|e| {
-            emit_progress(&app_handle, "clean", "error", Some(&e));
-            e
+        .inspect_err(|e| {
+            emit_progress(&app_handle, "clean", "error", Some(e));
         })?;
     if !output.success {
         let msg = output.error_msg("git init failed");
@@ -812,9 +810,8 @@ pub async fn scaffold_from_template(
 
     let output = run_command("git", &["add", "-A"], &target_dir, 30)
         .await
-        .map_err(|e| {
-            emit_progress(&app_handle, "clean", "error", Some(&e));
-            e
+        .inspect_err(|e| {
+            emit_progress(&app_handle, "clean", "error", Some(e));
         })?;
     if !output.success {
         let msg = output.error_msg("git add failed");
@@ -836,9 +833,8 @@ pub async fn scaffold_from_template(
         30,
     )
     .await
-    .map_err(|e| {
-        emit_progress(&app_handle, "clean", "error", Some(&e));
-        e
+    .inspect_err(|e| {
+        emit_progress(&app_handle, "clean", "error", Some(e));
     })?;
     if !output.success {
         let msg = output.error_msg("git commit failed");
@@ -935,9 +931,8 @@ pub async fn scaffold_from_cli(
 
     let output = run_shell(&resolved_cmd, &parent_dir, 120)
         .await
-        .map_err(|e| {
-            emit_progress(&app_handle, "generate", "error", Some(&e));
-            e
+        .inspect_err(|e| {
+            emit_progress(&app_handle, "generate", "error", Some(e));
         })?;
 
     if !output.success {

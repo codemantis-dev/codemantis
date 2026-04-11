@@ -1,5 +1,11 @@
 # CodeMantis Releases
 
+## 1.0.6
+
+### Code Quality
+- Fix all 27 clippy errors (Rust 1.94.0): suppress `too_many_arguments` on Tauri commands and database helpers, replace `map_err` with `inspect_err`, use `contains()` over `iter().any()`, adopt `clamp()`, `strip_prefix()`, `next_back()`, and the `?` operator where clippy recommends them
+- CI clippy gate now passes clean
+
 ## 1.0.5
 
 ### Plan Mode

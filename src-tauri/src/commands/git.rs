@@ -78,7 +78,7 @@ pub fn get_git_status(project_path: String) -> GitStatusInfo {
 
 #[tauri::command]
 pub fn get_git_log(project_path: String, max_commits: u32) -> Vec<GitCommit> {
-    let limit = max_commits.min(50).max(1);
+    let limit = max_commits.clamp(1, 50);
     let max_arg = format!("--max-count={}", limit);
     // NUL-separated fields: abbreviated hash, subject, author name, ISO date
     let output = run_git(

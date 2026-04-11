@@ -179,6 +179,7 @@ pub struct ClaudeProcess {
 }
 
 impl ClaudeProcess {
+    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         app_handle: AppHandle,
         session_id: String,

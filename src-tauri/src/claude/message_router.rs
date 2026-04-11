@@ -382,6 +382,7 @@ fn handle_content_block_stop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_result(
     app_handle: &AppHandle,
     session_id: &str,

@@ -214,6 +214,7 @@ impl Database {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_session(
         &self,
         id: &str,
@@ -319,6 +320,7 @@ impl Database {
         Ok(count % 10)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_changelog_entry(
         &self,
         id: &str,
@@ -491,6 +493,7 @@ impl Database {
         Ok(sessions)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_api_log(
         &self,
         id: &str,

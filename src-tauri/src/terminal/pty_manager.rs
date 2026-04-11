@@ -97,7 +97,7 @@ impl TerminalPool {
 
         let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
-        let mut cmd = if let Some(ref custom_program) = shell {
+        let mut cmd = if let Some(custom_program) = shell {
             // Custom command (claude CLI, npm, etc.) — wrap in login shell
             // so user's profile is sourced and PATH is available.
             //
@@ -195,7 +195,7 @@ impl TerminalPool {
 
                         // Scan for dev server URLs in output
                         line_buffer.push_str(&data);
-                        while let Some(delim_pos) = line_buffer.find(|c: char| c == '\n' || c == '\r') {
+                        while let Some(delim_pos) = line_buffer.find(['\n', '\r']) {
                             let line: String = line_buffer.drain(..=delim_pos).collect();
                             let trimmed = line.trim_matches(|c: char| c == '\n' || c == '\r');
                             // Skip empty segments (e.g. from \r\n sequences)

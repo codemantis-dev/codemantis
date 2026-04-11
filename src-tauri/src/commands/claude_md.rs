@@ -217,7 +217,7 @@ fn infer_script_description(name: &str, cmd: &str) -> String {
     }
 
     if lower_name.starts_with("generate:") || lower_name.starts_with("gen:") {
-        let variant = name.split(':').last().unwrap_or("");
+        let variant = name.split(':').next_back().unwrap_or("");
         return format!("Generate {}", variant);
     }
 

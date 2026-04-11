@@ -607,7 +607,7 @@ fn find_routes_recursive(dir: &Path, patterns: &[&str], routes: &mut Vec<String>
                 continue;
             }
             find_routes_recursive(&path, patterns, routes, base);
-        } else if patterns.iter().any(|p| name == *p) {
+        } else if patterns.contains(&name) {
             if let Ok(relative) = path.strip_prefix(base) {
                 routes.push(relative.display().to_string());
             }

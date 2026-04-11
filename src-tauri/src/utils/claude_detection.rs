@@ -18,9 +18,7 @@ pub fn validate_claude_binary(path: &str) -> Option<ClaudeStatus> {
     }
     let version = get_claude_version(&p);
     // If we can't get a version, it's probably not a real Claude binary
-    if version.is_none() {
-        return None;
-    }
+    version.as_ref()?;
     let authenticated = check_authenticated();
     Some(ClaudeStatus {
         installed: true,

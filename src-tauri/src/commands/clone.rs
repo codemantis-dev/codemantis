@@ -128,9 +128,8 @@ pub async fn clone_from_git(
         300, // generous timeout for large repos
     )
     .await
-    .map_err(|e| {
-        emit_progress(&app_handle, "clone", "error", Some(&e));
-        e
+    .inspect_err(|e| {
+        emit_progress(&app_handle, "clone", "error", Some(e));
     })?;
 
     if !output.success {

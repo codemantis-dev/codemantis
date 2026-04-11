@@ -165,6 +165,7 @@ pub enum StreamEvent {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn send_assistant_chat(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -259,6 +260,7 @@ pub async fn send_assistant_chat(
 
 // --- OpenAI SSE streaming ---
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_openai(
     app: &AppHandle,
     event_name: &str,
@@ -371,6 +373,7 @@ async fn stream_openai(
 
 // --- Gemini SSE streaming ---
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_gemini(
     app: &AppHandle,
     event_name: &str,
@@ -485,6 +488,7 @@ async fn stream_gemini(
 
 // --- Anthropic SSE streaming ---
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_anthropic(
     app: &AppHandle,
     event_name: &str,
@@ -544,8 +548,8 @@ async fn stream_anthropic(
                             let line = line_buffer[..pos].trim().to_string();
                             line_buffer = line_buffer[pos + 1..].to_string();
 
-                            if line.starts_with("event: ") {
-                                current_event_type = line[7..].to_string();
+                            if let Some(event_type) = line.strip_prefix("event: ") {
+                                current_event_type = event_type.to_string();
                                 continue;
                             }
 
@@ -608,6 +612,7 @@ async fn stream_anthropic(
 
 // --- OpenRouter SSE streaming (OpenAI-compatible) ---
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_openrouter(
     app: &AppHandle,
     event_name: &str,

@@ -144,7 +144,7 @@ pub async fn gather_project_snapshot(
                     continue;
                 }
                 find_routes(&path, patterns, routes, base);
-            } else if patterns.iter().any(|p| name == *p) {
+            } else if patterns.contains(&name) {
                 if let Ok(relative) = path.strip_prefix(base) {
                     routes.push(relative.display().to_string());
                 }
