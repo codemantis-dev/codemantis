@@ -27,6 +27,7 @@ export function useSpecConversation(): {
   const flushScheduledRef = useRef<number | null>(null);
   const specDetectedRef = useRef(false);
   const auditDetectedRef = useRef(false);
+  const preStreamSpecRef = useRef<string | null>(null);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -209,25 +210,31 @@ export function useSpecConversation(): {
       streamBufferRef.current = "";
       specDetectedRef.current = false;
       auditDetectedRef.current = false;
+      preStreamSpecRef.current = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
 
       if (unlistenRef.current) {
         unlistenRef.current();
       }
 
       // Flush accumulated stream buffer to store (batched via RAF)
+      // Audit detection takes priority — an audit document is never also a spec.
       const flushStreamBuffer = (): void => {
         flushScheduledRef.current = null;
         const buf = streamBufferRef.current;
         if (!buf) return;
         const store = useSpecWriterStore.getState();
         store.updateLastAssistantMessage(projectPath, buf);
-        if (specDetectedRef.current || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
-          specDetectedRef.current = true;
-          store.setCurrentSpecContent(projectPath, buf);
-        }
         if (auditDetectedRef.current || AUDIT_START_PATTERN.test(buf)) {
+          // If we previously misidentified this stream as a spec, restore original
+          if (!auditDetectedRef.current && specDetectedRef.current) {
+            specDetectedRef.current = false;
+            store.setCurrentSpecContent(projectPath, preStreamSpecRef.current);
+          }
           auditDetectedRef.current = true;
           store.setCurrentAuditContent(projectPath, buf);
+        } else if (specDetectedRef.current || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
+          specDetectedRef.current = true;
+          store.setCurrentSpecContent(projectPath, buf);
         }
       };
 
@@ -251,8 +258,9 @@ export function useSpecConversation(): {
 
           const finalContent = streamBufferRef.current;
           const parsed = parseSelectableOptions(finalContent);
-          const isSpec = SPEC_START_PATTERN.test(finalContent) || isLikelySpecDocument(finalContent);
+          // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
+          const isSpec = !isAudit && (SPEC_START_PATTERN.test(finalContent) || isLikelySpecDocument(finalContent));
           const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
 
           // Single batched store update: streaming=false, content, status, message type

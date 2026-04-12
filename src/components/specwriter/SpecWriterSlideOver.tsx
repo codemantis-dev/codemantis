@@ -53,7 +53,8 @@ export default function SpecWriterSlideOver() {
   const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const hasGuide = useGuideStore((s) => s.guide !== null);
+  const guideSpecFilename = useGuideStore((s) => s.guide?.specFilename ?? null);
+  const hasGuide = !!lastSavedFile && guideSpecFilename === lastSavedFile;
   const { sendMessage: sendChatMessage } = useClaudeSession();
   const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -65,6 +66,7 @@ export default function SpecWriterSlideOver() {
   const canSaveAudit = !!currentAuditContent && !isStreaming;
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
+  const prevStatusRef = useRef(conversation?.status);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
 
@@ -176,6 +178,17 @@ export default function SpecWriterSlideOver() {
   useEffect(() => {
     if (isStreaming) setIsEditing(false);
   }, [isStreaming]);
+
+  // Clear stale saved-file state when a new spec finishes generating
+  // (writing → done transition only happens for spec generation, not audits)
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = conversation?.status;
+    if (conversation?.status === 'done' && prev === 'writing') {
+      setLastSavedFile(null);
+      setLastSavedAuditFile(null);
+    }
+  }, [conversation?.status]);
 
   const handleReset = useCallback(() => {
     if (activeProjectPath) {

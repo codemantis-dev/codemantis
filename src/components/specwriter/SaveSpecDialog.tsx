@@ -107,6 +107,8 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
               );
               useUiStore.getState().setRightTab("guide");
             }
+          } else {
+            showToast("Spec saved. Add a Session Plan section for a step-by-step implementation guide.", "info");
           }
         } catch (guideErr) {
           // Non-fatal: guide creation failure shouldn't block spec save
