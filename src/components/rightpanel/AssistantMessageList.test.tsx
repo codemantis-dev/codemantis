@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import AssistantMessageList from "./AssistantMessageList";
+import { useUiStore } from "../../stores/uiStore";
 import type { Message } from "../../types/session";
 
 // Mock AssistantChatMessages — avoid React.memo in factory since vi.mock is hoisted
@@ -108,5 +109,28 @@ describe("AssistantMessageList", () => {
       <AssistantMessageList {...defaultProps} messages={messages} onRetry={onRetry} />,
     );
     expect(screen.getByTestId("msg-m1")).toBeInTheDocument();
+  });
+
+  it("scrolls to bottom when rightTab changes to assistant", async () => {
+    const scrollIntoView = vi.fn();
+    useUiStore.setState({ rightTab: "activity" });
+
+    render(
+      <AssistantMessageList
+        {...defaultProps}
+        messages={[makeMessage({ id: "m1" })]}
+      />,
+    );
+
+    const endEl = screen.getByTestId("messages-end");
+    endEl.scrollIntoView = scrollIntoView;
+
+    // Switch to the assistant tab
+    useUiStore.setState({ rightTab: "assistant" });
+
+    // Wait for requestAnimationFrame + re-render
+    await vi.waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant" });
+    });
   });
 });
