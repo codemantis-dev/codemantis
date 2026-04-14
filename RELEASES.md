@@ -1,5 +1,19 @@
 # CodeMantis Releases
 
+## 1.0.7
+
+### Claude CLI Integration
+- Parse `terminal_reason` on result and turn_complete events, and `UsageInfo.iterations` (CLI v2.1.97+)
+- Treat user-interrupts (`aborted_streaming`) as a normal turn completion instead of a process error, so cancelling mid-stream no longer surfaces as a failure
+- Auto-approve the new Monitor tool in the inline PreTool hook and the approval server
+- Add `~/.codemantis/title-hook.sh` and UserPromptSubmit hook wiring in the CLI `--settings` JSON
+
+### SpecWriter
+- Audit-over-spec streaming: when early chunks look like a spec but the final content is an audit, restore the pre-stream spec preview and keep the audit tab routing correct
+- Auto-switch to the audit tab only the first time an audit appears; manual tab switches are now preserved across re-renders
+- "Use Guide" button activates only when the saved file matches the guide's expected filename; stale paths are cleared after a write→done transition
+- Info toast when saving a spec that has no "Session Plan" section, so guide generation expectations are clear
+
 ## 1.0.6
 
 ### Code Quality
