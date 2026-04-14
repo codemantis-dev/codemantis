@@ -1,5 +1,15 @@
 # CodeMantis Releases
 
+## 1.0.8
+
+### SpecWriter
+- **Recognize Guide** action on the toolbar for saved specs that don't yet have a linked guide — runs `parseSessionPlan` + `createGuide` and opens the Guide tab on success, with toasts for already-existing or invalid multi-session plans
+- Parse "Implementation Plan" and "Specification" title variants, not just "Session Plan" — and if there is no `## Session Plan` section, fall back to scanning the whole markdown for `### Session N` blocks
+- Plan Complete modal: the plan file row is now an actionable control that focuses the file in File Viewer and closes the modal
+
+### Assistant Panel
+- Scroll to the latest message when switching back to the Assistant tab, so returning to a long conversation lands on the bottom instead of wherever the previous tab was scrolled
+
 ## 1.0.7
 
 ### Claude CLI Integration
