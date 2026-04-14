@@ -1,4 +1,4 @@
-import { X, Send, Play, PenTool, RotateCcw, Lightbulb, BookOpen } from "lucide-react";
+import { X, Send, Play, PenTool, RotateCcw, Lightbulb, BookOpen, ScanSearch } from "lucide-react";
 
 interface Props {
   lastSavedFile: string | null;
@@ -11,6 +11,7 @@ interface Props {
   onSendToChat: () => void;
   onImplement: () => void;
   onUseGuide: () => void;
+  onRecognizeGuide: () => void;
   onWriteSpec: () => void;
   onReset: () => void;
   onSuggestFeatures: () => void;
@@ -28,6 +29,7 @@ export default function SpecWriterToolbar({
   onSendToChat,
   onImplement,
   onUseGuide,
+  onRecognizeGuide,
   onWriteSpec,
   onReset,
   onSuggestFeatures,
@@ -82,6 +84,21 @@ export default function SpecWriterToolbar({
             >
               <BookOpen size={11} />
               Use Guide
+            </button>
+          )}
+          {!hasGuide && (
+            <button
+              onClick={onRecognizeGuide}
+              title="Re-analyze spec for a multi-session plan and create an implementation guide"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95"
+              style={{
+                background: "var(--bg-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <ScanSearch size={11} />
+              Recognize Guide
             </button>
           )}
         </>

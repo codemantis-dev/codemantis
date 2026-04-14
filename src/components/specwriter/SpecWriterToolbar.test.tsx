@@ -13,6 +13,7 @@ const baseProps = {
   onSendToChat: vi.fn(),
   onImplement: vi.fn(),
   onUseGuide: vi.fn(),
+  onRecognizeGuide: vi.fn(),
   onWriteSpec: vi.fn(),
   onReset: vi.fn(),
   onSuggestFeatures: vi.fn(),
@@ -57,6 +58,32 @@ describe("SpecWriterToolbar", () => {
     render(<SpecWriterToolbar {...baseProps} lastSavedFile="spec.md" hasGuide={true} onUseGuide={onUseGuide} />);
     fireEvent.click(screen.getByText("Use Guide"));
     expect(onUseGuide).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Recognize Guide button ──
+
+  it("shows 'Recognize Guide' when file saved but no guide", () => {
+    render(<SpecWriterToolbar {...baseProps} lastSavedFile="spec.md" hasGuide={false} />);
+    expect(screen.getByText("Recognize Guide")).toBeInTheDocument();
+    expect(screen.queryByText("Use Guide")).not.toBeInTheDocument();
+  });
+
+  it("hides 'Recognize Guide' when guide exists", () => {
+    render(<SpecWriterToolbar {...baseProps} lastSavedFile="spec.md" hasGuide={true} />);
+    expect(screen.queryByText("Recognize Guide")).not.toBeInTheDocument();
+    expect(screen.getByText("Use Guide")).toBeInTheDocument();
+  });
+
+  it("hides 'Recognize Guide' when no file saved", () => {
+    render(<SpecWriterToolbar {...baseProps} lastSavedFile={null} hasGuide={false} />);
+    expect(screen.queryByText("Recognize Guide")).not.toBeInTheDocument();
+  });
+
+  it("calls onRecognizeGuide when clicked", () => {
+    const onRecognizeGuide = vi.fn();
+    render(<SpecWriterToolbar {...baseProps} lastSavedFile="spec.md" hasGuide={false} onRecognizeGuide={onRecognizeGuide} />);
+    fireEvent.click(screen.getByText("Recognize Guide"));
+    expect(onRecognizeGuide).toHaveBeenCalledTimes(1);
   });
 
   // ── Send to Chat / Implement buttons ──

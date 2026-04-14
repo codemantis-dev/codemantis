@@ -10,6 +10,7 @@ import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter
 import { useDividerResize } from "../../hooks/useDividerResize";
 import { useSavedSpecs } from "../../hooks/useSavedSpecs";
 import { useGuideStore } from "../../stores/guideStore";
+import { parseSessionPlan } from "../../lib/parse-session-plan";
 import SpecChat from "./SpecChat";
 import SpecWriterToolbar from "./SpecWriterToolbar";
 import SpecPreviewPanel from "./SpecPreviewPanel";
@@ -223,6 +224,27 @@ export default function SpecWriterSlideOver() {
     handleClose();
   }, [handleClose]);
 
+  const handleRecognizeGuide = useCallback(async () => {
+    if (!currentSpecContent || !activeProjectPath || !lastSavedFile) return;
+    const parsed = parseSessionPlan(currentSpecContent);
+    if (parsed) {
+      const created = await useGuideStore.getState().createGuide(
+        activeProjectPath, lastSavedFile, null, parsed,
+      );
+      if (created) {
+        showToast(
+          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
+          "info",
+        );
+        useUiStore.getState().setRightTab("guide");
+      } else {
+        showToast("Guide already exists for this spec", "info");
+      }
+    } else {
+      showToast("Could not find a multi-session plan in this spec", "error");
+    }
+  }, [currentSpecContent, activeProjectPath, lastSavedFile]);
+
   // ── Spec save handler ───────
   const handleSpecSaved = useCallback((filename: string) => {
     setShowSaveDialog(false);
@@ -417,6 +439,7 @@ export default function SpecWriterSlideOver() {
           onSendToChat={handleSendToChat}
           onImplement={handleImplement}
           onUseGuide={handleUseGuide}
+          onRecognizeGuide={handleRecognizeGuide}
           onWriteSpec={handleWriteSpec}
           onReset={handleReset}
           onSuggestFeatures={handleSuggestFeatures}
