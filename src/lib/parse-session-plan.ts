@@ -26,8 +26,10 @@ export interface ParsedSessionPlan {
  */
 export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null {
   // --- Step 1: Extract spec title from the # heading ---
+  // Accepts: "— Specification", "— Requirements Specification", "— Feature Specification",
+  //          "— Implementation Plan", "— Implementation Specification"
   const titleMatch = specMarkdown.match(
-    /^#\s+(.+?)(?:\s*(?:—|-)\s*(?:Requirements |Feature )?Specification)/m,
+    /^#\s+(.+?)\s*(?:—|-)\s*(?:(?:Requirements |Feature |Implementation )?Specification|Implementation Plan)/m,
   );
   if (!titleMatch) return null;
   const title = titleMatch[1].trim();
@@ -36,15 +38,21 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
   // Look for "## 10. Session Plan" or "## Session Plan" (flexible numbering)
   const sectionPattern = /^##\s+(?:\d+\.\s+)?Session Plan(?:\s*—.*)?$/m;
   const sectionMatch = specMarkdown.match(sectionPattern);
-  if (!sectionMatch || sectionMatch.index === undefined) return null;
 
-  // Extract everything from the Session Plan heading to the next ## heading
-  const sectionStart = sectionMatch.index + sectionMatch[0].length;
-  const nextSectionMatch = specMarkdown.slice(sectionStart).match(/^##\s+/m);
-  const sectionEnd = nextSectionMatch?.index
-    ? sectionStart + nextSectionMatch.index
-    : specMarkdown.length;
-  const sectionContent = specMarkdown.slice(sectionStart, sectionEnd);
+  let sectionContent: string;
+  if (sectionMatch && sectionMatch.index !== undefined) {
+    // Extract everything from the Session Plan heading to the next ## heading
+    const sectionStart = sectionMatch.index + sectionMatch[0].length;
+    const nextSectionMatch = specMarkdown.slice(sectionStart).match(/^##\s+/m);
+    const sectionEnd = nextSectionMatch?.index
+      ? sectionStart + nextSectionMatch.index
+      : specMarkdown.length;
+    sectionContent = specMarkdown.slice(sectionStart, sectionEnd);
+  } else {
+    // Fallback: no "## Session Plan" wrapper — search the full document
+    // for ### Session N: blocks (common in Implementation Plan format)
+    sectionContent = specMarkdown;
+  }
 
   // --- Step 3: Split into individual sessions ---
   // Each session starts with "### Session N:"

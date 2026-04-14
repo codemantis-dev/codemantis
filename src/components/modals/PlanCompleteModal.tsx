@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardCheck, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { sendMessage, setSessionMode } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
@@ -24,6 +25,17 @@ export default function PlanCompleteModal() {
   const handleClose = useCallback(() => {
     setShowModal(false);
   }, [setShowModal]);
+
+  const handleRevealPlanFile = useCallback(() => {
+    if (!planFilePath || !sessionId) return;
+    const session = useSessionStore.getState().sessions.get(sessionId);
+    const projectPath = session?.project_path;
+    if (projectPath) {
+      useFileViewerStore.getState().setActiveFile(projectPath, planFilePath);
+    }
+    useUiStore.getState().setRightTab("files");
+    setShowModal(false);
+  }, [planFilePath, sessionId, setShowModal]);
 
   const handleImplement = useCallback(async () => {
     if (!sessionId) return;
@@ -121,15 +133,20 @@ export default function PlanCompleteModal() {
 
           {/* Plan file info */}
           {planFilePath && (
-            <div className="px-3 py-2.5 rounded-lg border border-border bg-bg-subtle mb-4">
+            <button
+              type="button"
+              onClick={handleRevealPlanFile}
+              className="w-full text-left px-3 py-2.5 rounded-lg border border-border bg-bg-subtle mb-4 hover:border-accent/40 hover:bg-bg-elevated transition-colors cursor-pointer"
+              title="Reveal in File Viewer"
+            >
               <span className="text-label text-text-dim block mb-1">Plan file</span>
               <span className="text-ui text-text-secondary font-mono text-[12px] break-all">
                 {planFilePath.split("/").pop() ?? planFilePath}
               </span>
-              <span className="text-label text-text-ghost block mt-0.5">
-                Opened in File Viewer
+              <span className="text-label text-accent block mt-0.5">
+                Reveal in File Viewer →
               </span>
-            </div>
+            </button>
           )}
 
           {/* Auto-accept toggle */}

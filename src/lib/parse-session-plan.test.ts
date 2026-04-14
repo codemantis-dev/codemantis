@@ -291,6 +291,89 @@ ${makeSession(2, { name: "Auth UI" })}
     expect(result!.title).toBe("User Authentication");
   });
 
+  it("handles Implementation Plan title format", () => {
+    const spec = `# Multi-Step Document Generation — Implementation Plan
+
+## 10. Session Plan
+${makeSession(1, { name: "Database Schema" })}
+${makeSession(2, { name: "Edge Functions" })}
+`;
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Multi-Step Document Generation");
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].name).toBe("Database Schema");
+  });
+
+  it("handles Implementation Specification title format", () => {
+    const spec = `# Auth Overhaul — Implementation Specification
+
+## Session Plan
+${makeSession(1, { name: "Phase 1" })}
+${makeSession(2, { name: "Phase 2" })}
+`;
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Auth Overhaul");
+  });
+
+  it("finds sessions without a ## Session Plan wrapper heading", () => {
+    const spec = `# Pipeline Upgrade — Implementation Plan
+
+## Architecture Overview
+Some context about the architecture.
+
+## Data Layer Contract
+Some data layer details.
+
+### Session 1: Database Schema
+**Scope:** Create tables
+**Read sections:** Section 3
+**Files:**
+- \`migrations/001.sql\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Create the migration files.
+\`\`\`
+
+**Verify before next session:**
+- [ ] Tables exist
+
+### Session 2: Edge Functions
+**Scope:** Extend APIs
+**Files:**
+- \`functions/read.ts\` (modify)
+
+**Prompt for Claude Code:**
+\`\`\`
+Add new actions to the edge functions.
+\`\`\`
+
+### Session 3: Worker Code
+**Scope:** Implement pipeline
+**Files:**
+- \`worker/pipeline.py\` (modify)
+
+**Prompt for Claude Code:**
+\`\`\`
+Implement the multi-step pipeline.
+\`\`\`
+`;
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Pipeline Upgrade");
+    expect(result!.sessions).toHaveLength(3);
+    expect(result!.sessions[0].name).toBe("Database Schema");
+    expect(result!.sessions[0].scope).toBe("Create tables");
+    expect(result!.sessions[0].files).toEqual(["migrations/001.sql"]);
+    expect(result!.sessions[1].name).toBe("Edge Functions");
+    expect(result!.sessions[2].name).toBe("Worker Code");
+  });
+
   it("handles prompt with language-tagged fenced code block", () => {
     const content = `
 ### Session 1: Setup

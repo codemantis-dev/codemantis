@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import PlanCompleteModal from "./PlanCompleteModal";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { Session } from "../../types/session";
 
 vi.mock("../../lib/tauri-commands", () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -94,7 +95,40 @@ describe("PlanCompleteModal", () => {
     render(<PlanCompleteModal />);
     expect(screen.getByText("Plan file")).toBeInTheDocument();
     expect(screen.getByText("jazzy-prancing-wilkes.md")).toBeInTheDocument();
-    expect(screen.getByText("Opened in File Viewer")).toBeInTheDocument();
+    expect(screen.getByText("Reveal in File Viewer →")).toBeInTheDocument();
+  });
+
+  it("reveals plan file in File Viewer when plan file card is clicked", async () => {
+    const setShowModal = vi.fn();
+    const setRightTab = vi.fn();
+    const setActiveFile = vi.fn();
+    const { useFileViewerStore } = await import("../../stores/fileViewerStore");
+    useFileViewerStore.setState({ setActiveFile });
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+      planCompleteFilePath: "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
+      setShowPlanCompleteModal: setShowModal,
+      setRightTab,
+    });
+    const session: Session = {
+      id: "s1",
+      name: "s1",
+      project_path: "/Users/hr/project",
+      status: "connected",
+      created_at: new Date().toISOString(),
+      model: null,
+      icon_index: 0,
+    };
+    useSessionStore.setState({ sessions: new Map([["s1", session]]) });
+    render(<PlanCompleteModal />);
+    fireEvent.click(screen.getByText("jazzy-prancing-wilkes.md"));
+    expect(setActiveFile).toHaveBeenCalledWith(
+      "/Users/hr/project",
+      "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
+    );
+    expect(setRightTab).toHaveBeenCalledWith("files");
+    expect(setShowModal).toHaveBeenCalledWith(false);
   });
 
   it("does not show plan file info when planCompleteFilePath is null", () => {
