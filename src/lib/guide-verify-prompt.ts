@@ -7,24 +7,30 @@ interface SessionForVerify {
   index: number;
   name: string;
   verifyChecks: { label: string }[];
+  verificationPrompt?: string | null;
 }
 
 /**
  * Build a verification prompt for a single guide session.
- * Matches the exact template from GuideSessionCard's "Verify for me" button.
+ * Prefers the session's dedicated verification prompt when present,
+ * otherwise falls back to building one from the verify checklist.
  */
 export function buildSessionVerifyPrompt(
   session: SessionForVerify,
   specFilename: string,
   auditFilename: string | null,
 ): string {
-  const checksText = session.verifyChecks
-    .map((c) => `- ${c.label}`)
-    .join("\n");
-
   const auditLine = auditFilename
     ? `\n\nAlso read the Verification Audit at docs/specs/${auditFilename} and use it as a checklist for thorough verification.`
     : "";
+
+  if (session.verificationPrompt) {
+    return session.verificationPrompt + auditLine;
+  }
+
+  const checksText = session.verifyChecks
+    .map((c) => `- ${c.label}`)
+    .join("\n");
 
   return `Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
 

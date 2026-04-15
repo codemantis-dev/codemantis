@@ -21,6 +21,7 @@ export interface GuideSession {
   files: string[];
   prompt: string;
   verifyChecks: VerifyCheck[];
+  verificationPrompt?: string | null;
   status: "pending" | "active" | "done";
   promptSent?: boolean;
   verifyRequested?: boolean;

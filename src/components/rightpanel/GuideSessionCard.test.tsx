@@ -334,4 +334,49 @@ describe("GuideSessionCard", () => {
     expect(prompt).toContain("docs/specs/my-feature-audit.md");
     expect(prompt).toContain("Verification Audit");
   });
+
+  it("uses dedicated verificationPrompt when present instead of checklist template", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession({
+          verificationPrompt:
+            "Verify Session 1.\n\n1. Open `src/db.ts`\n   - VERIFY: schema initialized",
+        })}
+        specFilename="my-feature.md"
+        auditFilename={null}
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Verify for me"));
+    expect(mockSetDraftInput).toHaveBeenCalledOnce();
+    const prompt = mockSetDraftInput.mock.calls[0][0] as string;
+    expect(prompt).toContain("Verify Session 1.");
+    expect(prompt).toContain("Open `src/db.ts`");
+    expect(prompt).toContain("VERIFY: schema initialized");
+    // Fallback template text should NOT appear
+    expect(prompt).not.toContain("Check each of the following");
+  });
+
+  it("renders 'Verify for me' when session has only a verificationPrompt (no checklist)", () => {
+    render(
+      <GuideSessionCard
+        session={makeSession({
+          verifyChecks: [],
+          verificationPrompt: "Verify Session 1.\n- VERIFY: thing",
+        })}
+        specFilename="my-feature.md"
+        auditFilename={null}
+        onToggleVerifyCheck={onToggle}
+        onMarkComplete={onComplete}
+        onMarkPromptSent={vi.fn()}
+        onMarkVerifyRequested={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Verify for me")).toBeTruthy();
+  });
 });

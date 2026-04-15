@@ -51,6 +51,60 @@ describe("buildSessionVerifyPrompt", () => {
     expect(result).toContain("Session 3: Polish");
     expect(result).toContain("docs/specs/spec.md");
   });
+
+  it("prefers verificationPrompt over checklist when available", () => {
+    const result = buildSessionVerifyPrompt(
+      {
+        index: 1,
+        name: "Database Schema",
+        verifyChecks: [{ label: "TypeScript compiles" }],
+        verificationPrompt:
+          "Open src/models/user.ts.\nVERIFY: User model exists.",
+      },
+      "test.md",
+      null,
+    );
+
+    expect(result).toContain("Open src/models/user.ts");
+    expect(result).toContain("VERIFY: User model exists");
+    expect(result).not.toContain("Check each of the following");
+    // Since no checklist fallback is produced, verifyChecks must not leak in
+    expect(result).not.toContain("- TypeScript compiles");
+  });
+
+  it("falls back to checklist when verificationPrompt is null", () => {
+    const result = buildSessionVerifyPrompt(
+      {
+        index: 1,
+        name: "Database Schema",
+        verifyChecks: [{ label: "TypeScript compiles" }],
+        verificationPrompt: null,
+      },
+      "test.md",
+      null,
+    );
+
+    expect(result).toContain("Check each of the following");
+    expect(result).toContain("- TypeScript compiles");
+  });
+
+  it("appends audit line to verificationPrompt when audit filename provided", () => {
+    const result = buildSessionVerifyPrompt(
+      {
+        index: 2,
+        name: "API",
+        verifyChecks: [],
+        verificationPrompt: "Verify the API routes respond correctly.",
+      },
+      "spec.md",
+      "spec.audit.md",
+    );
+
+    expect(result).toContain("Verify the API routes respond correctly.");
+    expect(result).toContain(
+      "Verification Audit at docs/specs/spec.audit.md",
+    );
+  });
 });
 
 describe("buildGuideCompleteVerifyPrompt", () => {

@@ -395,4 +395,120 @@ Build the features.
     expect(result!.sessions[0].prompt).toBe("Set up the project foundation.");
     expect(result!.sessions[1].prompt).toBe("Build the features.");
   });
+
+  it("extracts optional verification prompt from a session", () => {
+    const content = `
+### Session 1: Database Schema (~3 files)
+**Scope:** Create entity tables
+**Read sections:** Section 2
+**Files:**
+- \`src/models/user.ts\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Create the User model with name, email, role fields.
+\`\`\`
+
+**Verification Prompt:**
+\`\`\`
+Verify Session 1: Database Schema.
+
+1. Open \`src/models/user.ts\`
+   - VERIFY: User model exports interface with name, email, role
+   - NOT EXPECTED: role is plain string (should be enum)
+
+2. Run \`pnpm tsc --noEmit\`
+   - VERIFY: Zero type errors
+\`\`\`
+
+**Verify before next session:**
+- [ ] User model exists with correct fields
+- [ ] TypeScript compiles
+
+### Session 2: API Routes (~2 files)
+**Scope:** Create REST endpoints
+**Files:**
+- \`src/routes/users.ts\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Create CRUD routes for User.
+\`\`\`
+
+**Verify before next session:**
+- [ ] Routes respond correctly
+`;
+    const spec = makeSpec(content);
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+
+    // Session 1 has a verification prompt
+    expect(result!.sessions[0].verificationPrompt).not.toBeNull();
+    expect(result!.sessions[0].verificationPrompt).toContain(
+      "VERIFY: User model exports",
+    );
+    expect(result!.sessions[0].verificationPrompt).toContain("NOT EXPECTED:");
+    // The existing manual verify checklist is still parsed
+    expect(result!.sessions[0].verifyChecks).toContain(
+      "User model exists with correct fields",
+    );
+
+    // Session 2 does not
+    expect(result!.sessions[1].verificationPrompt).toBeNull();
+  });
+
+  it("parses sessions correctly when no verification prompts exist (backward compat)", () => {
+    const content = Array.from({ length: 3 }, (_, i) =>
+      makeSession(i + 1),
+    ).join("\n\n");
+    const spec = makeSpec(content);
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(3);
+
+    for (const session of result!.sessions) {
+      expect(session.verificationPrompt).toBeNull();
+    }
+  });
+
+  it("extracts verification prompt with language-tagged fence", () => {
+    const content = `
+### Session 1: Setup
+**Prompt for Claude Code:**
+\`\`\`
+Do setup.
+\`\`\`
+
+**Verification Prompt:**
+\`\`\`text
+Verify Session 1.
+
+1. Open \`src/app.ts\`
+   - VERIFY: app boots
+\`\`\`
+
+**Verify before next session:**
+- [ ] App runs
+
+### Session 2: Build
+**Prompt for Claude Code:**
+\`\`\`
+Build feature.
+\`\`\`
+`;
+    const spec = makeSpec(content);
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    expect(result!.sessions[0].verificationPrompt).toContain(
+      "Verify Session 1.",
+    );
+    expect(result!.sessions[0].verificationPrompt).toContain(
+      "VERIFY: app boots",
+    );
+    expect(result!.sessions[1].verificationPrompt).toBeNull();
+  });
 });

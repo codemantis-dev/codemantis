@@ -10,6 +10,7 @@ export interface ParsedSession {
   files: string[];
   prompt: string;
   verifyChecks: string[];
+  verificationPrompt?: string | null;
 }
 
 export interface ParsedSessionPlan {
@@ -130,11 +131,26 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
     }
   }
 
+  // Extract optional verification prompt (fenced code block after "Verification Prompt")
+  const verificationMatch = chunk.match(
+    /\*\*Verification\s+Prompt:\*\*\s*\n```[^\n]*\n([\s\S]*?)```/,
+  );
+  const verificationPrompt = verificationMatch?.[1]?.trim() ?? null;
+
   // --- Validation: prompt is REQUIRED, everything else is nice-to-have ---
   if (!prompt) {
     console.warn(`[parseSessionPlan] Session ${index} has no prompt block`);
     return null;
   }
 
-  return { index, name, scope, readSections, files, prompt, verifyChecks };
+  return {
+    index,
+    name,
+    scope,
+    readSections,
+    files,
+    prompt,
+    verifyChecks,
+    verificationPrompt,
+  };
 }

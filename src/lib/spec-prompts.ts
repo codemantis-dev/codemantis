@@ -467,17 +467,42 @@ source files following the project's test conventions (e.g.,
 Component.test.tsx next to Component.tsx, or in a __tests__ dir).
 Run the test suite after implementation to confirm all pass.
 
+CROSS-SESSION CONSISTENCY:
+This session may use entities, API endpoints, or components created
+in previous sessions. Before referencing anything from a prior session:
+- Verify it was listed in that session's Files section
+- Reference it by its exact name (function name, model name, route path)
+- If you need something that SHOULD exist from a prior session but
+  isn't listed, flag it: "NOTE: This assumes {entity/function} was
+  created in Session {N}. If missing, create it here."
+
 Do NOT modify files from previous sessions unless the checklist
 explicitly says to.
 \`\`\`
 
 **Verify before next session:**
 - [ ] {deployment verification — if this session deployed anything}
-- [ ] {concrete verification step}
-- [ ] {concrete verification step}
+- [ ] {concrete positive verification step}
+- [ ] {concrete positive verification step}
+- [ ] NOT: {something that should NOT happen — unauthorized access,
+      flash of wrong state, data leak across tenants}
 - [ ] Tests written for all new functions/components in this session
 - [ ] Test suite passes: \`{test_command}\` (including new tests)
 - [ ] TypeScript compiles: \`{typecheck_command}\`
+
+NEGATIVE CHECKS: Include at least one "NOT:" check per session.
+These catch the bugs that positive checks miss. Examples:
+- [ ] NOT: unauthenticated users can access /dashboard (returns 401)
+- [ ] NOT: loading spinner persists after data arrives
+- [ ] NOT: form submits successfully with empty required fields
+- [ ] NOT: deleted items still appear in the list after refresh
+
+NEGATIVE CHECKS ARE MANDATORY:
+Every session's verify section MUST include at least one "NOT:" check.
+These are the bugs that positive checks miss:
+- NOT: a state that should NOT be visible (flash of content before auth redirect)
+- NOT: an action that should NOT be possible (unauthorized access, invalid submit)
+- NOT: a side effect that should NOT occur (duplicate entries, stale cache)
 
 VERIFY CHECKS — DEPLOYMENT AWARENESS:
 If the session includes deployment commands, the verify section MUST
@@ -532,6 +557,40 @@ RULES:
   followed by a fenced code block containing the audit prompt
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
+
+OPTIONAL — VERIFICATION PROMPT (for complex sessions):
+If a session has 5+ verify items or creates complex logic (state machines,
+integration error handling, auth middleware), include a dedicated
+verification prompt that Claude Code can execute after building:
+
+**Verification Prompt:**
+\`\`\`
+Verify Session {N}: {title}.
+
+For each check, open the ACTUAL FILE and read the code.
+Report PASS or FAIL with a one-line reason.
+
+1. Open \`{file_path}\`
+   - VERIFY: {specific thing to check} exists with {expected value}
+   - NOT EXPECTED: {common mistake to catch}
+
+2. Open \`{file_path}\`
+   - VERIFY: {function/method} handles {error case}
+   - TRACE: {action} → {handler} → {expected outcome}
+
+3. Run \`{test_command}\`
+   - VERIFY: All tests pass including tests from this session
+
+Fix any FAIL items before proceeding.
+\`\`\`
+
+RULES for Verification Prompts:
+- Every check starts with "Open \`{file_path}\`" — forces file reading
+- Every check has "VERIFY:" with a specific expected outcome
+- Include "NOT EXPECTED:" for common mistakes
+- Include "TRACE:" for logic chains that span multiple functions
+- Verification prompts are OPTIONAL — only for sessions with 5+ items
+  or complex logic. Simple sessions use the manual checklist only.
 
 SESSION SIZING GUIDANCE:
 - Each session should cover 1-2 phases, not more
@@ -802,6 +861,52 @@ WRITING RULES
     just built. Asking it to write tests immediately after
     implementation produces better tests than asking in a separate
     session where it has to re-read everything.
+
+17. ANTI-FABRICATION: Do NOT invent technical details that were not
+    discussed or confirmed during the conversation:
+    - Do NOT invent specific database constraints (max_length, regex
+      patterns, unique constraints) unless the user specified them
+    - Do NOT invent timeout values, retry counts, rate limits, or
+      performance thresholds as concrete numbers
+    - Do NOT invent API response codes or error message strings
+    - Do NOT invent specific animation durations or transition timings
+    - If a technical detail is needed for completeness but was not
+      discussed, mark it as: [ASSUMPTION: {value} — {reason}]
+    - The implementer should review all [ASSUMPTION] items before
+      starting Phase 1
+
+    WRONG (fabricated):
+      "API calls timeout after 5000ms and retry 3 times"
+      "Username must be 3-50 characters, alphanumeric only"
+
+    RIGHT (transparent):
+      "API calls timeout after [ASSUMPTION: 5000ms — typical for
+      REST calls, adjust based on expected response times] and retry
+      [ASSUMPTION: 3 times — standard retry count, confirm with team]"
+
+    RIGHT (when genuinely discussed):
+      "Username must be 3-50 characters (confirmed in conversation)"
+
+18. LOCALIZATION: When the user describes the application using
+    non-English terms, or when screenshots/mockups show non-English
+    UI labels, preserve the original language throughout the spec:
+
+    - Use the original label with English annotation on first use:
+      "The 'Einstellungen' (Settings) page at \`/settings\`"
+    - After first introduction, use the original label consistently:
+      "Navigate to 'Einstellungen' → 'Benachrichtigungen'"
+    - In ASCII mockups, use the original labels:
+      │ [Einstellungen]  [Benutzer]  [Abmelden] │
+    - In component names, use English (code convention):
+      \`SettingsPage.tsx\` (NOT \`EinstellungenPage.tsx\`)
+    - In aria-labels, use the original language:
+      \`aria-label="Einstellungen öffnen"\`
+    - In the Implementation Checklist, reference both:
+      "- [ ] Create 'Einstellungen' (Settings) page at /settings"
+
+    This prevents the AI agent from translating labels to English
+    during implementation, which would break the application for
+    its intended users.
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"
@@ -1556,17 +1661,42 @@ source files following the project's test conventions (e.g.,
 Component.test.tsx next to Component.tsx, or in a __tests__ dir).
 Run the test suite after implementation to confirm all pass.
 
+CROSS-SESSION CONSISTENCY:
+This session may use entities, API endpoints, or components created
+in previous sessions. Before referencing anything from a prior session:
+- Verify it was listed in that session's Files section
+- Reference it by its exact name (function name, model name, route path)
+- If you need something that SHOULD exist from a prior session but
+  isn't listed, flag it: "NOTE: This assumes {entity/function} was
+  created in Session {N}. If missing, create it here."
+
 Do NOT modify files from previous sessions unless the checklist
 explicitly says to.
 \`\`\`
 
 **Verify before next session:**
 - [ ] {deployment verification — if this session deployed anything}
-- [ ] {concrete verification step}
-- [ ] {concrete verification step}
+- [ ] {concrete positive verification step}
+- [ ] {concrete positive verification step}
+- [ ] NOT: {something that should NOT happen — unauthorized access,
+      flash of wrong state, data leak across tenants}
 - [ ] Tests written for all new functions/components in this session
 - [ ] Test suite passes: \`{test_command}\` (including new tests)
 - [ ] TypeScript compiles: \`{typecheck_command}\`
+
+NEGATIVE CHECKS: Include at least one "NOT:" check per session.
+These catch the bugs that positive checks miss. Examples:
+- [ ] NOT: unauthenticated users can access /dashboard (returns 401)
+- [ ] NOT: loading spinner persists after data arrives
+- [ ] NOT: form submits successfully with empty required fields
+- [ ] NOT: deleted items still appear in the list after refresh
+
+NEGATIVE CHECKS ARE MANDATORY:
+Every session's verify section MUST include at least one "NOT:" check.
+These are the bugs that positive checks miss:
+- NOT: a state that should NOT be visible (flash of content before auth redirect)
+- NOT: an action that should NOT be possible (unauthorized access, invalid submit)
+- NOT: a side effect that should NOT occur (duplicate entries, stale cache)
 
 VERIFY CHECKS — DEPLOYMENT AWARENESS:
 If the session includes deployment commands, the verify section MUST
@@ -1621,6 +1751,40 @@ RULES:
   followed by a fenced code block containing the audit prompt
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
+
+OPTIONAL — VERIFICATION PROMPT (for complex sessions):
+If a session has 5+ verify items or creates complex logic (state machines,
+integration error handling, auth middleware), include a dedicated
+verification prompt that Claude Code can execute after building:
+
+**Verification Prompt:**
+\`\`\`
+Verify Session {N}: {title}.
+
+For each check, open the ACTUAL FILE and read the code.
+Report PASS or FAIL with a one-line reason.
+
+1. Open \`{file_path}\`
+   - VERIFY: {specific thing to check} exists with {expected value}
+   - NOT EXPECTED: {common mistake to catch}
+
+2. Open \`{file_path}\`
+   - VERIFY: {function/method} handles {error case}
+   - TRACE: {action} → {handler} → {expected outcome}
+
+3. Run \`{test_command}\`
+   - VERIFY: All tests pass including tests from this session
+
+Fix any FAIL items before proceeding.
+\`\`\`
+
+RULES for Verification Prompts:
+- Every check starts with "Open \`{file_path}\`" — forces file reading
+- Every check has "VERIFY:" with a specific expected outcome
+- Include "NOT EXPECTED:" for common mistakes
+- Include "TRACE:" for logic chains that span multiple functions
+- Verification prompts are OPTIONAL — only for sessions with 5+ items
+  or complex logic. Simple sessions use the manual checklist only.
 
 SESSION SIZING GUIDANCE:
 - Each session should cover 1-2 phases, not more
@@ -1844,6 +2008,52 @@ WRITING RULES
     just built. Asking it to write tests immediately after
     implementation produces better tests than asking in a separate
     session where it has to re-read everything.
+
+20. ANTI-FABRICATION: Do NOT invent technical details that were not
+    discussed or confirmed during the conversation:
+    - Do NOT invent specific database constraints (max_length, regex
+      patterns, unique constraints) unless the user specified them
+    - Do NOT invent timeout values, retry counts, rate limits, or
+      performance thresholds as concrete numbers
+    - Do NOT invent API response codes or error message strings
+    - Do NOT invent specific animation durations or transition timings
+    - If a technical detail is needed for completeness but was not
+      discussed, mark it as: [ASSUMPTION: {value} — {reason}]
+    - The implementer should review all [ASSUMPTION] items before
+      starting Phase 1
+
+    WRONG (fabricated):
+      "API calls timeout after 5000ms and retry 3 times"
+      "Username must be 3-50 characters, alphanumeric only"
+
+    RIGHT (transparent):
+      "API calls timeout after [ASSUMPTION: 5000ms — typical for
+      REST calls, adjust based on expected response times] and retry
+      [ASSUMPTION: 3 times — standard retry count, confirm with team]"
+
+    RIGHT (when genuinely discussed):
+      "Username must be 3-50 characters (confirmed in conversation)"
+
+21. LOCALIZATION: When the user describes the application using
+    non-English terms, or when screenshots/mockups show non-English
+    UI labels, preserve the original language throughout the spec:
+
+    - Use the original label with English annotation on first use:
+      "The 'Einstellungen' (Settings) page at \`/settings\`"
+    - After first introduction, use the original label consistently:
+      "Navigate to 'Einstellungen' → 'Benachrichtigungen'"
+    - In ASCII mockups, use the original labels:
+      │ [Einstellungen]  [Benutzer]  [Abmelden] │
+    - In component names, use English (code convention):
+      \`SettingsPage.tsx\` (NOT \`EinstellungenPage.tsx\`)
+    - In aria-labels, use the original language:
+      \`aria-label="Einstellungen öffnen"\`
+    - In the Implementation Checklist, reference both:
+      "- [ ] Create 'Einstellungen' (Settings) page at /settings"
+
+    This prevents the AI agent from translating labels to English
+    during implementation, which would break the application for
+    its intended users.
 
 AFTER WRITING:
 Say: "The specification is ready. Would you like me to adjust anything, add detail to a specific section, or save it?"

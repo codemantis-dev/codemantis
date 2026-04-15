@@ -220,6 +220,84 @@ describe("guideStore", () => {
     expect(guide!.sessions[1].prompt).toBe("No spec reference here.");
   });
 
+  it("createGuide maps verificationPrompt from parsed plan onto GuideSession", async () => {
+    const plan: ParsedSessionPlan = {
+      title: "Test App",
+      sessions: [
+        {
+          index: 1,
+          name: "Foundation",
+          scope: "Phase 1",
+          readSections: "Sections 1",
+          files: ["src/a.ts"],
+          prompt: "Build it.",
+          verifyChecks: ["tsc"],
+          verificationPrompt: "Open `src/a.ts`\n- VERIFY: exports default",
+        },
+        {
+          index: 2,
+          name: "Polish",
+          scope: "Phase 2",
+          readSections: "Sections 2",
+          files: ["src/b.ts"],
+          prompt: "Polish it.",
+          verifyChecks: ["tsc"],
+          verificationPrompt: null,
+        },
+      ],
+    };
+
+    await useGuideStore
+      .getState()
+      .createGuide(PROJECT, "real.md", null, plan);
+    const guide = useGuideStore.getState().guide!;
+
+    expect(guide.sessions[0].verificationPrompt).toBe(
+      "Open `src/a.ts`\n- VERIFY: exports default",
+    );
+    expect(guide.sessions[1].verificationPrompt).toBeNull();
+  });
+
+  it("createGuide rewrites spec filenames inside verificationPrompt", async () => {
+    const plan: ParsedSessionPlan = {
+      title: "Test App",
+      sessions: [
+        {
+          index: 1,
+          name: "Foundation",
+          scope: "Phase 1",
+          readSections: "Sections 1",
+          files: ["src/a.ts"],
+          prompt: "Build it.",
+          verifyChecks: ["tsc"],
+          verificationPrompt:
+            "Read docs/specs/hallucinated.md then open `src/a.ts`.",
+        },
+        {
+          index: 2,
+          name: "More",
+          scope: "Phase 2",
+          readSections: "Sections 2",
+          files: ["src/b.ts"],
+          prompt: "More.",
+          verifyChecks: ["tsc"],
+        },
+      ],
+    };
+
+    await useGuideStore
+      .getState()
+      .createGuide(PROJECT, "actual.md", null, plan);
+    const guide = useGuideStore.getState().guide!;
+
+    expect(guide.sessions[0].verificationPrompt).toContain(
+      "docs/specs/actual.md",
+    );
+    expect(guide.sessions[0].verificationPrompt).not.toContain("hallucinated");
+    // Session 2 omitted verificationPrompt entirely → defaults to null
+    expect(guide.sessions[1].verificationPrompt).toBeNull();
+  });
+
   it("toggleVerifyCheck flips the checked state", () => {
     useGuideStore.setState({ guide: makeGuide() });
 

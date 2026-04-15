@@ -77,7 +77,11 @@ export default function GuideSessionCard({
       return;
     }
 
-    const verifyPrompt = buildSessionVerifyPrompt(session, specFilename, auditFilename);
+    const verifyPrompt = buildSessionVerifyPrompt(
+      session,
+      specFilename,
+      auditFilename,
+    );
 
     useUiStore.getState().setDraftInput(verifyPrompt);
     onMarkVerifyRequested();
@@ -277,7 +281,7 @@ export default function GuideSessionCard({
           )}
 
           {/* Verify for me */}
-          {isActive && session.verifyChecks.length > 0 && (
+          {isActive && (session.verifyChecks.length > 0 || session.verificationPrompt) && (
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleVerifyForMe}
