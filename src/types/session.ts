@@ -40,6 +40,7 @@ export interface Message {
   retryable?: boolean;
   thinkingContent?: string;
   isRestored?: boolean;
+  isSelfDrive?: boolean;
   selfDriveEvent?: {
     action: string;
     summary: string;

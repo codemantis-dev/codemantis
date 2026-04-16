@@ -357,6 +357,17 @@ describe("guideStore", () => {
     expect(useGuideStore.getState().guide!.status).toBe("completed");
   });
 
+  it("unloadGuide clears in-memory state without deleting from database", async () => {
+    useGuideStore.setState({ guide: makeGuide() });
+
+    useGuideStore.getState().unloadGuide();
+    expect(useGuideStore.getState().guide).toBeNull();
+
+    // Verify deleteGuide was NOT called
+    const { deleteGuide } = await import("../lib/tauri-commands");
+    expect(deleteGuide).not.toHaveBeenCalled();
+  });
+
   it("dismissGuide clears state", async () => {
     useGuideStore.setState({ guide: makeGuide() });
 

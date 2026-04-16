@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -38,6 +38,17 @@ export default function GuideSessionCard({
 }: Props) {
   const [expanded, setExpanded] = useState(session.status === "active");
   const [filesExpanded, setFilesExpanded] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Auto-expand/collapse when session status transitions
+  useEffect(() => {
+    if (session.status === "active") {
+      setExpanded(true);
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else if (session.status === "done") {
+      setExpanded(false);
+    }
+  }, [session.status]);
 
   const selfDriveActive = useSelfDriveActiveForActiveProject();
   const selfDriveSessionIndex = useSelfDriveStore((s) => s.currentSessionIndex);
@@ -97,6 +108,7 @@ export default function GuideSessionCard({
 
   return (
     <div
+      ref={cardRef}
       className={`rounded-lg overflow-hidden transition-all ${isSelfDriveSession ? "animate-pulse-subtle" : ""}`}
       style={{
         background: "var(--bg-primary)",

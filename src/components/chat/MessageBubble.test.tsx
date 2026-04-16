@@ -148,4 +148,16 @@ describe("MessageBubble", () => {
     render(<MessageBubble message={msg} />);
     expect(screen.queryByText("Reasoning")).not.toBeInTheDocument();
   });
+
+  it("shows Self-Drive tag on Self-Drive user messages", () => {
+    const msg = makeMessage({ role: "user", content: "Build the feature", isSelfDrive: true });
+    render(<MessageBubble message={msg} />);
+    expect(screen.getByText("Self-Drive")).toBeInTheDocument();
+  });
+
+  it("does not show Self-Drive tag on regular user messages", () => {
+    const msg = makeMessage({ role: "user", content: "Hello" });
+    render(<MessageBubble message={msg} />);
+    expect(screen.queryByText("Self-Drive")).not.toBeInTheDocument();
+  });
 });

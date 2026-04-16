@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { FileText, Trash2, Loader2, BookOpen, CheckCircle2, Rocket, Settings } from "lucide-react";
+import { FileText, Trash2, Loader2, BookOpen, CheckCircle2, Rocket, Settings, Unlink } from "lucide-react";
+import { isGuideStarted } from "../../lib/guide-helpers";
 import { useGuideStore } from "../../stores/guideStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -17,6 +18,7 @@ export default function GuidePanel() {
   const toggleVerifyCheck = useGuideStore((s) => s.toggleVerifyCheck);
   const markSessionComplete = useGuideStore((s) => s.markSessionComplete);
   const dismissGuide = useGuideStore((s) => s.dismissGuide);
+  const unloadGuide = useGuideStore((s) => s.unloadGuide);
   const loadGuideForProject = useGuideStore((s) => s.loadGuideForProject);
   const markPromptSent = useGuideStore((s) => s.markPromptSent);
   const markVerifyRequested = useGuideStore((s) => s.markVerifyRequested);
@@ -28,6 +30,7 @@ export default function GuidePanel() {
   const settings = useSettingsStore((s) => s.settings);
 
   const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+  const [showUnloadConfirm, setShowUnloadConfirm] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Load guide when project changes
@@ -63,6 +66,13 @@ export default function GuidePanel() {
     }
   };
 
+  const handleUnload = () => {
+    setShowUnloadConfirm(false);
+    unloadGuide();
+    useUiStore.getState().setRightTab("activity");
+    showToast("Guide unloaded", "info");
+  };
+
   const handleDismiss = async () => {
     setShowDismissConfirm(false);
     await dismissGuide();
@@ -92,6 +102,8 @@ export default function GuidePanel() {
       </div>
     );
   }
+
+  const canUnload = !isGuideStarted(guide) && selfDriveStatus !== "running" && selfDriveStatus !== "paused";
 
   // Compute progress
   const totalSessions = guide.sessions.length;
@@ -213,6 +225,38 @@ export default function GuidePanel() {
           <FileText size={11} />
           Open Spec
         </button>
+        {!showUnloadConfirm ? (
+          <button
+            onClick={() => setShowUnloadConfirm(true)}
+            disabled={!canUnload}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-label transition-colors hover:bg-bg-elevated disabled:opacity-30"
+            style={{ color: "var(--text-ghost)" }}
+            title={canUnload ? "Unload guide (keeps saved in database)" : "Cannot unload — guide is in progress"}
+          >
+            <Unlink size={11} />
+            Unload
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="text-detail" style={{ color: "var(--text-secondary)" }}>
+              Unload guide?
+            </span>
+            <button
+              onClick={handleUnload}
+              className="px-2 py-1 rounded text-detail font-medium"
+              style={{ background: "var(--accent)", color: "white" }}
+            >
+              Yes
+            </button>
+            <button
+              onClick={() => setShowUnloadConfirm(false)}
+              className="px-2 py-1 rounded text-detail"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              No
+            </button>
+          </div>
+        )}
         <div className="flex-1" />
         {!showDismissConfirm ? (
           <button

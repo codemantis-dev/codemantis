@@ -44,6 +44,7 @@ interface GuideState {
   markPromptSent: (sessionIndex: number) => void;
   markVerifyRequested: (sessionIndex: number) => void;
   markSessionComplete: (sessionIndex: number) => boolean;
+  unloadGuide: () => void;
   dismissGuide: () => Promise<void>;
   persist: () => Promise<void>;
 }
@@ -196,6 +197,10 @@ export const useGuideStore = create<GuideState>((set, get) => ({
     set({ guide: updated });
     debouncedPersist(() => get().persist());
     return true;
+  },
+
+  unloadGuide: () => {
+    set({ guide: null });
   },
 
   dismissGuide: async () => {

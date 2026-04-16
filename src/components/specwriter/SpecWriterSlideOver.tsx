@@ -10,11 +10,15 @@ import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter
 import { useDividerResize } from "../../hooks/useDividerResize";
 import { useSavedSpecs } from "../../hooks/useSavedSpecs";
 import { useGuideStore } from "../../stores/guideStore";
+import { useSelfDriveStatusForActiveProject } from "../../stores/selfDriveStore";
 import { parseSessionPlan } from "../../lib/parse-session-plan";
+import type { ParsedSessionPlan } from "../../lib/parse-session-plan";
+import { isGuideStarted } from "../../lib/guide-helpers";
 import SpecChat from "./SpecChat";
 import SpecWriterToolbar from "./SpecWriterToolbar";
 import SpecPreviewPanel from "./SpecPreviewPanel";
 import SaveSpecDialog from "./SaveSpecDialog";
+import GuideReplaceConfirmModal from "../modals/GuideReplaceConfirmModal";
 
 export default function SpecWriterSlideOver() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
@@ -45,6 +49,10 @@ export default function SpecWriterSlideOver() {
   const addMessage = useSpecWriterStore((s) => s.addMessage);
   const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
   const promoteMessageToSpec = useSpecWriterStore((s) => s.promoteMessageToSpec);
+  const selectedSavedSpec = useSpecWriterStore((s) => {
+    if (!activeProjectPath) return null;
+    return s.uiState.get(activeProjectPath)?.selected_saved_spec ?? null;
+  });
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
@@ -55,7 +63,13 @@ export default function SpecWriterSlideOver() {
   const [, setLastSavedAuditFile] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const guideSpecFilename = useGuideStore((s) => s.guide?.specFilename ?? null);
+  const currentGuide = useGuideStore((s) => s.guide);
   const hasGuide = !!lastSavedFile && guideSpecFilename === lastSavedFile;
+  const selfDriveStatus = useSelfDriveStatusForActiveProject();
+  const [pendingGuideLoad, setPendingGuideLoad] = useState<{
+    filename: string;
+    parsed: ParsedSessionPlan;
+  } | null>(null);
   const { sendMessage: sendChatMessage } = useClaudeSession();
   const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } = useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -244,6 +258,63 @@ export default function SpecWriterSlideOver() {
       showToast("Could not find a multi-session plan in this spec", "error");
     }
   }, [currentSpecContent, activeProjectPath, lastSavedFile]);
+
+  // ── Load guide from a selected saved spec ───────
+  const handleLoadGuideFromSavedSpec = useCallback(async () => {
+    if (!currentSpecContent || !activeProjectPath || !selectedSavedSpec) return;
+
+    const parsed = parseSessionPlan(currentSpecContent);
+    if (!parsed) {
+      showToast("No Session Plan found in this spec", "error");
+      return;
+    }
+
+    if (!currentGuide) {
+      // No guide loaded — create directly
+      const created = await useGuideStore.getState().createGuide(
+        activeProjectPath, selectedSavedSpec, null, parsed,
+      );
+      if (created) {
+        showToast(
+          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions`,
+          "info",
+        );
+        useUiStore.getState().setRightTab("guide");
+      }
+      return;
+    }
+
+    // Guide is loaded — check if started
+    const started = isGuideStarted(currentGuide) ||
+      selfDriveStatus === "running" || selfDriveStatus === "paused";
+
+    if (started && currentGuide.status !== "completed") {
+      showToast(
+        `Cannot load \u2014 current guide for "${currentGuide.title}" is in progress`,
+        "error",
+      );
+      return;
+    }
+
+    // Not started (or completed) — ask for confirmation
+    setPendingGuideLoad({ filename: selectedSavedSpec, parsed });
+  }, [currentSpecContent, activeProjectPath, selectedSavedSpec, currentGuide, selfDriveStatus]);
+
+  const handleConfirmGuideReplace = useCallback(async () => {
+    if (!activeProjectPath || !pendingGuideLoad) return;
+    setPendingGuideLoad(null);
+
+    const created = await useGuideStore.getState().createGuide(
+      activeProjectPath, pendingGuideLoad.filename, null, pendingGuideLoad.parsed,
+    );
+    if (created) {
+      showToast(
+        `Implementation Guide created \u2014 ${pendingGuideLoad.parsed.sessions.length} sessions`,
+        "info",
+      );
+      useUiStore.getState().setRightTab("guide");
+    }
+  }, [activeProjectPath, pendingGuideLoad]);
 
   // ── Spec save handler ───────
   const handleSpecSaved = useCallback((filename: string) => {
@@ -527,6 +598,8 @@ export default function SpecWriterSlideOver() {
             onOpenSaveAuditDialog={openSaveAuditDialog}
             onOpenSaveSpecDialog={openSaveSpecDialog}
             onLoadSpec={handleLoadSpec}
+            selectedSavedSpec={selectedSavedSpec}
+            onLoadGuide={handleLoadGuideFromSavedSpec}
           />
         </div>
       </div>
@@ -544,6 +617,14 @@ export default function SpecWriterSlideOver() {
           onSaved={handleSaved}
         />
       )}
+
+      <GuideReplaceConfirmModal
+        open={pendingGuideLoad !== null}
+        currentGuideTitle={currentGuide?.title ?? ""}
+        newSpecFilename={pendingGuideLoad?.filename ?? ""}
+        onConfirm={handleConfirmGuideReplace}
+        onCancel={() => setPendingGuideLoad(null)}
+      />
     </>
   );
 }

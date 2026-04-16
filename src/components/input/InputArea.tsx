@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type KeyboardEvent } from "react";
 import { Send, Square, Plus, AtSign } from "lucide-react";
 import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -20,8 +20,11 @@ import { createPreviewUrl, processDroppedPaths } from "../../lib/file-utils";
 import { useSelfDriveStore, useSelfDriveRunningForActiveProject } from "../../stores/selfDriveStore";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
+const EMPTY_MESSAGES: import("../../types/session").Message[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
 import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
+import MessageHistory, { type MessageHistoryHandle } from "./MessageHistory";
+import { getUserMessageHistory } from "../../lib/message-history";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
 
 function EffortBars({ effort }: { effort: ThinkingEffort }) {
@@ -47,8 +50,10 @@ export default function InputArea() {
   const [input, setInput] = useState("");
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [showMessageHistory, setShowMessageHistory] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const paletteRef = useRef<CommandPaletteHandle>(null);
+  const historyRef = useRef<MessageHistoryHandle>(null);
   const prevSessionRef = useRef<string | null>(null);
   const { executeCommand } = useCommandExecution();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -56,6 +61,14 @@ export default function InputArea() {
   const isStreaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId)?.isStreaming ?? false : false);
   const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
   const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
+
+  const sessionMessages = useSessionStore((s) =>
+    s.activeSessionId ? s.sessionMessages.get(s.activeSessionId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES
+  );
+  const historyItems = useMemo(
+    () => getUserMessageHistory(sessionMessages, 10),
+    [sessionMessages]
+  );
 
   // Save/restore input drafts per session
   useEffect(() => {
@@ -73,6 +86,7 @@ export default function InputArea() {
       textareaRef.current.style.height = "auto";
     }
     setShowCommandPalette(false);
+    setShowMessageHistory(false);
     setCommandQuery("");
     prevSessionRef.current = activeSessionId;
     // Auto-focus chat input when switching sessions/projects
@@ -208,12 +222,32 @@ export default function InputArea() {
           return;
         }
       }
+      // When message history is open, delegate navigation
+      if (showMessageHistory && historyRef.current) {
+        const handled = historyRef.current.handleKeyDown(e.key);
+        if (handled) {
+          e.preventDefault();
+          return;
+        }
+      }
+      // Open message history on ArrowUp when input is empty
+      if (
+        e.key === "ArrowUp" &&
+        input.trim() === "" &&
+        !showCommandPalette &&
+        !showMessageHistory &&
+        historyItems.length > 0
+      ) {
+        e.preventDefault();
+        setShowMessageHistory(true);
+        return;
+      }
       if (shouldSend(e, sendShortcut)) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, showCommandPalette, sendShortcut]
+    [handleSend, showCommandPalette, showMessageHistory, sendShortcut, input, historyItems.length]
   );
 
   const handleInput = useCallback(() => {
@@ -372,6 +406,28 @@ export default function InputArea() {
           />
         )}
 
+        {/* Message history dropdown */}
+        {showMessageHistory && historyItems.length > 0 && (
+          <MessageHistory
+            ref={historyRef}
+            items={historyItems}
+            onSelect={(text) => {
+              setShowMessageHistory(false);
+              setInput(text);
+              setTimeout(() => {
+                const el = textareaRef.current;
+                if (el) {
+                  el.style.height = "auto";
+                  const maxHeight = 8 * 24;
+                  el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
+                  el.focus();
+                }
+              }, 0);
+            }}
+            onClose={() => setShowMessageHistory(false)}
+          />
+        )}
+
         <div
           className={`rounded-xl border transition-colors focus-within:border-accent/40 ${
             dragOver ? "border-accent/60 bg-accent/5" : "border-border bg-bg-elevated"
@@ -393,6 +449,9 @@ export default function InputArea() {
             value={input}
             onChange={(e) => {
               const newValue = e.target.value;
+              if (showMessageHistory) {
+                setShowMessageHistory(false);
+              }
               if (newValue.startsWith("/") && !newValue.includes("\n")) {
                 setShowCommandPalette(true);
                 setCommandQuery(newValue.slice(1));

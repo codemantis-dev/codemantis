@@ -379,4 +379,48 @@ describe("GuideSessionCard", () => {
 
     expect(screen.getByText("Verify for me")).toBeTruthy();
   });
+
+  it("collapses when session transitions from active to done", () => {
+    const props = {
+      specFilename: "test.md",
+      auditFilename: null,
+      onToggleVerifyCheck: onToggle,
+      onMarkComplete: onComplete,
+      onMarkPromptSent: vi.fn(),
+      onMarkVerifyRequested: vi.fn(),
+    };
+    const { rerender } = render(
+      <GuideSessionCard session={makeSession({ status: "active" })} {...props} />,
+    );
+    // Active session should be expanded — action buttons visible
+    expect(screen.getByText("Copy Prompt")).toBeTruthy();
+
+    rerender(
+      <GuideSessionCard session={makeSession({ status: "done" })} {...props} />,
+    );
+    // After transition to done, card should auto-collapse
+    expect(screen.queryByText("Copy Prompt")).toBeNull();
+  });
+
+  it("expands when session transitions from pending to active", () => {
+    const props = {
+      specFilename: "test.md",
+      auditFilename: null,
+      onToggleVerifyCheck: onToggle,
+      onMarkComplete: onComplete,
+      onMarkPromptSent: vi.fn(),
+      onMarkVerifyRequested: vi.fn(),
+    };
+    const { rerender } = render(
+      <GuideSessionCard session={makeSession({ status: "pending" })} {...props} />,
+    );
+    // Pending session should be collapsed — no action buttons
+    expect(screen.queryByText("Copy Prompt")).toBeNull();
+
+    rerender(
+      <GuideSessionCard session={makeSession({ status: "active" })} {...props} />,
+    );
+    // After transition to active, card should auto-expand
+    expect(screen.getByText("Copy Prompt")).toBeTruthy();
+  });
 });

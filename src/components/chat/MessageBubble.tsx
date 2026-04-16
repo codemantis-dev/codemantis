@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { RotateCcw, Copy, Check } from "lucide-react";
+import { RotateCcw, Copy, Check, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
@@ -46,13 +46,26 @@ export default React.memo(function MessageBubble({
   }, [message.content]);
 
   if (isUser) {
+    const isSelfDrive = message.isSelfDrive === true;
     return (
       <div className="group/msg flex justify-end mb-4 min-w-0">
         <div className="flex flex-col items-end gap-0.5 max-w-[85%] min-w-0">
           <div className="relative min-w-0 max-w-full">
+            {isSelfDrive && (
+              <div
+                className="flex items-center gap-1 justify-end mb-1 pr-1"
+                style={{ color: "var(--green, #22c55e)" }}
+              >
+                <Zap size={11} />
+                <span className="text-detail font-medium">Self-Drive</span>
+              </div>
+            )}
             <div
               className="px-4 py-2.5 rounded-2xl rounded-br-md selectable overflow-hidden"
-              style={{
+              style={isSelfDrive ? {
+                background: "rgba(34, 197, 94, 0.12)",
+                border: "1px solid rgba(34, 197, 94, 0.25)",
+              } : {
                 background: "var(--accent-dim)",
                 border: "1px solid rgba(124,58,237,0.2)",
               }}

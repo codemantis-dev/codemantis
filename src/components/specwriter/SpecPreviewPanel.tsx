@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Pencil, Eye, ClipboardCheck, FileDown } from "lucide-react";
+import { Pencil, Eye, ClipboardCheck, FileDown, BookOpen } from "lucide-react";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 
@@ -20,6 +20,8 @@ interface Props {
   onOpenSaveAuditDialog: () => void;
   onOpenSaveSpecDialog: () => void;
   onLoadSpec: (content: string, filename: string) => void;
+  selectedSavedSpec: string | null;
+  onLoadGuide: () => void;
 }
 
 export default function SpecPreviewPanel({
@@ -39,6 +41,8 @@ export default function SpecPreviewPanel({
   onOpenSaveAuditDialog,
   onOpenSaveSpecDialog,
   onLoadSpec,
+  selectedSavedSpec,
+  onLoadGuide,
 }: Props) {
   const [activeTab, setActiveTab] = useState<'spec' | 'audit'>(currentAuditContent ? 'audit' : 'spec');
   const prevHadAuditRef = useRef(!!currentAuditContent);
@@ -144,6 +148,21 @@ export default function SpecPreviewPanel({
               >
                 <FileDown size={13} />
                 Save Audit
+              </button>
+            )}
+            {activeTab === 'spec' && selectedSavedSpec && (
+              <button
+                onClick={onLoadGuide}
+                title="Parse this spec for a Session Plan and load as Implementation Guide"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:brightness-95"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <BookOpen size={13} />
+                Load Guide
               </button>
             )}
           </div>

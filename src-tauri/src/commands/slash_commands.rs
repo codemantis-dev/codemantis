@@ -236,6 +236,7 @@ fn cli_only_commands() -> Vec<SlashCommand> {
     let cli_only = [
         ("add-dir", "Add a directory to context"),
         ("agents", "Manage agent configurations"),
+        ("bug", "Report a bug to Anthropic"),
         ("chrome", "Open Chrome DevTools"),
         ("config", "Configure Claude Code preferences"),
         ("copy", "Copy last response to clipboard"),
@@ -251,6 +252,7 @@ fn cli_only_commands() -> Vec<SlashCommand> {
         ("keybindings", "Configure keybindings"),
         ("login", "Log in to Claude"),
         ("logout", "Log out of Claude"),
+        ("loop", "Run a prompt on a recurring interval"),
         ("mcp", "Manage MCP servers"),
         ("memory", "Edit CLAUDE.md memory"),
         ("model", "Change model"),
@@ -268,6 +270,7 @@ fn cli_only_commands() -> Vec<SlashCommand> {
         ("statusline", "Configure status line"),
         ("terminal-setup", "Set up terminal"),
         ("theme", "Change theme"),
+        ("usage", "Show account usage and billing"),
         ("vim", "Toggle vim mode"),
     ];
 
@@ -645,6 +648,24 @@ mod tests {
     fn cli_only_commands_contains_model() {
         let cmds = cli_only_commands();
         assert!(cmds.iter().any(|c| c.name == "model"));
+    }
+
+    #[test]
+    fn cli_only_commands_contains_usage() {
+        let cmds = cli_only_commands();
+        assert!(cmds.iter().any(|c| c.name == "usage"));
+    }
+
+    #[test]
+    fn cli_only_commands_contains_bug() {
+        let cmds = cli_only_commands();
+        assert!(cmds.iter().any(|c| c.name == "bug"));
+    }
+
+    #[test]
+    fn cli_only_commands_contains_loop() {
+        let cmds = cli_only_commands();
+        assert!(cmds.iter().any(|c| c.name == "loop"));
     }
 
     #[test]

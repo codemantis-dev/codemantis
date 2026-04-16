@@ -186,6 +186,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
         timestamp: new Date().toISOString(),
         activityIds: [],
         isStreaming: false,
+        isSelfDrive: true,
       });
       useSessionStore.getState().setSessionBusy(sessionId, true);
 
@@ -727,6 +728,7 @@ async function sendMessageToSession(prompt: string): Promise<void> {
     timestamp: new Date().toISOString(),
     activityIds: [],
     isStreaming: false,
+    isSelfDrive: true,
   });
   useSessionStore.getState().setSessionBusy(sessionId, true);
 
