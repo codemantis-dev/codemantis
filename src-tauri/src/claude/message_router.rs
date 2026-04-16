@@ -928,7 +928,7 @@ mod tests {
     #[test]
     fn extract_model_usage_full_info() {
         let model_usage = Some(serde_json::json!({
-            "claude-opus-4-6": {
+            "claude-opus-4-7": {
                 "contextWindow": 200000,
                 "maxOutputTokens": 32000,
                 "costUSD": 0.05,
@@ -937,7 +937,7 @@ mod tests {
             }
         }));
         let (name, cw, mot) = extract_model_usage_info(&model_usage);
-        assert_eq!(name.as_deref(), Some("claude-opus-4-6"));
+        assert_eq!(name.as_deref(), Some("claude-opus-4-7"));
         assert_eq!(cw, Some(200000));
         assert_eq!(mot, Some(32000));
     }

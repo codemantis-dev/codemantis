@@ -394,7 +394,7 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-6");
+        await result.current.changeModel(PROJECT, "claude-opus-4-7");
       });
 
       expect(mockCloseSpecwriterSession).toHaveBeenCalledWith("old-session");
@@ -409,11 +409,11 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-6");
+        await result.current.changeModel(PROJECT, "claude-opus-4-7");
       });
 
       const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
-      expect(conv!.ai_model).toBe("claude-opus-4-6");
+      expect(conv!.ai_model).toBe("claude-opus-4-7");
       expect(conv!.ai_provider).toBe("claude-code");
     });
 
@@ -425,7 +425,7 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-6");
+        await result.current.changeModel(PROJECT, "claude-opus-4-7");
       });
 
       // Should not throw; closeSpecwriterSession should not be called

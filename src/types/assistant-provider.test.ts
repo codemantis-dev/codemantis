@@ -129,7 +129,7 @@ describe("SPEC_WRITING_MODELS", () => {
     expect(ids).toContain("gemini-3.1-pro-preview");
     expect(ids).toContain("gpt-5.4-mini");
     expect(ids).toContain("gpt-5.4");
-    expect(ids).toContain("claude-opus-4-6");
+    expect(ids).toContain("claude-opus-4-7");
     expect(ids).toContain("claude-sonnet-4-6");
   });
 
@@ -216,7 +216,7 @@ describe("isSpecModelAvailable", () => {
 describe("getSpecModelLabel", () => {
   it("returns label for known spec model", () => {
     expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite");
-    expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
+    expect(getSpecModelLabel("claude-opus-4-7")).toBe("Claude Opus 4.7");
   });
 
   it("returns label for Claude Code spec models", () => {
@@ -239,7 +239,7 @@ describe("SPEC_CLAUDE_CODE_MODELS", () => {
     const ids = SPEC_CLAUDE_CODE_MODELS.map((m) => m.id);
     expect(ids).toContain("claude-haiku-4-5");
     expect(ids).toContain("claude-sonnet-4-6");
-    expect(ids).toContain("claude-opus-4-6");
+    expect(ids).toContain("claude-opus-4-7");
   });
 
   it("each model has id, label, and description fields", () => {
@@ -278,9 +278,9 @@ describe("getSpecModelLabel with Claude Code models", () => {
   });
 
   it("prefers API spec label for models in both lists", () => {
-    // claude-sonnet-4-6 and claude-opus-4-6 are in SPEC_WRITING_MODELS (checked first)
+    // claude-sonnet-4-6 and claude-opus-4-7 are in SPEC_WRITING_MODELS (checked first)
     expect(getSpecModelLabel("claude-sonnet-4-6")).toBe("Claude Sonnet 4.6");
-    expect(getSpecModelLabel("claude-opus-4-6")).toBe("Claude Opus 4.6");
+    expect(getSpecModelLabel("claude-opus-4-7")).toBe("Claude Opus 4.7");
   });
 
   it("returns label for API spec models (existing behavior)", () => {

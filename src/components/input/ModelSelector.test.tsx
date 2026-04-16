@@ -62,7 +62,7 @@ describe("ModelSelector", () => {
       session_id: "s1",
       models: [
         { value: "sonnet", displayName: "Sonnet 4.6", description: "Fast and capable" },
-        { value: "opus", displayName: "Opus 4.6", description: "Most powerful" },
+        { value: "opus", displayName: "Opus 4.7", description: "Most powerful" },
         { value: "haiku", displayName: "Haiku 4.5", description: "Fastest" },
       ],
       commands: [],
@@ -75,7 +75,7 @@ describe("ModelSelector", () => {
     render(<ModelSelector />);
     fireEvent.click(screen.getByText("Sonnet 4.6"));
 
-    expect(screen.getByText("Opus 4.6")).toBeInTheDocument();
+    expect(screen.getByText("Opus 4.7")).toBeInTheDocument();
     expect(screen.getByText("Haiku 4.5")).toBeInTheDocument();
     expect(screen.getByText("Most powerful")).toBeInTheDocument();
     expect(screen.getByText("Fastest")).toBeInTheDocument();

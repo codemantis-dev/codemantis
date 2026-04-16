@@ -95,7 +95,7 @@ describe("formatModelName", () => {
   });
 
   it("extracts Claude model family and version", () => {
-    expect(formatModelName("claude-opus-4-6-20250101")).toBe("Opus 4.6");
+    expect(formatModelName("claude-opus-4-7-20250101")).toBe("Opus 4.7");
     expect(formatModelName("claude-sonnet-4-20250101")).toBe("Sonnet 4");
     expect(formatModelName("claude-haiku-4-5-20250101")).toBe("Haiku 4.5");
   });

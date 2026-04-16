@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn parse_result_with_model_usage_and_num_turns() {
-        let json = r#"{"type":"result","subtype":"success","duration_ms":5000,"duration_api_ms":3200,"num_turns":3,"stop_reason":"end_turn","cost_usd":0.0685,"usage":{"input_tokens":100,"output_tokens":143},"modelUsage":{"claude-opus-4-6":{"contextWindow":200000,"maxOutputTokens":32000,"costUSD":0.0685,"inputTokens":7,"outputTokens":143,"cacheReadInputTokens":40037,"cacheCreationInputTokens":7195}}}"#;
+        let json = r#"{"type":"result","subtype":"success","duration_ms":5000,"duration_api_ms":3200,"num_turns":3,"stop_reason":"end_turn","cost_usd":0.0685,"usage":{"input_tokens":100,"output_tokens":143},"modelUsage":{"claude-opus-4-7":{"contextWindow":200000,"maxOutputTokens":32000,"costUSD":0.0685,"inputTokens":7,"outputTokens":143,"cacheReadInputTokens":40037,"cacheCreationInputTokens":7195}}}"#;
         let event: RawStreamEvent = serde_json::from_str(json).unwrap();
         match event {
             RawStreamEvent::Result {
@@ -754,7 +754,7 @@ mod tests {
                 assert_eq!(duration_api_ms, Some(3200));
                 assert_eq!(stop_reason.as_deref(), Some("end_turn"));
                 let mu = model_usage.unwrap();
-                let opus = mu.get("claude-opus-4-6").unwrap();
+                let opus = mu.get("claude-opus-4-7").unwrap();
                 assert_eq!(opus["contextWindow"], 200000);
                 assert_eq!(opus["maxOutputTokens"], 32000);
             }
@@ -810,7 +810,7 @@ mod tests {
             num_turns: Some(3),
             stop_reason: Some("end_turn".into()),
             terminal_reason: None,
-            model_name: Some("claude-opus-4-6".into()),
+            model_name: Some("claude-opus-4-7".into()),
             context_window: Some(200000),
             max_output_tokens: Some(32000),
         };
@@ -819,7 +819,7 @@ mod tests {
         assert_eq!(parsed["duration_api_ms"], 3200);
         assert_eq!(parsed["num_turns"], 3);
         assert_eq!(parsed["stop_reason"], "end_turn");
-        assert_eq!(parsed["model_name"], "claude-opus-4-6");
+        assert_eq!(parsed["model_name"], "claude-opus-4-7");
         assert_eq!(parsed["context_window"], 200000);
         assert_eq!(parsed["max_output_tokens"], 32000);
         assert_eq!(parsed["usage"]["service_tier"], "standard");

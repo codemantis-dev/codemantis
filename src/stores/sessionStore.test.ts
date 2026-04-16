@@ -151,8 +151,8 @@ describe("sessionStore", () => {
 
   it("updateModel updates session model", () => {
     useSessionStore.getState().addSession(TEST_SESSION);
-    useSessionStore.getState().updateModel("s1", "claude-opus-4-6");
-    expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
+    useSessionStore.getState().updateModel("s1", "claude-opus-4-7");
+    expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-7");
   });
 
   it("updateContext sets context for session", () => {

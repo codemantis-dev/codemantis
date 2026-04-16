@@ -104,7 +104,7 @@ export function formatTimestamp(ts: string): string {
 }
 
 /** Format a model ID to a human-readable name.
- * "claude-opus-4-6-20250101" → "Opus 4.6"
+ * "claude-opus-4-7-20250101" → "Opus 4.7"
  * Returns null if model is null/undefined. */
 export function formatModelName(model: string | null | undefined): string | null {
   if (!model) return null;

@@ -4,7 +4,7 @@ import { getContextWindowForModel } from "./model-context";
 describe("getContextWindowForModel", () => {
   it("returns 1_000_000 for model strings containing [1m]", () => {
     expect(getContextWindowForModel("opus[1m]")).toBe(1_000_000);
-    expect(getContextWindowForModel("claude-opus-4-6[1m]")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-opus-4-7[1m]")).toBe(1_000_000);
   });
 
   it("returns 200_000 for opus, sonnet, haiku patterns", () => {
@@ -15,7 +15,7 @@ describe("getContextWindowForModel", () => {
 
   it("returns 200_000 for full model IDs", () => {
     expect(getContextWindowForModel("claude-sonnet-4-20250514")).toBe(200_000);
-    expect(getContextWindowForModel("claude-opus-4-6-20250514")).toBe(200_000);
+    expect(getContextWindowForModel("claude-opus-4-7-20250514")).toBe(200_000);
     expect(getContextWindowForModel("claude-haiku-4-5-20250101")).toBe(200_000);
   });
 

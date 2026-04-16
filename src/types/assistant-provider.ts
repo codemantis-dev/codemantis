@@ -42,7 +42,7 @@ export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
     { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", defaultPricing: { input: 0.25, output: 1.50 } },
   ],
   anthropic: [
-    { id: "claude-opus-4-6", label: "Claude Opus 4.6", defaultPricing: { input: 5.0, output: 25.0 } },
+    { id: "claude-opus-4-7", label: "Claude Opus 4.7", defaultPricing: { input: 5.0, output: 25.0 } },
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultPricing: { input: 3.0, output: 15.0 } },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", defaultPricing: { input: 0.80, output: 4.0 } },
   ],
@@ -99,7 +99,7 @@ export const SPEC_WRITING_MODELS: SpecModelOption[] = [
   { id: "gemini-3.1-flash-lite-preview", provider: "gemini",    label: "Gemini 3.1 Flash Lite" },
   { id: "gemini-3.1-pro-preview",        provider: "gemini",    label: "Gemini 3.1 Pro" },
   { id: "gpt-5.4",                       provider: "openai",    label: "GPT-5.4" },
-  { id: "claude-opus-4-6",               provider: "anthropic", label: "Claude Opus 4.6" },
+  { id: "claude-opus-4-7",               provider: "anthropic", label: "Claude Opus 4.7" },
 ];
 
 export const DEFAULT_SPEC_MODEL = "gemini-3-flash-preview";
@@ -116,7 +116,7 @@ export interface SpecClaudeCodeModel {
 export const SPEC_CLAUDE_CODE_MODELS: SpecClaudeCodeModel[] = [
   { id: "claude-haiku-4-5",  label: "Haiku 4.5",  description: "Fast, lower cost" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6",  description: "Balanced (default)" },
-  { id: "claude-opus-4-6",   label: "Opus 4.6",    description: "Highest quality" },
+  { id: "claude-opus-4-7",   label: "Opus 4.7",    description: "Highest quality" },
 ];
 
 export const DEFAULT_SPEC_CLAUDE_CODE_MODEL = "claude-sonnet-4-6";

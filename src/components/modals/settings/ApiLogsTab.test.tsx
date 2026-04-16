@@ -41,7 +41,7 @@ const sampleLog: ApiLogEntry = {
   id: "log-1",
   timestamp: "2026-03-21T10:00:00Z",
   provider: "anthropic",
-  model: "claude-opus-4-6",
+  model: "claude-opus-4-7",
   sessionId: "s1",
   inputTokens: 1000,
   outputTokens: 500,
@@ -142,7 +142,7 @@ describe("ApiLogsTab", () => {
   it("renders cost log entries", async () => {
     setupMocks([sampleLog], summary);
     await renderAndWait();
-    expect(screen.getByText("claude-opus-4-6")).toBeInTheDocument();
+    expect(screen.getByText("claude-opus-4-7")).toBeInTheDocument();
     expect(screen.getByText("1500 tok")).toBeInTheDocument();
   });
 
@@ -366,7 +366,7 @@ describe("ApiLogsTab", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
     const call = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(call).toContain("anthropic");
-    expect(call).toContain("claude-opus-4-6");
+    expect(call).toContain("claude-opus-4-7");
   });
 
   it("copies error log entry to clipboard", async () => {

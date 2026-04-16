@@ -381,8 +381,8 @@ describe("chat event handler — system events", () => {
 
   describe("session_init", () => {
     it("updates model in session store", () => {
-      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "claude-opus-4-6" });
-      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "claude-opus-4-7" });
+      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-7");
     });
 
     it("sets context max based on model", () => {
@@ -458,9 +458,9 @@ describe("chat event handler — system events", () => {
 
   describe("model_changed", () => {
     it("updates model and shows toast on success", () => {
-      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "claude-opus-4-6", success: true, error: null });
-      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-6");
-      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("claude-opus-4-6"), "info", 3000);
+      handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "claude-opus-4-7", success: true, error: null });
+      expect(useSessionStore.getState().sessions.get("s1")?.model).toBe("claude-opus-4-7");
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("claude-opus-4-7"), "info", 3000);
     });
 
     it("shows error toast on failure", () => {

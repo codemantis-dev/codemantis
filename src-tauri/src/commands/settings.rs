@@ -185,7 +185,7 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
     m.insert("gemini-3-flash-preview".into(), ModelPricing { input: 0.15, output: 0.60 });
     m.insert("gemini-3.1-pro-preview".into(), ModelPricing { input: 1.25, output: 10.0 });
     m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.25, output: 1.50 });
-    m.insert("claude-opus-4-6".into(), ModelPricing { input: 5.0, output: 25.0 });
+    m.insert("claude-opus-4-7".into(), ModelPricing { input: 5.0, output: 25.0 });
     m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
     m
@@ -346,7 +346,7 @@ mod tests {
     fn default_model_pricing_contains_expected_models() {
         let pricing = default_model_pricing();
         assert!(pricing.contains_key("gemini-2.5-flash-lite"));
-        assert!(pricing.contains_key("claude-opus-4-6"));
+        assert!(pricing.contains_key("claude-opus-4-7"));
         assert!(pricing.contains_key("claude-sonnet-4-6"));
         assert!(pricing.contains_key("gpt-4.1"));
     }
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn default_model_pricing_opus_is_most_expensive() {
         let pricing = default_model_pricing();
-        let opus = pricing.get("claude-opus-4-6").unwrap();
+        let opus = pricing.get("claude-opus-4-7").unwrap();
         // Opus should be the most expensive by output price
         for (name, p) in &pricing {
             assert!(
