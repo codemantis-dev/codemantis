@@ -86,6 +86,7 @@ function resetStores(): void {
     showPlanCompleteModal: false,
     planCompleteSessionId: null,
     planCompleteFilePath: null,
+    planCompleteContent: null,
     fileTreeRefreshTrigger: 0,
     rightTab: "activity",
   });
@@ -263,6 +264,84 @@ describe("activity event handler", () => {
       await vi.waitFor(() => {
         expect(syncSessionMode).toHaveBeenCalledWith(SESSION_ID, "normal");
       });
+    });
+
+    it("reads planFilePath and plan directly from ExitPlanMode input when present", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+
+      const directPath = "/tmp/elsewhere/my-plan.md";
+      const directContent = "## Context\nA tiny plan body.\n";
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-exit-plan-direct",
+        tool_name: "ExitPlanMode",
+        tool_input: {
+          plan: directContent,
+          planFilePath: directPath,
+        },
+      });
+
+      const uiState = useUiStore.getState();
+      expect(uiState.planCompleteFilePath).toBe(directPath);
+      expect(uiState.planCompleteContent).toBe(directContent);
+      expect(uiState.showPlanCompleteModal).toBe(true);
+    });
+
+    it("direct planFilePath wins over a previously-observed Write path", () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+      // Simulate the Write observer having captured a different path earlier.
+      useUiStore.getState().setPlanCompleteFilePath(
+        "/Users/hr/.claude/plans/old-observed-plan.md",
+      );
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-exit-plan-override",
+        tool_name: "ExitPlanMode",
+        tool_input: {
+          plan: "body",
+          planFilePath: "/Users/hr/.claude/plans/new-direct-plan.md",
+        },
+      });
+
+      expect(useUiStore.getState().planCompleteFilePath).toBe(
+        "/Users/hr/.claude/plans/new-direct-plan.md",
+      );
+    });
+
+    it("falls back to Write-path observer when ExitPlanMode input has no direct fields", async () => {
+      useSessionStore.setState({
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+      // Simulate older CLI: Write observer set the path earlier, ExitPlanMode
+      // input is empty (no plan / planFilePath fields).
+      useUiStore.getState().setPlanCompleteFilePath(
+        "/Users/hr/.claude/plans/observed.md",
+      );
+
+      const { readFileContent } = await import("../tauri-commands");
+      vi.mocked(readFileContent).mockResolvedValue("## Observed content");
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-exit-plan-fallback",
+        tool_name: "ExitPlanMode",
+        tool_input: {},
+      });
+
+      // Fallback path preserved; no direct content set.
+      expect(useUiStore.getState().planCompleteFilePath).toBe(
+        "/Users/hr/.claude/plans/observed.md",
+      );
+      expect(useUiStore.getState().planCompleteContent).toBeNull();
     });
 
     it("skips ExitPlanMode from activity feed", () => {

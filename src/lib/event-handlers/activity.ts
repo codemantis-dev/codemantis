@@ -88,31 +88,63 @@ function handleToolUseStart(
     if (event.tool_name === "ExitPlanMode" && sessionId === sessionStore.activeSessionId) {
       const uiState = useUiStore.getState();
       uiState.setPlanCompleteSessionId(sessionId);
+
+      // Claude Code 2.1.x emits `planFilePath` and `plan` directly in the
+      // ExitPlanMode tool input. Prefer these over the Write-path observer
+      // (which only catches writes under ~/.claude/plans/*.md).
+      const input = event.tool_input as { plan?: unknown; planFilePath?: unknown } | undefined;
+      const directPlanFilePath =
+        typeof input?.planFilePath === "string" ? input.planFilePath : null;
+      const directPlanContent =
+        typeof input?.plan === "string" ? input.plan : null;
+
+      if (directPlanFilePath) {
+        uiState.setPlanCompleteFilePath(directPlanFilePath);
+      }
+      if (directPlanContent) {
+        uiState.setPlanCompleteContent(directPlanContent);
+      }
+
       uiState.setShowPlanCompleteModal(true);
 
-      // Auto-open the plan file in FileViewer
-      const planFilePath = uiState.planCompleteFilePath;
+      // Auto-open the plan file in FileViewer. Prefer the direct content
+      // (no disk read needed); fall back to readFileContent when the CLI
+      // didn't include the plan text (older versions).
+      const planFilePath = directPlanFilePath ?? uiState.planCompleteFilePath;
       if (planFilePath) {
         const session = sessionStore.sessions.get(sessionId);
         const projectPath = session?.project_path;
         if (projectPath) {
-          import("../tauri-commands").then(({ readFileContent }) => {
-            readFileContent(planFilePath).then((content) => {
-              const fileName = planFilePath.split("/").pop() ?? planFilePath;
-              useFileViewerStore.getState().openFile(projectPath, {
-                filePath: planFilePath,
-                fileName,
-                language: "markdown",
-                extension: "md",
-                fileSize: new Blob([content]).size,
-                content,
-                isDiff: false,
-              });
-              useUiStore.getState().setRightTab("files");
-            }).catch((e) => {
-              console.error("Failed to auto-open plan file:", e);
+          const fileName = planFilePath.split("/").pop() ?? planFilePath;
+          if (directPlanContent) {
+            useFileViewerStore.getState().openFile(projectPath, {
+              filePath: planFilePath,
+              fileName,
+              language: "markdown",
+              extension: "md",
+              fileSize: new Blob([directPlanContent]).size,
+              content: directPlanContent,
+              isDiff: false,
             });
-          });
+            useUiStore.getState().setRightTab("files");
+          } else {
+            import("../tauri-commands").then(({ readFileContent }) => {
+              readFileContent(planFilePath).then((content) => {
+                useFileViewerStore.getState().openFile(projectPath, {
+                  filePath: planFilePath,
+                  fileName,
+                  language: "markdown",
+                  extension: "md",
+                  fileSize: new Blob([content]).size,
+                  content,
+                  isDiff: false,
+                });
+                useUiStore.getState().setRightTab("files");
+              }).catch((e) => {
+                console.error("Failed to auto-open plan file:", e);
+              });
+            });
+          }
         }
       }
     }

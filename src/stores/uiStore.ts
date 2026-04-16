@@ -41,6 +41,7 @@ interface UiState {
   showPlanCompleteModal: boolean;
   planCompleteSessionId: string | null;
   planCompleteFilePath: string | null;
+  planCompleteContent: string | null;
   activityFeedScope: ActivityFeedScope;
   showReasoningPanel: boolean;
   imagePreview: ImagePreview | null;
@@ -83,6 +84,7 @@ interface UiState {
   setShowPlanCompleteModal: (show: boolean) => void;
   setPlanCompleteSessionId: (id: string | null) => void;
   setPlanCompleteFilePath: (path: string | null) => void;
+  setPlanCompleteContent: (content: string | null) => void;
   toggleActivityFeedScope: () => void;
   toggleReasoningPanel: () => void;
   setImagePreview: (preview: ImagePreview | null) => void;
@@ -125,6 +127,7 @@ export const useUiStore = create<UiState>((set) => ({
   showPlanCompleteModal: false,
   planCompleteSessionId: null,
   planCompleteFilePath: null,
+  planCompleteContent: null,
   activityFeedScope: "session",
   showReasoningPanel: false,
   imagePreview: null,
@@ -188,9 +191,10 @@ export const useUiStore = create<UiState>((set) => ({
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
   openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
-  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null, planCompleteFilePath: null } : {}) }),
+  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null, planCompleteFilePath: null, planCompleteContent: null } : {}) }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
   setPlanCompleteFilePath: (path) => set({ planCompleteFilePath: path }),
+  setPlanCompleteContent: (content) => set({ planCompleteContent: content }),
   toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
   toggleReasoningPanel: () => set((s) => ({ showReasoningPanel: !s.showReasoningPanel })),
   setImagePreview: (preview) => set((s) => {

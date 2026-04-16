@@ -12,6 +12,7 @@ export default function PlanCompleteModal() {
   const showModal = useUiStore((s) => s.showPlanCompleteModal);
   const sessionId = useUiStore((s) => s.planCompleteSessionId);
   const planFilePath = useUiStore((s) => s.planCompleteFilePath);
+  const planContent = useUiStore((s) => s.planCompleteContent);
   const setShowModal = useUiStore((s) => s.setShowPlanCompleteModal);
   const [autoAccept, setAutoAccept] = useState(false);
 
@@ -106,7 +107,7 @@ export default function PlanCompleteModal() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] rounded-xl border border-border p-6"
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[480px] max-h-[85vh] overflow-y-auto rounded-xl border border-border p-6"
           style={{ background: "var(--bg-primary)" }}
         >
           {/* Header */}
@@ -147,6 +148,19 @@ export default function PlanCompleteModal() {
                 Reveal in File Viewer →
               </span>
             </button>
+          )}
+
+          {/* Plan content preview — shown when the CLI emits the plan text
+              directly in the ExitPlanMode input (Claude Code 2.1.x). */}
+          {planContent && (
+            <div className="mb-4 rounded-lg border border-border bg-bg-subtle overflow-hidden">
+              <div className="px-3 py-2 border-b border-border text-label text-text-dim">
+                Plan preview
+              </div>
+              <pre className="px-3 py-2 text-ui text-text-secondary whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono text-[12px]">
+                {planContent}
+              </pre>
+            </div>
           )}
 
           {/* Auto-accept toggle */}
