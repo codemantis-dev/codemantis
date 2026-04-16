@@ -318,15 +318,14 @@ fn handle_content_block_start(
                     });
                 }
             }
-            ContentBlock::Text { text } => {
-                if !text.is_empty() {
+            ContentBlock::Text { text }
+                if !text.is_empty() => {
                     state.accumulated_text.push_str(&text);
                     let fe = FrontendEvent::TextDelta {
                         session_id: session_id.to_string(),
                         text,
                     };
                     emit_or_warn(app_handle, chat_event, &fe, "text-delta");
-                }
             }
             ContentBlock::Thinking { thinking } => {
                 state.thinking_block_index = index;
