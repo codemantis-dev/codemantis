@@ -146,17 +146,28 @@ fi
     Ok(script_path)
 }
 
-/// Build an inline settings JSON string containing our hook config.
+/// Build an inline settings JSON string for our session.
 /// Passed via --settings to the CLI so it only affects CodeMantis's process,
 /// not other Claude Code instances in the same project.
-fn build_hook_settings_json(
-    hook_script_path: &str,
-    title_hook_script_path: &str,
+///
+/// Always includes `alwaysThinkingEnabled` and `showThinkingSummaries` so
+/// Opus thinking blocks appear in the stream-json output — CLI v2.1.90+
+/// stopped emitting these by default.
+///
+/// Hook paths are optional: when provided, PreToolUse + UserPromptSubmit
+/// hooks are wired in; when absent, only the thinking settings are emitted.
+fn build_session_settings_json(
+    hook_paths: Option<(&str, &str)>,
 ) -> String {
-    let hook_command = format!("bash \"{}\"", hook_script_path);
-    let title_hook_command = format!("bash \"{}\"", title_hook_script_path);
-    let settings = serde_json::json!({
-        "hooks": {
+    let mut settings = serde_json::json!({
+        "alwaysThinkingEnabled": true,
+        "showThinkingSummaries": true,
+    });
+
+    if let Some((hook_script_path, title_hook_script_path)) = hook_paths {
+        let hook_command = format!("bash \"{}\"", hook_script_path);
+        let title_hook_command = format!("bash \"{}\"", title_hook_script_path);
+        settings["hooks"] = serde_json::json!({
             "PreToolUse": [
                 {
                     "matcher": ".*",
@@ -181,8 +192,9 @@ fn build_hook_settings_json(
                     ]
                 }
             ]
-        }
-    });
+        });
+    }
+
     serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -297,18 +309,24 @@ impl ClaudeProcess {
             "--dangerously-skip-permissions",
         ]);
 
-        // If an approval server is running, pass hook config via --settings flag
-        // so it only affects THIS process, not other Claude Code instances.
-        if let Some(port) = approval_server_port {
+        // Always pass --settings so thinking output (alwaysThinkingEnabled,
+        // showThinkingSummaries) is explicitly enabled — CLI v2.1.90+ disabled
+        // thinking summaries by default. If an approval server is running we
+        // also bundle the PreToolUse + UserPromptSubmit hooks in the same
+        // settings blob so they only affect THIS process.
+        let settings_json = if let Some(port) = approval_server_port {
             let hook_script = ensure_hook_script()?;
             let title_hook_script = ensure_title_hook_script()?;
-            let settings_json = build_hook_settings_json(
+            let json = build_session_settings_json(Some((
                 hook_script.to_str().unwrap_or("~/.codemantis/approval-hook.sh"),
                 title_hook_script.to_str().unwrap_or("~/.codemantis/title-hook.sh"),
-            );
-            cmd.args(["--settings", &settings_json]);
-            debug!("Hook config passed via --settings for port {}", port);
-        }
+            )));
+            debug!("Session settings (with hooks) passed via --settings for port {}", port);
+            json
+        } else {
+            build_session_settings_json(None)
+        };
+        cmd.args(["--settings", &settings_json]);
 
         // Model override (for SpecWriter sessions with a specific model)
         if let Some(model) = model_override {
@@ -608,19 +626,19 @@ impl Drop for ClaudeProcess {
 mod tests {
     use super::*;
 
-    // ── build_hook_settings_json ──
+    // ── build_session_settings_json ──
 
     #[test]
-    fn build_hook_settings_json_produces_valid_json() {
-        let result = build_hook_settings_json("/path/to/hook.sh", "/path/to/title.sh");
+    fn build_session_settings_json_produces_valid_json() {
+        let result = build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result)
             .expect("should be valid JSON");
         assert!(parsed.is_object());
     }
 
     #[test]
-    fn build_hook_settings_json_contains_hook_command() {
-        let result = build_hook_settings_json("/path/to/hook.sh", "/path/to/title.sh");
+    fn build_session_settings_json_contains_hook_command() {
+        let result = build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let command = parsed
@@ -632,8 +650,8 @@ mod tests {
     }
 
     #[test]
-    fn build_hook_settings_json_sets_timeout_300() {
-        let result = build_hook_settings_json("/any/path.sh", "/any/title.sh");
+    fn build_session_settings_json_sets_timeout_300() {
+        let result = build_session_settings_json(Some(("/any/path.sh", "/any/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let timeout = parsed
@@ -644,8 +662,8 @@ mod tests {
     }
 
     #[test]
-    fn build_hook_settings_json_sets_matcher_wildcard() {
-        let result = build_hook_settings_json("/hook.sh", "/title.sh");
+    fn build_session_settings_json_sets_matcher_wildcard() {
+        let result = build_session_settings_json(Some(("/hook.sh", "/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let matcher = parsed
@@ -656,8 +674,11 @@ mod tests {
     }
 
     #[test]
-    fn build_hook_settings_json_handles_path_with_spaces() {
-        let result = build_hook_settings_json("/path with spaces/hook.sh", "/path with spaces/title.sh");
+    fn build_session_settings_json_handles_path_with_spaces() {
+        let result = build_session_settings_json(Some((
+            "/path with spaces/hook.sh",
+            "/path with spaces/title.sh",
+        )));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let command = parsed
             .pointer("/hooks/PreToolUse/0/hooks/0/command")
@@ -667,8 +688,8 @@ mod tests {
     }
 
     #[test]
-    fn build_hook_settings_json_contains_user_prompt_submit_hook() {
-        let result = build_hook_settings_json("/hook.sh", "/title.sh");
+    fn build_session_settings_json_contains_user_prompt_submit_hook() {
+        let result = build_session_settings_json(Some(("/hook.sh", "/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let command = parsed
@@ -689,6 +710,44 @@ mod tests {
             .and_then(|v| v.as_str())
             .expect("should have matcher");
         assert_eq!(matcher, ".*");
+    }
+
+    #[test]
+    fn build_session_settings_json_enables_thinking_with_hooks() {
+        let result = build_session_settings_json(Some(("/hook.sh", "/title.sh")));
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed.get("alwaysThinkingEnabled").and_then(|v| v.as_bool()),
+            Some(true),
+            "alwaysThinkingEnabled must be true so Opus emits thinking blocks"
+        );
+        assert_eq!(
+            parsed.get("showThinkingSummaries").and_then(|v| v.as_bool()),
+            Some(true),
+            "showThinkingSummaries must be true (CLI v2.1.90+ defaulted this to false)"
+        );
+    }
+
+    #[test]
+    fn build_session_settings_json_enables_thinking_without_hooks() {
+        let result = build_session_settings_json(None);
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed.get("alwaysThinkingEnabled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            parsed.get("showThinkingSummaries").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        // When no hooks are provided, the hooks key must be absent so the
+        // CLI does not try to invoke missing scripts.
+        assert!(
+            parsed.get("hooks").is_none(),
+            "hooks key should be absent when no hook paths are supplied"
+        );
     }
 
     // ── ensure_hook_script ──

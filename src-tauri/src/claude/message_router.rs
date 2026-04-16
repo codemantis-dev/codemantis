@@ -132,6 +132,7 @@ struct RouterState {
     cli_session_id_emitted: bool,
     emitted_tool_ids: std::collections::HashSet<String>,
     pending_tools: HashMap<u32, PendingToolBlock>,
+    thinking_blocks_this_turn: u32,
 }
 
 // ── Emit helper to reduce boilerplate ──
@@ -240,6 +241,7 @@ fn handle_assistant_message(
                 emit_or_warn(app_handle, activity_event, &fe, "tool-result");
             }
             ContentBlock::Thinking { thinking } => {
+                state.thinking_blocks_this_turn = state.thinking_blocks_this_turn.saturating_add(1);
                 if !thinking.is_empty() {
                     let fe = FrontendEvent::ThinkingComplete {
                         session_id: session_id.to_string(),
@@ -280,6 +282,7 @@ fn handle_content_block_delta(
             }
         }
         Some(StreamDelta::ThinkingDelta { thinking }) => {
+            state.thinking_blocks_this_turn = state.thinking_blocks_this_turn.saturating_add(1);
             state.accumulated_thinking.push_str(&thinking);
             let fe = FrontendEvent::ThinkingDelta {
                 session_id: session_id.to_string(),
@@ -330,6 +333,7 @@ fn handle_content_block_start(
             ContentBlock::Thinking { thinking } => {
                 state.thinking_block_index = index;
                 state.accumulated_thinking.clear();
+                state.thinking_blocks_this_turn = state.thinking_blocks_this_turn.saturating_add(1);
                 if !thinking.is_empty() {
                     state.accumulated_thinking.push_str(&thinking);
                     let fe = FrontendEvent::ThinkingDelta {
@@ -434,9 +438,22 @@ async fn handle_result(
         };
         emit_or_warn(app_handle, chat_event, &fe, "turn-complete");
     }
+    // Diagnostic: log when a turn completes without any thinking blocks in
+    // the stream-json output. Helps diagnose upstream regressions (e.g. CLI
+    // v2.1.90 changed thinking-summary defaults, and some Opus 4.x turns
+    // return zero thinking blocks even when --settings enables them).
+    let (model_name_for_log, _, _) = extract_model_usage_info(model_usage);
+    debug!(
+        "[message-router] turn complete for session={} model={:?} thinking_blocks={}",
+        session_id,
+        model_name_for_log,
+        state.thinking_blocks_this_turn,
+    );
+
     state.accumulated_text.clear();
     state.accumulated_thinking.clear();
     state.thinking_block_index = None;
+    state.thinking_blocks_this_turn = 0;
 }
 
 fn handle_system_status(
@@ -748,6 +765,7 @@ pub async fn route_events(
         cli_session_id_emitted: false,
         emitted_tool_ids: std::collections::HashSet::new(),
         pending_tools: HashMap::new(),
+        thinking_blocks_this_turn: 0,
     };
 
     while let Some(event) = receiver.recv().await {
