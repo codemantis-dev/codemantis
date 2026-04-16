@@ -9,7 +9,14 @@ import { useSpecWriterStore } from "../stores/specWriterStore";
 import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
-const MODE_CYCLE: SessionMode[] = ["normal", "auto-accept", "plan"];
+const MODE_CYCLE: SessionMode[] = [
+  "normal",
+  "auto-accept",
+  "plan",
+  "auto",
+  "dont-ask",
+  "bypass-permissions",
+];
 
 export function useKeyboardShortcuts(): void {
   const { createTerminal } = useTerminal();

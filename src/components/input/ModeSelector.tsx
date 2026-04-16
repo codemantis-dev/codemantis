@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Shield, ShieldCheck, Map } from "lucide-react";
+import { Shield, ShieldCheck, ShieldAlert, Map, Sparkles, Zap } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { setSessionMode as setSessionModeCmd } from "../../lib/tauri-commands";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -24,7 +24,34 @@ const MODES: { id: SessionMode; label: string; description: string; icon: typeof
     description: "Plan only, no code changes",
     icon: Map,
   },
+  {
+    id: "auto",
+    label: "Auto",
+    description: "CLI decides per tool (auto-routing)",
+    icon: Sparkles,
+  },
+  {
+    id: "dont-ask",
+    label: "Don't Ask",
+    description: "Accept everything, no prompts",
+    icon: Zap,
+  },
+  {
+    id: "bypass-permissions",
+    label: "Bypass",
+    description: "Skip all permission checks (dangerous)",
+    icon: ShieldAlert,
+  },
 ];
+
+const MODE_COLOR: Record<SessionMode, string> = {
+  "normal": "text-text-faint",
+  "auto-accept": "text-green",
+  "plan": "text-yellow",
+  "auto": "text-blue",
+  "dont-ask": "text-green",
+  "bypass-permissions": "text-red",
+};
 
 export default function ModeSelector() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -41,12 +68,7 @@ export default function ModeSelector() {
   const current = MODES.find((m) => m.id === mode) ?? MODES[0];
   const Icon = current.icon;
 
-  const modeColor =
-    mode === "auto-accept"
-      ? "text-green"
-      : mode === "plan"
-        ? "text-yellow"
-        : "text-text-faint";
+  const modeColor = MODE_COLOR[mode] ?? "text-text-faint";
 
   const handleModeChange = (newMode: SessionMode) => {
     if (!activeSessionId) return;

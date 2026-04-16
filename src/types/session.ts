@@ -11,7 +11,13 @@ export interface Session {
 
 export type SessionStatus = "starting" | "connected" | "idle" | "closed";
 
-export type SessionMode = "normal" | "auto-accept" | "plan";
+export type SessionMode =
+  | "normal"
+  | "auto-accept"
+  | "plan"
+  | "auto"
+  | "dont-ask"
+  | "bypass-permissions";
 
 export type ThinkingEffort = "high" | "medium" | "low";
 

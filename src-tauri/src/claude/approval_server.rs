@@ -370,6 +370,26 @@ async fn handle_tool_approval(
                     );
                     return (StatusCode::OK, Json(HookResponse::allow()));
                 }
+                SessionMode::DontAsk => {
+                    // "Don't ask" — behaviorally equivalent to AutoAccept for the
+                    // approval server. Distinct from AutoAccept only for UI labeling.
+                    info!(
+                        "[approval-server] Auto-approving tool {} (don't-ask mode, session: {})",
+                        tool_name, forge_session_id
+                    );
+                    return (StatusCode::OK, Json(HookResponse::allow()));
+                }
+                SessionMode::BypassPermissions => {
+                    // The CLI bypasses the hook entirely in this mode, so this
+                    // branch should rarely fire. Return allow defensively in case
+                    // the CLI's behavior changes or a version mismatch routes a
+                    // hook request here.
+                    info!(
+                        "[approval-server] Auto-approving tool {} (bypass-permissions mode, session: {})",
+                        tool_name, forge_session_id
+                    );
+                    return (StatusCode::OK, Json(HookResponse::allow()));
+                }
                 SessionMode::Plan => {
                     // Plan mode: auto-approve tools needed for planning (Write for
                     // the plan file, Agent for subagent research, etc.). Tools not
@@ -387,6 +407,11 @@ async fn handle_tool_approval(
                         tool_name, forge_session_id
                     );
                     // Fall through to normal approval flow
+                }
+                SessionMode::Auto => {
+                    // CLI's auto-routing mode decides per-tool whether to ask.
+                    // If the hook fires here at all, the CLI wants us to prompt
+                    // the user — fall through to the normal approval flow.
                 }
                 SessionMode::Normal => {
                     // Fall through to normal approval flow

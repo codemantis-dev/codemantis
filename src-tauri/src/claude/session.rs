@@ -8,12 +8,27 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Session permission mode, enforced at the Rust approval server level.
+///
+/// Wire format to the Claude CLI is *camelCase* (`acceptEdits`, `dontAsk`,
+/// `bypassPermissions`, `auto`, `plan`, `default`) and is handled by the
+/// explicit `classify_permission_mode` (incoming) and `session_mode_to_cli`
+/// (outgoing) funnels. Internal Rust↔TS serialization is *kebab-case* via
+/// serde — do not confuse the two.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionMode {
     Normal,
     AutoAccept,
     Plan,
+    /// CLI's auto-routing mode — the CLI decides per-tool whether to ask.
+    /// CodeMantis treats this like Normal for approval-server purposes.
+    Auto,
+    /// "Don't ask for anything" — behaviorally equivalent to AutoAccept for
+    /// CodeMantis's approval server; distinct label only.
+    DontAsk,
+    /// CLI bypasses all permission checks. The approval hook likely never
+    /// fires in this mode; branch returns allow defensively.
+    BypassPermissions,
 }
 
 /// Tracks a pending control_request so we can match the response.

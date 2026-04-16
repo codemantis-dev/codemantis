@@ -15,10 +15,17 @@ struct PendingToolBlock {
 // ── Pure helper functions (testable without AppHandle) ──
 
 /// Map a CLI permissionMode string to our SessionMode enum.
+///
+/// The CLI's wire format is camelCase (`acceptEdits`, `dontAsk`,
+/// `bypassPermissions`, `auto`, `plan`, `default`). Unknown strings fall
+/// back to `SessionMode::Normal` (safe default — prompt the user).
 pub(crate) fn classify_permission_mode(cli_perm_mode: &str) -> SessionMode {
     match cli_perm_mode {
         "plan" => SessionMode::Plan,
         "acceptEdits" => SessionMode::AutoAccept,
+        "auto" => SessionMode::Auto,
+        "dontAsk" => SessionMode::DontAsk,
+        "bypassPermissions" => SessionMode::BypassPermissions,
         _ => SessionMode::Normal,
     }
 }
@@ -936,9 +943,31 @@ mod tests {
     }
 
     #[test]
+    fn classify_auto_mode() {
+        assert_eq!(classify_permission_mode("auto"), SessionMode::Auto);
+    }
+
+    #[test]
+    fn classify_dont_ask_mode() {
+        assert_eq!(classify_permission_mode("dontAsk"), SessionMode::DontAsk);
+    }
+
+    #[test]
+    fn classify_bypass_permissions_mode() {
+        assert_eq!(
+            classify_permission_mode("bypassPermissions"),
+            SessionMode::BypassPermissions,
+        );
+    }
+
+    #[test]
     fn classify_unknown_mode_falls_back_to_normal() {
+        // Truly unknown strings — current CLI choices are covered above.
         assert_eq!(classify_permission_mode("some_future_mode"), SessionMode::Normal);
         assert_eq!(classify_permission_mode(""), SessionMode::Normal);
+        // Guard against accidental case-insensitive matching.
+        assert_eq!(classify_permission_mode("Plan"), SessionMode::Normal);
+        assert_eq!(classify_permission_mode("AUTO"), SessionMode::Normal);
     }
 
     // ── extract_model_usage_info ──
@@ -1535,9 +1564,13 @@ mod tests {
     // ── classify_permission_mode additional cases ──
 
     #[test]
-    fn classify_bypass_permissions_falls_back_to_normal() {
-        // A mode string that might appear in future CLI versions
-        assert_eq!(classify_permission_mode("bypassPermissions"), SessionMode::Normal);
+    fn classify_bypass_permissions_mapped_explicitly() {
+        // `bypassPermissions` is a real CLI permission-mode value as of
+        // Claude Code 2.1.x — it must not fall through to Normal.
+        assert_eq!(
+            classify_permission_mode("bypassPermissions"),
+            SessionMode::BypassPermissions,
+        );
     }
 
     #[test]

@@ -608,11 +608,19 @@ pub(crate) fn format_session_name(base: &str, existing_count: usize) -> String {
 }
 
 /// Maps a `SessionMode` to the CLI permission_mode string.
+///
+/// Wire format is camelCase (matches the CLI's `--permission-mode` choices).
+/// Do NOT rely on serde for outgoing strings — the internal kebab-case
+/// serialization does not match what the CLI expects for the new variants
+/// (`DontAsk` would serialize as `"dont-ask"` but the CLI wants `"dontAsk"`).
 pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
     match mode {
         SessionMode::Normal => "default",
         SessionMode::AutoAccept => "acceptEdits",
         SessionMode::Plan => "plan",
+        SessionMode::Auto => "auto",
+        SessionMode::DontAsk => "dontAsk",
+        SessionMode::BypassPermissions => "bypassPermissions",
     }
 }
 
@@ -887,6 +895,26 @@ mod tests {
         assert_eq!(session_mode_to_cli(&SessionMode::Plan), "plan");
     }
 
+    #[test]
+    fn mode_auto_maps_to_auto() {
+        assert_eq!(session_mode_to_cli(&SessionMode::Auto), "auto");
+    }
+
+    #[test]
+    fn mode_dont_ask_maps_to_dont_ask_camel_case() {
+        // CLI uses camelCase — do NOT rely on serde kebab-case here.
+        assert_eq!(session_mode_to_cli(&SessionMode::DontAsk), "dontAsk");
+    }
+
+    #[test]
+    fn mode_bypass_permissions_maps_to_camel_case() {
+        // CLI uses camelCase — do NOT rely on serde kebab-case here.
+        assert_eq!(
+            session_mode_to_cli(&SessionMode::BypassPermissions),
+            "bypassPermissions",
+        );
+    }
+
     // ── SessionHistoryEntry serialization ──
 
     #[test]
@@ -1002,12 +1030,44 @@ mod tests {
 
     #[test]
     fn mode_to_cli_roundtrip_consistency() {
-        // Verify all modes map to distinct CLI strings
-        let modes = [SessionMode::Normal, SessionMode::AutoAccept, SessionMode::Plan];
+        // Verify all modes map to distinct CLI strings.
+        let modes = [
+            SessionMode::Normal,
+            SessionMode::AutoAccept,
+            SessionMode::Plan,
+            SessionMode::Auto,
+            SessionMode::DontAsk,
+            SessionMode::BypassPermissions,
+        ];
         let cli_strings: Vec<&str> = modes.iter().map(session_mode_to_cli).collect();
-        // All must be unique
         let unique: std::collections::HashSet<&&str> = cli_strings.iter().collect();
-        assert_eq!(unique.len(), 3, "All session modes must map to distinct CLI strings");
+        assert_eq!(
+            unique.len(),
+            modes.len(),
+            "All session modes must map to distinct CLI strings",
+        );
+    }
+
+    #[test]
+    fn mode_to_cli_and_back_is_identity() {
+        // Round-trip: SessionMode → CLI string → classify_permission_mode.
+        use crate::claude::message_router::classify_permission_mode;
+        for mode in [
+            SessionMode::Normal,
+            SessionMode::AutoAccept,
+            SessionMode::Plan,
+            SessionMode::Auto,
+            SessionMode::DontAsk,
+            SessionMode::BypassPermissions,
+        ] {
+            let cli = session_mode_to_cli(&mode);
+            let roundtripped = classify_permission_mode(cli);
+            assert_eq!(
+                roundtripped, mode,
+                "Round-trip failed for {:?} → {:?} → {:?}",
+                mode, cli, roundtripped,
+            );
+        }
     }
 
     // ── SessionMessagePayload edge cases ──
