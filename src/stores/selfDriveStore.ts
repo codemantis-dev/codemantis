@@ -479,23 +479,100 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
 
 // ── Step handlers ───────────────────────────────────────────────────
 
+/**
+ * Validate an orchestrator's "advance" verdict against a session's verify
+ * checks. Returns null when the verdict is acceptable, or a short reason
+ * string describing the first violation found.
+ *
+ * Rules (all must hold):
+ *  1. checkResults must cover every VerifyCheck label in the session.
+ *  2. Every passed:true entry must carry an `evidence` string containing
+ *     at least a ":" (file:lines citation).
+ *  3. No checkResults entry may reference a label that isn't in the session.
+ *
+ * Exported for tests; not part of the store's public API.
+ */
+export function validateVerifyAdvance(
+  session: { verifyChecks: { label: string }[] },
+  decision: OrchestratorDecision,
+): string | null {
+  const results = decision.checkResults ?? [];
+  if (results.length === 0) {
+    return "no checkResults in advance verdict";
+  }
+
+  const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
+  const resultLabels = new Set(results.map((r) => r.label));
+
+  const missing = session.verifyChecks
+    .filter((c) => !resultLabels.has(c.label))
+    .map((c) => c.label);
+
+  const unknown = results
+    .filter((r) => !sessionLabels.has(r.label))
+    .map((r) => r.label);
+
+  const passedWithoutEvidence = results
+    .filter((r) => r.passed && (!r.evidence || !r.evidence.includes(":")))
+    .map((r) => r.label);
+
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push(`${missing.length} checks missing from verdict`);
+  if (passedWithoutEvidence.length > 0) parts.push(`${passedWithoutEvidence.length} PASS entries lack file:line evidence`);
+  if (unknown.length > 0) parts.push(`${unknown.length} unknown labels in verdict`);
+
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
 async function handleAdvance(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
   const guide = useGuideStore.getState().guide;
   const session = guide?.sessions.find((s) => s.index === sessionIndex);
 
-  // The orchestrator decided to advance — trust its go/no-go decision.
-  // Mark ALL verify checks as passed.
-  if (session) {
+  // Gate: when advancing out of a verification phase, require per-check
+  // evidence and selectively mark only items the orchestrator confirmed.
+  // Advancing from test/commit phases doesn't carry a per-check verdict —
+  // checks must already be marked from the preceding verify pass.
+  if (session && previousPhase === "verifying") {
+    const gateError = validateVerifyAdvance(session, decision);
+    if (gateError) {
+      addLogEntry(sessionIndex, "verifying", `Advance rejected: ${gateError}`);
+      handlePause(
+        `Self-Drive halted: verifier/orchestrator did not produce evidence for all checks (${gateError}). Review the run log and continue manually.`,
+      );
+      return;
+    }
+
+    // Mark ONLY the checks the orchestrator confirmed passed.
+    const resultsByLabel = new Map(
+      (decision.checkResults ?? []).map((r) => [r.label, r]),
+    );
     for (const check of session.verifyChecks) {
-      if (!check.checked) {
+      const r = resultsByLabel.get(check.label);
+      if (r?.passed && !check.checked) {
         useGuideStore.getState().toggleVerifyCheck(sessionIndex, check.id);
       }
     }
+
+    // Defense-in-depth: if anything stayed unchecked, do not advance.
+    const freshSession = useGuideStore.getState().guide?.sessions
+      .find((s) => s.index === sessionIndex);
+    const stillUnchecked = freshSession?.verifyChecks.filter((c) => !c.checked) ?? [];
+    if (stillUnchecked.length > 0) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Advance rejected: ${stillUnchecked.length} checks remain unchecked after orchestrator verdict`,
+      );
+      handlePause(
+        `Self-Drive halted: ${stillUnchecked.length} checks could not be confirmed. Review the run log and continue manually.`,
+      );
+      return;
+    }
   }
 
-  // Mark session complete (should always succeed — all checks are toggled)
+  // Mark session complete. If it fails, something went wrong with the guide state.
   const completed = useGuideStore.getState().markSessionComplete(sessionIndex);
   if (!completed) {
     const alreadyDone = guide?.sessions
@@ -506,10 +583,16 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
     }
   }
 
-  // Log check details for human review (informational only)
+  // Log check details for human review, including evidence citations.
   if (decision.checkResults?.length) {
     const checkSummary = decision.checkResults
-      .map((r) => `${r.passed ? "PASS" : "FAIL"}: ${r.label}`)
+      .map((r) => {
+        const verdict = r.passed ? "PASS" : "FAIL";
+        const detail = r.passed
+          ? (r.evidence ? ` [${r.evidence}]` : "")
+          : (r.reason ? ` (${r.reason})` : "");
+        return `${verdict}: ${r.label}${detail}`;
+      })
       .join("; ");
     addLogEntry(sessionIndex, "advancing", checkSummary);
   }

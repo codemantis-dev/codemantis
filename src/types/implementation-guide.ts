@@ -104,7 +104,7 @@ export interface OrchestratorDecision {
   testCommand?: string;
   pauseReason?: string;
   abortReason?: string;
-  checkResults?: { label: string; passed: boolean; reason?: string }[];
+  checkResults?: { label: string; passed: boolean; reason?: string; evidence?: string }[];
   summary: string;
   confidence: "high" | "medium" | "low";
 }

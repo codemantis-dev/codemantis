@@ -67,7 +67,7 @@ vi.mock("../lib/self-drive-utils", () => ({
   getTestCommand: vi.fn(() => "pnpm test"),
 }));
 
-import { useSelfDriveStore } from "./selfDriveStore";
+import { useSelfDriveStore, validateVerifyAdvance } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -558,8 +558,8 @@ describe("selfDriveStore", () => {
         summary: "All checks pass",
         confidence: "high",
         checkResults: [
-          { label: "Check A", passed: true },
-          { label: "Check B", passed: true },
+          { label: "Check A", passed: true, evidence: "src/a.ts:1 — `const a = 1`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:1 — `const b = 2`" },
         ],
       });
 
@@ -687,10 +687,11 @@ describe("selfDriveStore", () => {
   // ── handleAdvance — markSessionComplete ─────────────────────────
 
   describe("handleAdvance markSessionComplete", () => {
-    it("trust-based advance marks ALL checks and completes session", async () => {
+    it("rejects advance from verify phase when orchestrator verdict has unknown labels and no evidence", async () => {
       setupReadyState();
-      // Session 1 checks are NOT checked — but advance trusts the orchestrator
-      // and marks all checks as passed regardless of checkResults content
+      // Session 1 has checks "Check A" and "Check B", both unchecked.
+      // The orchestrator returns a verdict that doesn't match — this is the
+      // exact skim-PASS failure mode the gate exists to prevent.
       mockCallOrchestrator.mockResolvedValue({
         action: "advance",
         summary: "All done",
@@ -707,14 +708,16 @@ describe("selfDriveStore", () => {
       emit(makeTurnCompleteEvent());
 
       await vi.waitFor(() => {
-        // Trust-based: advance marks all checks, session completes
-        const guide = useGuideStore.getState().guide!;
-        const session1 = guide.sessions[0];
-        expect(session1.verifyChecks[0].checked).toBe(true);
-        expect(session1.verifyChecks[1].checked).toBe(true);
-        expect(session1.status).toBe("done");
-        expect(useSelfDriveStore.getState().status).toBe("running");
+        // Gate must pause Self-Drive rather than blanket-mark checks.
+        expect(useSelfDriveStore.getState().status).toBe("paused");
       });
+
+      // Checks stay unchecked. Session stays active.
+      const guide = useGuideStore.getState().guide!;
+      const session1 = guide.sessions[0];
+      expect(session1.verifyChecks[0].checked).toBe(false);
+      expect(session1.verifyChecks[1].checked).toBe(false);
+      expect(session1.status).toBe("active");
     });
 
     it("continues when session is already done (re-advance after test/commit)", async () => {
@@ -748,7 +751,7 @@ describe("selfDriveStore", () => {
       });
     });
 
-    it("toggles verify checks from orchestrator checkResults", async () => {
+    it("toggles verify checks from orchestrator checkResults with evidence", async () => {
       setupReadyState();
 
       mockCallOrchestrator.mockResolvedValue({
@@ -756,8 +759,8 @@ describe("selfDriveStore", () => {
         summary: "All pass",
         confidence: "high",
         checkResults: [
-          { label: "Check A", passed: true },
-          { label: "Check B", passed: true },
+          { label: "Check A", passed: true, evidence: "src/a.ts:5 — `export const a = 1`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:7 — `export const b = 2`" },
         ],
       });
 
@@ -792,8 +795,8 @@ describe("selfDriveStore", () => {
         summary: "Session 1 complete",
         confidence: "high",
         checkResults: [
-          { label: "Check A", passed: true },
-          { label: "Check B", passed: true },
+          { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
         ],
       });
 
@@ -834,7 +837,7 @@ describe("selfDriveStore", () => {
         action: "advance",
         summary: "Last session done",
         confidence: "high",
-        checkResults: [{ label: "Polish check", passed: true }],
+        checkResults: [{ label: "Polish check", passed: true, evidence: "src/c.ts:1 — `polish`" }],
       });
 
       await useSelfDriveStore.getState().start();
@@ -1098,8 +1101,8 @@ describe("selfDriveStore integration — full lifecycle", () => {
             summary: "All checks pass",
             confidence: "high",
             checkResults: [
-              { label: "Check A", passed: true },
-              { label: "Check B", passed: true },
+              { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+              { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
             ],
           };
         default:
@@ -1166,8 +1169,8 @@ describe("selfDriveStore integration — full lifecycle", () => {
         summary: "All pass now",
         confidence: "high",
         checkResults: [
-          { label: "Check A", passed: true },
-          { label: "Check B", passed: true },
+          { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
         ],
       };
     });
@@ -1218,8 +1221,8 @@ describe("selfDriveStore integration — full lifecycle", () => {
             summary: "All pass",
             confidence: "high",
             checkResults: [
-              { label: "Check A", passed: true },
-              { label: "Check B", passed: true },
+              { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+              { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
             ],
           };
         case "testing":
@@ -1866,6 +1869,12 @@ describe("selfDriveStore — auto-commit live config", () => {
 
   it("handleAdvance reads autoCommit from live settings, not cached config", async () => {
     setupReadyState();
+    // Pre-mark session 1's verify checks so markSessionComplete succeeds.
+    // This test simulates a post-verify advance (checks already confirmed)
+    // and isolates the autoCommit live-read behavior.
+    const guide = useGuideStore.getState().guide!;
+    guide.sessions[0].verifyChecks.forEach((c) => (c.checked = true));
+    useGuideStore.setState({ guide });
 
     // Start with autoCommit OFF
     await useSelfDriveStore.getState().start();
@@ -1879,7 +1888,9 @@ describe("selfDriveStore — auto-commit live config", () => {
       settings: { ...prev.settings, selfDriveAutoCommit: true },
     }));
 
-    // Make orchestrator advance → triggers handleAdvance
+    // Make orchestrator advance → triggers handleAdvance.
+    // previousPhase is "building" (from start), so the verify-gate is not
+    // invoked — this path exercises the post-test/post-commit advance flow.
     mockCallOrchestrator.mockResolvedValue({
       action: "advance",
       summary: "Session complete",
@@ -1893,5 +1904,117 @@ describe("selfDriveStore — auto-commit live config", () => {
       // Should have sent a commit prompt (phase should be "committing")
       expect(useSelfDriveStore.getState().currentPhase).toBe("committing");
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// validateVerifyAdvance — the gate that prevents skim-PASS autonomous advances
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("validateVerifyAdvance", () => {
+  const session = {
+    verifyChecks: [
+      { label: "Check A" },
+      { label: "Check B" },
+    ],
+  };
+
+  function makeDecision(overrides: Partial<OrchestratorDecision>): OrchestratorDecision {
+    return {
+      action: "advance",
+      summary: "ok",
+      confidence: "high",
+      ...overrides,
+    };
+  }
+
+  it("accepts a verdict with full coverage and file:line evidence for every PASS", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:12 — `export const A = 1`" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:5-7 — `function b() {}`" },
+      ],
+    });
+    expect(validateVerifyAdvance(session, decision)).toBeNull();
+  });
+
+  it("accepts a verdict with passed:false entries that carry a reason", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:12 — `export const A = 1`" },
+        { label: "Check B", passed: false, reason: "symbol not found in src/b.ts" },
+      ],
+    });
+    // validateVerifyAdvance returns null regardless of passed:false — it only
+    // checks STRUCTURE. The caller decides whether to advance (requires all true).
+    expect(validateVerifyAdvance(session, decision)).toBeNull();
+  });
+
+  it("rejects when checkResults is missing entirely", () => {
+    const decision = makeDecision({});
+    expect(validateVerifyAdvance(session, decision)).toContain("no checkResults");
+  });
+
+  it("rejects when checkResults is empty", () => {
+    const decision = makeDecision({ checkResults: [] });
+    expect(validateVerifyAdvance(session, decision)).toContain("no checkResults");
+  });
+
+  it("rejects when some session checks are missing from the verdict", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain("1 checks missing");
+  });
+
+  it("rejects when a passed:true entry lacks evidence", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+        { label: "Check B", passed: true }, // no evidence
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain("1 PASS entries lack file:line evidence");
+  });
+
+  it("rejects when evidence is present but has no file:line separator", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+        { label: "Check B", passed: true, evidence: "looks correct" }, // no ":"
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain("1 PASS entries lack file:line evidence");
+  });
+
+  it("rejects when verdict contains labels not present in the session", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
+        { label: "Fabricated check", passed: true, evidence: "src/c.ts:1 — `z`" },
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain("1 unknown labels");
+  });
+
+  it("combines multiple violations into one reason string", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true }, // no evidence (violation 1)
+        { label: "Fabricated", passed: true, evidence: "src/x.ts:1 — `x`" }, // unknown label (violation 2)
+        // Check B is missing entirely (violation 3)
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain("1 checks missing");
+    expect(reason).toContain("1 PASS entries lack file:line evidence");
+    expect(reason).toContain("1 unknown labels");
   });
 });

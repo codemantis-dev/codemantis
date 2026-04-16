@@ -319,6 +319,64 @@ describe("prompt constants", () => {
       expect(prompt).toContain("Full User Journey");
     }
   });
+
+  // ── Anti-skim contract (Parts B + C) ───────────────────────────────────
+
+  it("audit template includes the Contract for the Verifier section", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("## Contract for the Verifier");
+      expect(prompt).toContain("Skimming = FAIL");
+      expect(prompt).toContain("Reporting PASS without having opened the file is a contract violation");
+    }
+  });
+
+  it("audit template requires batching of 20 items per batch", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("batches of 20");
+    }
+  });
+
+  it("audit template lists forbidden batch-PASS phrases", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("all remaining items pass");
+      expect(prompt).toContain("the rest look correct");
+      expect(prompt).toContain("LGTM");
+    }
+  });
+
+  it("audit template requires the structured VERIFY-N output format (rule 15)", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("VERIFIER OUTPUT FORMAT");
+      expect(prompt).toContain("VERIFY-N — PASS|FAIL|SKIPPED");
+      expect(prompt).toContain("Free-form paragraphs describing what was verified are forbidden");
+    }
+  });
+
+  it("audit template mandates the required final accounting line", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("REQUIRED FINAL LINE");
+      expect(prompt).toContain("Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | MISSING: d");
+    }
+  });
+
+  it("verification prompt is mandatory for every session (not optional)", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("MANDATORY — VERIFICATION PROMPT (every session, without exception)");
+      expect(prompt).toContain("No session may omit the Verification Prompt block");
+      // The old OPTIONAL header must be gone.
+      expect(prompt).not.toContain("OPTIONAL — VERIFICATION PROMPT (for complex sessions):");
+    }
+  });
+
+  it("verification prompt rules cover both simple and complex session forms", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("SIMPLE SESSION FORM");
+      expect(prompt).toContain("COMPLEX SESSION FORM");
+      // Rules require quoted-code evidence and final accounting line.
+      expect(prompt).toContain("Every check expects QUOTED CODE as evidence");
+      expect(prompt).toContain("Verified X/Y | PASS n · FAIL n · SKIPPED n");
+    }
+  });
 });
 
 describe("buildClaudeCodePrompt", () => {

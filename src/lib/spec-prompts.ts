@@ -558,17 +558,43 @@ RULES:
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
 
-OPTIONAL — VERIFICATION PROMPT (for complex sessions):
-If a session has 5+ verify items or creates complex logic (state machines,
-integration error handling, auth middleware), include a dedicated
-verification prompt that Claude Code can execute after building:
+MANDATORY — VERIFICATION PROMPT (every session, without exception):
+Every session MUST include a **Verification Prompt:** block. No
+exceptions. Simple sessions get the SIMPLE SESSION FORM (3–5 steps).
+Complex sessions (state machines, auth middleware, integration error
+handling, 5+ verify items) get the COMPLEX SESSION FORM.
+
+Why mandatory: the generic fallback prompt built from the checklist
+alone allows the verifier to batch-assume PASS. A dedicated prompt
+naming specific files and patterns forces file-opens.
+
+SIMPLE SESSION FORM (sessions with 2–4 verify items, no complex logic):
+
+**Verification Prompt:**
+\`\`\`
+Verify Session {N}: {title}.
+
+For each step, open the ACTUAL file with the Read tool and quote the
+specific line(s) that prove PASS or FAIL. One line per step.
+
+1. Open \`{file_path}\` — VERIFY \`{exact symbol/pattern}\` exists
+2. Open \`{file_path}\` — VERIFY \`{exact symbol/pattern}\` exists
+3. Run \`{test_command}\` — VERIFY all tests pass
+
+If you cannot open a file or the check is ambiguous, mark the step
+SKIPPED with a one-line reason. Do NOT assume PASS without evidence.
+End with: Verified X/Y | PASS n · FAIL n · SKIPPED n.
+\`\`\`
+
+COMPLEX SESSION FORM (sessions with 5+ verify items or complex logic):
 
 **Verification Prompt:**
 \`\`\`
 Verify Session {N}: {title}.
 
 For each check, open the ACTUAL FILE and read the code.
-Report PASS or FAIL with a one-line reason.
+Report PASS or FAIL with a one-line reason. PASS requires a
+file:line citation AND a quoted code snippet as evidence.
 
 1. Open \`{file_path}\`
    - VERIFY: {specific thing to check} exists with {expected value}
@@ -582,15 +608,19 @@ Report PASS or FAIL with a one-line reason.
    - VERIFY: All tests pass including tests from this session
 
 Fix any FAIL items before proceeding.
+End with: Verified X/Y | PASS n · FAIL n · SKIPPED n.
 \`\`\`
 
-RULES for Verification Prompts:
+RULES for Verification Prompts (MANDATORY EVERY SESSION):
 - Every check starts with "Open \`{file_path}\`" — forces file reading
 - Every check has "VERIFY:" with a specific expected outcome
-- Include "NOT EXPECTED:" for common mistakes
+- Every check expects QUOTED CODE as evidence, not "looks correct"
+- Include "NOT EXPECTED:" for common mistakes when applicable
 - Include "TRACE:" for logic chains that span multiple functions
-- Verification prompts are OPTIONAL — only for sessions with 5+ items
-  or complex logic. Simple sessions use the manual checklist only.
+- End with the final accounting line:
+  "Verified X/Y | PASS n · FAIL n · SKIPPED n"
+- No session may omit the Verification Prompt block. Simple sessions
+  use the SIMPLE SESSION FORM; complex ones use the COMPLEX SESSION FORM.
 
 SESSION SIZING GUIDANCE:
 - Each session should cover 1-2 phases, not more
@@ -936,9 +966,50 @@ When asked to generate the audit, output the COMPLETE document directly in your 
 
 **Companion to:** \`docs/specs/{filename}.md\`
 **When to run:** AFTER implementation is complete. Do NOT use during building.
-**How to use:** Work through every section. For each VERIFY directive,
-open the actual file and read the code. Do NOT rely on memory.
-Report PASS, FAIL, or MISSING. Fix all failures before moving on.
+
+## Contract for the Verifier
+
+This document is a CONTRACT, not a checklist. If you are reading this
+as Claude Code after implementation, the following rules apply and
+override any competing instinct to rush or summarize:
+
+1. **Every VERIFY directive requires a file open.** You MUST use the
+   Read tool to open the referenced file before reporting on the item.
+   Reporting PASS without having opened the file is a contract violation.
+
+2. **Every PASS requires quoted evidence.** Format:
+     VERIFY-N — PASS — {file}:{lines} — \`{quoted code}\`
+   No evidence, no PASS.
+
+3. **Skimming = FAIL.** If you catch yourself thinking "the rest all
+   look fine" or "I'll assume the pattern holds," STOP. Do the next
+   item properly or mark it SKIPPED with a one-line reason. Skipping
+   honestly is acceptable. Faking PASS is not.
+
+4. **Batching is mandatory.** Process VERIFY items in batches of 20.
+   After each batch of 20, emit:
+     \`--- Batch {k} of {K} complete: PASS n · FAIL n · SKIPPED n ---\`
+   Then pause for one sentence confirming you're continuing. This
+   prevents context-window rushing at the 80% mark.
+
+5. **Forbidden phrases.** The presence of any of these in your verify
+   output means you skimmed — retract and redo:
+   - "all remaining items pass"
+   - "the rest look correct"
+   - "based on what I've seen"
+   - "LGTM" / "looks good" / "should work"
+
+6. **Final accounting line is mandatory.** End with:
+     Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | MISSING: d
+   If X != Y, explain why in one sentence.
+
+**How to use each VERIFY directive:**
+- Open the file with Read. Do NOT rely on memory or prior context.
+- Compare the actual code against the Expected: clause.
+- Check for the Not expected: clause (a specific common failure).
+- If multi-step, follow the Trace: chain step by step.
+- Emit one structured line per rule 2 above. Move to the next item.
+- Do not combine items. Do not describe verification in free-form paragraphs.
 
 If the spec has a Session Plan (Section 10), add this note after
 the "When to run" line in the audit header:
@@ -1119,6 +1190,12 @@ Do not leave it blank.
   🟡 IMPORTANT: ___
   🟢 POLISH: ___
 
+**REQUIRED FINAL LINE** (the verifier MUST emit this as the last line
+of its output — not optional, not a summary paragraph):
+  Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | MISSING: d
+If X != Y, the verifier explains the delta in one sentence on the
+following line.
+
 FORMAT RULES (non-negotiable):
 
 1. EVERY check starts with "VERIFY: Open {exact file path}"
@@ -1170,7 +1247,15 @@ FORMAT RULES (non-negotiable):
 
 14. UI Polish items MUST be individually enumerated — one VERIFY
     per loading state, one per empty state, one per toast, one per
-    error banner. Do NOT write "all loading states are consistent."`;
+    error banner. Do NOT write "all loading states are consistent."
+
+15. VERIFIER OUTPUT FORMAT (enforced at runtime — not optional):
+    Every VERIFY directive in the verifier's run output MUST be a
+    single structured line of this exact shape:
+      VERIFY-N — PASS|FAIL|SKIPPED — {file}:{lines} — \`{quoted code or reason}\`
+    Free-form paragraphs describing what was verified are forbidden.
+    One structured line per item. A PASS without a file:line citation
+    and quoted code is not a PASS — it's a contract violation.`;
 
 // ═══════════════════════════════════════════════════════════════════════
 // FEATURE MODE — Complete production prompt with file requests & anti-hallucination
@@ -1752,17 +1837,43 @@ RULES:
 - First session always includes project setup/scaffolding
 - Last session always includes polish items from Section 9 Phase 4
 
-OPTIONAL — VERIFICATION PROMPT (for complex sessions):
-If a session has 5+ verify items or creates complex logic (state machines,
-integration error handling, auth middleware), include a dedicated
-verification prompt that Claude Code can execute after building:
+MANDATORY — VERIFICATION PROMPT (every session, without exception):
+Every session MUST include a **Verification Prompt:** block. No
+exceptions. Simple sessions get the SIMPLE SESSION FORM (3–5 steps).
+Complex sessions (state machines, auth middleware, integration error
+handling, 5+ verify items) get the COMPLEX SESSION FORM.
+
+Why mandatory: the generic fallback prompt built from the checklist
+alone allows the verifier to batch-assume PASS. A dedicated prompt
+naming specific files and patterns forces file-opens.
+
+SIMPLE SESSION FORM (sessions with 2–4 verify items, no complex logic):
+
+**Verification Prompt:**
+\`\`\`
+Verify Session {N}: {title}.
+
+For each step, open the ACTUAL file with the Read tool and quote the
+specific line(s) that prove PASS or FAIL. One line per step.
+
+1. Open \`{file_path}\` — VERIFY \`{exact symbol/pattern}\` exists
+2. Open \`{file_path}\` — VERIFY \`{exact symbol/pattern}\` exists
+3. Run \`{test_command}\` — VERIFY all tests pass
+
+If you cannot open a file or the check is ambiguous, mark the step
+SKIPPED with a one-line reason. Do NOT assume PASS without evidence.
+End with: Verified X/Y | PASS n · FAIL n · SKIPPED n.
+\`\`\`
+
+COMPLEX SESSION FORM (sessions with 5+ verify items or complex logic):
 
 **Verification Prompt:**
 \`\`\`
 Verify Session {N}: {title}.
 
 For each check, open the ACTUAL FILE and read the code.
-Report PASS or FAIL with a one-line reason.
+Report PASS or FAIL with a one-line reason. PASS requires a
+file:line citation AND a quoted code snippet as evidence.
 
 1. Open \`{file_path}\`
    - VERIFY: {specific thing to check} exists with {expected value}
@@ -1776,15 +1887,19 @@ Report PASS or FAIL with a one-line reason.
    - VERIFY: All tests pass including tests from this session
 
 Fix any FAIL items before proceeding.
+End with: Verified X/Y | PASS n · FAIL n · SKIPPED n.
 \`\`\`
 
-RULES for Verification Prompts:
+RULES for Verification Prompts (MANDATORY EVERY SESSION):
 - Every check starts with "Open \`{file_path}\`" — forces file reading
 - Every check has "VERIFY:" with a specific expected outcome
-- Include "NOT EXPECTED:" for common mistakes
+- Every check expects QUOTED CODE as evidence, not "looks correct"
+- Include "NOT EXPECTED:" for common mistakes when applicable
 - Include "TRACE:" for logic chains that span multiple functions
-- Verification prompts are OPTIONAL — only for sessions with 5+ items
-  or complex logic. Simple sessions use the manual checklist only.
+- End with the final accounting line:
+  "Verified X/Y | PASS n · FAIL n · SKIPPED n"
+- No session may omit the Verification Prompt block. Simple sessions
+  use the SIMPLE SESSION FORM; complex ones use the COMPLEX SESSION FORM.
 
 SESSION SIZING GUIDANCE:
 - Each session should cover 1-2 phases, not more
@@ -2080,9 +2195,50 @@ When asked to generate the audit, output the COMPLETE document directly in your 
 
 **Companion to:** \`docs/specs/{filename}.md\`
 **When to run:** AFTER implementation is complete. Do NOT use during building.
-**How to use:** Work through every section. For each VERIFY directive,
-open the actual file and read the code. Do NOT rely on memory.
-Report PASS, FAIL, or MISSING. Fix all failures before moving on.
+
+## Contract for the Verifier
+
+This document is a CONTRACT, not a checklist. If you are reading this
+as Claude Code after implementation, the following rules apply and
+override any competing instinct to rush or summarize:
+
+1. **Every VERIFY directive requires a file open.** You MUST use the
+   Read tool to open the referenced file before reporting on the item.
+   Reporting PASS without having opened the file is a contract violation.
+
+2. **Every PASS requires quoted evidence.** Format:
+     VERIFY-N — PASS — {file}:{lines} — \`{quoted code}\`
+   No evidence, no PASS.
+
+3. **Skimming = FAIL.** If you catch yourself thinking "the rest all
+   look fine" or "I'll assume the pattern holds," STOP. Do the next
+   item properly or mark it SKIPPED with a one-line reason. Skipping
+   honestly is acceptable. Faking PASS is not.
+
+4. **Batching is mandatory.** Process VERIFY items in batches of 20.
+   After each batch of 20, emit:
+     \`--- Batch {k} of {K} complete: PASS n · FAIL n · SKIPPED n ---\`
+   Then pause for one sentence confirming you're continuing. This
+   prevents context-window rushing at the 80% mark.
+
+5. **Forbidden phrases.** The presence of any of these in your verify
+   output means you skimmed — retract and redo:
+   - "all remaining items pass"
+   - "the rest look correct"
+   - "based on what I've seen"
+   - "LGTM" / "looks good" / "should work"
+
+6. **Final accounting line is mandatory.** End with:
+     Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | MISSING: d
+   If X != Y, explain why in one sentence.
+
+**How to use each VERIFY directive:**
+- Open the file with Read. Do NOT rely on memory or prior context.
+- Compare the actual code against the Expected: clause.
+- Check for the Not expected: clause (a specific common failure).
+- If multi-step, follow the Trace: chain step by step.
+- Emit one structured line per rule 2 above. Move to the next item.
+- Do not combine items. Do not describe verification in free-form paragraphs.
 
 If the spec has a Session Plan (Section 10), add this note after
 the "When to run" line in the audit header:
@@ -2259,6 +2415,12 @@ Do not leave it blank.
   🟡 IMPORTANT: ___
   🟢 POLISH: ___
 
+**REQUIRED FINAL LINE** (the verifier MUST emit this as the last line
+of its output — not optional, not a summary paragraph):
+  Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | MISSING: d
+If X != Y, the verifier explains the delta in one sentence on the
+following line.
+
 FORMAT RULES (non-negotiable):
 
 1. EVERY check starts with "VERIFY: Open {exact file path}"
@@ -2278,7 +2440,15 @@ FORMAT RULES (non-negotiable):
 12. Full User Journey: COMPLETE flow, not summary. Every step.
 13. Use actual file paths from the spec. Never invent paths.
 14. UI Polish: individually enumerated. One VERIFY per item.
-    NEVER write "all loading states are consistent."`;
+    NEVER write "all loading states are consistent."
+
+15. VERIFIER OUTPUT FORMAT (enforced at runtime — not optional):
+    Every VERIFY directive in the verifier's run output MUST be a
+    single structured line of this exact shape:
+      VERIFY-N — PASS|FAIL|SKIPPED — {file}:{lines} — \`{quoted code or reason}\`
+    Free-form paragraphs describing what was verified are forbidden.
+    One structured line per item. A PASS without a file:line citation
+    and quoted code is not a PASS — it's a contract violation.`;
 
 export const SPEC_READY_PATTERNS = [
   /i have enough to write the specification/i,

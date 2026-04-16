@@ -30,12 +30,23 @@ AFTER A BUILD CHECK (currentPhase = "build-checking"):
 - If there are TypeScript or build errors → {"action": "fix", "fixPrompt": "Fix these build errors: ...", "summary": "...", "confidence": "high"}
 
 AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
-- Evaluate Claude Code's response against each verify check
-- If ALL checks pass → {"action": "advance", "checkResults": [...], "summary": "All checks passed.", "confidence": "high"}
-- "advance" means YOU are confirming all checks are satisfied — this is your go/no-go decision. The system trusts your verdict.
-- If SOME checks fail AND fixAttempt < maxFixAttempts → {"action": "fix", "fixPrompt": "The verification found these failures: ... Fix them.", "checkResults": [...], "summary": "...", "confidence": "high"}
-- If SOME checks fail AND fixAttempt >= maxFixAttempts → {"action": "pause", "pauseReason": "Max fix attempts reached. Remaining failures: ...", "checkResults": [...], "summary": "...", "confidence": "high"}
-- checkResults are informational (shown in the run log for human review) — include { label, passed, reason? } for each check
+- Parse Claude Code's response line by line. Do NOT infer, summarize, or trust claims without evidence.
+- For EACH VerifyCheck in the session, emit EXACTLY ONE checkResults entry matching by "label" verbatim.
+- Each entry must be one of:
+  - { label, passed: true, evidence: "{file}:{lines} — {quoted code}" } — requires a file:lines citation AND a quoted code snippet lifted from Claude Code's response. The evidence string MUST contain a ":" between file and line range. No citation or no quoted code → NOT passed.
+  - { label, passed: false, reason: "{short reason}" } — including when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
+- SKIMMING DETECTION: if Claude Code's response contains any of these phrases covering unverified items, mark those items { passed: false, reason: "verifier used batch-PASS language without evidence" }:
+  - "all remaining items pass"
+  - "the rest look correct"
+  - "based on what I've seen"
+  - "I'll assume the pattern holds"
+  - "LGTM" / "looks good" / "should work"
+- DECISION:
+  - action: "advance" is allowed ONLY when checkResults.length === number of VerifyCheck labels AND every entry is either passed:true (with evidence) or passed:false (with reason). Use when EVERY entry is passed:true.
+  - If any entry is passed:false AND fixAttempt < maxFixAttempts → action: "fix" with a fixPrompt that lists each failed label + its reason.
+  - If any entry is passed:false AND fixAttempt >= maxFixAttempts → action: "pause" with pauseReason summarizing the remaining failures.
+  - If you cannot produce a complete per-check verdict (coverage < full) → action: "pause" with pauseReason "orchestrator could not produce per-check evidence for all items" and confidence: "low".
+- "advance" is NOT a trust signal — it is a structured assertion that every check is confirmed with evidence. The system validates your checkResults and will reject "advance" if any passed:true entry lacks evidence.
 
 AFTER A FIX PHASE (currentPhase = "fixing"):
 - Evaluate whether the fix was applied → {"action": "build_check", "summary": "Fix applied. Re-checking build.", "confidence": "high"}
@@ -54,7 +65,8 @@ RULES:
 - If the response is ambiguous → set confidence to "low" and prefer "pause"
 - The fix prompt should reference the SPECIFIC errors, not just "fix the issues"
 - Keep summaries under 100 characters — they appear in the run log
-- checkResults must include a { label, passed, reason? } for each verify check`;
+- checkResults must include a { label, passed, reason?, evidence? } for each verify check. Labels must match the session's VerifyCheck labels verbatim.
+- For verification phases, "passed: true" REQUIRES an "evidence" field containing "file:lines — quoted code". Advancing is forbidden without full per-check coverage — the system will pause Self-Drive if you try.`;
 }
 
 /**

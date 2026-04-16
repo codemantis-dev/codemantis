@@ -372,7 +372,7 @@ describe("callOrchestrator", () => {
     expect(call.maxTokens).toBe(1024);
   });
 
-  it("system prompt declares advance as go/no-go decision", async () => {
+  it("system prompt requires per-check evidence with file:lines citations for advance", async () => {
     const { sendAssistantChat } = await import("./tauri-commands");
 
     const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
@@ -382,9 +382,28 @@ describe("callOrchestrator", () => {
 
     const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
 
-    // System prompt should state that advance = orchestrator's go/no-go
-    expect(systemPrompt).toContain("go/no-go decision");
-    // And that checkResults are informational
-    expect(systemPrompt).toContain("informational");
+    // Evidence contract for the verifying phase.
+    expect(systemPrompt).toContain("{file}:{lines}");
+    expect(systemPrompt).toContain("quoted code");
+    // Advance requires full per-check coverage.
+    expect(systemPrompt).toContain("full per-check coverage");
+    // "advance" is no longer a plain trust signal.
+    expect(systemPrompt).toContain("NOT a trust signal");
+  });
+
+  it("system prompt instructs skim-language detection and forbidden phrases", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain("SKIMMING DETECTION");
+    expect(systemPrompt).toContain("all remaining items pass");
+    expect(systemPrompt).toContain("LGTM");
+    expect(systemPrompt).toContain("batch-PASS language without evidence");
   });
 });
