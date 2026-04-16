@@ -1,5 +1,23 @@
 # CodeMantis Releases
 
+## 1.0.9
+
+### Input Area
+- **Message history picker**: press ArrowUp in the input to open a dropdown of recent user prompts (deduplicated), with keyboard navigation and select-to-fill — quickly re-send or edit previous messages
+
+### Implementation Guide
+- **Per-session Verification Prompt**: parse `**Verification Prompt:**` fenced blocks from session plans, prefer them over generic verify prompts, and show a "Verify for me" button on guide session cards even without checklist items
+- **Unload Guide**: new action in the Guide panel to unload an active guide (blocked once started), freeing the panel for a different spec
+- **Replace Guide confirmation**: when loading a guide from a saved spec while another guide is already active, a confirmation modal prevents accidental overwrites
+- **Safety gates**: guide loading is blocked during in-progress sessions and Self-Drive runs
+
+### SpecWriter
+- Specs can now load a guide directly from the saved-specs list with replace confirmation
+- Stronger spec prompts: cross-session consistency rules, mandatory NOT-negative checks, optional verification-prompt template for complex sessions, and anti-fabrication / `[ASSUMPTION]` guidance
+
+### CLI Slash Commands
+- Add `bug`, `loop`, and `usage` to the CLI-only command list
+
 ## 1.0.8
 
 ### SpecWriter
