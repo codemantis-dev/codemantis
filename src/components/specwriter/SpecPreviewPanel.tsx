@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Pencil, Eye, ClipboardCheck, FileDown, BookOpen } from "lucide-react";
+import { showToast } from "../../stores/toastStore";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 
@@ -15,7 +16,6 @@ interface Props {
   onSpecEdit: (newContent: string) => void;
   onCloseSpec: () => void;
   onToggleEdit: () => void;
-  onCopySpec: () => void;
   onGenerateAudit: () => void;
   onOpenSaveAuditDialog: () => void;
   onOpenSaveSpecDialog: () => void;
@@ -36,7 +36,6 @@ export default function SpecPreviewPanel({
   onSpecEdit,
   onCloseSpec,
   onToggleEdit,
-  onCopySpec,
   onGenerateAudit,
   onOpenSaveAuditDialog,
   onOpenSaveSpecDialog,
@@ -46,6 +45,14 @@ export default function SpecPreviewPanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<'spec' | 'audit'>(currentAuditContent ? 'audit' : 'spec');
   const prevHadAuditRef = useRef(!!currentAuditContent);
+
+  const handleCopy = useCallback(() => {
+    const content = activeTab === 'audit' ? currentAuditContent : currentSpecContent;
+    if (content) {
+      navigator.clipboard.writeText(content);
+      showToast("Copied to clipboard", "success");
+    }
+  }, [activeTab, currentAuditContent, currentSpecContent]);
 
   // Auto-switch tab only on transitions: show audit when it first appears, revert when cleared
   useEffect(() => {
@@ -75,28 +82,30 @@ export default function SpecPreviewPanel({
       </div>
 
       {/* Action buttons — Edit + Copy left, Audit/Save right */}
-      {currentSpecContent && (
+      {(currentSpecContent || currentAuditContent) && (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2 shrink-0">
+            {activeTab === 'spec' && (
+              <button
+                onClick={onToggleEdit}
+                disabled={isStreaming}
+                title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors"
+                style={isEditing ? {
+                  background: "var(--accent)",
+                  color: "white",
+                } : {
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
+                {isEditing ? "Preview" : "Edit"}
+              </button>
+            )}
             <button
-              onClick={onToggleEdit}
-              disabled={isStreaming}
-              title={isEditing ? "Preview rendered markdown" : "Edit raw markdown"}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors"
-              style={isEditing ? {
-                background: "var(--accent)",
-                color: "white",
-              } : {
-                background: "var(--bg-elevated)",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
-              {isEditing ? "Preview" : "Edit"}
-            </button>
-            <button
-              onClick={onCopySpec}
+              onClick={handleCopy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui transition-colors hover:brightness-95"
               style={{
                 background: "var(--bg-elevated)",

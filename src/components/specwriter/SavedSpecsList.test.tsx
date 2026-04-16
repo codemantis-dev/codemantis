@@ -39,6 +39,7 @@ describe("SavedSpecsList", () => {
       savedSpecs: new Map(),
       uiState: new Map(),
       currentSpecContent: new Map(),
+      currentAuditContent: new Map(),
     });
   });
 
@@ -104,5 +105,67 @@ describe("SavedSpecsList", () => {
     await waitFor(() => {
       expect(mockListSpecDocuments).toHaveBeenCalledWith(PROJECT_PATH);
     });
+  });
+
+  it("loads audit file into auditContent when filename ends with .audit.md", async () => {
+    const auditSpec = makeSpec({ filename: "feature.audit.md", title: "Feature — Verification Audit" });
+    mockReadSpecDocument.mockResolvedValue("## Audit Content");
+    useSpecWriterStore.setState({
+      savedSpecs: new Map([[PROJECT_PATH, [auditSpec]]]),
+    });
+    render(<SavedSpecsList projectPath={PROJECT_PATH} onLoadSpec={onLoadSpec} />);
+    fireEvent.click(screen.getByText("Feature — Verification Audit"));
+
+    await waitFor(() => {
+      expect(mockReadSpecDocument).toHaveBeenCalledWith(PROJECT_PATH, "feature.audit.md");
+    });
+
+    const state = useSpecWriterStore.getState();
+    expect(state.currentAuditContent.get(PROJECT_PATH)).toBe("## Audit Content");
+    expect(state.currentSpecContent.has(PROJECT_PATH)).toBe(false);
+  });
+
+  it("loads spec file into specContent and clears auditContent", async () => {
+    const spec = makeSpec();
+    mockReadSpecDocument.mockResolvedValue("# Spec Content");
+    // Pre-set audit content to verify it gets cleared
+    useSpecWriterStore.setState({
+      savedSpecs: new Map([[PROJECT_PATH, [spec]]]),
+      currentAuditContent: new Map([[PROJECT_PATH, "## Old Audit"]]),
+    });
+    render(<SavedSpecsList projectPath={PROJECT_PATH} onLoadSpec={onLoadSpec} />);
+    fireEvent.click(screen.getByText("Feature Spec"));
+
+    await waitFor(() => {
+      expect(mockReadSpecDocument).toHaveBeenCalledWith(PROJECT_PATH, "feature.md");
+    });
+
+    const state = useSpecWriterStore.getState();
+    expect(state.currentSpecContent.get(PROJECT_PATH)).toBe("# Spec Content");
+    expect(state.currentAuditContent.has(PROJECT_PATH)).toBe(false);
+  });
+
+  it("clears both spec and audit content when deleting selected file", async () => {
+    const spec = makeSpec();
+    useSpecWriterStore.setState({
+      savedSpecs: new Map([[PROJECT_PATH, [spec]]]),
+      uiState: new Map([[PROJECT_PATH, { is_open: true, chat_width: 40, selected_saved_spec: "feature.md", current_spec_content: null }]]),
+      currentSpecContent: new Map([[PROJECT_PATH, "# Spec"]]),
+      currentAuditContent: new Map([[PROJECT_PATH, "## Audit"]]),
+    });
+    render(<SavedSpecsList projectPath={PROJECT_PATH} onLoadSpec={onLoadSpec} />);
+
+    // Click delete, then confirm
+    const deleteButtons = screen.getAllByTitle("Delete spec");
+    fireEvent.click(deleteButtons[0]);
+    fireEvent.click(screen.getByText("Confirm"));
+
+    await waitFor(() => {
+      expect(mockDeleteSpecDocument).toHaveBeenCalledWith(PROJECT_PATH, "feature.md");
+    });
+
+    const state = useSpecWriterStore.getState();
+    expect(state.currentSpecContent.has(PROJECT_PATH)).toBe(false);
+    expect(state.currentAuditContent.has(PROJECT_PATH)).toBe(false);
   });
 });

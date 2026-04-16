@@ -218,13 +218,6 @@ export default function SpecWriterSlideOver() {
     }
   }, [activeProjectPath, clearConversation, setCurrentSpecContent, setCurrentAuditContent]);
 
-  const handleCopySpec = useCallback(() => {
-    if (currentSpecContent) {
-      navigator.clipboard.writeText(currentSpecContent);
-      showToast("Spec copied to clipboard", "success");
-    }
-  }, [currentSpecContent]);
-
   const handleWriteSpec = useCallback(() => {
     if (activeProjectPath) writeSpec(activeProjectPath);
   }, [activeProjectPath, writeSpec]);
@@ -593,7 +586,6 @@ export default function SpecWriterSlideOver() {
             onSpecEdit={handleSpecEdit}
             onCloseSpec={handleCloseSpec}
             onToggleEdit={handleToggleEdit}
-            onCopySpec={handleCopySpec}
             onGenerateAudit={handleGenerateAudit}
             onOpenSaveAuditDialog={openSaveAuditDialog}
             onOpenSaveSpecDialog={openSaveSpecDialog}

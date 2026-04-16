@@ -21,6 +21,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
   });
   const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
   const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
+  const setCurrentAuditContent = useSpecWriterStore((s) => s.setCurrentAuditContent);
   const specsList = savedSpecs ?? EMPTY_SPECS;
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -42,11 +43,17 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
     try {
       const content = await readSpecDocument(projectPath, spec.filename);
       setSelectedSavedSpec(projectPath, spec.filename);
-      setCurrentSpecContent(projectPath, content);
+      if (spec.filename.endsWith('.audit.md')) {
+        setCurrentAuditContent(projectPath, content);
+        setCurrentSpecContent(projectPath, null);
+      } else {
+        setCurrentSpecContent(projectPath, content);
+        setCurrentAuditContent(projectPath, null);
+      }
     } catch (e) {
       showToast(`Failed to read spec: ${e}`, "error");
     }
-  }, [projectPath, setSelectedSavedSpec, setCurrentSpecContent]);
+  }, [projectPath, setSelectedSavedSpec, setCurrentSpecContent, setCurrentAuditContent]);
 
   const handleDelete = useCallback(async (filename: string) => {
     try {
@@ -55,13 +62,14 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
       if (selectedSpec === filename) {
         setSelectedSavedSpec(projectPath, null);
         setCurrentSpecContent(projectPath, null);
+        setCurrentAuditContent(projectPath, null);
       }
       loadSpecs();
     } catch (e) {
       showToast(`Failed to delete: ${e}`, "error");
     }
     setPendingDelete(null);
-  }, [projectPath, selectedSpec, setSelectedSavedSpec, setCurrentSpecContent, loadSpecs]);
+  }, [projectPath, selectedSpec, setSelectedSavedSpec, setCurrentSpecContent, setCurrentAuditContent, loadSpecs]);
 
   const handleLoadIntoConversation = useCallback(async (spec: SpecDocumentInfo) => {
     try {

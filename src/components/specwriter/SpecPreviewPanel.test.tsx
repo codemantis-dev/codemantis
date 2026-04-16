@@ -30,6 +30,11 @@ vi.mock("./SavedSpecsList", () => ({
   default: () => <div data-testid="saved-specs-list">Saved Specs</div>,
 }));
 
+const mockShowToast = vi.fn();
+vi.mock("../../stores/toastStore", () => ({
+  showToast: (...args: unknown[]) => mockShowToast(...args),
+}));
+
 describe("SpecPreviewPanel", () => {
   const defaultProps = {
     activeProjectPath: "/tmp/project",
@@ -43,7 +48,6 @@ describe("SpecPreviewPanel", () => {
     onSpecEdit: vi.fn(),
     onCloseSpec: vi.fn(),
     onToggleEdit: vi.fn(),
-    onCopySpec: vi.fn(),
     onGenerateAudit: vi.fn(),
     onOpenSaveAuditDialog: vi.fn(),
     onOpenSaveSpecDialog: vi.fn(),
@@ -74,17 +78,70 @@ describe("SpecPreviewPanel", () => {
     expect(screen.queryByText("Copy to Clipboard")).not.toBeInTheDocument();
   });
 
-  it("copy button calls onCopySpec", () => {
-    const onCopySpec = vi.fn();
+  it("copy button copies spec content on spec tab", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
     render(
       <SpecPreviewPanel
         {...defaultProps}
         currentSpecContent="# Spec"
-        onCopySpec={onCopySpec}
+        canSave
       />,
     );
     fireEvent.click(screen.getByText("Copy to Clipboard"));
-    expect(onCopySpec).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledWith("# Spec");
+    expect(mockShowToast).toHaveBeenCalledWith("Copied to clipboard", "success");
+  });
+
+  it("copy button copies audit content on audit tab", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentAuditContent="## Audit Report"
+        canSaveAudit
+      />,
+    );
+    fireEvent.click(screen.getByText("Copy to Clipboard"));
+    expect(writeText).toHaveBeenCalledWith("## Audit Report");
+  });
+
+  it("shows toolbar when only audit content exists (no spec content)", () => {
+    render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent={null}
+        currentAuditContent="## Audit Report"
+        canSaveAudit
+      />,
+    );
+    expect(screen.getByText("Copy to Clipboard")).toBeInTheDocument();
+    expect(screen.getByText("Save Audit")).toBeInTheDocument();
+    expect(screen.queryByText("Save Spec")).not.toBeInTheDocument();
+  });
+
+  it("hides edit button when active tab is audit", () => {
+    render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent={null}
+        currentAuditContent="## Audit Report"
+        canSaveAudit
+      />,
+    );
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+  });
+
+  it("shows edit button when active tab is spec", () => {
+    render(
+      <SpecPreviewPanel
+        {...defaultProps}
+        currentSpecContent="# Spec"
+        canSave
+      />,
+    );
+    expect(screen.getByText("Edit")).toBeInTheDocument();
   });
 
   it("auto-switches to audit tab when audit content first appears", () => {
