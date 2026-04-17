@@ -1,5 +1,35 @@
 # CodeMantis Releases
 
+## 1.1.0
+
+### Claude Code CLI Compatibility
+- **Permission modes**: full support for `auto`, `dontAsk`, and `bypassPermissions` modes (Claude Code 2.1.x) — Rust session variants, approval-server behavior, ModeSelector labels, and keyboard cycle
+- **Thinking blocks restored**: always pass `alwaysThinkingEnabled` and `showThinkingSummaries` in `--settings` to counteract CLI v2.1.90+ defaulting thinking summaries off
+- **ExitPlanMode plan path**: prefer `plan` and `planFilePath` from the CLI tool input over the Write observer; show plan preview text in the modal and open from in-memory content
+
+### Plan Mode UI
+- **Pending-plan banner** in the input area with Review / Implement / Dismiss actions — plan context persists after dismissing the modal so you can act on it later
+- Shared `implementPendingPlan` action extracted for reuse across modal and banner
+- **AskUserQuestion modal** now displays and submits the full question text instead of header-only labels
+
+### Self-Drive
+- **Evidence-based verification**: strict preamble requiring per-item `file:line` evidence, batch-of-10 progress accounting, and explicit PASS/FAIL/SKIPPED output
+- Anti-skimming guards: detect batch-pass language, require quoted file evidence for passed checks, and enforce full per-check coverage before advancing
+- Mandatory `**Verification Prompt:**` blocks per session in spec prompts
+
+### SpecWriter
+- Audit file integration: loading `*.audit.md` selects the audit preview and clears spec content (and vice versa); clearing paired files resets both previews
+- Tab-aware copy/edit: Copy uses the active tab content; Edit always targets the spec
+- Verify hardening requirements spec added to documentation
+
+### Model Updates
+- Align Claude Opus model ID to `claude-opus-4-7` across frontend, backend, pricing, and fixtures
+
+### Code Quality
+- Consolidate repeated time/duration formatting and click-outside behavior into shared helpers
+- Replace ignored Rust `emit`/`write` errors with explicit `warn`/`error` logging in assistant streaming, preview log writes, and legacy hook cleanup
+- Dependency overrides updated (dompurify, undici, flatted, picomatch, brace-expansion)
+
 ## 1.0.9
 
 ### Input Area
