@@ -1,6 +1,7 @@
-import { useState, useRef, useMemo, useEffect } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { useOpenRouterStore } from "../../stores/openRouterStore";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 interface Props {
   value: string;
@@ -17,7 +18,8 @@ export default function OpenRouterModelSelect({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
+  const handleCloseDropdown = useCallback(() => { setOpen(false); setSearch(""); }, []);
+  const containerRef = useClickOutside<HTMLDivElement>(open, handleCloseDropdown);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const models = useOpenRouterStore((s) => s.models);
@@ -45,19 +47,6 @@ export default function OpenRouterModelSelect({
 
   const freeCount = useMemo(() => filtered.filter((m) => m.isFree).length, [filtered]);
   const paidCount = useMemo(() => filtered.filter((m) => !m.isFree).length, [filtered]);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch("");
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
 
   // Focus search input when opened
   useEffect(() => {

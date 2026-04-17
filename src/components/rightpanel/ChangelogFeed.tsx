@@ -10,12 +10,13 @@ import { deleteChangelogEntry } from "../../lib/tauri-commands";
 import { CATEGORY_CONFIG } from "../../lib/changelog-utils";
 import { handleError } from "../../lib/error-handler";
 import { useIncrementalList } from "../../hooks/useIncrementalList";
+import { formatTime } from "../../lib/format-utils";
 
 function ChangelogCard({ entry, sessionId }: { entry: ChangelogEntry; sessionId: string }) {
   const removeEntry = useChangelogStore((s) => s.removeEntry);
   const config = CATEGORY_CONFIG[entry.category] ?? CATEGORY_CONFIG.feature;
   const Icon = config.icon;
-  const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = formatTime(entry.timestamp);
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 

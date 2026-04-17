@@ -3,17 +3,12 @@ import { RotateCcw, Copy, Check, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
-import { formatDuration } from "../../lib/format-utils";
+import { formatDuration, formatTime } from "../../lib/format-utils";
 import ActivityChip from "./ActivityChip";
 import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
 import { ExternalLink } from "../../lib/external-links";
 import TurnStatsPopover from "./TurnStatsPopover";
-
-function formatMessageTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 interface MessageBubbleProps {
   message: Message;
@@ -35,7 +30,7 @@ export default React.memo(function MessageBubble({
     ? streamingContent ?? ""
     : message.content;
 
-  const timeStr = formatMessageTime(message.timestamp);
+  const timeStr = formatTime(message.timestamp);
   const durationMs = message.turnStats?.durationMs;
 
   const [copied, setCopied] = useState(false);

@@ -71,8 +71,8 @@ function HistoryCard({
           {/* Show search snippets when searching, otherwise show headlines */}
           {searchSnippets && searchSnippets.length > 0 ? (
             <ul className="mt-1 space-y-0.5">
-              {searchSnippets.map((snippet, i) => (
-                <li key={i} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
+              {searchSnippets.map((snippet) => (
+                <li key={snippet} className="text-label text-text-dim leading-snug flex items-start gap-1.5">
                   <span className="text-accent mt-[3px] shrink-0">&#x2022;</span>
                   <span className="truncate">{snippet}</span>
                 </li>

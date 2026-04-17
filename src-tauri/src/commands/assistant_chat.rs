@@ -251,7 +251,9 @@ pub async fn send_assistant_chat(
     }
 
     if let Err(e) = result {
-        let _ = app_handle.emit(&event_name, StreamEvent::Error { message: e.clone() });
+        if let Err(emit_err) = app_handle.emit(&event_name, StreamEvent::Error { message: e.clone() }) {
+            log::error!("[assistant_chat] Failed to emit error event: {}", emit_err);
+        }
         return Err(e);
     }
 
@@ -356,17 +358,21 @@ async fn stream_openai(
                 }
             }
             _ = cancel_rx.changed() => {
-                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                if let Err(e) = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() }) {
+                    log::warn!("[assistant_chat] Failed to emit cancelled event: {}", e);
+                }
                 return Ok((input_tokens, output_tokens));
             }
         }
     }
 
-    let _ = app.emit(event_name, StreamEvent::Done {
+    if let Err(e) = app.emit(event_name, StreamEvent::Done {
         content: full_text,
         input_tokens,
         output_tokens,
-    });
+    }) {
+        log::warn!("[assistant_chat] Failed to emit done event: {}", e);
+    }
 
     Ok((input_tokens, output_tokens))
 }
@@ -471,17 +477,21 @@ async fn stream_gemini(
                 }
             }
             _ = cancel_rx.changed() => {
-                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                if let Err(e) = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() }) {
+                    log::warn!("[assistant_chat] Failed to emit cancelled event: {}", e);
+                }
                 return Ok((input_tokens, output_tokens));
             }
         }
     }
 
-    let _ = app.emit(event_name, StreamEvent::Done {
+    if let Err(e) = app.emit(event_name, StreamEvent::Done {
         content: full_text,
         input_tokens,
         output_tokens,
-    });
+    }) {
+        log::warn!("[assistant_chat] Failed to emit done event: {}", e);
+    }
 
     Ok((input_tokens, output_tokens))
 }
@@ -595,17 +605,21 @@ async fn stream_anthropic(
                 }
             }
             _ = cancel_rx.changed() => {
-                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                if let Err(e) = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() }) {
+                    log::warn!("[assistant_chat] Failed to emit cancelled event: {}", e);
+                }
                 return Ok((input_tokens, output_tokens));
             }
         }
     }
 
-    let _ = app.emit(event_name, StreamEvent::Done {
+    if let Err(e) = app.emit(event_name, StreamEvent::Done {
         content: full_text,
         input_tokens,
         output_tokens,
-    });
+    }) {
+        log::warn!("[assistant_chat] Failed to emit done event: {}", e);
+    }
 
     Ok((input_tokens, output_tokens))
 }
@@ -706,17 +720,21 @@ async fn stream_openrouter(
                 }
             }
             _ = cancel_rx.changed() => {
-                let _ = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() });
+                if let Err(e) = app.emit(event_name, StreamEvent::Cancelled { content: full_text.clone() }) {
+                    log::warn!("[assistant_chat] Failed to emit cancelled event: {}", e);
+                }
                 return Ok((input_tokens, output_tokens));
             }
         }
     }
 
-    let _ = app.emit(event_name, StreamEvent::Done {
+    if let Err(e) = app.emit(event_name, StreamEvent::Done {
         content: full_text,
         input_tokens,
         output_tokens,
-    });
+    }) {
+        log::warn!("[assistant_chat] Failed to emit done event: {}", e);
+    }
 
     Ok((input_tokens, output_tokens))
 }

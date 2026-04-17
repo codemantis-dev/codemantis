@@ -54,7 +54,10 @@ export default function App() {
           useUiStore.getState().setClaudeBinaryPath(status.binary_path);
         }
       })
-      .catch((e) => console.error("Status check failed:", e))
+      .catch((e) => {
+        console.error("Status check failed:", e);
+        showToast("Failed to check Claude CLI status", "error");
+      })
       .finally(() => setChecking(false));
     loadSettings();
   }, [loadSettings]);
@@ -69,6 +72,7 @@ export default function App() {
       }
     } catch (e) {
       console.error("Recheck failed:", e);
+      showToast("Failed to recheck Claude CLI", "error");
     } finally {
       setRechecking(false);
     }

@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, ChevronRight, ChevronDown } from "lucide-react";
 import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { formatDuration } from "../../lib/format-utils";
 import type { RunLogEntry } from "../../types/implementation-guide";
 
 interface Props {
@@ -33,14 +34,6 @@ const PHASE_ICONS: Record<string, string> = {
 function formatTimestamp(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSec / 60);
-  const seconds = totalSec % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}m ${seconds}s`;
 }
 
 export default function RunLogViewer({ onClose }: Props) {
@@ -93,8 +86,8 @@ export default function RunLogViewer({ onClose }: Props) {
               No log entries yet
             </p>
           ) : (
-            runLog.map((entry, i) => (
-              <LogLine key={i} entry={entry} />
+            runLog.map((entry) => (
+              <LogLine key={`${entry.sessionIndex}-${entry.timestamp}`} entry={entry} />
             ))
           )}
         </div>
@@ -109,7 +102,7 @@ export default function RunLogViewer({ onClose }: Props) {
               <span className="opacity-40">|</span>
               <span>Pauses: {pauseCount}</span>
               <span className="opacity-40">|</span>
-              <span>Time: {formatDuration(totalTime)}</span>
+              <span>Time: {formatDuration(totalTime, "human")}</span>
               <span className="opacity-40">|</span>
               <span>Orchestrator: {orchestratorCalls} calls</span>
             </div>

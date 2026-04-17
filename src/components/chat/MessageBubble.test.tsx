@@ -30,6 +30,7 @@ vi.mock("remark-gfm", () => ({ default: () => {} }));
 
 vi.mock("../../lib/format-utils", () => ({
   formatDuration: (ms: number) => `${ms}ms`,
+  formatTime: (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 }));
 
 function makeMessage(overrides: Partial<Message> = {}): Message {

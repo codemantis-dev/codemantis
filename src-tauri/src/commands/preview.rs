@@ -76,7 +76,10 @@ fn write_console_log_file(entries: &[ConsoleLogEntry]) {
     let mut writer = std::io::BufWriter::new(file);
     for entry in to_write {
         if let Ok(json) = serde_json::to_string(entry) {
-            let _ = writeln!(writer, "{}", json);
+            if let Err(e) = writeln!(writer, "{}", json) {
+                log::warn!("[preview] Failed to write console log entry: {}", e);
+                break;
+            }
         }
     }
 }

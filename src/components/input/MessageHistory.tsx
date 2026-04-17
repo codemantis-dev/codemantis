@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 export interface MessageHistoryHandle {
   handleKeyDown: (key: string) => boolean;
@@ -13,7 +14,7 @@ interface MessageHistoryProps {
 const MessageHistory = forwardRef<MessageHistoryHandle, MessageHistoryProps>(
   function MessageHistory({ items, onSelect, onClose }, ref) {
     const [selectedIndex, setSelectedIndex] = useState(items.length - 1);
-    const listRef = useRef<HTMLDivElement>(null);
+    const listRef = useClickOutside<HTMLDivElement>(true, onClose);
     const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
     // Scroll selected item into view
@@ -30,7 +31,7 @@ const MessageHistory = forwardRef<MessageHistoryHandle, MessageHistoryProps>(
       if (container) {
         container.scrollTop = container.scrollHeight;
       }
-    }, []);
+    }, [listRef]);
 
     const selectCurrent = useCallback(() => {
       const text = items[selectedIndex];
@@ -65,17 +66,6 @@ const MessageHistory = forwardRef<MessageHistoryHandle, MessageHistoryProps>(
       [items.length, selectCurrent, onClose]
     );
 
-    // Close on click outside
-    useEffect(() => {
-      const handleClickOutside = (e: MouseEvent) => {
-        if (listRef.current && !listRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      };
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [onClose]);
-
     return (
       <div
         ref={listRef}
@@ -91,7 +81,7 @@ const MessageHistory = forwardRef<MessageHistoryHandle, MessageHistoryProps>(
             const isSelected = i === selectedIndex;
             return (
               <button
-                key={i}
+                key={`${i}-${text.slice(0, 30)}`}
                 ref={(el) => {
                   if (el) itemRefs.current.set(i, el);
                   else itemRefs.current.delete(i);

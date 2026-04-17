@@ -254,7 +254,9 @@ fn cleanup_legacy_hook_config(project_path: &str) {
         }
 
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            let _ = std::fs::write(&settings_path, json);
+            if let Err(e) = std::fs::write(&settings_path, json) {
+                log::warn!("Failed to clean up legacy hook in {}: {}", settings_path.display(), e);
+            }
             info!(
                 "Cleaned up legacy CodeMantis hook from {}",
                 settings_path.display()

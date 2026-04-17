@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, Map } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SessionActivityInfo } from "../../stores/sessionStore";
@@ -70,10 +70,16 @@ export default function SessionStatusBar({ sessionId }: SessionStatusBarProps) {
     statusColor = "text-text-ghost";
   }
 
-  const activeAgents = subAgents?.filter((a: SubAgentInfo) => a.status === "running" || a.status === "preparing") ?? [];
+  const activeAgents = useMemo(
+    () => subAgents?.filter((a: SubAgentInfo) => a.status === "running" || a.status === "preparing") ?? [],
+    [subAgents],
+  );
   const subAgentCount = activeAgents.length;
   const activityDetail = isBusy ? formatActivityDetail(activity, subAgentCount) : null;
-  const agentTokens = activeAgents.reduce((sum: number, a: SubAgentInfo) => sum + (a.tokenCount ?? 0), 0);
+  const agentTokens = useMemo(
+    () => activeAgents.reduce((sum: number, a: SubAgentInfo) => sum + (a.tokenCount ?? 0), 0),
+    [activeAgents],
+  );
 
   const totalTokens = stats
     ? stats.totalInputTokens + stats.totalOutputTokens

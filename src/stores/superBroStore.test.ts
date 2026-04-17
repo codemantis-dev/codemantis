@@ -341,7 +341,7 @@ describe("superBroStore", () => {
   });
 
   it("loadObservations handles errors gracefully", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(loadObservations).mockRejectedValueOnce(new Error("DB error"));
 
     await useSuperBroStore.getState().loadObservations(PROJECT);
@@ -349,7 +349,7 @@ describe("superBroStore", () => {
     // Should not crash, observations should remain empty
     expect(useSuperBroStore.getState().projectObservations.get(PROJECT)).toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith(
-      "Failed to load observations:",
+      "[super-bro] Failed to load observations:",
       expect.any(Error),
     );
     consoleSpy.mockRestore();

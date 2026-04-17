@@ -22,6 +22,7 @@ import { showToast } from "./toastStore";
 import { sendMessage, syncSessionMode } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
+import { formatDuration } from "../lib/format-utils";
 import {
   extractToolsFromTurn,
   truncateResponse,
@@ -706,7 +707,7 @@ async function startNextSession(): Promise<void> {
     useSelfDriveStore.setState({ status: "completed", currentPhase: null });
 
     const totalTime = Date.now() - (useSelfDriveStore.getState().startedAt ?? Date.now());
-    const timeStr = formatDuration(totalTime);
+    const timeStr = formatDuration(totalTime, "human");
 
     addLogEntry(0, "completed", `All ${guide.sessions.length} sessions done! (${timeStr})`);
     await restoreSessionMode();
@@ -848,14 +849,6 @@ function injectDecisionMessage(
       phase,
     },
   });
-}
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSec / 60);
-  const seconds = totalSec % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}m ${seconds}s`;
 }
 
 // ── Selectors ───────────────────────────────────────────────────────

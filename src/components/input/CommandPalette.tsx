@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardR
 import type { SlashCommand } from "../../types/slash-commands";
 import { useSessionStore } from "../../stores/sessionStore";
 import { discoverCommands } from "../../lib/tauri-commands";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 export interface CommandPaletteHandle {
   handleKeyDown: (key: string) => boolean;
@@ -24,7 +25,7 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
     const [commands, setCommands] = useState<SlashCommand[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [loading, setLoading] = useState(true);
-    const listRef = useRef<HTMLDivElement>(null);
+    const listRef = useClickOutside<HTMLDivElement>(true, onClose);
     const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
     const session = useSessionStore((s) => {
@@ -124,17 +125,6 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
       }),
       [filtered, selectedIndex, selectCurrent, onClose, onSelect]
     );
-
-    // Close on click outside
-    useEffect(() => {
-      const handleClickOutside = (e: MouseEvent) => {
-        if (listRef.current && !listRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      };
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [onClose]);
 
     if (loading) {
       return (

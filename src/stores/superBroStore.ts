@@ -173,7 +173,7 @@ export const useSuperBroStore = create<SuperBroStoreState>((set, get) => ({
         return { projectObservations: obs };
       });
     } catch (e) {
-      console.error("Failed to load observations:", e);
+      console.warn("[super-bro] Failed to load observations:", e);
     }
   },
 

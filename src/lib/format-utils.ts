@@ -88,6 +88,11 @@ export function formatSecondsElapsed(seconds: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
+/** Format a timestamp to HH:MM (e.g. "14:05"). */
+export function formatTime(ts: string): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 /** Format a timestamp string to a short human-readable date/time. */
 export function formatTimestamp(ts: string): string {
   try {

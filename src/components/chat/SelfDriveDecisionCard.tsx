@@ -14,6 +14,7 @@ import {
   GitCommit,
   type LucideIcon,
 } from "lucide-react";
+import { formatTime } from "../../lib/format-utils";
 
 interface SelfDriveEventData {
   action: string;
@@ -102,11 +103,6 @@ const DEFAULT_STYLE: ActionStyle = {
   text: "var(--accent)",
   label: "Self-Drive",
 };
-
-function formatTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 export default function SelfDriveDecisionCard({ event, timestamp }: Props) {
   const style = ACTION_STYLES[event.action] ?? DEFAULT_STYLE;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTriviaRotation } from "../../hooks/useTriviaRotation";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -54,11 +54,12 @@ function SubAgentPanel({ agents }: { agents: SubAgentInfo[] }) {
     setExpanded(fewAgents);
   }, [fewAgents]);
 
+  const totalTokens = useMemo(() => agents.reduce((sum, a) => sum + (a.tokenCount ?? 0), 0), [agents]);
+
   if (agents.length === 0) return null;
 
   // Check if any agent has live progress data
   const hasActivity = agents.some((a) => a.currentActivity);
-  const totalTokens = agents.reduce((sum, a) => sum + (a.tokenCount ?? 0), 0);
 
   return (
     <div
@@ -107,7 +108,8 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
   const activity = useSessionStore((s) => s.sessionActivity.get(sessionId));
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
   const busySince = useSessionStore((s) => s.busySince.get(sessionId));
-  const subAgents = useSessionStore((s) => s.activeSubAgents.get(sessionId)) ?? [];
+  const rawSubAgents = useSessionStore((s) => s.activeSubAgents.get(sessionId));
+  const subAgents = useMemo(() => rawSubAgents ?? [], [rawSubAgents]);
 
   const [showTrivia, setShowTrivia] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -144,7 +146,10 @@ export default function ThinkingIndicator({ sessionId }: ThinkingIndicatorProps)
     ? ` (${Math.round(activityInfo.toolElapsed)}s)`
     : "";
 
-  const runningAgents = subAgents.filter((a) => a.status === "running" || a.status === "preparing");
+  const runningAgents = useMemo(
+    () => subAgents.filter((a) => a.status === "running" || a.status === "preparing"),
+    [subAgents],
+  );
 
   return (
     <div className="flex flex-col items-start gap-3">
