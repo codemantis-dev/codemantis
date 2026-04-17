@@ -4,9 +4,7 @@ import { ClipboardCheck, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
-import { sendMessage, setSessionMode } from "../../lib/tauri-commands";
-import { showToast } from "../../stores/toastStore";
-import { handleError } from "../../lib/error-handler";
+import { implementPendingPlan } from "../../lib/plan-actions";
 
 export default function PlanCompleteModal() {
   const showModal = useUiStore((s) => s.showPlanCompleteModal);
@@ -40,47 +38,11 @@ export default function PlanCompleteModal() {
 
   const handleImplement = useCallback(async () => {
     if (!sessionId) return;
-
-    const store = useSessionStore.getState();
-    const isBusy = store.sessionBusy.get(sessionId) ?? false;
-    if (isBusy) {
-      showToast("Session is busy — wait for the current operation to finish", "info");
-      return;
-    }
-
-    // Switch to auto-accept mode if toggled
-    if (autoAccept) {
-      store.setSessionMode(sessionId, "auto-accept");
-      try {
-        await setSessionMode(sessionId, "auto-accept");
-      } catch (e) {
-        handleError("Failed to set auto-accept mode", e);
-      }
-    }
-
-    // Add user message to store
-    const msgId = `msg-plan-impl-${Date.now()}`;
-    const prompt = "Go ahead, implement the plan.";
-    store.addMessage(sessionId, {
-      id: msgId,
-      role: "user",
-      content: prompt,
-      timestamp: new Date().toISOString(),
-      activityIds: [],
-      isStreaming: false,
-    });
-    store.setSessionBusy(sessionId, true);
-
-    // Send via IPC
-    try {
-      await sendMessage(sessionId, prompt);
-    } catch (e) {
-      store.setSessionBusy(sessionId, false);
-      handleError("Failed to send implementation message", e);
-    }
-
-    setShowModal(false);
-  }, [sessionId, autoAccept, setShowModal]);
+    // Shared helper — used by both this modal's "Implement Now" button and
+    // the InputArea banner's "Implement" button. Clears pending state and
+    // closes the modal on completion.
+    await implementPendingPlan(sessionId, autoAccept);
+  }, [sessionId, autoAccept]);
 
   // Keyboard shortcut: Enter to implement
   useEffect(() => {

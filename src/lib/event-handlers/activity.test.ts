@@ -87,6 +87,7 @@ function resetStores(): void {
     planCompleteSessionId: null,
     planCompleteFilePath: null,
     planCompleteContent: null,
+    pendingPlanSessionId: null,
     fileTreeRefreshTrigger: 0,
     rightTab: "activity",
   });
@@ -254,10 +255,12 @@ describe("activity event handler", () => {
       // Session mode should be set to normal
       expect(useSessionStore.getState().sessionModes.get(SESSION_ID)).toBe("normal");
 
-      // PlanCompleteModal should be shown
+      // PlanCompleteModal should be shown AND pending state set so the
+      // banner can reopen the modal after a Later/Reveal dismiss.
       const uiState = useUiStore.getState();
       expect(uiState.showPlanCompleteModal).toBe(true);
       expect(uiState.planCompleteSessionId).toBe(SESSION_ID);
+      expect(uiState.pendingPlanSessionId).toBe(SESSION_ID);
 
       // syncSessionMode should have been called via dynamic import
       const { syncSessionMode } = await import("../tauri-commands");

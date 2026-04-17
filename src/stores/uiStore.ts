@@ -42,6 +42,12 @@ interface UiState {
   planCompleteSessionId: string | null;
   planCompleteFilePath: string | null;
   planCompleteContent: string | null;
+  /**
+   * Persists across modal-close events so the user can reopen the Plan
+   * Approval modal via the InputArea banner after dismissing it.
+   * Cleared only by `clearPendingPlan` (implement / explicit dismiss).
+   */
+  pendingPlanSessionId: string | null;
   activityFeedScope: ActivityFeedScope;
   showReasoningPanel: boolean;
   imagePreview: ImagePreview | null;
@@ -85,6 +91,9 @@ interface UiState {
   setPlanCompleteSessionId: (id: string | null) => void;
   setPlanCompleteFilePath: (path: string | null) => void;
   setPlanCompleteContent: (content: string | null) => void;
+  setPendingPlanSessionId: (id: string | null) => void;
+  /** Closes the modal AND clears all pending plan state. */
+  clearPendingPlan: () => void;
   toggleActivityFeedScope: () => void;
   toggleReasoningPanel: () => void;
   setImagePreview: (preview: ImagePreview | null) => void;
@@ -128,6 +137,7 @@ export const useUiStore = create<UiState>((set) => ({
   planCompleteSessionId: null,
   planCompleteFilePath: null,
   planCompleteContent: null,
+  pendingPlanSessionId: null,
   activityFeedScope: "session",
   showReasoningPanel: false,
   imagePreview: null,
@@ -191,10 +201,22 @@ export const useUiStore = create<UiState>((set) => ({
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),
   openSettingsToTab: (tab) => set({ showSettingsModal: true, initialSettingsTab: tab }),
-  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show, ...(!show ? { planCompleteSessionId: null, planCompleteFilePath: null, planCompleteContent: null } : {}) }),
+  // Toggle visibility only — pending state (sessionId/filePath/content) is
+  // preserved so the InputArea banner can reopen the modal with the same
+  // plan. Use `clearPendingPlan` to discard the plan entirely.
+  setShowPlanCompleteModal: (show) => set({ showPlanCompleteModal: show }),
   setPlanCompleteSessionId: (id) => set({ planCompleteSessionId: id }),
   setPlanCompleteFilePath: (path) => set({ planCompleteFilePath: path }),
   setPlanCompleteContent: (content) => set({ planCompleteContent: content }),
+  setPendingPlanSessionId: (id) => set({ pendingPlanSessionId: id }),
+  clearPendingPlan: () =>
+    set({
+      showPlanCompleteModal: false,
+      planCompleteSessionId: null,
+      planCompleteFilePath: null,
+      planCompleteContent: null,
+      pendingPlanSessionId: null,
+    }),
   toggleActivityFeedScope: () => set((s) => ({ activityFeedScope: s.activityFeedScope === "session" ? "project" : "session" })),
   toggleReasoningPanel: () => set((s) => ({ showReasoningPanel: !s.showReasoningPanel })),
   setImagePreview: (preview) => set((s) => {

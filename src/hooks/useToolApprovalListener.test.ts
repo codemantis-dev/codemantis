@@ -113,6 +113,7 @@ describe("useToolApprovalListener", () => {
         questions: [
           {
             header: "Pick a framework",
+            question: "Which frontend framework should we use?",
             multiSelect: false,
             options: [
               { label: "React", value: "react", description: "UI library" },
@@ -127,8 +128,32 @@ describe("useToolApprovalListener", () => {
     const pq = useActivityStore.getState().sessionQuestions.get("s1");
     expect(pq!.questions).toHaveLength(1);
     expect(pq!.questions![0].header).toBe("Pick a framework");
+    expect(pq!.questions![0].question).toBe("Which frontend framework should we use?");
     expect(pq!.questions![0].options).toHaveLength(2);
     expect(pq!.questions![0].options[0].value).toBe("react");
+  });
+
+  it("AskUserQuestion defaults question to empty string when missing", async () => {
+    renderHook(() => useToolApprovalListener());
+    await vi.waitFor(() => expect(toolApprovalCallback).not.toBeNull());
+
+    toolApprovalCallback!({
+      requestId: "req-3b",
+      toolName: "AskUserQuestion",
+      toolInput: {
+        questions: [
+          {
+            header: "Legacy",
+            multiSelect: false,
+            options: [{ label: "A", value: "a", description: "" }],
+          },
+        ],
+      },
+      forgeSessionId: "s1",
+    });
+
+    const pq = useActivityStore.getState().sessionQuestions.get("s1");
+    expect(pq!.questions![0].question).toBe("");
   });
 
   it("always-allowed tool auto-approves and calls resolveToolApproval", async () => {

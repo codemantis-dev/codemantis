@@ -18,6 +18,7 @@ export interface QuestionOption {
 
 export interface QuestionItem {
   header: string;
+  question: string;
   multiSelect: boolean;
   options: QuestionOption[];
 }

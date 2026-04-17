@@ -30,6 +30,7 @@ function parseAskUserQuestion(
   if (Array.isArray(toolInput.questions)) {
     pq.questions = (toolInput.questions as Record<string, unknown>[]).map((q) => ({
       header: typeof q.header === "string" ? q.header : "",
+      question: typeof q.question === "string" ? q.question : "",
       multiSelect: q.multiSelect === true,
       options: Array.isArray(q.options)
         ? (q.options as unknown[]).map((o) => {

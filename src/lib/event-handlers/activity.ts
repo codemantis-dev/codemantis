@@ -88,6 +88,9 @@ function handleToolUseStart(
     if (event.tool_name === "ExitPlanMode" && sessionId === sessionStore.activeSessionId) {
       const uiState = useUiStore.getState();
       uiState.setPlanCompleteSessionId(sessionId);
+      // Mark the session as having a pending plan. Persists across modal
+      // close so the InputArea banner can offer a reopen affordance.
+      uiState.setPendingPlanSessionId(sessionId);
 
       // Claude Code 2.1.x emits `planFilePath` and `plan` directly in the
       // ExitPlanMode tool input. Prefer these over the Write-path observer

@@ -199,15 +199,22 @@ describe("uiStore", () => {
       expect(useUiStore.getState().planCompleteFilePath).toBe("/path/to/plan.md");
     });
 
-    it("clears planCompleteFilePath when modal is closed", () => {
+    it("preserves planCompleteFilePath when modal is closed (banner-reopen support)", () => {
       useUiStore.setState({
         showPlanCompleteModal: true,
         planCompleteSessionId: "s1",
         planCompleteFilePath: "/path/to/plan.md",
+        planCompleteContent: "plan body",
+        pendingPlanSessionId: "s1",
       });
       useUiStore.getState().setShowPlanCompleteModal(false);
-      expect(useUiStore.getState().planCompleteFilePath).toBeNull();
-      expect(useUiStore.getState().planCompleteSessionId).toBeNull();
+      // Plan state must survive modal close so the InputArea banner can
+      // reopen the modal with the same data.
+      expect(useUiStore.getState().showPlanCompleteModal).toBe(false);
+      expect(useUiStore.getState().planCompleteFilePath).toBe("/path/to/plan.md");
+      expect(useUiStore.getState().planCompleteSessionId).toBe("s1");
+      expect(useUiStore.getState().planCompleteContent).toBe("plan body");
+      expect(useUiStore.getState().pendingPlanSessionId).toBe("s1");
     });
 
     it("preserves planCompleteFilePath when modal is opened", () => {
@@ -216,6 +223,45 @@ describe("uiStore", () => {
       });
       useUiStore.getState().setShowPlanCompleteModal(true);
       expect(useUiStore.getState().planCompleteFilePath).toBe("/path/to/plan.md");
+    });
+  });
+
+  describe("pendingPlanSessionId", () => {
+    it("sets and gets pendingPlanSessionId", () => {
+      useUiStore.getState().setPendingPlanSessionId("s1");
+      expect(useUiStore.getState().pendingPlanSessionId).toBe("s1");
+    });
+
+    it("setPendingPlanSessionId(null) clears the field", () => {
+      useUiStore.setState({ pendingPlanSessionId: "s1" });
+      useUiStore.getState().setPendingPlanSessionId(null);
+      expect(useUiStore.getState().pendingPlanSessionId).toBeNull();
+    });
+  });
+
+  describe("clearPendingPlan", () => {
+    it("clears every pending-plan field AND closes the modal", () => {
+      useUiStore.setState({
+        showPlanCompleteModal: true,
+        planCompleteSessionId: "s1",
+        planCompleteFilePath: "/plan.md",
+        planCompleteContent: "body",
+        pendingPlanSessionId: "s1",
+      });
+      useUiStore.getState().clearPendingPlan();
+      const s = useUiStore.getState();
+      expect(s.showPlanCompleteModal).toBe(false);
+      expect(s.planCompleteSessionId).toBeNull();
+      expect(s.planCompleteFilePath).toBeNull();
+      expect(s.planCompleteContent).toBeNull();
+      expect(s.pendingPlanSessionId).toBeNull();
+    });
+
+    it("is a no-op when nothing is pending", () => {
+      useUiStore.getState().clearPendingPlan();
+      const s = useUiStore.getState();
+      expect(s.showPlanCompleteModal).toBe(false);
+      expect(s.pendingPlanSessionId).toBeNull();
     });
   });
 });

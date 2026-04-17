@@ -79,7 +79,8 @@ describe("QuestionModal", () => {
           requestId: "r1",
           sessionId: "s1",
           questions: [{
-            header: "Select a framework",
+            header: "Framework",
+            question: "Which framework should we use for the new project?",
             multiSelect: false,
             options: [
               { label: "React", value: "react", description: "A JS library" },
@@ -91,7 +92,10 @@ describe("QuestionModal", () => {
     });
     useUiStore.setState({ showQuestionModal: true });
     render(<QuestionModal />);
-    expect(screen.getByText("Select a framework")).toBeInTheDocument();
+    expect(screen.getByText("Framework")).toBeInTheDocument();
+    expect(
+      screen.getByText("Which framework should we use for the new project?"),
+    ).toBeInTheDocument();
     expect(screen.getByText("React")).toBeInTheDocument();
     expect(screen.getByText("Vue")).toBeInTheDocument();
   });
@@ -123,6 +127,7 @@ describe("QuestionModal", () => {
           sessionId: "s1",
           questions: [{
             header: "Pick one",
+            question: "Which one do you prefer?",
             multiSelect: false,
             options: [
               { label: "Option A", value: "a", description: "" },
@@ -134,5 +139,39 @@ describe("QuestionModal", () => {
     useUiStore.setState({ showQuestionModal: true });
     render(<QuestionModal />);
     expect(screen.getByText("Write your own response...")).toBeInTheDocument();
+  });
+
+  it("sends full question text (not just header) with the answer to Claude", async () => {
+    const { resolveToolApproval } = await import("../../lib/tauri-commands");
+    const resolveMock = vi.mocked(resolveToolApproval);
+
+    useActivityStore.setState({
+      sessionQuestions: new Map([
+        ["s1", {
+          toolUseId: "tu1",
+          requestId: "req-xyz",
+          sessionId: "s1",
+          questions: [{
+            header: "Validation",
+            question: "How should we handle invalid roadmaps?",
+            multiSelect: false,
+            options: [
+              { label: "Report only", value: "report", description: "Just log" },
+              { label: "Block", value: "block", description: "Block and ask" },
+            ],
+          }],
+        }],
+      ]),
+    });
+    useUiStore.setState({ showQuestionModal: true });
+    render(<QuestionModal />);
+
+    // Single-select submits immediately on click
+    screen.getByText("Report only").click();
+
+    await vi.waitFor(() => expect(resolveMock).toHaveBeenCalled());
+    const [, , payload] = resolveMock.mock.calls[0];
+    expect(payload).toContain("How should we handle invalid roadmaps?");
+    expect(payload).toContain("report");
   });
 });

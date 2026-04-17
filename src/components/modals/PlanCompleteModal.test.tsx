@@ -26,11 +26,21 @@ vi.mock("@radix-ui/react-dialog", () => ({
 }));
 
 describe("PlanCompleteModal", () => {
+  // Capture the real store actions on first access so tests that replace
+  // them with mocks don't leak into later tests.
+  const realSetShowPlanCompleteModal = useUiStore.getState().setShowPlanCompleteModal;
+  const realSetRightTab = useUiStore.getState().setRightTab;
+
   beforeEach(() => {
     vi.clearAllMocks();
     useUiStore.setState({
       showPlanCompleteModal: false,
       planCompleteSessionId: null,
+      planCompleteFilePath: null,
+      planCompleteContent: null,
+      pendingPlanSessionId: null,
+      setShowPlanCompleteModal: realSetShowPlanCompleteModal,
+      setRightTab: realSetRightTab,
     });
     useSessionStore.setState({
       sessionBusy: new Map(),
@@ -139,5 +149,59 @@ describe("PlanCompleteModal", () => {
     });
     render(<PlanCompleteModal />);
     expect(screen.queryByText("Plan file")).not.toBeInTheDocument();
+  });
+
+  it("Later preserves pending plan state so the banner can reopen the modal", () => {
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+      planCompleteFilePath: "/plans/p.md",
+      planCompleteContent: "## body",
+      pendingPlanSessionId: "s1",
+    });
+    render(<PlanCompleteModal />);
+    fireEvent.click(screen.getByText("Later"));
+
+    const s = useUiStore.getState();
+    expect(s.showPlanCompleteModal).toBe(false);
+    // Pending state must survive so the InputArea banner shows.
+    expect(s.planCompleteSessionId).toBe("s1");
+    expect(s.planCompleteFilePath).toBe("/plans/p.md");
+    expect(s.planCompleteContent).toBe("## body");
+    expect(s.pendingPlanSessionId).toBe("s1");
+  });
+
+  it("Reveal in File Viewer preserves pending plan state", async () => {
+    const setActiveFile = vi.fn();
+    const { useFileViewerStore } = await import("../../stores/fileViewerStore");
+    useFileViewerStore.setState({ setActiveFile });
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+      planCompleteFilePath: "/plans/p.md",
+      planCompleteContent: "## body",
+      pendingPlanSessionId: "s1",
+    });
+    const session: Session = {
+      id: "s1",
+      name: "s1",
+      project_path: "/proj",
+      status: "connected",
+      created_at: new Date().toISOString(),
+      model: null,
+      icon_index: 0,
+    };
+    useSessionStore.setState({ sessions: new Map([["s1", session]]) });
+    render(<PlanCompleteModal />);
+
+    fireEvent.click(screen.getByText("p.md"));
+
+    const s = useUiStore.getState();
+    expect(s.showPlanCompleteModal).toBe(false);
+    // Pending state must survive the reveal-in-viewer dismissal.
+    expect(s.pendingPlanSessionId).toBe("s1");
+    expect(s.planCompleteSessionId).toBe("s1");
+    expect(s.planCompleteFilePath).toBe("/plans/p.md");
+    expect(s.planCompleteContent).toBe("## body");
   });
 });

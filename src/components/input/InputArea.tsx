@@ -24,6 +24,7 @@ const EMPTY_MESSAGES: import("../../types/session").Message[] = [];
 import { inputDrafts } from "../../lib/input-drafts";
 import CommandPalette, { type CommandPaletteHandle } from "./CommandPalette";
 import MessageHistory, { type MessageHistoryHandle } from "./MessageHistory";
+import PlanPendingBanner from "./PlanPendingBanner";
 import { getUserMessageHistory } from "../../lib/message-history";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
 
@@ -427,6 +428,10 @@ export default function InputArea() {
             onClose={() => setShowMessageHistory(false)}
           />
         )}
+
+        {/* Banner shown when a plan is pending but the approval modal is closed.
+            Renders nothing when no plan is pending or the modal is open. */}
+        <PlanPendingBanner />
 
         <div
           className={`rounded-xl border transition-colors focus-within:border-accent/40 ${

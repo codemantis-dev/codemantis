@@ -102,7 +102,16 @@ function OptionQuestion({
 
   return (
     <div>
-      <p className="text-ui text-text-primary font-medium mb-2">{questionItem.header}</p>
+      {questionItem.header && (
+        <p className="text-label text-text-dim uppercase tracking-wide mb-1">
+          {questionItem.header}
+        </p>
+      )}
+      {questionItem.question && (
+        <p className="text-ui text-text-primary font-medium mb-2">
+          {questionItem.question}
+        </p>
+      )}
       {questionItem.multiSelect && (
         <p className="text-label text-text-dim mb-2">Select one or more options</p>
       )}
@@ -263,10 +272,11 @@ export default function QuestionModal() {
         return `The user answered: ${rawAnswers[0]}`;
       }
 
-      // Multi-question: pair each answer with its question header
+      // Multi-question: pair each answer with its full question text (falling back to header)
       const lines = pendingQuestion.questions.map((q, i) => {
         const ans = rawAnswers[i] ?? "(no answer)";
-        return `${q.header}: ${ans}`;
+        const label = q.question || q.header;
+        return `${label}: ${ans}`;
       });
       return `The user answered the questions as follows:\n${lines.join("\n")}`;
     },
