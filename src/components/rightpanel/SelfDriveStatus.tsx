@@ -19,7 +19,7 @@ import {
   LifeBuoy,
   Loader2,
 } from "lucide-react";
-import { useSelfDriveStore } from "../../stores/selfDriveStore";
+import { useSelfDriveStore, useBlockerHasResolution } from "../../stores/selfDriveStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SelfDrivePhase } from "../../types/implementation-guide";
 import RunLogViewer from "./RunLogViewer";
@@ -46,6 +46,8 @@ export default function SelfDriveStatus() {
   const fixAttempt = useSelfDriveStore((s) => s.fixAttempt);
   const maxFixAttempts = useSelfDriveStore((s) => s.maxFixAttempts);
   const pauseReason = useSelfDriveStore((s) => s.pauseReason);
+  const activeBlocker = useSelfDriveStore((s) => s.activeBlocker);
+  const hasResolution = useBlockerHasResolution();
   const sessionStartedAt = useSelfDriveStore((s) => s.sessionStartedAt);
   const pause = useSelfDriveStore((s) => s.pause);
   const resume = useSelfDriveStore((s) => s.resume);
@@ -115,6 +117,12 @@ export default function SelfDriveStatus() {
 
   // Paused state
   if (status === "paused") {
+    // Disable Resume when a blocker is waiting on an answer.
+    const blockedOnAnswer = !!activeBlocker && !hasResolution;
+    const resumeTitle = blockedOnAnswer
+      ? "Pick an option on the blocker card above, or answer in the main chat."
+      : "Resume Self-Drive";
+
     return (
       <div
         className="mx-1 mt-1.5 px-3 py-2 rounded-lg border"
@@ -129,13 +137,38 @@ export default function SelfDriveStatus() {
             PAUSED
           </span>
         </div>
-        <p className="text-detail mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          {pauseReason}
-        </p>
-        <div className="flex items-center gap-1.5">
+
+        {activeBlocker ? (
+          <>
+            <p className="text-detail leading-relaxed font-medium" style={{ color: "var(--text-primary)" }}>
+              {activeBlocker.summary}
+            </p>
+            <p
+              className="text-detail mt-0.5 leading-relaxed"
+              style={{ color: blockedOnAnswer ? "var(--yellow, #eab308)" : "var(--text-secondary)" }}
+            >
+              {blockedOnAnswer
+                ? "Waiting for your decision — pick an option above or answer in chat, then Resume."
+                : "Answer captured — click Resume to verify and continue."}
+            </p>
+            {pauseReason && pauseReason !== activeBlocker.summary && (
+              <p className="text-detail mt-1 mb-2 leading-relaxed" style={{ color: "var(--text-ghost)" }}>
+                {pauseReason}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-detail mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            {pauseReason}
+          </p>
+        )}
+
+        <div className="flex items-center gap-1.5 mt-2">
           <button
             onClick={resume}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:brightness-95"
+            disabled={blockedOnAnswer}
+            title={resumeTitle}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
             style={{ background: "var(--accent)", color: "white" }}
           >
             <Play size={10} />

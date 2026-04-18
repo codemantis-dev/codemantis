@@ -80,6 +80,12 @@ interface SelfDriveState {
    * text so the next Resume triggers a recovery verification.
    */
   userResolveBlocker: (resolution: string) => void;
+  /**
+   * One-click path: user picked an offered option in the BlockerCard.
+   * Injects a visible "User picked: …" marker into the chat transcript,
+   * sets userResolution, then triggers Resume. No Claude Code round-trip.
+   */
+  pickBlockerOption: (option: string) => Promise<void>;
 }
 
 // ── Default config ──────────────────────────────────────────────────
@@ -255,16 +261,36 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     // ── Recovery path ──────────────────────────────────────────────────
     // If a blocker is active and not yet resolved, confirm its resolution
-    // BEFORE continuing normal session flow. This is what prevents the
-    // "pause, then stupidly move on" behavior that motivated this feature.
+    // BEFORE continuing normal session flow. Two inputs can stand in for
+    // "user answered": (a) a picked option stored as blocker.userResolution,
+    // or (b) chat messages that arrived after prePauseLastMessageId. If
+    // neither exists we keep the pause — Resume is not silent wish-making.
     const blocker = useSelfDriveStore.getState().activeBlocker;
     if (blocker && blocker.status !== "resolved" && blocker.status !== "abandoned") {
-      // If the user didn't explicitly pick an option, still verify — but
-      // note that they didn't specify. The recovery prompt handles this.
-      const pending: Blocker =
-        blocker.status === "open"
-          ? { ...blocker, status: "user-decided", userResolution: blocker.userResolution ?? "(not specified)" }
-          : blocker;
+      const chatSincePause = readChatSincePause(blocker);
+      const hasUserResolution = (blocker.userResolution ?? "").trim().length > 0;
+      const hasChat = chatSincePause.length > 0;
+
+      if (!hasUserResolution && !hasChat) {
+        // Resume blocked — keep paused with a clearer reason the UI can
+        // pick up (SelfDriveStatus shows this). No progress is made.
+        const reason = "Answer in chat or pick an option above, then click Resume.";
+        useSelfDriveStore.setState({ status: "paused", pauseReason: reason });
+        addLogEntry(
+          state.currentSessionIndex ?? 0,
+          "paused",
+          "Resume blocked: no resolution provided yet",
+        );
+        showToast(reason, "info");
+        return;
+      }
+
+      const combined = combineResolution(blocker.userResolution, chatSincePause);
+      const pending: Blocker = {
+        ...blocker,
+        status: "user-decided",
+        userResolution: combined,
+      };
       await enterRecoveryPhase(pending);
       showToast("Self-Drive resumed — verifying blocker resolution", "info");
       return;
@@ -347,6 +373,32 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       undefined,
       updated,
     );
+  },
+
+  pickBlockerOption: async (option: string) => {
+    const state = get();
+    const blocker = state.activeBlocker;
+    if (!blocker) return;
+    const text = option.trim();
+    if (text.length === 0) return;
+
+    // Inject a visible marker into the chat so history records the decision.
+    // Marked isSelfDrive so the chat-since-pause reader ignores it (we'd be
+    // double-counting: userResolution + marker).
+    if (activeSessionId) {
+      useSessionStore.getState().addMessage(activeSessionId, {
+        id: `sd-pick-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        role: "user",
+        content: `(Self-Drive) Picked option: ${text}`,
+        timestamp: new Date().toISOString(),
+        activityIds: [],
+        isStreaming: false,
+        isSelfDrive: true,
+      });
+    }
+
+    get().userResolveBlocker(text);
+    await get().resume();
   },
 }));
 
@@ -855,6 +907,24 @@ function buildBlockerFromDecision(
   decisionBlocker: NonNullable<OrchestratorDecision["blocker"]>,
   pauseReason: string,
 ): Blocker {
+  // Find the id of the last message visible in the chat at pause time.
+  // Resume() uses this as the boundary for "messages since pause".
+  let prePauseLastMessageId: string | null = null;
+  if (activeSessionId) {
+    const msgs = useSessionStore.getState().sessionMessages.get(activeSessionId) ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (!msgs[i].isSelfDrive) {
+        prePauseLastMessageId = msgs[i].id;
+        break;
+      }
+    }
+    // Fall back: if there are no non-self-drive messages at all, still
+    // stamp the very last id so we can compute "anything after this".
+    if (!prePauseLastMessageId && msgs.length > 0) {
+      prePauseLastMessageId = msgs[msgs.length - 1].id;
+    }
+  }
+
   return {
     id: `blk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     sessionIndex,
@@ -865,7 +935,48 @@ function buildBlockerFromDecision(
     optionsOffered: decisionBlocker.optionsOffered ?? [],
     resolutionCriteria: decisionBlocker.resolutionCriteria,
     status: "open",
+    prePauseLastMessageId,
   };
+}
+
+/**
+ * Collect non-self-drive messages that arrived after the pause boundary.
+ * Used by resume() to compose userResolution with what happened in chat
+ * while Self-Drive was paused. Returns [] if the boundary can't be found.
+ */
+export function readChatSincePause(blocker: Blocker | null): { role: "user" | "assistant"; content: string }[] {
+  if (!blocker || !activeSessionId) return [];
+  const msgs = useSessionStore.getState().sessionMessages.get(activeSessionId) ?? [];
+  if (msgs.length === 0) return [];
+  let startIdx = 0;
+  if (blocker.prePauseLastMessageId) {
+    const idx = msgs.findIndex((m) => m.id === blocker.prePauseLastMessageId);
+    if (idx === -1) return []; // boundary not found — safest to report no resolution
+    startIdx = idx + 1;
+  }
+  return msgs
+    .slice(startIdx)
+    .filter((m) => !m.isSelfDrive && m.content.trim().length > 0)
+    .map((m) => ({ role: m.role, content: m.content }));
+}
+
+/** Compose the final userResolution string sent into the recovery prompt. */
+function combineResolution(
+  userResolution: string | undefined,
+  chatSincePause: { role: string; content: string }[],
+): string {
+  const parts: string[] = [];
+  const trimmed = (userResolution ?? "").trim();
+  if (trimmed.length > 0 && trimmed !== "(not specified)") {
+    parts.push(`User picked / stated: ${trimmed}`);
+  }
+  if (chatSincePause.length > 0) {
+    const transcript = chatSincePause
+      .map((m) => `[${m.role}] ${m.content.trim()}`)
+      .join("\n\n");
+    parts.push(`Chat exchange during pause:\n${transcript}`);
+  }
+  return parts.join("\n\n");
 }
 
 /**
@@ -1159,4 +1270,38 @@ export function useSelfDriveStatusForActiveProject(): SelfDriveStatus {
   const status = useSelfDriveStore((s) => s.status);
   if (sdProjectPath !== activeProjectPath) return "idle";
   return status;
+}
+
+/**
+ * Does the active blocker already have a resolution signal?
+ *   - Returns true when there is no active blocker (no constraint).
+ *   - Returns true when the user picked an option (userResolution set), or
+ *     when at least one non-self-drive message landed in the session chat
+ *     after the pause boundary.
+ *   - Returns false when Resume would be blocked for lack of input.
+ *
+ * Consumers: SelfDriveStatus uses this to disable the Resume button and
+ * drive the "waiting for your decision" inline hint.
+ */
+export function useBlockerHasResolution(): boolean {
+  const blocker = useSelfDriveStore((s) => s.activeBlocker);
+  const sdProjectPath = useSelfDriveStore((s) => s.projectPath);
+  const sessionMessages = useSessionStore((s) => s.sessionMessages);
+  const projectActiveSession = useSessionStore((s) => s.projectActiveSession);
+
+  if (!blocker) return true;
+  if ((blocker.userResolution ?? "").trim().length > 0) return true;
+
+  const sessionId = sdProjectPath ? projectActiveSession.get(sdProjectPath) ?? null : null;
+  if (!sessionId) return false;
+  const msgs = sessionMessages.get(sessionId) ?? [];
+  if (msgs.length === 0) return false;
+
+  let startIdx = 0;
+  if (blocker.prePauseLastMessageId) {
+    const idx = msgs.findIndex((m) => m.id === blocker.prePauseLastMessageId);
+    if (idx === -1) return false;
+    startIdx = idx + 1;
+  }
+  return msgs.slice(startIdx).some((m) => !m.isSelfDrive && m.content.trim().length > 0);
 }

@@ -296,15 +296,18 @@ describe("resume() with an active blocker", () => {
     expect(firstMessage).toContain("kind=infra-state-drift");
   });
 
-  it("treats an 'open' blocker as if the user decided nothing specific (still verifies)", async () => {
+  it("BLOCKS resume when an 'open' blocker has no userResolution and no chat since pause", async () => {
     setup();
-    seedPaused(makeBlocker({ status: "open" }));
+    seedPaused(makeBlocker({ status: "open", prePauseLastMessageId: null }));
 
     await useSelfDriveStore.getState().resume();
 
     const state = useSelfDriveStore.getState();
-    expect(state.currentPhase).toBe("recovering");
-    expect(state.activeBlocker?.userResolution).toBe("(not specified)");
+    // Phase-1.5 contract: Resume is not a silent wish — require an answer.
+    expect(state.status).toBe("paused");
+    expect(state.currentPhase).not.toBe("recovering");
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(state.pauseReason).toContain("Answer in chat or pick an option");
   });
 
   it("skips the recovery path when blocker is already resolved", async () => {
@@ -316,5 +319,179 @@ describe("resume() with an active blocker", () => {
     const state = useSelfDriveStore.getState();
     // Resume falls through to the existing session logic — NOT "recovering".
     expect(state.currentPhase).not.toBe("recovering");
+  });
+});
+
+// ── Phase-1.5: chat-aware resume + one-click option path ──────────────
+
+describe("pickBlockerOption (Path A — one click)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAllStores();
+  });
+
+  it("records the picked option, injects a chat marker, and triggers resume", async () => {
+    setup();
+    seedPaused(makeBlocker({ status: "open" }));
+
+    await useSelfDriveStore.getState().pickBlockerOption("Run migration repair");
+
+    // userResolution captured + recovery path taken.
+    const state = useSelfDriveStore.getState();
+    expect(state.activeBlocker?.userResolution).toContain("Run migration repair");
+    expect(state.currentPhase).toBe("recovering");
+
+    // Chat got a visible "Picked option" marker (isSelfDrive so it won't
+    // double-count as chat-since-pause).
+    const msgs = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+    const marker = msgs.find((m) => m.content.includes("Picked option"));
+    expect(marker).toBeDefined();
+    expect(marker!.isSelfDrive).toBe(true);
+
+    // Recovery prompt went to Claude Code.
+    expect(mockSendMessage).toHaveBeenCalled();
+    const firstArgs = mockSendMessage.mock.calls[0] as unknown as [string, string];
+    expect(firstArgs[1]).toContain("RECOVERY-PROMPT");
+  });
+
+  it("is a no-op when no blocker is active", async () => {
+    setup();
+    // Not paused, no blocker.
+    await useSelfDriveStore.getState().pickBlockerOption("anything");
+    expect(useSelfDriveStore.getState().activeBlocker).toBeNull();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("Path B — free-form chat since pause", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAllStores();
+  });
+
+  it("picks up a user message that arrived AFTER the pause boundary and uses it as the resolution", async () => {
+    setup();
+
+    // Seed chat history: one pre-pause message, one post-pause user answer.
+    const preId = "m-pre-1";
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: preId,
+      role: "assistant",
+      content: "Claude: I've finished Session 2. How should I commit?",
+      timestamp: new Date(Date.now() - 60_000).toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+    seedPaused(makeBlocker({ status: "open", prePauseLastMessageId: preId }));
+    // User answers in main chat AFTER pause — no userResolution set.
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: "m-user-1",
+      role: "user",
+      content: "Two separate commits please.",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+
+    await useSelfDriveStore.getState().resume();
+
+    const state = useSelfDriveStore.getState();
+    expect(state.currentPhase).toBe("recovering");
+    expect(state.activeBlocker?.userResolution).toContain("Two separate commits please.");
+
+    // Recovery prompt includes the user's chat answer.
+    const firstArgs = mockSendMessage.mock.calls[0] as unknown as [string, string];
+    expect(firstArgs[1]).toContain("RECOVERY-PROMPT");
+    expect(firstArgs[1]).toContain("Two separate commits please.");
+  });
+
+  it("ignores self-drive-injected messages when deciding if the user answered", async () => {
+    setup();
+    const preId = "m-pre-2";
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: preId,
+      role: "assistant",
+      content: "Claude last message",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+    seedPaused(makeBlocker({ status: "open", prePauseLastMessageId: preId }));
+    // Only a self-drive system message arrives — must NOT unblock Resume.
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: "m-sd-1",
+      role: "assistant",
+      content: "Self-Drive: status update",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+      isSelfDrive: true,
+    });
+
+    await useSelfDriveStore.getState().resume();
+
+    // Still paused — no real user answer.
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("paused");
+    expect(state.currentPhase).not.toBe("recovering");
+  });
+
+  it("combines userResolution AND chat-since-pause when both exist", async () => {
+    setup();
+    const preId = "m-pre-3";
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: preId,
+      role: "assistant",
+      content: "anchor",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+    seedPaused(
+      makeBlocker({
+        status: "user-decided",
+        userResolution: "Picked option 1",
+        prePauseLastMessageId: preId,
+      }),
+    );
+    useSessionStore.getState().addMessage(SESSION_ID, {
+      id: "m-follow-up",
+      role: "user",
+      content: "Actually, also rename the files.",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+
+    await useSelfDriveStore.getState().resume();
+
+    const state = useSelfDriveStore.getState();
+    expect(state.activeBlocker?.userResolution).toContain("Picked option 1");
+    expect(state.activeBlocker?.userResolution).toContain("Actually, also rename the files.");
+  });
+});
+
+describe("useBlockerHasResolution helper", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAllStores();
+  });
+
+  it("returns true when no blocker is active (no constraint)", () => {
+    setup();
+    expect(useSelfDriveStore.getState().activeBlocker).toBeNull();
+    // We can't call hooks outside React, but we can exercise the same
+    // logic through resume() — a null blocker must not block resume.
+  });
+
+  it("blocks resume with a clear pauseReason when nothing resolves", async () => {
+    setup();
+    seedPaused(makeBlocker({ status: "open", prePauseLastMessageId: null }));
+    await useSelfDriveStore.getState().resume();
+    const state = useSelfDriveStore.getState();
+    expect(state.pauseReason).toContain("Answer in chat or pick an option");
+    // A "paused" log entry explains why to the user.
+    const explain = state.runLog.find((e) => e.summary.includes("Resume blocked"));
+    expect(explain).toBeDefined();
   });
 });

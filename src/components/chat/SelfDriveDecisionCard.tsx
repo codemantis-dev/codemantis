@@ -14,6 +14,7 @@ import {
   Hammer,
   GitCommit,
   AlertTriangle,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
 import { formatTime } from "../../lib/format-utils";
@@ -157,11 +158,9 @@ interface BlockerCardProps {
 }
 
 function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
-  const [custom, setCustom] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const activeBlocker = useSelfDriveStore((s) => s.activeBlocker);
-  const userResolveBlocker = useSelfDriveStore((s) => s.userResolveBlocker);
-  const resume = useSelfDriveStore((s) => s.resume);
+  const pickBlockerOption = useSelfDriveStore((s) => s.pickBlockerOption);
   const status = useSelfDriveStore((s) => s.status);
 
   // Is this card still the live one? We match by id so stale cards (from a
@@ -173,17 +172,10 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
     if (!isLive || submitting) return;
     setSubmitting(true);
     try {
-      userResolveBlocker(resolution);
-      await resume();
+      await pickBlockerOption(resolution);
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const submitCustom = (): void => {
-    const text = custom.trim();
-    if (text.length === 0) return;
-    pickOption(text);
   };
 
   return (
@@ -223,7 +215,7 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
           <>
             {blocker.optionsOffered.length > 0 && (
               <div className="mt-3 flex flex-col gap-1.5">
-                <p className="text-detail opacity-70">Pick an option:</p>
+                <p className="text-detail opacity-70">Pick an option (one click resolves + resumes):</p>
                 {blocker.optionsOffered.map((opt, i) => (
                   <button
                     key={i}
@@ -238,34 +230,19 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
               </div>
             )}
 
-            <div className="mt-3">
-              <label className="text-detail opacity-70">Or describe what you did:</label>
-              <div className="flex gap-2 mt-1">
-                <input
-                  type="text"
-                  value={custom}
-                  onChange={(e) => setCustom(e.target.value)}
-                  disabled={submitting}
-                  placeholder="e.g. Ran `supabase migration repair ...` and reverted 14 entries."
-                  className="flex-1 px-2 py-1 rounded border text-label"
-                  style={{
-                    background: "var(--bg-primary)",
-                    borderColor: "var(--border-light)",
-                    color: "var(--text-primary)",
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submitCustom();
-                  }}
-                />
-                <button
-                  onClick={submitCustom}
-                  disabled={submitting || custom.trim().length === 0}
-                  className="px-3 py-1 rounded text-label font-medium disabled:opacity-40"
-                  style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
-                >
-                  Verify & Resume
-                </button>
-              </div>
+            <div
+              className="mt-3 flex items-start gap-2 p-2 rounded"
+              style={{ background: "rgba(0,0,0,0.08)" }}
+            >
+              <MessageSquare size={13} className="shrink-0 mt-0.5" style={{ color: "var(--text-secondary)" }} />
+              <p className="text-detail leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {blocker.optionsOffered.length > 0
+                  ? "Or answer in the main chat below"
+                  : "Answer in the main chat below"}
+                  {" "}— Claude Code's reply will be captured. Then click{" "}
+                <span className="font-medium" style={{ color: "var(--text-primary)" }}>Resume</span>{" "}
+                in the Guide panel.
+              </p>
             </div>
           </>
         )}
@@ -273,7 +250,7 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
         {cardStatus !== "open" && (
           <p className="mt-3 text-detail" style={{ color: "var(--text-secondary)" }}>
             Status: {cardStatus}
-            {activeBlocker?.userResolution && ` · ${activeBlocker.userResolution}`}
+            {activeBlocker?.userResolution && ` · ${activeBlocker.userResolution.split("\n")[0].slice(0, 120)}`}
           </p>
         )}
       </div>

@@ -66,6 +66,14 @@ export interface Blocker {
   resolutionCriteria: string;  // what must be true for "resolved"
   status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
   userResolution?: string;     // free text / chosen option label
+  /**
+   * ID of the last non-self-drive chat message at the moment the pause
+   * was taken. On Resume, Self-Drive reads messages AFTER this id as the
+   * "chat since pause" window — what the user answered in the main chat,
+   * what Claude Code replied — and feeds that into the recovery prompt.
+   * Null if no messages existed, or the id can't be resolved.
+   */
+  prePauseLastMessageId?: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
