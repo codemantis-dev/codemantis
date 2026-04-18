@@ -1,19 +1,10 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useShallow } from "zustand/shallow";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSessionStore } from "../../stores/sessionStore";
-import { showToast } from "../../stores/toastStore";
-import { listSpecDocuments, gatherSpecContext, saveTaskBoardState, addVerificationWorkflowToClaudeMd } from "../../lib/tauri-commands";
-import { useUiStore } from "../../stores/uiStore";
-import { useClaudeSession } from "../../hooks/useClaudeSession";
-import { useSpecConversationRouter } from "../../hooks/useSpecConversationRouter";
-import { useDividerResize } from "../../hooks/useDividerResize";
-import { useSavedSpecs } from "../../hooks/useSavedSpecs";
 import { useGuideStore } from "../../stores/guideStore";
-import { useSelfDriveStatusForActiveProject } from "../../stores/selfDriveStore";
-import { parseSessionPlan } from "../../lib/parse-session-plan";
-import type { ParsedSessionPlan } from "../../lib/parse-session-plan";
-import { isGuideStarted } from "../../lib/guide-helpers";
+import { useDividerResize } from "../../hooks/useDividerResize";
+import { useSpecWriterActions } from "../../hooks/useSpecWriterActions";
 import SpecChat from "./SpecChat";
 import SpecWriterToolbar from "./SpecWriterToolbar";
 import SpecPreviewPanel from "./SpecPreviewPanel";
@@ -35,20 +26,7 @@ export default function SpecWriterSlideOver() {
       }))
     );
 
-  // Action selectors — stable function refs, no re-render cost
-  const setSlideOverOpen = useSpecWriterStore((s) => s.setSlideOverOpen);
   const setChatWidth = useSpecWriterStore((s) => s.setChatWidth);
-  const clearConversation = useSpecWriterStore((s) => s.clearConversation);
-  const setCurrentSpecContent = useSpecWriterStore((s) => s.setCurrentSpecContent);
-  const setCurrentAuditContent = useSpecWriterStore((s) => s.setCurrentAuditContent);
-  const persistState = useSpecWriterStore((s) => s.persistState);
-  const loadState = useSpecWriterStore((s) => s.loadState);
-  const setSavedSpecs = useSpecWriterStore((s) => s.setSavedSpecs);
-  const setContextLoaded = useSpecWriterStore((s) => s.setContextLoaded);
-  const setProjectContext = useSpecWriterStore((s) => s.setProjectContext);
-  const addMessage = useSpecWriterStore((s) => s.addMessage);
-  const setSelectedSavedSpec = useSpecWriterStore((s) => s.setSelectedSavedSpec);
-  const promoteMessageToSpec = useSpecWriterStore((s) => s.promoteMessageToSpec);
   const selectedSavedSpec = useSpecWriterStore((s) => {
     if (!activeProjectPath) return null;
     return s.uiState.get(activeProjectPath)?.selected_saved_spec ?? null;
@@ -56,34 +34,18 @@ export default function SpecWriterSlideOver() {
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
-
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [saveDialogType, setSaveDialogType] = useState<'spec' | 'audit'>('spec');
-  const [lastSavedFile, setLastSavedFile] = useState<string | null>(null);
-  const [, setLastSavedAuditFile] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const guideSpecFilename = useGuideStore((s) => s.guide?.specFilename ?? null);
-  const currentGuide = useGuideStore((s) => s.guide);
-  const hasGuide = !!lastSavedFile && guideSpecFilename === lastSavedFile;
-  const selfDriveStatus = useSelfDriveStatusForActiveProject();
-  const [pendingGuideLoad, setPendingGuideLoad] = useState<{
-    filename: string;
-    parsed: ParsedSessionPlan;
-  } | null>(null);
-  const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } = useSpecConversationRouter();
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const conversationMode = conversation?.mode;
   const hasMessages = (conversation?.messages.length ?? 0) > 0;
   const canWrite = conversation?.status === 'ready_to_write' && !isStreaming;
   const canSave = !!currentSpecContent && !isStreaming;
   const canGenerateAudit = !!currentSpecContent && !currentAuditContent && !isStreaming;
   const canSaveAudit = !!currentAuditContent && !isStreaming;
-  const initCheckedRef = useRef<string | null>(null);
-  const contextAbortRef = useRef(false);
-  const prevStatusRef = useRef(conversation?.status);
-  const [contextLoading, setContextLoading] = useState(false);
-  const [contextError, setContextError] = useState<string | null>(null);
+
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const currentGuide = useGuideStore((s) => s.guide);
+
+  // All callbacks, effects, and local state are in the extracted hook
+  const actions = useSpecWriterActions(activeProjectPath);
 
   const handleWidthChange = useCallback(
     (newPct: number) => {
@@ -99,373 +61,10 @@ export default function SpecWriterSlideOver() {
     onWidthChange: handleWidthChange,
   });
 
-  const { refreshSavedSpecs } = useSavedSpecs(activeProjectPath);
-
-  // One-time project init: load persisted state and gather context
-  useEffect(() => {
-    if (!activeProjectPath) return;
-    if (initCheckedRef.current === activeProjectPath) return;
-    initCheckedRef.current = activeProjectPath;
-
-    // Load persisted conversation
-    loadState(activeProjectPath);
-
-    // Load context for feature mode — store result for the system prompt
-    contextAbortRef.current = false;
-    setContextLoading(true);
-    setContextError(null);
-    gatherSpecContext(activeProjectPath).then((context) => {
-      if (contextAbortRef.current) return;
-      setProjectContext(activeProjectPath, context);
-      setContextLoaded(activeProjectPath, true);
-      setContextLoading(false);
-    }).catch((e) => {
-      if (contextAbortRef.current) return;
-      console.error("[SpecWriter] Context gathering failed:", e);
-      setContextError(String(e));
-      setContextLoading(false);
-    });
-
-    // Load saved specs list
-    listSpecDocuments(activeProjectPath).then((specs) => {
-      setSavedSpecs(activeProjectPath, specs);
-    }).catch(() => {});
-  }, [activeProjectPath, loadState, setContextLoaded, setSavedSpecs, setProjectContext]);
-
-  // Refresh saved specs each time the panel opens (may have changed while closed)
-  useEffect(() => {
-    if (!isOpen || !activeProjectPath) return;
-    listSpecDocuments(activeProjectPath).then((specs) => {
-      setSavedSpecs(activeProjectPath, specs);
-    }).catch(() => {});
-  }, [isOpen, activeProjectPath, setSavedSpecs]);
-
-  // Abort context gathering if panel closes while loading
-  useEffect(() => {
-    if (!isOpen) {
-      contextAbortRef.current = true;
-      setContextLoading(false);
-    }
-  }, [isOpen]);
-
-  const handleClose = useCallback(() => {
-    if (activeProjectPath) {
-      // Persist conversation state before closing
-      persistState(activeProjectPath);
-      setSlideOverOpen(activeProjectPath, false);
-    }
-  }, [activeProjectPath, setSlideOverOpen, persistState]);
-
-  const handleCancelContext = useCallback(() => {
-    contextAbortRef.current = true;
-    setContextLoading(false);
-    if (activeProjectPath) {
-      setContextLoaded(activeProjectPath, false);
-    }
-  }, [activeProjectPath, setContextLoaded]);
-
-  // Escape key closes
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, handleClose]);
-
-  const handleSpecEdit = useCallback((newContent: string) => {
-    if (activeProjectPath) {
-      setCurrentSpecContent(activeProjectPath, newContent);
-    }
-  }, [activeProjectPath, setCurrentSpecContent]);
-
-  const handleCloseSpec = useCallback(() => {
-    if (activeProjectPath) {
-      setCurrentSpecContent(activeProjectPath, null);
-      setCurrentAuditContent(activeProjectPath, null);
-      setSelectedSavedSpec(activeProjectPath, null);
-      setIsEditing(false);
-    }
-  }, [activeProjectPath, setCurrentSpecContent, setCurrentAuditContent, setSelectedSavedSpec]);
-
-  // Auto-exit edit mode when streaming starts
-  useEffect(() => {
-    if (isStreaming) setIsEditing(false);
-  }, [isStreaming]);
-
-  // Clear stale saved-file state when a new spec finishes generating
-  // (writing → done transition only happens for spec generation, not audits)
-  useEffect(() => {
-    const prev = prevStatusRef.current;
-    prevStatusRef.current = conversation?.status;
-    if (conversation?.status === 'done' && prev === 'writing') {
-      setLastSavedFile(null);
-      setLastSavedAuditFile(null);
-    }
-  }, [conversation?.status]);
-
-  const handleReset = useCallback(() => {
-    if (activeProjectPath) {
-      clearConversation(activeProjectPath);
-      setCurrentSpecContent(activeProjectPath, null);
-      setCurrentAuditContent(activeProjectPath, null);
-      setLastSavedFile(null);
-      setLastSavedAuditFile(null);
-      setIsEditing(false);
-      // clearConversation already clears draft, but also wipe persisted state
-      saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
-    }
-  }, [activeProjectPath, clearConversation, setCurrentSpecContent, setCurrentAuditContent]);
-
-  const handleWriteSpec = useCallback(() => {
-    if (activeProjectPath) writeSpec(activeProjectPath);
-  }, [activeProjectPath, writeSpec]);
-
-  const handleGenerateAudit = useCallback(() => {
-    if (activeProjectPath) generateAudit(activeProjectPath);
-  }, [activeProjectPath, generateAudit]);
-
-  const handleUseGuide = useCallback(() => {
-    useUiStore.getState().setRightTab("guide");
-    handleClose();
-  }, [handleClose]);
-
-  const handleRecognizeGuide = useCallback(async () => {
-    if (!currentSpecContent || !activeProjectPath || !lastSavedFile) return;
-    const parsed = parseSessionPlan(currentSpecContent);
-    if (parsed) {
-      const created = await useGuideStore.getState().createGuide(
-        activeProjectPath, lastSavedFile, null, parsed,
-      );
-      if (created) {
-        showToast(
-          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
-          "info",
-        );
-        useUiStore.getState().setRightTab("guide");
-      } else {
-        showToast("Guide already exists for this spec", "info");
-      }
-    } else {
-      showToast("Could not find a multi-session plan in this spec", "error");
-    }
-  }, [currentSpecContent, activeProjectPath, lastSavedFile]);
-
-  // ── Load guide from a selected saved spec ───────
-  const handleLoadGuideFromSavedSpec = useCallback(async () => {
-    if (!currentSpecContent || !activeProjectPath || !selectedSavedSpec) return;
-
-    const parsed = parseSessionPlan(currentSpecContent);
-    if (!parsed) {
-      showToast("No Session Plan found in this spec", "error");
-      return;
-    }
-
-    if (!currentGuide) {
-      // No guide loaded — create directly
-      const created = await useGuideStore.getState().createGuide(
-        activeProjectPath, selectedSavedSpec, null, parsed,
-      );
-      if (created) {
-        showToast(
-          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions`,
-          "info",
-        );
-        useUiStore.getState().setRightTab("guide");
-      }
-      return;
-    }
-
-    // Guide is loaded — check if started
-    const started = isGuideStarted(currentGuide) ||
-      selfDriveStatus === "running" || selfDriveStatus === "paused";
-
-    if (started && currentGuide.status !== "completed") {
-      showToast(
-        `Cannot load \u2014 current guide for "${currentGuide.title}" is in progress`,
-        "error",
-      );
-      return;
-    }
-
-    // Not started (or completed) — ask for confirmation
-    setPendingGuideLoad({ filename: selectedSavedSpec, parsed });
-  }, [currentSpecContent, activeProjectPath, selectedSavedSpec, currentGuide, selfDriveStatus]);
-
-  const handleConfirmGuideReplace = useCallback(async () => {
-    if (!activeProjectPath || !pendingGuideLoad) return;
-    setPendingGuideLoad(null);
-
-    const created = await useGuideStore.getState().createGuide(
-      activeProjectPath, pendingGuideLoad.filename, null, pendingGuideLoad.parsed,
-    );
-    if (created) {
-      showToast(
-        `Implementation Guide created \u2014 ${pendingGuideLoad.parsed.sessions.length} sessions`,
-        "info",
-      );
-      useUiStore.getState().setRightTab("guide");
-    }
-  }, [activeProjectPath, pendingGuideLoad]);
-
-  // ── Spec save handler ───────
-  const handleSpecSaved = useCallback((filename: string) => {
-    setShowSaveDialog(false);
-    setLastSavedFile(filename);
-    refreshSavedSpecs();
-  }, [refreshSavedSpecs]);
-
-  // ── Audit save handler — after save, show usage hint + CLAUDE.md offer ─
-  const handleAuditSaved = useCallback((filename: string) => {
-    setShowSaveDialog(false);
-    setLastSavedAuditFile(filename);
-    refreshSavedSpecs();
-
-    if (!activeProjectPath) return;
-    const store = useSpecWriterStore.getState();
-    const specFilename = filename.replace('.audit.md', '.md');
-
-    // Usage hint message
-    store.addMessage(activeProjectPath, {
-      id: `msg-audit-saved-${Date.now()}`,
-      role: "system",
-      content: `**Verification Audit saved to** \`docs/specs/${filename}\`\n\n**How to use it:**\n1. Tell Claude Code: "Read docs/specs/${specFilename} and implement it"\n2. After Claude Code says it's done, tell it:\n   "Read docs/specs/${filename} and verify your work. Open every file mentioned, read the actual code, and report PASS/FAIL for each item."\n3. Claude Code will find gaps and fix them.\n\n**Copy this prompt for after implementation:**\n\n\`\`\`\nRead docs/specs/${filename} and verify your implementation.\nFor every VERIFY directive, open the actual file and read the code.\nReport PASS, FAIL, or MISSING for each item. Fix all failures.\n\`\`\``,
-      message_type: "conversation",
-      timestamp: new Date().toISOString(),
-    });
-
-    // CLAUDE.md integration offer
-    store.addMessage(activeProjectPath, {
-      id: `msg-claudemd-offer-${Date.now()}`,
-      role: "system",
-      content: `**Add verification workflow to CLAUDE.md?**\nThis adds an instruction to your project's CLAUDE.md so Claude Code automatically runs the verification audit after implementing a spec. Claude Code reads CLAUDE.md at the start of every session.`,
-      message_type: "conversation",
-      timestamp: new Date().toISOString(),
-      parsedOptions: [
-        "\u{1F4DD} Yes, add to CLAUDE.md",
-        "No, skip this",
-      ],
-    });
-  }, [activeProjectPath, refreshSavedSpecs]);
-
-  // ── Handle the combined save flow ────────────────────────────────
-  const handleSaved = useCallback((filename: string) => {
-    if (saveDialogType === 'audit') {
-      handleAuditSaved(filename);
-    } else {
-      handleSpecSaved(filename);
-    }
-  }, [saveDialogType, handleSpecSaved, handleAuditSaved]);
-
-  // ── Handle CLAUDE.md workflow addition ──────────────────────────
-  const handleAddToClaudeMd = useCallback(async () => {
-    if (!activeProjectPath) return;
-    try {
-      const result = await addVerificationWorkflowToClaudeMd(activeProjectPath);
-      if (result === "already_exists") {
-        showToast("Verification workflow already in CLAUDE.md", "info");
-      } else {
-        showToast("Added verification workflow to CLAUDE.md", "success");
-      }
-    } catch (e) {
-      showToast(`Failed to update CLAUDE.md: ${e}`, "error");
-    }
-  }, [activeProjectPath]);
-
-  // ── Option action handler — intercept special options ────────────
-  const handleOptionAction = useCallback((option: string): boolean => {
-    if (!activeProjectPath) return false;
-
-    if (option === "\u{1F4CB} Yes, generate the Verification Audit") {
-      generateAudit(activeProjectPath);
-      return true;
-    }
-    if (option === "Not now \u2014 I'll generate it later") {
-      // No action — toolbar button remains available
-      return true;
-    }
-    if (option === "\u{1F4DD} Yes, add to CLAUDE.md") {
-      handleAddToClaudeMd();
-      return true;
-    }
-    if (option === "No, skip this") {
-      // No action
-      return true;
-    }
-    return false;
-  }, [activeProjectPath, generateAudit, handleAddToClaudeMd]);
-
-  // ── Open save dialog for spec or audit ────────────────────────────
-  const openSaveSpecDialog = useCallback(() => {
-    setSaveDialogType('spec');
-    setShowSaveDialog(true);
-  }, []);
-
-  const openSaveAuditDialog = useCallback(() => {
-    setSaveDialogType('audit');
-    setShowSaveDialog(true);
-  }, []);
-
-  const handleSuggestFeatures = useCallback(() => {
-    if (activeProjectPath) {
-      sendSpecMessage(
-        activeProjectPath,
-        "Based on what you see in this project, what features or improvements would you suggest?"
-      );
-    }
-  }, [activeProjectPath, sendSpecMessage]);
-
-  const handlePromoteToSpec = useCallback((messageId: string) => {
-    if (activeProjectPath) {
-      promoteMessageToSpec(activeProjectPath, messageId);
-      showToast("Message promoted to spec preview", "success");
-    }
-  }, [activeProjectPath, promoteMessageToSpec]);
-
-  const handleSendToChat = useCallback(async () => {
-    if (!lastSavedFile || !activeSessionId) {
-      showToast("No active chat session", "error");
-      return;
-    }
-    await sendChatMessage(activeSessionId, `Read docs/specs/${lastSavedFile} for implementation`);
-    showToast("Sent spec reference to chat", "success");
-    handleClose();
-  }, [lastSavedFile, activeSessionId, sendChatMessage, handleClose]);
-
-  const handleImplement = useCallback(async () => {
-    if (!lastSavedFile || !activeSessionId) {
-      showToast("No active chat session", "error");
-      return;
-    }
-    await sendChatMessage(activeSessionId,
-      `Please implement the feature described in docs/specs/${lastSavedFile}. Follow the specification and implementation checklist.`
-    );
-    showToast("Implementation request sent", "success");
-    handleClose();
-  }, [lastSavedFile, activeSessionId, sendChatMessage, handleClose]);
-
-  const handleLoadSpec = useCallback((content: string, filename: string) => {
-    if (!activeProjectPath) return;
-    setCurrentSpecContent(activeProjectPath, content);
-    // Add as system message so AI can reference it
-    addMessage(activeProjectPath, {
-      id: `msg-load-${Date.now()}`,
-      role: "system",
-      content: `Loaded existing spec "${filename}" for revision:\n\n${content}`,
-      message_type: "context_summary",
-      timestamp: new Date().toISOString(),
-    });
-  }, [activeProjectPath, setCurrentSpecContent, addMessage]);
-
-  const handleToggleEdit = useCallback(() => {
-    setIsEditing((prev) => !prev);
-  }, []);
-
   if (!activeProjectPath) return null;
 
   // Determine save dialog content
-  const saveDialogContent = saveDialogType === 'audit' ? currentAuditContent : currentSpecContent;
+  const saveDialogContent = actions.saveDialogType === 'audit' ? currentAuditContent : currentSpecContent;
 
   return (
     <>
@@ -474,7 +73,7 @@ export default function SpecWriterSlideOver() {
         <div
           className="fixed left-0 right-0 bottom-0 z-40 transition-opacity duration-200"
           style={{ top: 48, background: "rgba(0,0,0,0.4)" }}
-          onClick={handleClose}
+          onClick={actions.handleClose}
         />
       )}
 
@@ -493,21 +92,21 @@ export default function SpecWriterSlideOver() {
       >
         {/* Header */}
         <SpecWriterToolbar
-          lastSavedFile={lastSavedFile}
+          lastSavedFile={actions.lastSavedFile}
           activeSessionId={activeSessionId}
           canWrite={canWrite}
           hasMessages={hasMessages}
           isStreaming={isStreaming}
           conversationMode={conversationMode}
-          hasGuide={hasGuide}
-          onSendToChat={handleSendToChat}
-          onImplement={handleImplement}
-          onUseGuide={handleUseGuide}
-          onRecognizeGuide={handleRecognizeGuide}
-          onWriteSpec={handleWriteSpec}
-          onReset={handleReset}
-          onSuggestFeatures={handleSuggestFeatures}
-          onClose={handleClose}
+          hasGuide={actions.hasGuide}
+          onSendToChat={actions.handleSendToChat}
+          onImplement={actions.handleImplement}
+          onUseGuide={actions.handleUseGuide}
+          onRecognizeGuide={actions.handleRecognizeGuide}
+          onWriteSpec={actions.handleWriteSpec}
+          onReset={actions.handleReset}
+          onSuggestFeatures={actions.handleSuggestFeatures}
+          onClose={actions.handleClose}
         />
 
         {/* Two-column content — always rendered, hidden via CSS when closed
@@ -517,22 +116,22 @@ export default function SpecWriterSlideOver() {
           style={{ display: isOpen ? 'flex' : 'none' }}
         >
           {/* Context loading overlay (feature mode only) */}
-          {contextLoading && conversation?.mode === 'feature' && (
+          {actions.contextLoading && conversation?.mode === 'feature' && (
             <ContextLoadingOverlay
               projectPath={activeProjectPath}
-              onCancel={handleCancelContext}
+              onCancel={actions.handleCancelContext}
             />
           )}
 
           {/* Context error banner */}
-          {contextError && (
+          {actions.contextError && (
             <div
               className="absolute top-0 left-0 right-0 z-10 px-4 py-2 text-ui flex items-center gap-2"
               style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
             >
-              <span className="flex-1">Context loading failed: {contextError}</span>
+              <span className="flex-1">Context loading failed: {actions.contextError}</span>
               <button
-                onClick={() => setContextError(null)}
+                onClick={() => actions.setContextError(null)}
                 className="text-detail px-2 py-0.5 rounded border"
                 style={{ borderColor: "rgba(239,68,68,0.3)" }}
               >
@@ -549,13 +148,13 @@ export default function SpecWriterSlideOver() {
             <SpecChat
               projectPath={activeProjectPath}
               isOpen={isOpen}
-              contextLoading={contextLoading}
-              contextError={contextError}
-              onOptionAction={handleOptionAction}
-              onPromoteToSpec={handlePromoteToSpec}
-              sendMessage={sendSpecMessage}
-              writeSpec={writeSpec}
-              cancelStream={cancelStream}
+              contextLoading={actions.contextLoading}
+              contextError={actions.contextError}
+              onOptionAction={actions.handleOptionAction}
+              onPromoteToSpec={actions.handlePromoteToSpec}
+              sendMessage={actions.sendSpecMessage}
+              writeSpec={actions.writeSpec}
+              cancelStream={actions.cancelStream}
             />
           </div>
 
@@ -578,44 +177,44 @@ export default function SpecWriterSlideOver() {
             activeProjectPath={activeProjectPath}
             currentSpecContent={currentSpecContent}
             currentAuditContent={currentAuditContent}
-            isEditing={isEditing}
+            isEditing={actions.isEditing}
             isStreaming={isStreaming}
             canGenerateAudit={canGenerateAudit}
             canSaveAudit={canSaveAudit}
             canSave={canSave}
-            onSpecEdit={handleSpecEdit}
-            onCloseSpec={handleCloseSpec}
-            onToggleEdit={handleToggleEdit}
-            onGenerateAudit={handleGenerateAudit}
-            onOpenSaveAuditDialog={openSaveAuditDialog}
-            onOpenSaveSpecDialog={openSaveSpecDialog}
-            onLoadSpec={handleLoadSpec}
+            onSpecEdit={actions.handleSpecEdit}
+            onCloseSpec={actions.handleCloseSpec}
+            onToggleEdit={actions.handleToggleEdit}
+            onGenerateAudit={actions.handleGenerateAudit}
+            onOpenSaveAuditDialog={actions.openSaveAuditDialog}
+            onOpenSaveSpecDialog={actions.openSaveSpecDialog}
+            onLoadSpec={actions.handleLoadSpec}
             selectedSavedSpec={selectedSavedSpec}
-            onLoadGuide={handleLoadGuideFromSavedSpec}
+            onLoadGuide={actions.handleLoadGuideFromSavedSpec}
           />
         </div>
       </div>
 
       {/* Save dialog — handles both spec and audit saves */}
-      {showSaveDialog && saveDialogContent && conversation && (
+      {actions.showSaveDialog && saveDialogContent && conversation && (
         <SaveSpecDialog
           projectPath={activeProjectPath}
           specContent={saveDialogContent}
           aiModel={conversation.ai_model}
           mode={conversation.mode === 'feature' ? 'Feature (existing project)' : 'New Application'}
-          documentType={saveDialogType}
-          lastSavedFile={lastSavedFile}
-          onClose={() => setShowSaveDialog(false)}
-          onSaved={handleSaved}
+          documentType={actions.saveDialogType}
+          lastSavedFile={actions.lastSavedFile}
+          onClose={() => actions.setShowSaveDialog(false)}
+          onSaved={actions.handleSaved}
         />
       )}
 
       <GuideReplaceConfirmModal
-        open={pendingGuideLoad !== null}
+        open={actions.pendingGuideLoad !== null}
         currentGuideTitle={currentGuide?.title ?? ""}
-        newSpecFilename={pendingGuideLoad?.filename ?? ""}
-        onConfirm={handleConfirmGuideReplace}
-        onCancel={() => setPendingGuideLoad(null)}
+        newSpecFilename={actions.pendingGuideLoad?.filename ?? ""}
+        onConfirm={actions.handleConfirmGuideReplace}
+        onCancel={() => actions.setPendingGuideLoad(null)}
       />
     </>
   );
