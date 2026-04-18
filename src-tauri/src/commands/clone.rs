@@ -247,3 +247,125 @@ pub async fn clone_from_git(
         warnings,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    // ── verify_clone ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn verify_clone_nonexistent_dir_returns_warning() {
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("does_not_exist");
+
+        let warnings = verify_clone(&missing);
+
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("not created"),
+            "expected 'not created' in: {}",
+            warnings[0]
+        );
+    }
+
+    #[test]
+    fn verify_clone_empty_dir_returns_appears_empty_warning() {
+        let dir = tempdir().unwrap();
+
+        let warnings = verify_clone(dir.path());
+
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("appears empty"),
+            "expected 'appears empty' in: {}",
+            warnings[0]
+        );
+    }
+
+    #[test]
+    fn verify_clone_dir_with_files_returns_no_warnings() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("README.md"), "# hello").unwrap();
+        fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
+
+        let warnings = verify_clone(dir.path());
+
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn verify_clone_package_json_without_node_modules_has_no_warning() {
+        // node_modules check only fires when node_modules EXISTS — if it's
+        // absent (user chose not to install deps) there should be no warning.
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("package.json"), r#"{"name":"test"}"#).unwrap();
+
+        let warnings = verify_clone(dir.path());
+
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings when node_modules is absent, got: {:?}",
+            warnings
+        );
+    }
+
+    #[test]
+    fn verify_clone_package_json_with_empty_node_modules_warns() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("package.json"), r#"{"name":"test"}"#).unwrap();
+        // Create node_modules but leave it empty (< 3 entries)
+        fs::create_dir(dir.path().join("node_modules")).unwrap();
+
+        let warnings = verify_clone(dir.path());
+
+        assert!(
+            warnings.iter().any(|w| w.contains("node_modules")),
+            "expected node_modules warning, got: {:?}",
+            warnings
+        );
+    }
+
+    // ── detect_install_command ────────────────────────────────────────────────
+    // The function delegates directly to claude_md::detect_install_command, so
+    // we verify that the delegation works end-to-end for the most common cases.
+
+    #[test]
+    fn detect_install_command_returns_none_for_empty_dir() {
+        let dir = tempdir().unwrap();
+        assert!(detect_install_command(dir.path()).is_none());
+    }
+
+    #[test]
+    fn detect_install_command_detects_pnpm_lock() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
+
+        let cmd = detect_install_command(dir.path());
+        assert_eq!(cmd.as_deref(), Some("pnpm install"));
+    }
+
+    #[test]
+    fn detect_install_command_detects_package_json_without_lockfile() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("package.json"), r#"{"name":"x"}"#).unwrap();
+
+        let cmd = detect_install_command(dir.path());
+        assert_eq!(cmd.as_deref(), Some("npm install"));
+    }
+
+    #[test]
+    fn detect_install_command_detects_cargo_lock() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Cargo.lock"), "").unwrap();
+
+        let cmd = detect_install_command(dir.path());
+        assert_eq!(cmd.as_deref(), Some("cargo build"));
+    }
+}

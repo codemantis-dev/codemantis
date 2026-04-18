@@ -39,9 +39,10 @@ pub struct DevServerErrorEvent {
     pub project_path: String,
 }
 
-/// Write console error/warn entries to ~/.codemantis/preview-console.log as NDJSON.
+/// Write console error/warn entries to `log_dir/preview-console.log` as NDJSON.
 /// Truncates to the most recent 200 entries.
-fn write_console_log_file(entries: &[ConsoleLogEntry]) {
+/// Extracted as a separate function to allow testing with an arbitrary directory.
+fn write_console_log_to_dir(entries: &[ConsoleLogEntry], log_dir: &std::path::Path) {
     let error_entries: Vec<&ConsoleLogEntry> = entries
         .iter()
         .filter(|e| e.level == "error" || e.level == "warn")
@@ -54,13 +55,8 @@ fn write_console_log_file(entries: &[ConsoleLogEntry]) {
         error_entries
     };
 
-    let log_dir = match dirs::home_dir() {
-        Some(h) => h.join(".codemantis"),
-        None => return,
-    };
-
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        debug!("Failed to create .codemantis dir: {}", e);
+    if let Err(e) = std::fs::create_dir_all(log_dir) {
+        debug!("Failed to create log dir: {}", e);
         return;
     }
 
@@ -82,6 +78,16 @@ fn write_console_log_file(entries: &[ConsoleLogEntry]) {
             }
         }
     }
+}
+
+/// Write console error/warn entries to ~/.codemantis/preview-console.log as NDJSON.
+/// Truncates to the most recent 200 entries.
+fn write_console_log_file(entries: &[ConsoleLogEntry]) {
+    let log_dir = match dirs::home_dir() {
+        Some(h) => h.join(".codemantis"),
+        None => return,
+    };
+    write_console_log_to_dir(entries, &log_dir);
 }
 
 /// Capture screenshot of the preview window (shared logic).
@@ -1138,4 +1144,202 @@ pub async fn get_dev_server_status(
 ) -> Result<Option<DevServerInfo>, String> {
     let servers = preview_state.dev_servers.lock().await;
     Ok(servers.get(&project_path).cloned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    // ── ConsoleLogEntry ───────────────────────────────────────────────────────
+
+    #[test]
+    fn console_log_entry_serializes_with_camel_case_fields() {
+        let entry = ConsoleLogEntry {
+            level: "error".to_string(),
+            ts: "2024-01-01T00:00:00Z".to_string(),
+            msg: "Something went wrong".to_string(),
+            url: "http://localhost:3000/app".to_string(),
+            stack: Some("Error\n  at foo (app.js:1)".to_string()),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+
+        // All fields are simple words so camelCase == snake_case here, but
+        // verify each field name is present and the value round-trips.
+        assert!(json.contains("\"level\""), "missing level field: {}", json);
+        assert!(json.contains("\"ts\""), "missing ts field: {}", json);
+        assert!(json.contains("\"msg\""), "missing msg field: {}", json);
+        assert!(json.contains("\"url\""), "missing url field: {}", json);
+        assert!(json.contains("\"stack\""), "missing stack field: {}", json);
+        assert!(json.contains("error"));
+        assert!(json.contains("Something went wrong"));
+    }
+
+    #[test]
+    fn console_log_entry_with_null_stack_serializes_correctly() {
+        let entry = ConsoleLogEntry {
+            level: "warn".to_string(),
+            ts: "2024-01-02T12:00:00Z".to_string(),
+            msg: "Deprecated API".to_string(),
+            url: "http://localhost:3000/page".to_string(),
+            stack: None,
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"stack\":null"));
+    }
+
+    #[test]
+    fn console_log_entry_deserializes_from_json() {
+        let json = r#"{"level":"error","ts":"2024-01-01T00:00:00Z","msg":"oops","url":"http://localhost:3000","stack":null}"#;
+        let entry: ConsoleLogEntry = serde_json::from_str(json).unwrap();
+
+        assert_eq!(entry.level, "error");
+        assert_eq!(entry.msg, "oops");
+        assert!(entry.stack.is_none());
+    }
+
+    // ── write_console_log_to_dir ──────────────────────────────────────────────
+
+    fn make_entry(level: &str, msg: &str) -> ConsoleLogEntry {
+        ConsoleLogEntry {
+            level: level.to_string(),
+            ts: "2024-01-01T00:00:00Z".to_string(),
+            msg: msg.to_string(),
+            url: "http://localhost:3000".to_string(),
+            stack: None,
+        }
+    }
+
+    #[test]
+    fn write_console_log_to_dir_creates_log_file_with_ndjson_entries() {
+        let dir = tempdir().unwrap();
+        let entries = vec![
+            make_entry("error", "Error one"),
+            make_entry("warn", "Warning one"),
+            make_entry("info", "Info — should be filtered out"),
+        ];
+
+        write_console_log_to_dir(&entries, dir.path());
+
+        let log_path = dir.path().join("preview-console.log");
+        assert!(log_path.exists(), "log file should be created");
+
+        let content = fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+
+        // Only error and warn entries should be written
+        assert_eq!(lines.len(), 2, "expected 2 lines (error + warn), got: {:?}", lines);
+
+        // Each line should be valid JSON containing the expected message
+        let parsed_0: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        let parsed_1: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+
+        assert_eq!(parsed_0["level"], "error");
+        assert_eq!(parsed_0["msg"], "Error one");
+        assert_eq!(parsed_1["level"], "warn");
+        assert_eq!(parsed_1["msg"], "Warning one");
+    }
+
+    #[test]
+    fn write_console_log_to_dir_handles_empty_entries() {
+        let dir = tempdir().unwrap();
+
+        write_console_log_to_dir(&[], dir.path());
+
+        // File is created (truncated) even with no entries
+        let log_path = dir.path().join("preview-console.log");
+        assert!(log_path.exists(), "log file should be created even for empty input");
+
+        let content = fs::read_to_string(&log_path).unwrap();
+        assert!(content.is_empty(), "log file should be empty for empty input");
+    }
+
+    #[test]
+    fn write_console_log_to_dir_filters_out_info_and_log_entries() {
+        let dir = tempdir().unwrap();
+        let entries = vec![
+            make_entry("info", "Info message"),
+            make_entry("log", "Log message"),
+            make_entry("debug", "Debug message"),
+        ];
+
+        write_console_log_to_dir(&entries, dir.path());
+
+        let log_path = dir.path().join("preview-console.log");
+        let content = fs::read_to_string(&log_path).unwrap();
+        assert!(
+            content.is_empty(),
+            "info/log/debug entries should not be written, got: {}",
+            content
+        );
+    }
+
+    #[test]
+    fn write_console_log_to_dir_truncates_to_200_most_recent_entries() {
+        let dir = tempdir().unwrap();
+
+        // Create 250 error entries
+        let entries: Vec<ConsoleLogEntry> = (0..250)
+            .map(|i| make_entry("error", &format!("Error #{}", i)))
+            .collect();
+
+        write_console_log_to_dir(&entries, dir.path());
+
+        let log_path = dir.path().join("preview-console.log");
+        let content = fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+
+        assert_eq!(lines.len(), 200, "should truncate to 200 entries");
+
+        // Most recent 200 entries should be written (indices 50..250)
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        let last: serde_json::Value = serde_json::from_str(lines[199]).unwrap();
+        assert_eq!(first["msg"], "Error #50");
+        assert_eq!(last["msg"], "Error #249");
+    }
+
+    #[test]
+    fn write_console_log_to_dir_creates_parent_dir_if_missing() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("a").join("b").join("c");
+
+        write_console_log_to_dir(&[make_entry("error", "test")], &nested);
+
+        assert!(nested.join("preview-console.log").exists());
+    }
+
+    // ── DevServerReadyEvent / DevServerErrorEvent serialization ──────────────
+
+    #[test]
+    fn dev_server_ready_event_serializes_with_camel_case() {
+        let event = DevServerReadyEvent {
+            port: 3000,
+            url: "http://localhost:3000".to_string(),
+            terminal_id: "term-1".to_string(),
+            project_path: "/home/user/project".to_string(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"terminalId\""), "expected camelCase terminalId: {}", json);
+        assert!(json.contains("\"projectPath\""), "expected camelCase projectPath: {}", json);
+        assert!(json.contains("\"port\""));
+        assert!(json.contains("\"url\""));
+        assert!(!json.contains("terminal_id"), "snake_case must not appear: {}", json);
+    }
+
+    #[test]
+    fn dev_server_error_event_serializes_with_camel_case() {
+        let event = DevServerErrorEvent {
+            message: "Could not detect port".to_string(),
+            project_path: "/home/user/project".to_string(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"projectPath\""), "expected camelCase projectPath: {}", json);
+        assert!(json.contains("\"message\""));
+        assert!(!json.contains("project_path"), "snake_case must not appear: {}", json);
+    }
 }

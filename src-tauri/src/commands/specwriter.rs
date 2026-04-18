@@ -691,3 +691,597 @@ fn list_files_shallow(dir: &Path, max_depth: usize, files: &mut Vec<String>, bas
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn temp_dir() -> TempDir {
+        tempfile::tempdir().expect("Failed to create temp dir")
+    }
+
+    // ── save_spec_document ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn save_spec_document_creates_file_and_returns_path() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        let result = save_spec_document(
+            project.clone(),
+            "my-spec.md".to_string(),
+            "# My Spec\n\nContent here.".to_string(),
+            false,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let returned_path = result.unwrap();
+        assert!(returned_path.ends_with("docs/specs/my-spec.md") || returned_path.contains("my-spec.md"));
+
+        let spec_path = dir.path().join("docs").join("specs").join("my-spec.md");
+        assert!(spec_path.exists());
+        let content = fs::read_to_string(&spec_path).unwrap();
+        assert_eq!(content, "# My Spec\n\nContent here.");
+    }
+
+    #[tokio::test]
+    async fn save_spec_document_errors_on_existing_file_without_overwrite() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // First write
+        save_spec_document(
+            project.clone(),
+            "spec.md".to_string(),
+            "original".to_string(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Second write without overwrite flag
+        let result = save_spec_document(
+            project.clone(),
+            "spec.md".to_string(),
+            "updated".to_string(),
+            false,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("already exists") || err.contains("spec.md"));
+
+        // Original content preserved
+        let spec_path = dir.path().join("docs").join("specs").join("spec.md");
+        assert_eq!(fs::read_to_string(&spec_path).unwrap(), "original");
+    }
+
+    #[tokio::test]
+    async fn save_spec_document_with_overwrite_replaces_existing() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        save_spec_document(
+            project.clone(),
+            "spec.md".to_string(),
+            "original".to_string(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        let result = save_spec_document(
+            project.clone(),
+            "spec.md".to_string(),
+            "updated content".to_string(),
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let spec_path = dir.path().join("docs").join("specs").join("spec.md");
+        assert_eq!(fs::read_to_string(&spec_path).unwrap(), "updated content");
+    }
+
+    // ── list_spec_documents ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_spec_documents_returns_empty_for_nonexistent_dir() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        let result = list_spec_documents(project).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_spec_documents_finds_md_files_and_extracts_titles() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // Create docs/specs directory and files
+        let specs_dir = dir.path().join("docs").join("specs");
+        fs::create_dir_all(&specs_dir).unwrap();
+
+        fs::write(specs_dir.join("auth.md"), "# Authentication Flow\n\nDetails here.").unwrap();
+        fs::write(specs_dir.join("payments.md"), "## No h1 heading\n\nContent.").unwrap();
+        // Non-.md file should be excluded
+        fs::write(specs_dir.join("notes.txt"), "should be ignored").unwrap();
+
+        let result = list_spec_documents(project).await;
+        assert!(result.is_ok());
+        let docs = result.unwrap();
+
+        assert_eq!(docs.len(), 2);
+
+        // Auth spec: title extracted from # heading
+        let auth = docs.iter().find(|d| d.filename == "auth.md").expect("auth.md missing");
+        assert_eq!(auth.title, "Authentication Flow");
+
+        // Payments spec: no # heading, falls back to filename stem
+        let payments = docs.iter().find(|d| d.filename == "payments.md").expect("payments.md missing");
+        assert_eq!(payments.title, "payments");
+    }
+
+    // ── read_spec_document ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn read_spec_document_returns_content() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        let specs_dir = dir.path().join("docs").join("specs");
+        fs::create_dir_all(&specs_dir).unwrap();
+        fs::write(specs_dir.join("feature.md"), "# Feature\n\nSpec body.").unwrap();
+
+        let result = read_spec_document(project, "feature.md".to_string()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "# Feature\n\nSpec body.");
+    }
+
+    #[tokio::test]
+    async fn read_spec_document_errors_on_missing_file() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        let result = read_spec_document(project, "nonexistent.md".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read spec"));
+    }
+
+    // ── delete_spec_document ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn delete_spec_document_removes_file() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        let specs_dir = dir.path().join("docs").join("specs");
+        fs::create_dir_all(&specs_dir).unwrap();
+        let spec_file = specs_dir.join("to-delete.md");
+        fs::write(&spec_file, "# To Delete").unwrap();
+        assert!(spec_file.exists());
+
+        let result = delete_spec_document(project, "to-delete.md".to_string()).await;
+        assert!(result.is_ok());
+        assert!(!spec_file.exists());
+    }
+
+    // ── read_project_files ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn read_project_files_reads_multiple_files_and_respects_max_lines() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // Write two files; one has 5 lines
+        fs::write(dir.path().join("a.ts"), "line1\nline2\nline3").unwrap();
+        fs::write(dir.path().join("b.ts"), "x\ny\nz\nw\nv\nextra").unwrap();
+
+        let result = read_project_files(
+            project,
+            vec!["a.ts".to_string(), "b.ts".to_string()],
+            Some(4),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let files = result.unwrap();
+        assert_eq!(files.len(), 2);
+
+        let a = files.iter().find(|f| f.path == "a.ts").unwrap();
+        assert!(a.found);
+        assert_eq!(a.total_lines, 3);
+        assert!(!a.truncated);
+
+        let b = files.iter().find(|f| f.path == "b.ts").unwrap();
+        assert!(b.found);
+        assert_eq!(b.total_lines, 6);
+        assert!(b.truncated);
+        // max_lines = 4, so content has 4 lines
+        let content = b.content.as_ref().unwrap();
+        assert_eq!(content.lines().count(), 4);
+    }
+
+    #[tokio::test]
+    async fn read_project_files_blocks_path_traversal() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // Create a file outside the project root to attempt to read
+        let outside_dir = temp_dir();
+        let outside_file = outside_dir.path().join("secret.txt");
+        fs::write(&outside_file, "secret contents").unwrap();
+
+        // Attempt traversal: ../../<outside_dir>/secret.txt
+        // Use an absolute path outside the project root directly via a relative traversal
+        let traversal = format!(
+            "../../{}",
+            outside_file.strip_prefix("/").unwrap_or(&outside_file).display()
+        );
+
+        let result = read_project_files(project, vec![traversal.clone()], None).await;
+        assert!(result.is_ok());
+        let files = result.unwrap();
+        assert_eq!(files.len(), 1);
+        // Must not have found / returned the file
+        assert!(!files[0].found);
+    }
+
+    #[tokio::test]
+    async fn read_project_files_limits_to_five_files() {
+        let dir = temp_dir();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // Create 7 files
+        let mut paths = Vec::new();
+        for i in 0..7 {
+            let name = format!("file{}.txt", i);
+            fs::write(dir.path().join(&name), format!("content {}", i)).unwrap();
+            paths.push(name);
+        }
+
+        let result = read_project_files(project, paths, None).await;
+        assert!(result.is_ok());
+        // Only 5 results returned regardless of how many paths were given
+        assert_eq!(result.unwrap().len(), 5);
+    }
+
+    // ── gather_spec_context ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn gather_spec_context_includes_project_name_and_framework() {
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        // Add a Rust indicator so framework detection triggers
+        fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"test\"").unwrap();
+
+        let result = gather_spec_context(project_path).await;
+        assert!(result.is_ok());
+        let ctx = result.unwrap();
+
+        // Project name appears (last path component of temp dir)
+        let project_name = dir.path().file_name().unwrap().to_string_lossy().to_string();
+        assert!(ctx.contains(&project_name));
+
+        // Framework detection picks up Cargo.toml → Rust
+        assert!(ctx.contains("Rust"));
+    }
+
+    #[tokio::test]
+    async fn gather_spec_context_includes_claude_md_when_present() {
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        fs::write(
+            dir.path().join("CLAUDE.md"),
+            "# Project Guide\n\nThis is the project guide.",
+        )
+        .unwrap();
+
+        let result = gather_spec_context(project_path).await;
+        assert!(result.is_ok());
+        let ctx = result.unwrap();
+        assert!(ctx.contains("CLAUDE.md"));
+        assert!(ctx.contains("Project Guide"));
+    }
+
+    // ── add_verification_workflow_to_claude_md ────────────────────────────
+
+    #[tokio::test]
+    async fn add_verification_workflow_creates_new_claude_md() {
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        let result = add_verification_workflow_to_claude_md(project_path).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "added");
+
+        let claude_md = dir.path().join("CLAUDE.md");
+        assert!(claude_md.exists());
+        let content = fs::read_to_string(&claude_md).unwrap();
+        assert!(content.contains("SpecWriter Verification Workflow"));
+    }
+
+    #[tokio::test]
+    async fn add_verification_workflow_appends_to_existing_claude_md() {
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        fs::write(dir.path().join("CLAUDE.md"), "# Existing Guide\n\nExisting content.").unwrap();
+
+        let result = add_verification_workflow_to_claude_md(project_path).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "added");
+
+        let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+        assert!(content.contains("# Existing Guide"));
+        assert!(content.contains("Existing content."));
+        assert!(content.contains("SpecWriter Verification Workflow"));
+    }
+
+    #[tokio::test]
+    async fn add_verification_workflow_is_idempotent() {
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        // First call
+        let r1 = add_verification_workflow_to_claude_md(project_path.clone()).await;
+        assert!(r1.is_ok());
+        assert_eq!(r1.unwrap(), "added");
+
+        // Second call — section already present
+        let r2 = add_verification_workflow_to_claude_md(project_path).await;
+        assert!(r2.is_ok());
+        assert_eq!(r2.unwrap(), "already_exists");
+    }
+
+    // ── detect_framework ─────────────────────────────────────────────────
+
+    #[test]
+    fn detect_framework_returns_unknown_for_empty_dir() {
+        let dir = temp_dir();
+        let framework = detect_framework(dir.path());
+        assert_eq!(framework, "Unknown");
+    }
+
+    #[test]
+    fn detect_framework_detects_nextjs_from_next_config_ts() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("next.config.ts"), "").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Next.js");
+    }
+
+    #[test]
+    fn detect_framework_detects_nextjs_from_next_config_js() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("next.config.js"), "").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Next.js");
+    }
+
+    #[test]
+    fn detect_framework_detects_vite_from_vite_config_ts() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("vite.config.ts"), "").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Vite");
+    }
+
+    #[test]
+    fn detect_framework_detects_rust_from_cargo_toml() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Rust");
+    }
+
+    #[test]
+    fn detect_framework_detects_sveltekit() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("svelte.config.js"), "").unwrap();
+        assert_eq!(detect_framework(dir.path()), "SvelteKit");
+    }
+
+    #[test]
+    fn detect_framework_detects_astro() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("astro.config.mjs"), "").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Astro");
+    }
+
+    #[test]
+    fn detect_framework_detects_go() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("go.mod"), "module example.com/app").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Go");
+    }
+
+    #[test]
+    fn detect_framework_detects_python_from_pyproject_toml() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("pyproject.toml"), "[tool.poetry]").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Python");
+    }
+
+    #[test]
+    fn detect_framework_detects_python_from_requirements_txt() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("requirements.txt"), "requests==2.31.0").unwrap();
+        assert_eq!(detect_framework(dir.path()), "Python");
+    }
+
+    // ── list_files_shallow ────────────────────────────────────────────────
+
+    #[test]
+    fn list_files_shallow_returns_empty_for_depth_zero() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("file.ts"), "content").unwrap();
+
+        let mut files = Vec::new();
+        list_files_shallow(dir.path(), 0, &mut files, dir.path());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn list_files_shallow_lists_files_at_depth_one() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("a.ts"), "").unwrap();
+        fs::write(dir.path().join("b.ts"), "").unwrap();
+
+        let mut files = Vec::new();
+        list_files_shallow(dir.path(), 1, &mut files, dir.path());
+        files.sort();
+        assert_eq!(files, vec!["a.ts", "b.ts"]);
+    }
+
+    #[test]
+    fn list_files_shallow_excludes_node_modules_and_dist() {
+        let dir = temp_dir();
+        fs::write(dir.path().join("index.ts"), "").unwrap();
+        let nm = dir.path().join("node_modules");
+        fs::create_dir_all(&nm).unwrap();
+        fs::write(nm.join("lib.js"), "").unwrap();
+        let dist = dir.path().join("dist");
+        fs::create_dir_all(&dist).unwrap();
+        fs::write(dist.join("bundle.js"), "").unwrap();
+
+        let mut files = Vec::new();
+        list_files_shallow(dir.path(), 2, &mut files, dir.path());
+        // Only index.ts should appear; node_modules and dist are skipped
+        assert_eq!(files, vec!["index.ts"]);
+    }
+
+    #[test]
+    fn list_files_shallow_descends_at_depth_two() {
+        let dir = temp_dir();
+        let sub = dir.path().join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("nested.ts"), "").unwrap();
+
+        let mut files = Vec::new();
+        list_files_shallow(dir.path(), 2, &mut files, dir.path());
+        assert!(files.iter().any(|f| f.contains("nested.ts")));
+    }
+
+    // ── find_routes_recursive ─────────────────────────────────────────────
+
+    #[test]
+    fn find_routes_recursive_finds_page_tsx_files() {
+        let dir = temp_dir();
+        let app_dir = dir.path().join("app").join("dashboard");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::write(app_dir.join("page.tsx"), "export default function Page() {}").unwrap();
+
+        let mut routes = Vec::new();
+        find_routes_recursive(dir.path(), &["page.tsx"], &mut routes, dir.path());
+        assert_eq!(routes.len(), 1);
+        assert!(routes[0].contains("page.tsx"));
+    }
+
+    #[test]
+    fn find_routes_recursive_skips_node_modules_and_target() {
+        let dir = temp_dir();
+
+        // Route inside node_modules — must be skipped
+        let nm = dir.path().join("node_modules").join("pkg").join("app");
+        fs::create_dir_all(&nm).unwrap();
+        fs::write(nm.join("page.tsx"), "").unwrap();
+
+        // Route inside target — must be skipped
+        let tgt = dir.path().join("target").join("app");
+        fs::create_dir_all(&tgt).unwrap();
+        fs::write(tgt.join("page.tsx"), "").unwrap();
+
+        let mut routes = Vec::new();
+        find_routes_recursive(dir.path(), &["page.tsx"], &mut routes, dir.path());
+        assert!(routes.is_empty());
+    }
+
+    // ── DB: task plan operations ──────────────────────────────────────────
+
+    #[test]
+    fn db_save_and_load_task_plan_roundtrip() {
+        let db = crate::test_helpers::test_db();
+        let project = "/tmp/test-project-spec";
+        let plan_json = r#"{"tasks":["task1","task2"]}"#;
+
+        db.insert_task_plan("plan-001", project, plan_json).unwrap();
+
+        let loaded = db.get_task_plan(project).unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap(), plan_json);
+    }
+
+    #[test]
+    fn db_save_update_load_task_plan_reflects_update() {
+        let db = crate::test_helpers::test_db();
+        let project = "/tmp/test-project-update";
+        let original = r#"{"tasks":["initial"]}"#;
+        let updated = r#"{"tasks":["initial","added"]}"#;
+
+        db.insert_task_plan("plan-002", project, original).unwrap();
+        db.update_task_plan(project, updated).unwrap();
+
+        let loaded = db.get_task_plan(project).unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap(), updated);
+    }
+
+    #[test]
+    fn db_get_active_plan_id_returns_inserted_id() {
+        let db = crate::test_helpers::test_db();
+        let project = "/tmp/test-project-id";
+
+        // No plan yet — returns None
+        let none = db.get_active_plan_id(project).unwrap();
+        assert!(none.is_none());
+
+        db.insert_task_plan("plan-id-test", project, "{}").unwrap();
+
+        let id = db.get_active_plan_id(project).unwrap();
+        assert_eq!(id.as_deref(), Some("plan-id-test"));
+    }
+
+    #[test]
+    fn db_delete_task_plan_removes_entry() {
+        let db = crate::test_helpers::test_db();
+        let project = "/tmp/test-project-delete";
+
+        db.insert_task_plan("plan-del", project, "{}").unwrap();
+
+        // Confirm it's there
+        assert!(db.get_task_plan(project).unwrap().is_some());
+
+        db.delete_task_plan_by_id("plan-del").unwrap();
+
+        // Now it's gone
+        let after = db.get_task_plan(project).unwrap();
+        assert!(after.is_none());
+    }
+
+    #[test]
+    fn db_archive_task_plan_hides_from_active_query() {
+        let db = crate::test_helpers::test_db();
+        let project = "/tmp/test-project-archive";
+
+        db.insert_task_plan("plan-arch", project, r#"{"v":1}"#).unwrap();
+        assert!(db.get_task_plan(project).unwrap().is_some());
+
+        db.archive_task_plan("plan-arch").unwrap();
+
+        // get_task_plan only returns active plans
+        let after = db.get_task_plan(project).unwrap();
+        assert!(after.is_none());
+    }
+
+    #[test]
+    fn db_load_task_plan_returns_none_for_unknown_project() {
+        let db = crate::test_helpers::test_db();
+        let loaded = db.get_task_plan("/no/such/project").unwrap();
+        assert!(loaded.is_none());
+    }
+}
