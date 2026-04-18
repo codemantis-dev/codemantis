@@ -16,6 +16,7 @@ import {
   TestTube,
   GitCommit,
   AlertTriangle,
+  LifeBuoy,
   Loader2,
 } from "lucide-react";
 import { useSelfDriveStore } from "../../stores/selfDriveStore";
@@ -33,6 +34,7 @@ const PHASE_CONFIG: Record<SelfDrivePhase, { icon: typeof Hammer; label: string;
   evaluating:      { icon: Brain,        label: "AI deciding...",  color: "var(--purple, #a855f7)" },
   advancing:       { icon: Play,         label: "Advancing",       color: "var(--color-green, #22c55e)" },
   committing:      { icon: GitCommit,    label: "Committing",      color: "var(--accent)" },
+  recovering:      { icon: LifeBuoy,     label: "Recovering",      color: "var(--yellow, #eab308)" },
 };
 
 export default function SelfDriveStatus() {

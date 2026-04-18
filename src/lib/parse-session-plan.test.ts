@@ -55,6 +55,87 @@ function makeSession(index: number, opts: {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+// ── Kind-suffix parsing ────────────────────────────────────────────────
+
+describe("parseSessionPlan — VerifyCheck kind tags", () => {
+  it("parses trailing [side-effect] and [behavioral] tags", () => {
+    const s = `### Session 1: Infra
+**Prompt for Claude Code:**
+\`\`\`
+Deploy things.
+\`\`\`
+**Verify before next session:**
+- [ ] notes columns exist in migration file
+- [ ] Migration applied on remote [side-effect]
+- [ ] Tests pass for notes handler [behavioral]
+- [ ] [side-effect] kb_versions backfilled
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    expect(result).not.toBeNull();
+
+    const checks = result!.sessions[0].verifyChecks;
+    expect(checks).toHaveLength(4);
+
+    // Plain line — kind undefined (default "static").
+    expect(checks[0]).toEqual({ label: "notes columns exist in migration file" });
+
+    // Trailing [side-effect] stripped off label.
+    expect(checks[1]).toEqual({ label: "Migration applied on remote", kind: "side-effect" });
+
+    // Trailing [behavioral] stripped off label.
+    expect(checks[2]).toEqual({ label: "Tests pass for notes handler", kind: "behavioral" });
+
+    // Leading [side-effect] also works.
+    expect(checks[3]).toEqual({ label: "kb_versions backfilled", kind: "side-effect" });
+  });
+
+  it("treats explicit [static] tag as default (kind undefined)", () => {
+    const s = `### Session 1: Foo
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+**Verify before next session:**
+- [ ] something [static]
+
+### Session 2: Bar
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    expect(result!.sessions[0].verifyChecks[0]).toEqual({ label: "something" });
+  });
+
+  it("case-insensitive tag recognition", () => {
+    const s = `### Session 1: Foo
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+**Verify before next session:**
+- [ ] migration deployed [SIDE-EFFECT]
+- [ ] suite green [Behavioral]
+
+### Session 2: Bar
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    expect(result!.sessions[0].verifyChecks[0].kind).toBe("side-effect");
+    expect(result!.sessions[0].verifyChecks[1].kind).toBe("behavioral");
+  });
+});
+
 describe("parseSessionPlan", () => {
   it("parses a well-formed 5-session plan with all fields", () => {
     const sessions = Array.from({ length: 5 }, (_, i) =>
@@ -77,7 +158,10 @@ describe("parseSessionPlan", () => {
     expect(s1.readSections).toBe("Sections 1, 2");
     expect(s1.files).toEqual(["src/a0.ts", "src/b0.ts"]);
     expect(s1.prompt).toBe("Implement phase 1 of the spec.");
-    expect(s1.verifyChecks).toEqual(["pnpm tsc --noEmit passes", "Tests pass"]);
+    expect(s1.verifyChecks).toEqual([
+      { label: "pnpm tsc --noEmit passes" },
+      { label: "Tests pass" },
+    ]);
   });
 
   it("parses a minimal plan with only prompts (soft fields missing)", () => {
@@ -272,7 +356,7 @@ Check all error states and loading states.
 
     expect(result).not.toBeNull();
     expect(result!.sessions[1].verifyChecks).toHaveLength(1);
-    expect(result!.sessions[1].verifyChecks[0]).toContain("Run Verification Audit:");
+    expect(result!.sessions[1].verifyChecks[0].label).toContain("Run Verification Audit:");
   });
 
   it("handles Feature Specification title format", () => {
@@ -451,9 +535,11 @@ Create CRUD routes for User.
     );
     expect(result!.sessions[0].verificationPrompt).toContain("NOT EXPECTED:");
     // The existing manual verify checklist is still parsed
-    expect(result!.sessions[0].verifyChecks).toContain(
-      "User model exists with correct fields",
-    );
+    expect(
+      result!.sessions[0].verifyChecks.some(
+        (c) => c.label === "User model exists with correct fields",
+      ),
+    ).toBe(true);
 
     // Session 2 does not
     expect(result!.sessions[1].verificationPrompt).toBeNull();

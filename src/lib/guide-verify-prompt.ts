@@ -6,7 +6,7 @@
 interface SessionForVerify {
   index: number;
   name: string;
-  verifyChecks: { label: string }[];
+  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
   verificationPrompt?: string | null;
 }
 
@@ -24,22 +24,40 @@ VERIFICATION MODE — READ BEFORE DOING ANYTHING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 You are now in verification mode, not implementation mode. Your job
-is to OPEN FILES and REPORT EVIDENCE — not to fix things, not to
-summarize, not to infer.
+is to OPEN FILES or RUN COMMANDS and REPORT EVIDENCE — not to fix
+things, not to summarize, not to infer.
 
-THE CONTRACT:
-- Every item requires a file open (Read tool) before you report on it.
-- Every PASS must cite path:line_range and quote the exact code line(s).
-- Every FAIL must cite path:line_range and quote the code that proves it fails.
+THE CONTRACT (evidence form depends on the item's [kind] tag):
+- [static] — default. Every PASS must cite {file}:{lines} AND quote
+  the exact code line(s). FAIL must also cite file:lines and quote
+  the failing line(s). Open files with the Read tool.
+- [side-effect] — effect on an external system (DB, API, deploy, fs
+  mutation). A file is NOT evidence — it merely describes the
+  intended effect. Evidence must be COMMAND OUTPUT: run the command
+  and quote stdout / query result / HTTP status. Use this form:
+    $ {command}
+    {quoted output lines}
+  PASS requires concrete output showing the effect. FAIL quotes the
+  error or missing-row result.
+- [behavioral] — a passing test or running behavior. Run the test
+  and quote the PASS line or assertion. Example evidence:
+    $ pnpm test -- foo.test.ts
+    ✓ does the thing (12ms)
+
+COMMON RULES:
 - You may NEVER emit "all X pass", "looks fine", "should work",
   "everything checks out", "LGTM", or any batch-assurance language.
-- If you cannot verify an item (file unreadable, scope unclear, too
-  expensive to check), emit "SKIPPED — {one-line reason}". Skipping
-  honestly is GOOD. Faking PASS is a contract violation.
+- If you cannot verify an item (file unreadable, command requires
+  privileges you don't have, scope unclear), emit
+  "SKIPPED — {one-line reason}". Skipping honestly is GOOD.
+  Faking PASS is a contract violation.
 - Do not run fixes during verification. Report first. Fix second.
 
 OUTPUT FORMAT — one line per item, exactly this shape:
-  {N}. {item label} — PASS|FAIL|SKIPPED|N/A — {file}:{lines} — {quoted evidence or reason}
+  {N}. {item label} — PASS|FAIL|SKIPPED|N/A — {evidence}
+  where {evidence} is either {file}:{lines} — {quoted code}  (static)
+                          OR $ {command} → {quoted output}    (side-effect)
+                          OR {test}:{line} — {quoted assert}  (behavioral)
 
 PACING (prevents context rushing):
 - Process items in BATCHES OF 10.
@@ -100,22 +118,25 @@ End with the final accounting line described in the preamble.${auditLine}`;
   }
 
   const numbered = session.verifyChecks
-    .map((c, i) => `${i + 1}. ${c.label}`)
+    .map((c, i) => `${i + 1}. [${c.kind ?? "static"}] ${c.label}`)
     .join("\n");
 
   return `${VERIFY_MODE_PREAMBLE}
 Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
 
-Items to verify (${total} total) — report PASS or FAIL for each:
+Items to verify (${total} total) — report PASS or FAIL for each. The
+[kind] tag on each item dictates what kind of evidence is required
+(see the preamble):
 ${numbered}
 
 For each numbered item above:
-1. Open the file(s) the item refers to (use the Read tool).
-2. Read the actual code that implements the item.
-3. Emit ONE line in this exact format:
-     {N}. {item} — PASS|FAIL|SKIPPED|N/A — {file}:{lines} — {quoted code or reason}
-4. After every 10 items, emit the running tally described in the preamble.
-5. End with the final accounting line.
+1. If [static]: open the file(s) referenced and read the code.
+   If [side-effect]: run the relevant command (query, HTTP call,
+   build/deploy) and capture its OUTPUT. Do not cite a source file.
+   If [behavioral]: run the test(s) and capture the PASS/assertion line.
+2. Emit ONE line in the format from the preamble matching the kind.
+3. After every 10 items, emit the running tally described in the preamble.
+4. End with the final accounting line.
 
 Do NOT batch. Do NOT assume. Do NOT summarize instead of verifying.${auditLine}`;
 }
@@ -147,7 +168,7 @@ Quote the final output line of the compiler as evidence.`;
       const lines = s.verifyChecks
         .map((c) => {
           n += 1;
-          return `${n}. [S${s.index}] ${c.label}`;
+          return `${n}. [S${s.index}] [${c.kind ?? "static"}] ${c.label}`;
         })
         .join("\n");
       return `### Session ${s.index}: ${s.name}\n${lines}`;

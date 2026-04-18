@@ -86,6 +86,9 @@ export function resetAllStores(): void {
     startedAt: null,
     sessionStartedAt: null,
     pauseReason: null,
+    activeBlocker: null,
+    blockerHistory: [],
+    recentPauseSummaries: [],
     config: {
       provider: "anthropic",
       model: "claude-haiku-4-5",

@@ -9,8 +9,31 @@ export interface ParsedSession {
   readSections: string;
   files: string[];
   prompt: string;
-  verifyChecks: string[];
+  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
   verificationPrompt?: string | null;
+}
+
+/**
+ * Extract an optional `[kind]` suffix (or prefix) from a VerifyCheck line.
+ * Accepts `[side-effect]`, `[behavioral]`, `[static]` (case-insensitive);
+ * any other bracketed content is treated as part of the label.
+ *
+ * Returns { label, kind } where kind is undefined for "static" (default).
+ */
+function extractCheckKind(raw: string): { label: string; kind?: "static" | "side-effect" | "behavioral" } {
+  // Trailing tag: "… thing to verify [side-effect]"
+  const tail = raw.match(/^(.*?)\s*\[(static|side-effect|behavioral)\]\s*$/i);
+  if (tail) {
+    const kind = tail[2].toLowerCase() as "static" | "side-effect" | "behavioral";
+    return { label: tail[1].trim(), kind: kind === "static" ? undefined : kind };
+  }
+  // Leading tag: "[side-effect] thing to verify"
+  const head = raw.match(/^\s*\[(static|side-effect|behavioral)\]\s*(.+)$/i);
+  if (head) {
+    const kind = head[1].toLowerCase() as "static" | "side-effect" | "behavioral";
+    return { label: head[2].trim(), kind: kind === "static" ? undefined : kind };
+  }
+  return { label: raw.trim() };
 }
 
 export interface ParsedSessionPlan {
@@ -111,14 +134,14 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
   const prompt = promptMatch?.[1]?.trim() ?? "";
 
   // Extract verify checks (lines with - [ ] or □)
-  const verifyChecks: string[] = [];
+  const verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[] = [];
   const verifySection = chunk.match(
     /\*\*Verify\b[^*]*\*\*[:\s]*\n((?:\s*-\s*\[[\sx]\].*\n?)+)/i,
   );
   if (verifySection) {
     const checkLines = verifySection[1].matchAll(/^\s*-\s*\[[\sx]?\]\s*(.+)/gm);
     for (const m of checkLines) {
-      verifyChecks.push(m[1].trim());
+      verifyChecks.push(extractCheckKind(m[1].trim()));
     }
   }
   // Also check for the last session's audit-style verify block
@@ -127,7 +150,9 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
       /\*\*Verify\s*\(full\s+audit\)[^*]*\*\*[:\s]*(?:.*\n)*?\s*```[^\n]*\n([\s\S]*?)```/i,
     );
     if (auditVerify) {
-      verifyChecks.push(`Run Verification Audit: ${auditVerify[1].trim().split("\n")[0]}`);
+      verifyChecks.push({
+        label: `Run Verification Audit: ${auditVerify[1].trim().split("\n")[0]}`,
+      });
     }
   }
 

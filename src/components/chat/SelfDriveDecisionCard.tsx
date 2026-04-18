@@ -2,6 +2,7 @@
 // Self-Drive Decision Card — center-aligned orchestrator action in chat
 // ═══════════════════════════════════════════════════════════════════════
 
+import { useState } from "react";
 import {
   CheckCircle2,
   Wrench,
@@ -12,9 +13,11 @@ import {
   XCircle,
   Hammer,
   GitCommit,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { formatTime } from "../../lib/format-utils";
+import { useSelfDriveStore } from "../../stores/selfDriveStore";
 
 interface SelfDriveEventData {
   action: string;
@@ -22,6 +25,14 @@ interface SelfDriveEventData {
   confidence: string;
   sessionIndex: number;
   phase: string;
+  blocker?: {
+    id: string;
+    kind: string;
+    summary: string;
+    optionsOffered: string[];
+    resolutionCriteria: string;
+    status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
+  };
 }
 
 interface Props {
@@ -105,6 +116,11 @@ const DEFAULT_STYLE: ActionStyle = {
 };
 
 export default function SelfDriveDecisionCard({ event, timestamp }: Props) {
+  // Blocker variant: render an actionable card with options + free text.
+  if (event.blocker) {
+    return <BlockerCard blocker={event.blocker} timestamp={timestamp} />;
+  }
+
   const style = ACTION_STYLES[event.action] ?? DEFAULT_STYLE;
   const Icon = style.icon;
 
@@ -125,6 +141,141 @@ export default function SelfDriveDecisionCard({ event, timestamp }: Props) {
         <span className="shrink-0 opacity-50 text-detail">
           {formatTime(timestamp)}
         </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── BlockerCard ───────────────────────────────────────────────────────
+// Shown when Self-Drive pauses on a structured blocker. The user picks an
+// offered option (or types a free-form resolution) and Resume triggers
+// a recovery verification against Claude Code before the session continues.
+
+interface BlockerCardProps {
+  blocker: NonNullable<SelfDriveEventData["blocker"]>;
+  timestamp: string;
+}
+
+function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
+  const [custom, setCustom] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const activeBlocker = useSelfDriveStore((s) => s.activeBlocker);
+  const userResolveBlocker = useSelfDriveStore((s) => s.userResolveBlocker);
+  const resume = useSelfDriveStore((s) => s.resume);
+  const status = useSelfDriveStore((s) => s.status);
+
+  // Is this card still the live one? We match by id so stale cards (from a
+  // previous paused run, or after resolution) show a resolved-looking state.
+  const isLive = activeBlocker?.id === blocker.id && status === "paused";
+  const cardStatus: typeof blocker.status = isLive ? blocker.status : "resolved";
+
+  const pickOption = async (resolution: string): Promise<void> => {
+    if (!isLive || submitting) return;
+    setSubmitting(true);
+    try {
+      userResolveBlocker(resolution);
+      await resume();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitCustom = (): void => {
+    const text = custom.trim();
+    if (text.length === 0) return;
+    pickOption(text);
+  };
+
+  return (
+    <div className="flex justify-center my-3">
+      <div
+        className="w-full max-w-[640px] rounded-xl border p-4 text-label"
+        style={{
+          background: "rgba(234, 179, 8, 0.08)",
+          borderColor: "rgba(234, 179, 8, 0.4)",
+          color: "var(--text-primary)",
+        }}
+      >
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" style={{ color: "var(--yellow, #eab308)" }} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold">Blocker</span>
+              <span
+                className="px-1.5 py-0.5 rounded text-detail uppercase tracking-wide"
+                style={{ background: "rgba(0,0,0,0.15)", color: "var(--text-secondary)" }}
+              >
+                {blocker.kind}
+              </span>
+              <span className="shrink-0 opacity-50 text-detail">{formatTime(timestamp)}</span>
+            </div>
+            <p className="mt-1" style={{ color: "var(--text-primary)" }}>
+              {blocker.summary}
+            </p>
+            <p className="mt-1 text-detail" style={{ color: "var(--text-secondary)" }}>
+              <span className="opacity-70">Resolution criteria:</span>{" "}
+              {blocker.resolutionCriteria}
+            </p>
+          </div>
+        </div>
+
+        {cardStatus === "open" && (
+          <>
+            {blocker.optionsOffered.length > 0 && (
+              <div className="mt-3 flex flex-col gap-1.5">
+                <p className="text-detail opacity-70">Pick an option:</p>
+                {blocker.optionsOffered.map((opt, i) => (
+                  <button
+                    key={i}
+                    disabled={submitting}
+                    onClick={() => pickOption(opt)}
+                    className="text-left px-3 py-1.5 rounded border text-label transition-colors hover:bg-bg-elevated disabled:opacity-50"
+                    style={{ borderColor: "var(--border-light)", color: "var(--text-primary)" }}
+                  >
+                    {i + 1}. {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3">
+              <label className="text-detail opacity-70">Or describe what you did:</label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="text"
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                  disabled={submitting}
+                  placeholder="e.g. Ran `supabase migration repair ...` and reverted 14 entries."
+                  className="flex-1 px-2 py-1 rounded border text-label"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "var(--border-light)",
+                    color: "var(--text-primary)",
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitCustom();
+                  }}
+                />
+                <button
+                  onClick={submitCustom}
+                  disabled={submitting || custom.trim().length === 0}
+                  className="px-3 py-1 rounded text-label font-medium disabled:opacity-40"
+                  style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
+                >
+                  Verify & Resume
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {cardStatus !== "open" && (
+          <p className="mt-3 text-detail" style={{ color: "var(--text-secondary)" }}>
+            Status: {cardStatus}
+            {activeBlocker?.userResolution && ` · ${activeBlocker.userResolution}`}
+          </p>
+        )}
       </div>
     </div>
   );

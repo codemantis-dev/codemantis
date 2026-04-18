@@ -196,7 +196,11 @@ describe("getCurrentSessionPlan", () => {
     expect(plan).not.toBeNull();
     expect(plan!.index).toBe(1);
     expect(plan!.name).toBe("Foundation");
-    expect(plan!.verifyChecks).toEqual(["TypeScript compiles", "Tests pass correctly", "Build succeeds with no errors"]);
+    expect(plan!.verifyChecks).toEqual([
+      { label: "TypeScript compiles", kind: undefined },
+      { label: "Tests pass correctly", kind: undefined },
+      { label: "Build succeeds with no errors", kind: undefined },
+    ]);
   });
 
   it("indicates last session correctly", () => {

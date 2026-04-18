@@ -24,7 +24,7 @@ const {
     name: `Session ${sessionIndex}`,
     scope: "Phase",
     prompt: "Build something",
-    verifyChecks: ["Check A", "Check B"],
+    verifyChecks: [{ label: "Check A" }, { label: "Check B" }],
     isLastSession: false,
     hasAuditDocument: false,
   })),
@@ -1274,8 +1274,8 @@ describe("selfDriveStore integration — full lifecycle", () => {
           action: "advance",
           summary: "Session done",
           confidence: "high",
-          checkResults: input.sessionPlan.verifyChecks.map((label: string) => ({
-            label,
+          checkResults: input.sessionPlan.verifyChecks.map((c) => ({
+            label: c.label,
             passed: true,
           })),
         };

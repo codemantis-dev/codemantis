@@ -24,7 +24,7 @@ function makeParsedPlan(): ParsedSessionPlan {
         readSections: "Sections 1, 2",
         files: ["src/db.ts"],
         prompt: "Build the foundation.",
-        verifyChecks: ["TypeScript compiles", "Tests pass"],
+        verifyChecks: [{ label: "TypeScript compiles" }, { label: "Tests pass" }],
       },
       {
         index: 2,
@@ -33,7 +33,7 @@ function makeParsedPlan(): ParsedSessionPlan {
         readSections: "Sections 3, 4",
         files: ["src/api.ts"],
         prompt: "Build the features.",
-        verifyChecks: ["API responds", "UI renders"],
+        verifyChecks: [{ label: "API responds" }, { label: "UI renders" }],
       },
       {
         index: 3,
@@ -42,7 +42,7 @@ function makeParsedPlan(): ParsedSessionPlan {
         readSections: "Sections 5",
         files: ["src/styles.ts"],
         prompt: "Polish everything.",
-        verifyChecks: ["All checks pass"],
+        verifyChecks: [{ label: "All checks pass" }],
       },
     ],
   };
@@ -162,7 +162,7 @@ describe("guideStore", () => {
           readSections: "Sections 1, 2",
           files: ["src/db.ts"],
           prompt: "Read docs/specs/hallucinated-name.md — but ONLY these sections:\n- Section 1",
-          verifyChecks: ["TypeScript compiles"],
+          verifyChecks: [{ label: "TypeScript compiles" }],
         },
         {
           index: 2,
@@ -171,7 +171,7 @@ describe("guideStore", () => {
           readSections: "Sections 3",
           files: ["src/api.ts"],
           prompt: "Read docs/specs/wrong-slug.md — but ONLY these sections:\n- Section 3",
-          verifyChecks: ["API responds"],
+          verifyChecks: [{ label: "API responds" }],
         },
       ],
     };
@@ -196,7 +196,7 @@ describe("guideStore", () => {
           readSections: "Sections 1",
           files: [],
           prompt: "Read docs/specs/foo.md — ONLY section 1.\n\nDo NOT modify files from previous sessions.",
-          verifyChecks: ["Check"],
+          verifyChecks: [{ label: "Check" }],
         },
         {
           index: 2,
@@ -205,7 +205,7 @@ describe("guideStore", () => {
           readSections: "Sections 2",
           files: [],
           prompt: "No spec reference here.",
-          verifyChecks: ["Check"],
+          verifyChecks: [{ label: "Check" }],
         },
       ],
     };
@@ -231,7 +231,7 @@ describe("guideStore", () => {
           readSections: "Sections 1",
           files: ["src/a.ts"],
           prompt: "Build it.",
-          verifyChecks: ["tsc"],
+          verifyChecks: [{ label: "tsc" }],
           verificationPrompt: "Open `src/a.ts`\n- VERIFY: exports default",
         },
         {
@@ -241,7 +241,7 @@ describe("guideStore", () => {
           readSections: "Sections 2",
           files: ["src/b.ts"],
           prompt: "Polish it.",
-          verifyChecks: ["tsc"],
+          verifyChecks: [{ label: "tsc" }],
           verificationPrompt: null,
         },
       ],
@@ -269,7 +269,7 @@ describe("guideStore", () => {
           readSections: "Sections 1",
           files: ["src/a.ts"],
           prompt: "Build it.",
-          verifyChecks: ["tsc"],
+          verifyChecks: [{ label: "tsc" }],
           verificationPrompt:
             "Read docs/specs/hallucinated.md then open `src/a.ts`.",
         },
@@ -280,7 +280,7 @@ describe("guideStore", () => {
           readSections: "Sections 2",
           files: ["src/b.ts"],
           prompt: "More.",
-          verifyChecks: ["tsc"],
+          verifyChecks: [{ label: "tsc" }],
         },
       ],
     };

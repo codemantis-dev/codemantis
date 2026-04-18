@@ -551,6 +551,20 @@ RULES:
 - **Prompt for Claude Code:** MUST be followed by a fenced code block (\`\`\`)
 - The fenced code block MUST contain the actual prompt text
 - **Verify** items MUST use "- [ ]" checkbox format
+- Each **Verify** item MUST end with an evidence-kind tag in brackets so
+  Self-Drive knows what evidence to demand. Use:
+    [side-effect]  — item requires live command output / query result
+                      (DB rows, HTTP status, deploy state, fs mutation).
+                      Example: "- [ ] Migration applied: all 7 tables
+                      exist on remote [side-effect]".
+    [behavioral]   — item is proven by a passing test or running behavior.
+                      Example: "- [ ] Tests pass: ask-kb handler
+                      returns 200 with retrieved chunks [behavioral]".
+    (no tag)       — default. File-level / static assertion verifiable by
+                      opening the code and quoting lines. Most items.
+  Tagging matters: mislabeling a side-effect as static lets the verifier
+  cite a file that only *requests* the effect, missing bugs where the
+  effect never happened (e.g. migration written but not deployed).
 - Do NOT use alternative formats (numbered lists, >, etc.)
 - Do NOT omit the prompt code block for any session
 - The LAST session's verify section may use "**Verify (full audit):**"
@@ -1830,6 +1844,20 @@ RULES:
 - **Prompt for Claude Code:** MUST be followed by a fenced code block (\`\`\`)
 - The fenced code block MUST contain the actual prompt text
 - **Verify** items MUST use "- [ ]" checkbox format
+- Each **Verify** item MUST end with an evidence-kind tag in brackets so
+  Self-Drive knows what evidence to demand. Use:
+    [side-effect]  — item requires live command output / query result
+                      (DB rows, HTTP status, deploy state, fs mutation).
+                      Example: "- [ ] Migration applied: all 7 tables
+                      exist on remote [side-effect]".
+    [behavioral]   — item is proven by a passing test or running behavior.
+                      Example: "- [ ] Tests pass: ask-kb handler
+                      returns 200 with retrieved chunks [behavioral]".
+    (no tag)       — default. File-level / static assertion verifiable by
+                      opening the code and quoting lines. Most items.
+  Tagging matters: mislabeling a side-effect as static lets the verifier
+  cite a file that only *requests* the effect, missing bugs where the
+  effect never happened (e.g. migration written but not deployed).
 - Do NOT use alternative formats (numbered lists, >, etc.)
 - Do NOT omit the prompt code block for any session
 - The LAST session's verify section may use "**Verify (full audit):**"

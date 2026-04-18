@@ -21,9 +21,19 @@ describe("VERIFY_MODE_PREAMBLE", () => {
   });
 
   it("mandates file opens, quoted evidence, and a final accounting line", () => {
-    expect(VERIFY_MODE_PREAMBLE).toContain("file open (Read tool)");
-    expect(VERIFY_MODE_PREAMBLE).toContain("quote the exact code");
+    expect(VERIFY_MODE_PREAMBLE).toContain("Open files with the Read tool");
+    // Word wrap may split "quote the exact code" across a newline — match
+    // the phrase with a whitespace-tolerant regex instead of a literal.
+    expect(VERIFY_MODE_PREAMBLE).toMatch(/quote\s+the\s+exact\s+code/);
     expect(VERIFY_MODE_PREAMBLE).toContain(FINAL_ACCOUNTING);
+  });
+
+  it("teaches per-kind evidence (static / side-effect / behavioral)", () => {
+    expect(VERIFY_MODE_PREAMBLE).toContain("[static]");
+    expect(VERIFY_MODE_PREAMBLE).toContain("[side-effect]");
+    expect(VERIFY_MODE_PREAMBLE).toContain("[behavioral]");
+    // side-effect rule: file is NOT evidence — must be command output
+    expect(VERIFY_MODE_PREAMBLE).toContain("A file is NOT evidence");
   });
 
   it("specifies batching of 10 items per batch with a running tally", () => {
@@ -56,8 +66,8 @@ describe("buildSessionVerifyPrompt", () => {
     expect(result).toContain("Session 2: Data Collection Overhaul");
     expect(result).toContain("docs/specs/ai-potential-analysis.md");
     expect(result).toContain("Items to verify (2 total)");
-    expect(result).toContain("1. Rating buttons render as 5 clickable buttons");
-    expect(result).toContain("2. TypeScript compiles: `pnpm tsc --noEmit`");
+    expect(result).toContain("1. [static] Rating buttons render as 5 clickable buttons");
+    expect(result).toContain("2. [static] TypeScript compiles: `pnpm tsc --noEmit`");
     expect(result).toContain("PASS or FAIL");
     expect(result).toContain(FINAL_ACCOUNTING);
     expect(result).not.toContain("Verification Audit at");
@@ -148,7 +158,7 @@ describe("buildSessionVerifyPrompt", () => {
 
     expect(result).toContain(PREAMBLE_HEADER);
     expect(result).toContain("Items to verify (1 total)");
-    expect(result).toContain("1. TypeScript compiles");
+    expect(result).toContain("1. [static] TypeScript compiles");
   });
 
   it("appends audit line to verificationPrompt when audit filename provided", () => {
@@ -196,11 +206,11 @@ describe("buildGuideCompleteVerifyPrompt", () => {
     expect(result).toContain(PREAMBLE_HEADER);
     expect(result).toContain("Total items to verify across all sessions: 4");
     expect(result).toContain("### Session 1: Backend Setup");
-    expect(result).toContain("1. [S1] DB migrations run");
-    expect(result).toContain("2. [S1] API endpoints respond");
+    expect(result).toContain("1. [S1] [static] DB migrations run");
+    expect(result).toContain("2. [S1] [static] API endpoints respond");
     expect(result).toContain("### Session 2: Frontend UI");
-    expect(result).toContain("3. [S2] Components render correctly");
-    expect(result).toContain("4. [S2] TypeScript compiles");
+    expect(result).toContain("3. [S2] [static] Components render correctly");
+    expect(result).toContain("4. [S2] [static] TypeScript compiles");
     expect(result).toContain("complete implementation");
     expect(result).toContain("docs/specs/my-spec.md");
     expect(result).toContain(FINAL_ACCOUNTING);
@@ -233,7 +243,7 @@ describe("buildGuideCompleteVerifyPrompt", () => {
 
     expect(result).not.toContain("### Session 1: Infra");
     expect(result).toContain("### Session 2: API");
-    expect(result).toContain("1. [S2] Tests pass");
+    expect(result).toContain("1. [S2] [static] Tests pass");
   });
 
   it("returns fallback prompt (with preamble) when all sessions have empty checks", () => {

@@ -22,7 +22,7 @@ DECISION RULES:
 AFTER A BUILD PHASE (currentPhase = "building"):
 - If Claude Code completed the work successfully (files created/modified, no errors mentioned) → {"action": "build_check", "buildCommand": "pnpm tsc --noEmit", "summary": "...", "confidence": "high"}
 - If Claude Code encountered errors it couldn't fix → {"action": "fix", "fixPrompt": "...", "summary": "...", "confidence": "high"}
-- If Claude Code asked a question or needs clarification → {"action": "pause", "pauseReason": "Claude Code needs input: ...", "summary": "...", "confidence": "high"}
+- If Claude Code asked a question, offered options, or needs clarification → {"action": "pause", "pauseReason": "...", "blocker": {...see BLOCKER CLASSIFICATION...}, "summary": "...", "confidence": "high"}
 - If Claude Code's response is empty or the process crashed → {"action": "pause", "pauseReason": "...", "summary": "...", "confidence": "low"}
 
 AFTER A BUILD CHECK (currentPhase = "build-checking"):
@@ -35,6 +35,10 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
 - Each entry must be one of:
   - { label, passed: true, evidence: "{file}:{lines} — {quoted code}" } — requires a file:lines citation AND a quoted code snippet lifted from Claude Code's response. The evidence string MUST contain a ":" between file and line range. No citation or no quoted code → NOT passed.
   - { label, passed: false, reason: "{short reason}" } — including when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
+- EVIDENCE KIND DEPENDS ON VerifyCheck.kind (see session plan):
+  - "static" (default): cite {file}:{lines} AND quote code. File reads are required.
+  - "side-effect": cite the COMMAND RUN AND quote its OUTPUT (stdout, query result, HTTP status). A file citation alone is INSUFFICIENT — the file merely requests the effect; you need evidence the effect happened. Evidence form: "$ {command} → {quoted output snippet}". Still contains ":" (after the $ or the command).
+  - "behavioral": cite a TEST NAME and quote the PASSING ASSERTION line. Evidence form: "{test-file}:{lines} — {quoted assertion or "PASS" line from runner}".
 - SKIMMING DETECTION: if Claude Code's response contains any of these phrases covering unverified items, mark those items { passed: false, reason: "verifier used batch-PASS language without evidence" }:
   - "all remaining items pass"
   - "the rest look correct"
@@ -58,15 +62,41 @@ AFTER A TEST PHASE (currentPhase = "testing"):
 AFTER A COMMIT PHASE (currentPhase = "committing"):
 - If commit was successful → {"action": "advance", "summary": "Committed successfully.", "confidence": "high"}
 
+AFTER A RECOVERY PHASE (currentPhase = "recovering"):
+You are being asked to evaluate whether the activeBlocker (see context) is now RESOLVED.
+Look for concrete evidence against activeBlocker.resolutionCriteria in Claude Code's response.
+- If the resolution criteria are clearly met with quoted evidence (command output, query result, etc.) → {"action": "advance_recovery", "summary": "Blocker {kind} resolved: {one-line evidence}", "confidence": "high"}
+- If the blocker is NOT resolved but Claude Code can try again → {"action": "fix", "fixPrompt": "Recovery not complete: {specific gap}. Run {concrete command} and quote the output.", "summary": "...", "confidence": "high"}
+- If the blocker is NOT resolved and needs more user input → {"action": "pause", "pauseReason": "Recovery incomplete: {specific gap}", "blocker": {unchanged or refined}, "summary": "...", "confidence": "medium"}
+- NEVER emit "advance" or "verify" from a recovering phase — those are reserved for the next cycle after recovery completes. Only "advance_recovery", "fix", or "pause" are valid.
+
+BLOCKER CLASSIFICATION — when action is "pause" and Claude Code surfaced a real obstacle (not just "task done"), include a structured blocker:
+  "blocker": {
+    "kind": "infra-state-drift" | "permissions" | "missing-deps" | "credentials" | "env-config" | "user-decision" | "external-failure" | "unknown",
+    "summary": "one-line description, like 'Supabase local/remote migration history mismatch (14 versions)'",
+    "optionsOffered": ["option text 1", "option text 2", ...],   // parse from Claude Code's numbered list if present; [] if none
+    "resolutionCriteria": "concrete, testable condition — e.g. 'supabase db push succeeds AND supabase_migrations.schema_migrations contains 20260418120000'"
+  }
+
+KIND HINTS:
+- "infra-state-drift": migration history, schema/deploy drift, out-of-sync env, dirty working tree blocking a merge.
+- "permissions": write denied, protected branch, missing scope.
+- "missing-deps": tool not installed, version too old, lockfile conflict.
+- "credentials": API key / token / login missing or invalid.
+- "env-config": env var missing, config file value wrong, region/project ID missing.
+- "user-decision": Claude Code asked "which approach?" or "how should I handle X?".
+- "external-failure": third-party service down, rate-limited, network unreachable.
+- "unknown": use only when none of the above fits.
+
 RULES:
 - NEVER advance if there are unresolved errors
 - NEVER generate fix prompts that are vague — be specific about what failed
-- If Claude Code's response mentions it needs user input (API keys, environment variables, design decisions) → ALWAYS pause
+- If Claude Code's response mentions it needs user input (API keys, environment variables, design decisions) → ALWAYS pause AND include a "blocker" object
 - If the response is ambiguous → set confidence to "low" and prefer "pause"
 - The fix prompt should reference the SPECIFIC errors, not just "fix the issues"
 - Keep summaries under 100 characters — they appear in the run log
 - checkResults must include a { label, passed, reason?, evidence? } for each verify check. Labels must match the session's VerifyCheck labels verbatim.
-- For verification phases, "passed: true" REQUIRES an "evidence" field containing "file:lines — quoted code". Advancing is forbidden without full per-check coverage — the system will pause Self-Drive if you try.`;
+- For verification phases, "passed: true" REQUIRES an "evidence" field containing a ":" and a quoted snippet. Advancing is forbidden without full per-check coverage — the system will pause Self-Drive if you try.`;
 }
 
 /**
@@ -74,11 +104,27 @@ RULES:
  */
 function buildUserMessage(input: OrchestratorInput): string {
   const checks = input.sessionPlan.verifyChecks.length > 0
-    ? input.sessionPlan.verifyChecks.map((c) => `- ${c}`).join("\n")
+    ? input.sessionPlan.verifyChecks
+        .map((c) => `- ${c.label} [${c.kind ?? "static"}]`)
+        .join("\n")
     : "(no verify checks for this session)";
 
   const previousFixes = input.previousFixPrompts.length > 0
     ? `\n\nPREVIOUS FIX PROMPTS ALREADY TRIED:\n${input.previousFixPrompts.map((p, i) => `${i + 1}. ${p.slice(0, 200)}`).join("\n")}`
+    : "";
+
+  const blockerBlock = input.activeBlocker
+    ? `\n\nACTIVE BLOCKER (recovery phase — evaluate whether this is now resolved):
+- id: ${input.activeBlocker.id}
+- kind: ${input.activeBlocker.kind}
+- summary: ${input.activeBlocker.summary}
+- resolution criteria: ${input.activeBlocker.resolutionCriteria}
+- status: ${input.activeBlocker.status}
+- user resolution: ${input.activeBlocker.userResolution ?? "(not yet reported)"}`
+    : "";
+
+  const pauseHistory = input.recentPauseSummaries.length > 0
+    ? `\n\nRECENT PAUSE HISTORY (oldest → newest):\n${input.recentPauseSummaries.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
     : "";
 
   return `CONTEXT:
@@ -92,7 +138,7 @@ function buildUserMessage(input: OrchestratorInput): string {
 - Is last session: ${input.sessionPlan.isLastSession}
 - Has audit document: ${input.sessionPlan.hasAuditDocument}
 
-VERIFY CHECKS FOR THIS SESSION:
+VERIFY CHECKS FOR THIS SESSION (label [kind]):
 ${checks}
 
 TOOLS USED THIS TURN:
@@ -101,7 +147,7 @@ ${input.claudeCodeToolsUsed.join(", ") || "none"}
 TURN DURATION: ${Math.round(input.turnDurationMs / 1000)}s
 
 CLAUDE CODE'S RESPONSE:
-${input.claudeCodeResponse}${previousFixes}`;
+${input.claudeCodeResponse}${previousFixes}${blockerBlock}${pauseHistory}`;
 }
 
 /**
@@ -236,7 +282,7 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
     throw new Error("Missing or invalid 'action' field");
   }
 
-  const validActions = ["advance", "verify", "fix", "build_check", "test", "commit", "pause", "abort"];
+  const validActions = ["advance", "verify", "fix", "build_check", "test", "commit", "pause", "abort", "advance_recovery"];
   if (!validActions.includes(parsed.action)) {
     throw new Error(`Invalid action: ${parsed.action}`);
   }
@@ -247,6 +293,35 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
 
   if (!parsed.confidence || !["high", "medium", "low"].includes(parsed.confidence)) {
     parsed.confidence = "medium";
+  }
+
+  // Sanitize the optional blocker object: wrong shapes are dropped rather
+  // than thrown — a malformed blocker shouldn't turn a valid pause into an
+  // orchestrator parse error.
+  if (parsed.blocker && typeof parsed.blocker === "object") {
+    const b = parsed.blocker;
+    const validKinds = [
+      "infra-state-drift", "permissions", "missing-deps", "credentials",
+      "env-config", "user-decision", "external-failure", "unknown",
+    ];
+    if (
+      typeof b.kind === "string" && validKinds.includes(b.kind) &&
+      typeof b.summary === "string" &&
+      typeof b.resolutionCriteria === "string"
+    ) {
+      parsed.blocker = {
+        kind: b.kind,
+        summary: b.summary,
+        optionsOffered: Array.isArray(b.optionsOffered)
+          ? b.optionsOffered.filter((o: unknown): o is string => typeof o === "string")
+          : [],
+        resolutionCriteria: b.resolutionCriteria,
+      };
+    } else {
+      delete parsed.blocker;
+    }
+  } else {
+    delete parsed.blocker;
   }
 
   return parsed as OrchestratorDecision;

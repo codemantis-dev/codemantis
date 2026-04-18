@@ -22,6 +22,7 @@ const PHASE_ICONS: Record<string, string> = {
   evaluating: "\ud83d\udd0d", // 🔍
   advancing: "\u27a1\ufe0f",  // ➡️
   committing: "\ud83d\udcbe", // 💾
+  recovering: "\ud83d\udee0",  // 🛠
   decision: "\ud83e\udde0",   // 🧠
   paused: "\u26a0\ufe0f",     // ⚠️
   resumed: "\u25b6",    // ▶
@@ -29,6 +30,10 @@ const PHASE_ICONS: Record<string, string> = {
   completed: "\ud83c\udf89",  // 🎉
   aborted: "\u274c",     // ❌
   crash: "\ud83d\udca5",      // 💥
+  "blocker-detected": "\ud83d\udeab",       // 🚫
+  "blocker-user-decided": "\u270f\ufe0f",    // ✏️
+  "blocker-verifying": "\ud83d\udd0e",       // 🔎
+  "blocker-resolved": "\u2705",              // ✅
 };
 
 function formatTimestamp(ts: number): string {
@@ -124,8 +129,8 @@ export default function RunLogViewer({ onClose }: Props) {
 function LogLine({ entry }: { entry: RunLogEntry }) {
   const [expanded, setExpanded] = useState(false);
   const icon = PHASE_ICONS[entry.phase] ?? "\u2022"; // bullet fallback
-  const isError = entry.phase === "paused" || entry.phase === "aborted" || entry.phase === "crash";
-  const isSuccess = entry.phase === "completed" || entry.phase === "advancing";
+  const isError = entry.phase === "paused" || entry.phase === "aborted" || entry.phase === "crash" || entry.phase === "blocker-detected";
+  const isSuccess = entry.phase === "completed" || entry.phase === "advancing" || entry.phase === "blocker-resolved";
 
   return (
     <div>

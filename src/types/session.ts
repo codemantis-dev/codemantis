@@ -53,6 +53,19 @@ export interface Message {
     confidence: string;
     sessionIndex: number;
     phase: string;
+    /**
+     * When set, render as a BlockerCard: shows the blocker kind,
+     * options the user can pick, and a free-text fallback. Picking
+     * an option calls selfDriveStore.userResolveBlocker(...).
+     */
+    blocker?: {
+      id: string;
+      kind: string;
+      summary: string;
+      optionsOffered: string[];
+      resolutionCriteria: string;
+      status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
+    };
   };
 }
 

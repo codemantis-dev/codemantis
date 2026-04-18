@@ -83,10 +83,11 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       readSections: s.readSections,
       files: s.files,
       prompt: fixSpecReference(s.prompt),
-      verifyChecks: s.verifyChecks.map((label, ci) => ({
+      verifyChecks: s.verifyChecks.map((c, ci) => ({
         id: `verify-${s.index}-${ci}`,
-        label,
+        label: c.label,
         checked: false,
+        kind: c.kind,
       })),
       verificationPrompt: s.verificationPrompt
         ? fixSpecReference(s.verificationPrompt)

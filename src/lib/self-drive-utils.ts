@@ -87,7 +87,7 @@ export function getCurrentSessionPlan(sessionIndex: number): {
   name: string;
   scope: string;
   prompt: string;
-  verifyChecks: string[];
+  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
   isLastSession: boolean;
   hasAuditDocument: boolean;
 } | null {
@@ -104,7 +104,7 @@ export function getCurrentSessionPlan(sessionIndex: number): {
     name: session.name,
     scope: session.scope,
     prompt: session.prompt,
-    verifyChecks: session.verifyChecks.map((c) => c.label),
+    verifyChecks: session.verifyChecks.map((c) => ({ label: c.label, kind: c.kind })),
     isLastSession: session.index === lastSessionIndex,
     hasAuditDocument: !!guide.auditFilename,
   };

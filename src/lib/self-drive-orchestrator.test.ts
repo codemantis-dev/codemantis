@@ -46,7 +46,7 @@ function makeInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInpu
       name: "Foundation",
       scope: "Set up project structure",
       prompt: "Build the foundation",
-      verifyChecks: ["TypeScript compiles", "Tests pass"],
+      verifyChecks: [{ label: "TypeScript compiles" }, { label: "Tests pass" }],
       isLastSession: false,
       hasAuditDocument: true,
     },
@@ -61,6 +61,8 @@ function makeInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInpu
     buildCommand: "pnpm tsc --noEmit",
     specFilename: "spec.md",
     auditFilename: "audit.md",
+    activeBlocker: null,
+    recentPauseSummaries: [],
     ...overrides,
   };
 }
@@ -389,6 +391,75 @@ describe("callOrchestrator", () => {
     expect(systemPrompt).toContain("full per-check coverage");
     // "advance" is no longer a plain trust signal.
     expect(systemPrompt).toContain("NOT a trust signal");
+  });
+
+  it("parses a structured blocker alongside a pause action", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        action: "pause",
+        pauseReason: "Supabase migration history mismatch",
+        summary: "Blocked on migration history",
+        confidence: "high",
+        blocker: {
+          kind: "infra-state-drift",
+          summary: "14 mismatched migration versions",
+          optionsOffered: ["Run migration repair", "Rename local timestamps"],
+          resolutionCriteria: "supabase db push succeeds AND schema_migrations contains 20260418120000",
+        },
+      }),
+    );
+
+    expect(decision.action).toBe("pause");
+    expect(decision.blocker).toBeDefined();
+    expect(decision.blocker!.kind).toBe("infra-state-drift");
+    expect(decision.blocker!.optionsOffered).toHaveLength(2);
+    expect(decision.blocker!.resolutionCriteria).toContain("schema_migrations");
+  });
+
+  it("drops a malformed blocker object instead of failing the whole decision", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        action: "pause",
+        pauseReason: "something went wrong",
+        summary: "pause",
+        confidence: "high",
+        blocker: {
+          // missing kind + resolutionCriteria → invalid
+          summary: "half-baked",
+        },
+      }),
+    );
+
+    expect(decision.action).toBe("pause");
+    expect(decision.blocker).toBeUndefined();
+  });
+
+  it("accepts the new advance_recovery action", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        action: "advance_recovery",
+        summary: "Blocker resolved: $ supabase db push OK",
+        confidence: "high",
+      }),
+    );
+    expect(decision.action).toBe("advance_recovery");
+  });
+
+  it("system prompt instructs orchestrator to emit a structured blocker on pause", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain("BLOCKER CLASSIFICATION");
+    expect(systemPrompt).toContain("infra-state-drift");
+    expect(systemPrompt).toContain("resolutionCriteria");
+    expect(systemPrompt).toContain("AFTER A RECOVERY PHASE");
+    expect(systemPrompt).toContain("advance_recovery");
   });
 
   it("system prompt instructs skim-language detection and forbidden phrases", async () => {

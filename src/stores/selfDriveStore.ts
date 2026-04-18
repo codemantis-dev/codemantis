@@ -12,6 +12,8 @@ import type {
   SelfDriveConfig,
   OrchestratorDecision,
   RunLogEntry,
+  Blocker,
+  BlockerKind,
 } from "../types/implementation-guide";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
 import type { SessionMode } from "../types/session";
@@ -22,6 +24,7 @@ import { showToast } from "./toastStore";
 import { sendMessage, syncSessionMode } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
+import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
 import { formatDuration } from "../lib/format-utils";
 import {
   extractToolsFromTurn,
@@ -57,6 +60,13 @@ interface SelfDriveState {
   sessionStartedAt: number | null;
   pauseReason: string | null;
 
+  /** The blocker currently holding Self-Drive paused, if any. */
+  activeBlocker: Blocker | null;
+  /** Resolved/abandoned blockers in chronological order — orchestrator memory. */
+  blockerHistory: Blocker[];
+  /** Summaries of the last few pauses (most recent last). Bounded to 5. */
+  recentPauseSummaries: string[];
+
   config: SelfDriveConfig;
 
   // Actions
@@ -64,6 +74,12 @@ interface SelfDriveState {
   resume: () => Promise<void>;
   stop: () => Promise<void>;
   pause: () => void;
+  /**
+   * Record that the user has chosen a resolution for the current blocker.
+   * Transitions the blocker to "user-decided" and stashes the resolution
+   * text so the next Resume triggers a recovery verification.
+   */
+  userResolveBlocker: (resolution: string) => void;
 }
 
 // ── Default config ──────────────────────────────────────────────────
@@ -96,6 +112,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   startedAt: null,
   sessionStartedAt: null,
   pauseReason: null,
+  activeBlocker: null,
+  blockerHistory: [],
+  recentPauseSummaries: [],
   config: {
     provider: "anthropic",
     model: "claude-haiku-4-5",
@@ -157,6 +176,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       startedAt: Date.now(),
       sessionStartedAt: Date.now(),
       pauseReason: null,
+      activeBlocker: null,
+      blockerHistory: [],
+      recentPauseSummaries: [],
       config,
       maxFixAttempts: config.maxFixAttempts,
     });
@@ -231,6 +253,23 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       useSessionStore.getState().setSessionMode(sessionId, "auto-accept");
     } catch { /* ignore */ }
 
+    // ── Recovery path ──────────────────────────────────────────────────
+    // If a blocker is active and not yet resolved, confirm its resolution
+    // BEFORE continuing normal session flow. This is what prevents the
+    // "pause, then stupidly move on" behavior that motivated this feature.
+    const blocker = useSelfDriveStore.getState().activeBlocker;
+    if (blocker && blocker.status !== "resolved" && blocker.status !== "abandoned") {
+      // If the user didn't explicitly pick an option, still verify — but
+      // note that they didn't specify. The recovery prompt handles this.
+      const pending: Blocker =
+        blocker.status === "open"
+          ? { ...blocker, status: "user-decided", userResolution: blocker.userResolution ?? "(not specified)" }
+          : blocker;
+      await enterRecoveryPhase(pending);
+      showToast("Self-Drive resumed — verifying blocker resolution", "info");
+      return;
+    }
+
     // Determine resume action from guide session flags (not the ambiguous currentPhase)
     const guide = useGuideStore.getState().guide;
     const session = guide?.sessions.find((s) => s.index === state.currentSessionIndex);
@@ -272,6 +311,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       currentPhase: null,
       currentSessionIndex: null,
       pauseReason: null,
+      activeBlocker: null,
     });
 
     stopListeners();
@@ -283,6 +323,30 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
   pause: () => {
     handlePause("Paused by user");
+  },
+
+  userResolveBlocker: (resolution: string) => {
+    const state = get();
+    const blocker = state.activeBlocker;
+    if (!blocker) {
+      // No-op: UI should not offer this unless a blocker exists.
+      return;
+    }
+    const trimmed = resolution.trim();
+    const updated: Blocker = {
+      ...blocker,
+      status: "user-decided",
+      userResolution: trimmed.length > 0 ? trimmed : "(no option selected)",
+    };
+    set({ activeBlocker: updated });
+    addLogEntry(
+      state.currentSessionIndex ?? 0,
+      "blocker-user-decided",
+      `User: ${updated.userResolution}`,
+      undefined,
+      undefined,
+      updated,
+    );
   },
 }));
 
@@ -377,6 +441,8 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     buildCommand: getBuildCommand(),
     specFilename: guide.specFilename,
     auditFilename: guide.auditFilename,
+    activeBlocker: state.activeBlocker,
+    recentPauseSummaries: state.recentPauseSummaries,
   };
 
   let decision: OrchestratorDecision;
@@ -434,7 +500,7 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
 
 function mapPhaseForOrchestrator(
   phase: SelfDrivePhase | null,
-): "building" | "verifying" | "fixing" | "build-checking" | "testing" | "committing" {
+): "building" | "verifying" | "fixing" | "build-checking" | "testing" | "committing" | "recovering" {
   switch (phase) {
     case "building": return "building";
     case "verifying": return "verifying";
@@ -442,6 +508,7 @@ function mapPhaseForOrchestrator(
     case "build-checking": return "build-checking";
     case "testing": return "testing";
     case "committing": return "committing";
+    case "recovering": return "recovering";
     case "evaluating": return "building"; // fallback
     default: return "building";
   }
@@ -453,6 +520,9 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
   switch (decision.action) {
     case "advance":
       await handleAdvance(decision, previousPhase);
+      break;
+    case "advance_recovery":
+      await handleAdvanceRecovery(decision);
       break;
     case "verify":
       await handleVerify();
@@ -470,7 +540,7 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
       await handleCommit();
       break;
     case "pause":
-      handlePause(decision.pauseReason || "Orchestrator requested pause");
+      handlePause(decision.pauseReason || "Orchestrator requested pause", decision);
       break;
     case "abort":
       handleAbort(decision.abortReason || "Critical failure");
@@ -652,21 +722,26 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
     return;
   }
 
+  // If we're in a recovery loop, keep the phase as "recovering" so the
+  // next turn is evaluated under recovery rules (advance_recovery / fix /
+  // pause) rather than fix rules (build_check next).
+  const isRecovering = state.currentPhase === "recovering";
+
   useSelfDriveStore.setState({
-    currentPhase: "fixing",
+    currentPhase: isRecovering ? "recovering" : "fixing",
     fixAttempt,
     previousFixPrompts: [...state.previousFixPrompts, decision.fixPrompt || ""],
   });
 
   addLogEntry(
     state.currentSessionIndex!,
-    "fixing",
-    `Fix attempt ${fixAttempt}/${state.maxFixAttempts}: ${decision.summary}`,
+    isRecovering ? "blocker-verifying" : "fixing",
+    `${isRecovering ? "Recovery retry" : "Fix attempt"} ${fixAttempt}/${state.maxFixAttempts}: ${decision.summary}`,
     undefined,
     decision.fixPrompt,
   );
 
-  showToast(`Fix applied, re-checking... (${fixAttempt}/${state.maxFixAttempts})`, "info");
+  showToast(`${isRecovering ? "Retrying recovery" : "Fix applied, re-checking"}... (${fixAttempt}/${state.maxFixAttempts})`, "info");
   await sendMessageToSession(decision.fixPrompt!);
 }
 
@@ -731,11 +806,167 @@ async function startNextSession(): Promise<void> {
 
 // ── Pause / Abort / Crash handlers ──────────────────────────────────
 
-function handlePause(reason: string): void {
+function handlePause(reason: string, decision?: OrchestratorDecision): void {
   const state = useSelfDriveStore.getState();
-  useSelfDriveStore.setState({ status: "paused", pauseReason: reason });
+
+  // Build a structured Blocker from the orchestrator's decision when
+  // one is attached. Falls back to an "unknown" blocker so Resume still
+  // takes the recovery path (freeform pauses from user action — e.g. a
+  // manual Pause button click — pass decision=undefined and skip this).
+  let nextBlocker = state.activeBlocker;
+  if (decision?.blocker) {
+    nextBlocker = buildBlockerFromDecision(
+      state.currentSessionIndex ?? 0,
+      decision.blocker,
+      decision.pauseReason ?? reason,
+    );
+  }
+
+  // Bounded pause history (keeps last 5, most recent last).
+  const trimmedReason = reason.slice(0, 200);
+  const history = [...state.recentPauseSummaries, trimmedReason].slice(-5);
+
+  useSelfDriveStore.setState({
+    status: "paused",
+    pauseReason: reason,
+    activeBlocker: nextBlocker,
+    recentPauseSummaries: history,
+  });
+
+  if (nextBlocker && decision?.blocker) {
+    addLogEntry(
+      state.currentSessionIndex ?? 0,
+      "blocker-detected",
+      `Blocker (${nextBlocker.kind}): ${nextBlocker.summary}`,
+      decision,
+      undefined,
+      nextBlocker,
+    );
+    injectBlockerCard(nextBlocker, state.currentSessionIndex ?? 0);
+  }
+
   addLogEntry(state.currentSessionIndex ?? 0, "paused", reason);
   showToast(`Self-Drive paused: ${reason}`, "info");
+}
+
+/** Build a Blocker record from an orchestrator's pause decision. */
+function buildBlockerFromDecision(
+  sessionIndex: number,
+  decisionBlocker: NonNullable<OrchestratorDecision["blocker"]>,
+  pauseReason: string,
+): Blocker {
+  return {
+    id: `blk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    sessionIndex,
+    detectedAt: Date.now(),
+    kind: decisionBlocker.kind as BlockerKind,
+    summary: decisionBlocker.summary || pauseReason.slice(0, 160),
+    detail: pauseReason,
+    optionsOffered: decisionBlocker.optionsOffered ?? [],
+    resolutionCriteria: decisionBlocker.resolutionCriteria,
+    status: "open",
+  };
+}
+
+/**
+ * Enter the recovery phase: send a kind-specific recovery-verification
+ * prompt to Claude Code. Orchestrator will evaluate the next turn under
+ * currentPhase="recovering" and return advance_recovery / fix / pause.
+ */
+async function enterRecoveryPhase(blocker: Blocker): Promise<void> {
+  const verifyingBlocker: Blocker = { ...blocker, status: "verifying" };
+  useSelfDriveStore.setState({
+    currentPhase: "recovering",
+    activeBlocker: verifyingBlocker,
+    // A recovery attempt is not a fix attempt — keep the fix counter
+    // pinned so the blocker doesn't eat the session's fix budget.
+    previousFixPrompts: [],
+  });
+
+  const prompt = buildRecoveryVerifyPrompt(verifyingBlocker, verifyingBlocker.userResolution ?? "");
+  addLogEntry(
+    verifyingBlocker.sessionIndex,
+    "blocker-verifying",
+    `Verifying blocker resolution: ${verifyingBlocker.summary}`,
+    undefined,
+    prompt,
+    verifyingBlocker,
+  );
+  await sendMessageToSession(prompt);
+}
+
+/**
+ * Validate an orchestrator "advance_recovery" verdict.
+ * Returns null when the verdict can be trusted; otherwise a short reason.
+ *
+ * Rules (all must hold):
+ *   1. There must be an active blocker to resolve.
+ *   2. The decision.summary must contain at least one `:` — the orchestrator
+ *      prompt asks for "Blocker {kind} resolved: {quoted evidence}". A
+ *      colon is a cheap, strict proxy for "included evidence".
+ *   3. Confidence must not be "low". (Low confidence on recovery is the
+ *      worst place to trust the model — pause instead.)
+ *
+ * Exported for tests; not part of the store's public API.
+ */
+export function validateRecoveryResolution(
+  blocker: Blocker | null,
+  decision: OrchestratorDecision,
+): string | null {
+  if (!blocker) return "no active blocker to resolve";
+  if (decision.action !== "advance_recovery") return "decision is not advance_recovery";
+  if (!decision.summary.includes(":")) return "summary lacks evidence citation (':' required)";
+  if (decision.confidence === "low") return "low-confidence recovery verdict";
+  return null;
+}
+
+async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<void> {
+  const state = useSelfDriveStore.getState();
+  const blocker = state.activeBlocker;
+  const err = validateRecoveryResolution(blocker, decision);
+  if (err || !blocker) {
+    handlePause(`Recovery rejected: ${err ?? "unknown"}`);
+    return;
+  }
+
+  const resolved: Blocker = { ...blocker, status: "resolved" };
+  addLogEntry(
+    blocker.sessionIndex,
+    "blocker-resolved",
+    `Blocker resolved: ${decision.summary}`,
+    decision,
+    undefined,
+    resolved,
+  );
+  useSelfDriveStore.setState({
+    activeBlocker: null,
+    blockerHistory: [...state.blockerHistory, resolved],
+  });
+  showToast("Blocker resolved — resuming session", "success");
+
+  // Resume normal session flow. We re-use the same branching that
+  // resume() uses, but without re-entering the recovery branch.
+  const guide = useGuideStore.getState().guide;
+  const session = guide?.sessions.find((s) => s.index === blocker.sessionIndex);
+  if (!session) {
+    handlePause("Guide no longer has the recovered session — cannot continue");
+    return;
+  }
+
+  if (session.status === "done") {
+    await startNextSession();
+  } else if (!session.promptSent) {
+    useSelfDriveStore.setState({ currentPhase: "building", fixAttempt: 0 });
+    addLogEntry(session.index, "building",
+      `Post-recovery: sending creation prompt for Session ${session.index}`,
+      undefined, session.prompt);
+    await sendMessageToSession(session.prompt);
+    useGuideStore.getState().markPromptSent(session.index);
+  } else if (!session.verifyRequested) {
+    await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });
+  } else {
+    await handleVerify();
+  }
 }
 
 function handleAbort(reason: string): void {
@@ -781,6 +1012,7 @@ function addLogEntry(
   summary: string,
   decision?: OrchestratorDecision,
   prompt?: string,
+  blocker?: Blocker,
 ): void {
   const entry: RunLogEntry = {
     timestamp: Date.now(),
@@ -790,6 +1022,7 @@ function addLogEntry(
     summary,
     decision,
     prompt,
+    blocker,
   };
   useSelfDriveStore.setState((prev) => ({
     runLog: [...prev.runLog, entry],
@@ -847,6 +1080,38 @@ function injectDecisionMessage(
       confidence: decision.confidence,
       sessionIndex,
       phase,
+    },
+  });
+}
+
+/**
+ * Inject a blocker card into the chat — actionable UI so the user can
+ * pick an offered option (or provide free-text) and Resume.
+ */
+function injectBlockerCard(blocker: Blocker, sessionIndex: number): void {
+  const sessionId = activeSessionId;
+  if (!sessionId) return;
+  useSessionStore.getState().addMessage(sessionId, {
+    id: `sd-blk-${blocker.id}`,
+    role: "assistant",
+    content: blocker.summary,
+    timestamp: new Date().toISOString(),
+    activityIds: [],
+    isStreaming: false,
+    selfDriveEvent: {
+      action: "pause",
+      summary: blocker.summary,
+      confidence: "high",
+      sessionIndex,
+      phase: "recovering",
+      blocker: {
+        id: blocker.id,
+        kind: blocker.kind,
+        summary: blocker.summary,
+        optionsOffered: blocker.optionsOffered,
+        resolutionCriteria: blocker.resolutionCriteria,
+        status: blocker.status,
+      },
     },
   });
 }
