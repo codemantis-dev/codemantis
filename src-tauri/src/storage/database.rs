@@ -168,6 +168,9 @@ impl Database {
         // Super-Bro observations table
         let _ = conn.execute_batch(migrations::MIGRATE_SUPER_BRO_OBSERVATIONS);
 
+        // Self-Drive run state table (restart recovery)
+        let _ = conn.execute_batch(migrations::MIGRATE_SELF_DRIVE_RUNS);
+
         // Always drop planning_messages if it exists.
         // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
         // CREATE TABLE IF NOT EXISTS, but V2 dropped it and changed task_plans
@@ -901,6 +904,61 @@ impl Database {
             "DELETE FROM implementation_guides WHERE project_path = ?1",
             rusqlite::params![project_path],
         ).map_err(|e| AppError::DatabaseError(format!("Delete guides for project failed: {}", e)))?;
+        Ok(())
+    }
+
+    // ── Self-Drive Run State (restart recovery) ─────────────────────────
+
+    /// Upsert a persisted Self-Drive run snapshot for a project. The primary
+    /// key is the project path, so subsequent calls overwrite the row.
+    pub fn upsert_self_drive_run(&self, project_path: &str, data_json: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO self_drive_runs (project_path, data_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(project_path) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at",
+            rusqlite::params![project_path, data_json, now],
+        ).map_err(|e| AppError::DatabaseError(format!("Upsert self_drive_run failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn get_self_drive_run(&self, project_path: &str) -> Result<Option<String>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let result = conn.query_row(
+            "SELECT data_json FROM self_drive_runs WHERE project_path = ?1",
+            rusqlite::params![project_path],
+            |row| row.get::<_, String>(0),
+        );
+        match result {
+            Ok(data) => Ok(Some(data)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!("Get self_drive_run failed: {}", e))),
+        }
+    }
+
+    /// List all persisted runs, newest first. Used on app boot to find any
+    /// runs the user left paused before the last restart.
+    pub fn list_self_drive_runs(&self) -> Result<Vec<(String, String)>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn.prepare(
+            "SELECT project_path, data_json FROM self_drive_runs ORDER BY updated_at DESC",
+        ).map_err(|e| AppError::DatabaseError(format!("Prepare list self_drive_runs failed: {}", e)))?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|e| AppError::DatabaseError(format!("Query list self_drive_runs failed: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| AppError::DatabaseError(format!("Row iterate failed: {}", e)))?);
+        }
+        Ok(out)
+    }
+
+    pub fn delete_self_drive_run(&self, project_path: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "DELETE FROM self_drive_runs WHERE project_path = ?1",
+            rusqlite::params![project_path],
+        ).map_err(|e| AppError::DatabaseError(format!("Delete self_drive_run failed: {}", e)))?;
         Ok(())
     }
 

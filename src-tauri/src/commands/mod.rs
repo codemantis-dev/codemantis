@@ -13,6 +13,7 @@ pub mod menu;
 pub mod openrouter;
 pub mod preview;
 pub mod scaffold;
+pub mod self_drive;
 pub mod session;
 pub mod settings;
 pub mod slash_commands;

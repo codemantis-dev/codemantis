@@ -143,3 +143,16 @@ CREATE TABLE IF NOT EXISTS super_bro_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_super_bro_obs_project ON super_bro_observations(project_path);
 "#;
+
+// Self-Drive run state — persists the in-memory run (pinned guide/session ids,
+// active blocker, blocker history, run log, phase/fix counters, pause reason)
+// so a CodeMantis restart can resurrect it and prompt the user to re-attach a
+// fresh Claude Code session and re-run diagnostic evidence. One row per project.
+pub const MIGRATE_SELF_DRIVE_RUNS: &str = r#"
+CREATE TABLE IF NOT EXISTS self_drive_runs (
+    project_path TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_self_drive_runs_updated ON self_drive_runs(updated_at);
+"#;

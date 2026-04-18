@@ -43,6 +43,10 @@ vi.mock("../../lib/tauri-commands", () => ({
   updateGuideData: vi.fn(() => Promise.resolve()),
   deleteGuide: vi.fn(() => Promise.resolve()),
   deleteGuidesForProject: vi.fn(() => Promise.resolve()),
+  saveSelfDriveState: vi.fn(() => Promise.resolve()),
+  loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
+  listSelfDriveStates: vi.fn(() => Promise.resolve([])),
+  deleteSelfDriveState: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../../stores/toastStore", () => ({
@@ -212,8 +216,8 @@ describe("Self-Drive navigation safety (integration)", () => {
     setupReady(PROJECT_A, SESSION_A1);
     await useSelfDriveStore.getState().start();
     // First send went to session A1 (the build prompt).
-    const firstTarget = mockSendMessage.mock.calls[0]?.[0];
-    expect(firstTarget).toBe(SESSION_A1);
+    const firstCall = mockSendMessage.mock.calls[0] as unknown as [string, string] | undefined;
+    expect(firstCall?.[0]).toBe(SESSION_A1);
 
     // User opens a second sub-tab in project A and clicks it.
     useSessionStore.getState().addSession(sessionFixture(SESSION_A2, PROJECT_A));

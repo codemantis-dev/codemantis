@@ -846,6 +846,36 @@ export async function deleteGuidesForProject(
   return invoke("delete_guides_for_project_cmd", { projectPath });
 }
 
+// ── Self-Drive Run State (restart recovery) ─────────────────────────
+
+export interface SelfDriveStatePayload {
+  projectPath: string;
+  dataJson: string;
+}
+
+export async function saveSelfDriveState(
+  projectPath: string,
+  dataJson: string,
+): Promise<void> {
+  return invoke("save_self_drive_state", { projectPath, dataJson });
+}
+
+export async function loadSelfDriveState(
+  projectPath: string,
+): Promise<string | null> {
+  return invoke<string | null>("load_self_drive_state", { projectPath });
+}
+
+export async function listSelfDriveStates(): Promise<SelfDriveStatePayload[]> {
+  return invoke<SelfDriveStatePayload[]>("list_self_drive_states");
+}
+
+export async function deleteSelfDriveState(
+  projectPath: string,
+): Promise<void> {
+  return invoke("delete_self_drive_state", { projectPath });
+}
+
 // ── Super-Bro ────────────────────────────────────────────────────────
 
 export interface ObservationPayload {

@@ -77,6 +77,8 @@ export function resetAllStores(): void {
     projectPath: null,
     sessionId: null,
     guide: null,
+    needsSessionAttach: false,
+    postRestartFreshResumeNeeded: false,
     currentSessionIndex: null,
     currentPhase: null,
     previousSessionMode: null,

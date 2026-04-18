@@ -49,6 +49,16 @@ export default function SelfDriveStatus() {
   const pauseReason = useSelfDriveStore((s) => s.pauseReason);
   const activeBlocker = useSelfDriveStore((s) => s.activeBlocker);
   const hasResolution = useBlockerHasResolution();
+  const needsSessionAttach = useSelfDriveStore((s) => s.needsSessionAttach);
+  const attachSession = useSelfDriveStore((s) => s.attachSession);
+  // Compute the "current" session in Self-Drive's project so we can offer
+  // a one-click attach. User must have already clicked into the target
+  // session tab (explicit action — no auto-select).
+  const attachCandidateSessionId = useSessionStore((s) => {
+    const sdProject = useSelfDriveStore.getState().projectPath;
+    if (!sdProject) return null;
+    return s.projectActiveSession.get(sdProject) ?? null;
+  });
   const sessionStartedAt = useSelfDriveStore((s) => s.sessionStartedAt);
   const pause = useSelfDriveStore((s) => s.pause);
   const resume = useSelfDriveStore((s) => s.resume);
@@ -118,11 +128,16 @@ export default function SelfDriveStatus() {
 
   // Paused state
   if (status === "paused") {
-    // Disable Resume when a blocker is waiting on an answer.
+    // Disable Resume when a blocker is waiting on an answer, OR when the
+    // Self-Drive run is freshly hydrated from disk and hasn't been
+    // re-attached to a live Claude Code session yet.
     const blockedOnAnswer = !!activeBlocker && !hasResolution;
-    const resumeTitle = blockedOnAnswer
-      ? "Pick an option on the blocker card above, or answer in the main chat."
-      : "Resume Self-Drive";
+    const resumeDisabled = blockedOnAnswer || needsSessionAttach;
+    const resumeTitle = needsSessionAttach
+      ? "Attach a Claude Code session first."
+      : blockedOnAnswer
+        ? "Pick an option on the blocker card above, or answer in the main chat."
+        : "Resume Self-Drive";
 
     // Plain-text snapshot for the Copy button. Rebuilt on each click via
     // the lazy getText callback so the latest pauseReason is captured.
@@ -151,11 +166,42 @@ export default function SelfDriveStatus() {
         <div className="flex items-center gap-2 mb-1">
           <AlertTriangle size={14} style={{ color: "var(--yellow, #eab308)" }} />
           <span className="text-label font-semibold" style={{ color: "var(--yellow, #eab308)" }}>
-            PAUSED
+            {needsSessionAttach ? "RESTART RECOVERY — ATTACH A SESSION" : "PAUSED"}
           </span>
           <div className="flex-1" />
           <CopyButton getText={buildPausedText} label="Copy pause message" size={12} />
         </div>
+
+        {needsSessionAttach && (
+          <div className="select-text mb-2">
+            <p className="text-detail leading-relaxed" style={{ color: "var(--text-primary)" }}>
+              Self-Drive was running when CodeMantis restarted. The previously
+              pinned Claude Code session ended with the app. Open (or click into)
+              a session in this project, then click <span className="font-semibold">Attach current session</span>.
+              Resume will then re-run the diagnostic evidence against live state.
+            </p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <button
+                onClick={() => {
+                  if (attachCandidateSessionId) {
+                    void attachSession(attachCandidateSessionId);
+                  }
+                }}
+                disabled={!attachCandidateSessionId}
+                title={
+                  attachCandidateSessionId
+                    ? "Bind Self-Drive to the currently active session in this project."
+                    : "Click into a Claude Code session tab in this project first."
+                }
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+                style={{ background: "var(--yellow, #eab308)", color: "var(--bg-primary)" }}
+              >
+                <Play size={10} />
+                Attach current session
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="select-text">
           {activeBlocker ? (
@@ -187,7 +233,7 @@ export default function SelfDriveStatus() {
         <div className="flex items-center gap-1.5 mt-2">
           <button
             onClick={resume}
-            disabled={blockedOnAnswer}
+            disabled={resumeDisabled}
             title={resumeTitle}
             className="flex items-center gap-1 px-2.5 py-1 rounded-md text-detail font-medium transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
             style={{ background: "var(--accent)", color: "white" }}

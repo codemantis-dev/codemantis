@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Plus, FolderOpen, GitBranch } from "lucide-react";
-import { checkClaudeStatus, setClaudeBinaryOverride, cleanupOldAttachments, type ClaudeStatus } from "./lib/tauri-commands";
+import {
+  checkClaudeStatus,
+  setClaudeBinaryOverride,
+  cleanupOldAttachments,
+  listSelfDriveStates,
+  loadGuide,
+  type ClaudeStatus,
+} from "./lib/tauri-commands";
+import { useSelfDriveStore, type PersistedRunState } from "./stores/selfDriveStore";
+import type { ImplementationGuide } from "./types/implementation-guide";
 import { useClaudeSession } from "./hooks/useClaudeSession";
 import { useSessionStore } from "./stores/sessionStore";
 import { useUiStore } from "./stores/uiStore";
@@ -25,6 +34,42 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
 import { useExternalLinkGuard } from "./hooks/useExternalLinkGuard";
 import { useUpdatePoller } from "./hooks/useUpdatePoller";
+
+/**
+ * Look up any Self-Drive run state rows left on disk from a prior launch,
+ * load the matching guide for each, and hydrate. Resulting state in the
+ * store is `paused + needsSessionAttach=true` — no prompts are sent.
+ */
+async function hydratePersistedSelfDriveRuns(): Promise<void> {
+  try {
+    const rows = await listSelfDriveStates();
+    if (rows.length === 0) return;
+    // Enforce the "one Self-Drive at a time" invariant: if somehow multiple
+    // rows exist, hydrate the newest (list is ordered newest-first by the
+    // backend) and drop the rest on the next persistence cycle.
+    const row = rows[0];
+    let parsed: PersistedRunState;
+    try {
+      parsed = JSON.parse(row.dataJson) as PersistedRunState;
+    } catch (e) {
+      console.warn("[App] Dropping malformed Self-Drive state row:", e);
+      return;
+    }
+    const guidePayload = await loadGuide(row.projectPath);
+    let guide: ImplementationGuide | null = null;
+    if (guidePayload) {
+      try {
+        guide = JSON.parse(guidePayload.dataJson) as ImplementationGuide;
+        guide.id = guidePayload.id;
+      } catch (e) {
+        console.warn("[App] Failed to parse hydrated guide JSON:", e);
+      }
+    }
+    useSelfDriveStore.getState().hydrateFromDisk(parsed, guide);
+  } catch (e) {
+    console.warn("[App] Failed to hydrate Self-Drive runs:", e);
+  }
+}
 
 export default function App() {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
@@ -60,6 +105,10 @@ export default function App() {
       })
       .finally(() => setChecking(false));
     loadSettings();
+    // Rehydrate Self-Drive runs paused at the previous shutdown. Each row
+    // is hydrated as paused + needsSessionAttach; the user explicitly
+    // attaches a fresh Claude Code session via the PAUSED banner.
+    void hydratePersistedSelfDriveRuns();
   }, [loadSettings]);
 
   const handleRecheck = async (): Promise<void> => {

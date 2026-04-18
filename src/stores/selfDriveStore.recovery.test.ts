@@ -53,6 +53,10 @@ vi.mock("../lib/tauri-commands", () => ({
   updateGuideData: vi.fn(() => Promise.resolve()),
   deleteGuide: vi.fn(() => Promise.resolve()),
   deleteGuidesForProject: vi.fn(() => Promise.resolve()),
+  saveSelfDriveState: vi.fn(() => Promise.resolve()),
+  loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
+  listSelfDriveStates: vi.fn(() => Promise.resolve([])),
+  deleteSelfDriveState: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../lib/self-drive-orchestrator", () => ({

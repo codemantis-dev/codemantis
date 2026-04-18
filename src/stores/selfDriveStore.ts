@@ -22,7 +22,13 @@ import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
 import { showToast } from "./toastStore";
-import { sendMessage, syncSessionMode, updateGuideData } from "../lib/tauri-commands";
+import {
+  sendMessage,
+  syncSessionMode,
+  updateGuideData,
+  saveSelfDriveState,
+  deleteSelfDriveState,
+} from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
@@ -63,6 +69,19 @@ interface SelfDriveState {
    * reads use THIS field, not useGuideStore.guide (which follows UI navigation).
    */
   guide: ImplementationGuide | null;
+  /**
+   * True after the store was hydrated from disk on app boot — the previously
+   * pinned Claude Code session is dead (process died with the app) and the
+   * user must explicitly attach a fresh session before Resume becomes usable.
+   */
+  needsSessionAttach: boolean;
+  /**
+   * True after attachSession succeeds post-restart: the next Resume should
+   * force a fresh send of the current session's prompt (the new Claude Code
+   * session has no memory of the old one, so jumping to verify/build_check
+   * would confuse it).
+   */
+  postRestartFreshResumeNeeded: boolean;
   currentSessionIndex: number | null;
   currentPhase: SelfDrivePhase | null;
 
@@ -104,7 +123,50 @@ interface SelfDriveState {
    * sets userResolution, then triggers Resume. No Claude Code round-trip.
    */
   pickBlockerOption: (option: string) => Promise<void>;
+  /**
+   * Called from App boot: rehydrate a persisted run record. The resulting
+   * state is always `paused` + `needsSessionAttach=true`, regardless of the
+   * pre-shutdown status. The original pauseReason is overridden with a
+   * restart-specific message the UI can display.
+   */
+  hydrateFromDisk: (record: PersistedRunState, guide: ImplementationGuide | null) => void;
+  /**
+   * User explicitly binds the paused Self-Drive run to a fresh Claude Code
+   * session after a restart. Validates session.project_path === state.projectPath
+   * and refuses otherwise. Flips needsSessionAttach to false; subsequent
+   * Resume goes through the normal recovery path.
+   */
+  attachSession: (newSessionId: string) => Promise<void>;
 }
+
+// ─── Persisted run state shape (on-disk via self_drive_runs table) ────
+
+export interface PersistedRunState {
+  version: 1;
+  projectPath: string;
+  guideId: string;
+  sessionId: string | null;
+  currentSessionIndex: number | null;
+  currentPhase: SelfDrivePhase | null;
+  fixAttempt: number;
+  maxFixAttempts: number;
+  previousFixPrompts: string[];
+  lowConfidenceCount: number;
+  activeBlocker: Blocker | null;
+  blockerHistory: Blocker[];
+  recentPauseSummaries: string[];
+  pauseReason: string | null;
+  startedAt: number | null;
+  sessionStartedAt: number | null;
+  runLog: RunLogEntry[]; // capped to last 200 entries
+  config: SelfDriveConfig;
+  savedAt: number;
+}
+
+// Max run-log entries persisted to disk. Older entries stay in memory
+// during the active session but are dropped from the snapshot to keep
+// row size bounded.
+const PERSIST_RUN_LOG_CAP = 200;
 
 // ── Default config ──────────────────────────────────────────────────
 
@@ -127,6 +189,8 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   projectPath: null,
   sessionId: null,
   guide: null,
+  needsSessionAttach: false,
+  postRestartFreshResumeNeeded: false,
   currentSessionIndex: null,
   currentPhase: null,
   previousSessionMode: null,
@@ -233,6 +297,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     addLogEntry(firstActive.index, "started", `Self-Drive started (${guide.sessions.filter((s) => s.status !== "done").length} sessions remaining)`);
 
+    // Persist the initial run row so a restart can recover us.
+    persistRunState();
+
     // Send first build prompt
     set({ currentPhase: "building" });
     addLogEntry(firstActive.index, "building", `Starting Session ${firstActive.index}: ${firstActive.name}`, undefined, firstActive.prompt);
@@ -264,6 +331,15 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     const state = get();
     if (state.status !== "paused") return;
 
+    // Must attach a fresh session first if we're resurrected from disk.
+    if (state.needsSessionAttach) {
+      showToast(
+        "Attach a Claude Code session in this project before resuming.",
+        "error",
+      );
+      return;
+    }
+
     // Self-Drive is pinned to the session it started on. Do NOT re-read
     // projectActiveSession — the user may have clicked a different sub-tab
     // in the meantime, which would silently re-target a different session.
@@ -275,6 +351,33 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     set({ status: "running", pauseReason: null });
     addLogEntry(state.currentSessionIndex ?? 0, "resumed", "Self-Drive resumed by user");
+
+    // Post-restart: reset the current guide session's prompt/verify flags so
+    // the downstream branches re-send the session prompt from scratch. The
+    // newly-attached Claude Code session has no memory of the previous one,
+    // so jumping into verify/build_check without re-context is incorrect.
+    let workingState = state;
+    if (state.postRestartFreshResumeNeeded && state.currentSessionIndex != null) {
+      const idx = state.currentSessionIndex;
+      applyGuideMutation((g) => ({
+        ...g,
+        sessions: g.sessions.map((s) =>
+          s.index === idx
+            ? { ...s, promptSent: false, verifyRequested: false }
+            : s,
+        ),
+      }));
+      set({ postRestartFreshResumeNeeded: false });
+      addLogEntry(
+        idx,
+        "resumed",
+        "Post-restart: current session flags reset — prompt will be re-sent fresh",
+      );
+      // The local `state` captured at the top is now stale — the guide
+      // snapshot and flag both updated via applyGuideMutation. Re-read so
+      // the downstream branch sees the reset flags.
+      workingState = get();
+    }
 
     // Re-start listeners on the pinned session.
     await startListeners(sessionId);
@@ -323,8 +426,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     }
 
     // Determine resume action from the PINNED guide's session flags.
-    const guide = state.guide;
-    const session = guide?.sessions.find((s) => s.index === state.currentSessionIndex);
+    // Use workingState (post-restart reset may have mutated the guide above).
+    const guide = workingState.guide;
+    const session = guide?.sessions.find((s) => s.index === workingState.currentSessionIndex);
 
     if (!session) {
       handlePause("Could not find current session in pinned guide");
@@ -356,10 +460,12 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   stop: async () => {
     const state = get();
     const sessionIdx = state.currentSessionIndex ?? 0;
+    const projectPath = state.projectPath;
 
+    // First partial reset — keeps sessionId/guide/previousSessionMode alive
+    // long enough for restoreSessionMode() to find them.
     set({
       status: "idle",
-      projectPath: null,
       currentPhase: null,
       currentSessionIndex: null,
       pauseReason: null,
@@ -368,6 +474,16 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     stopListeners();
     await restoreSessionMode();
+
+    // Now finish clearing pinned state and drop the persisted row.
+    set({
+      projectPath: null,
+      sessionId: null,
+      guide: null,
+      needsSessionAttach: false,
+      postRestartFreshResumeNeeded: false,
+    });
+    deletePersistedRunState(projectPath);
 
     addLogEntry(sessionIdx, "stopped", "Self-Drive stopped by user");
     showToast("Self-Drive stopped. Mode restored.", "info");
@@ -401,6 +517,98 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     );
   },
 
+  hydrateFromDisk: (record: PersistedRunState, guide: ImplementationGuide | null) => {
+    // Drop the row if we can't find the guide (it was dismissed / deleted
+    // while CodeMantis was closed) or the guide id has drifted.
+    if (!guide || guide.id !== record.guideId) {
+      void deleteSelfDriveState(record.projectPath).catch(() => {});
+      return;
+    }
+    // Don't overwrite an already-running / paused run in memory.
+    const current = get();
+    if (current.status === "running" || current.status === "paused") return;
+
+    const projectName = record.projectPath.split("/").filter(Boolean).pop() ?? record.projectPath;
+    set({
+      status: "paused",
+      projectPath: record.projectPath,
+      sessionId: record.sessionId, // dead, but useful for log
+      guide,
+      needsSessionAttach: true,
+      postRestartFreshResumeNeeded: false, // becomes true on attachSession
+      currentSessionIndex: record.currentSessionIndex,
+      currentPhase: record.currentPhase,
+      fixAttempt: record.fixAttempt,
+      maxFixAttempts: record.maxFixAttempts,
+      previousFixPrompts: record.previousFixPrompts,
+      lowConfidenceCount: record.lowConfidenceCount,
+      activeBlocker: record.activeBlocker,
+      blockerHistory: record.blockerHistory,
+      recentPauseSummaries: record.recentPauseSummaries,
+      pauseReason: `Restart detected — attach a Claude Code session in ${projectName} to continue.`,
+      startedAt: record.startedAt,
+      sessionStartedAt: record.sessionStartedAt,
+      runLog: [
+        ...record.runLog,
+        {
+          timestamp: Date.now(),
+          sessionIndex: record.currentSessionIndex ?? 0,
+          phase: "resumed",
+          event: "resumed",
+          summary: "CodeMantis restart — waiting for user to attach a Claude Code session",
+        },
+      ],
+      config: record.config,
+      previousSessionMode: null,
+    });
+  },
+
+  attachSession: async (newSessionId: string) => {
+    const state = get();
+    if (state.status !== "paused" || !state.needsSessionAttach) {
+      showToast("Self-Drive is not awaiting session attach.", "error");
+      return;
+    }
+    if (!state.projectPath) {
+      showToast("No project associated with Self-Drive.", "error");
+      return;
+    }
+    const session = useSessionStore.getState().sessions.get(newSessionId);
+    if (!session) {
+      showToast("Unknown session id.", "error");
+      return;
+    }
+    if (session.project_path !== state.projectPath) {
+      showToast(
+        "That session belongs to a different project. Pick one from the Self-Drive project.",
+        "error",
+      );
+      return;
+    }
+
+    const currentMode = useSessionStore.getState().sessionModes.get(newSessionId) || "normal";
+    set({
+      sessionId: newSessionId,
+      needsSessionAttach: false,
+      postRestartFreshResumeNeeded: true,
+      previousSessionMode: currentMode,
+    });
+
+    await startListeners(newSessionId);
+    try {
+      await syncSessionMode(newSessionId, "auto-accept");
+      useSessionStore.getState().setSessionMode(newSessionId, "auto-accept");
+    } catch { /* ignore */ }
+
+    addLogEntry(
+      state.currentSessionIndex ?? 0,
+      "resumed",
+      `Attached to session ${newSessionId} after restart`,
+    );
+    persistRunState();
+    showToast("Attached — click Resume to re-run diagnostic evidence and continue.", "info");
+  },
+
   pickBlockerOption: async (option: string) => {
     const state = get();
     const blocker = state.activeBlocker;
@@ -428,6 +636,63 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     await get().resume();
   },
 }));
+
+// ── Run-state persistence (restart recovery) ────────────────────────
+//
+// Self-Drive's in-memory state is periodically serialized to SQLite via
+// save_self_drive_state. On app boot, App.tsx calls list_self_drive_states
+// and hydrateFromDisk resurrects a "paused + needsSessionAttach" mode. The
+// user then explicitly attaches a fresh Claude Code session (the pinned
+// one died with the app) and clicks Resume, which re-runs the recovery
+// verification to re-create diagnostic evidence against live state.
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const PERSIST_DEBOUNCE_MS = 300;
+
+function persistRunState(): void {
+  const s = useSelfDriveStore.getState();
+  // Nothing to persist if Self-Drive hasn't started, or already stopped/completed.
+  if (!s.projectPath || !s.guide) return;
+  if (s.status === "idle" || s.status === "completed") return;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    const snapshot: PersistedRunState = {
+      version: 1,
+      projectPath: s.projectPath!,
+      guideId: s.guide!.id,
+      sessionId: s.sessionId,
+      currentSessionIndex: s.currentSessionIndex,
+      currentPhase: s.currentPhase,
+      fixAttempt: s.fixAttempt,
+      maxFixAttempts: s.maxFixAttempts,
+      previousFixPrompts: s.previousFixPrompts,
+      lowConfidenceCount: s.lowConfidenceCount,
+      activeBlocker: s.activeBlocker,
+      blockerHistory: s.blockerHistory,
+      recentPauseSummaries: s.recentPauseSummaries,
+      pauseReason: s.pauseReason,
+      startedAt: s.startedAt,
+      sessionStartedAt: s.sessionStartedAt,
+      runLog: s.runLog.slice(-PERSIST_RUN_LOG_CAP),
+      config: s.config,
+      savedAt: Date.now(),
+    };
+    void saveSelfDriveState(s.projectPath!, JSON.stringify(snapshot)).catch((e) =>
+      console.warn("[Self-Drive] Failed to persist run state:", e),
+    );
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+function deletePersistedRunState(projectPath: string | null): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (!projectPath) return;
+  void deleteSelfDriveState(projectPath).catch((e) =>
+    console.warn("[Self-Drive] Failed to delete run state:", e),
+  );
+}
 
 // ── Guide mutation (project-isolated) ───────────────────────────────
 //
@@ -971,6 +1236,7 @@ async function startNextSession(): Promise<void> {
 
   if (!nextSession) {
     // All sessions complete!
+    const projectPath = useSelfDriveStore.getState().projectPath;
     useSelfDriveStore.setState({ status: "completed", currentPhase: null });
 
     const totalTime = Date.now() - (useSelfDriveStore.getState().startedAt ?? Date.now());
@@ -979,6 +1245,8 @@ async function startNextSession(): Promise<void> {
     addLogEntry(0, "completed", `All ${guide.sessions.length} sessions done! (${timeStr})`);
     await restoreSessionMode();
     stopListeners();
+    // Nothing to recover after a successful run — drop the persisted row.
+    deletePersistedRunState(projectPath);
     showToast(`Self-Drive complete! ${guide.sessions.length} sessions in ${timeStr}`, "success");
     return;
   }
@@ -1281,6 +1549,10 @@ function addLogEntry(
   useSelfDriveStore.setState((prev) => ({
     runLog: [...prev.runLog, entry],
   }));
+  // Every log entry is a natural persistence checkpoint — the run log IS
+  // part of the snapshot, so this also captures phase changes, blockers,
+  // decisions, etc. Debounced inside persistRunState().
+  persistRunState();
 }
 
 async function sendMessageToSession(prompt: string): Promise<void> {
