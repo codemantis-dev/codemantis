@@ -582,6 +582,17 @@ Why mandatory: the generic fallback prompt built from the checklist
 alone allows the verifier to batch-assume PASS. A dedicated prompt
 naming specific files and patterns forces file-opens.
 
+CRITICAL — the **Verification Prompt** adds GUIDANCE (how to verify),
+it does NOT replace the **Verify** checklist (what must be verified).
+The runtime always appends the full numbered checklist to the verifier
+prompt; the orchestrator validates every check's label. If the
+Verification Prompt covers fewer items than the checklist, Self-Drive
+will still demand evidence for the missing items and pause otherwise.
+Therefore: the Verification Prompt SHOULD cover every checklist item,
+or at least not contradict it. When a checklist item is a runtime
+side-effect (DB / API / deploy), the Verification Prompt SHOULD name
+the concrete query / command — not just the source file.
+
 SIMPLE SESSION FORM (sessions with 2–4 verify items, no complex logic):
 
 **Verification Prompt:**
@@ -1874,6 +1885,17 @@ handling, 5+ verify items) get the COMPLEX SESSION FORM.
 Why mandatory: the generic fallback prompt built from the checklist
 alone allows the verifier to batch-assume PASS. A dedicated prompt
 naming specific files and patterns forces file-opens.
+
+CRITICAL — the **Verification Prompt** adds GUIDANCE (how to verify),
+it does NOT replace the **Verify** checklist (what must be verified).
+The runtime always appends the full numbered checklist to the verifier
+prompt; the orchestrator validates every check's label. If the
+Verification Prompt covers fewer items than the checklist, Self-Drive
+will still demand evidence for the missing items and pause otherwise.
+Therefore: the Verification Prompt SHOULD cover every checklist item,
+or at least not contradict it. When a checklist item is a runtime
+side-effect (DB / API / deploy), the Verification Prompt SHOULD name
+the concrete query / command — not just the source file.
 
 SIMPLE SESSION FORM (sessions with 2–4 verify items, no complex logic):
 

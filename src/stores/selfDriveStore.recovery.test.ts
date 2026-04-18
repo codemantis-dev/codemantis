@@ -126,6 +126,9 @@ function makeGuide(): ImplementationGuide {
 
 function setup(): void {
   useSettingsStore.setState({
+    // Partial test fixture — only the fields Self-Drive reads matter here.
+    // Double-cast via unknown since the full AppSettings shape has 30+
+    // unrelated fields we don't need to stub.
     settings: {
       apiKeys: { anthropic: "sk-test" },
       selfDriveProvider: "anthropic",
@@ -134,8 +137,7 @@ function setup(): void {
       selfDriveRunBuildCheck: true,
       selfDriveRunTests: false,
       selfDriveAutoCommit: false,
-      // fill the rest with defaults the store reads
-    } as ReturnType<typeof useSettingsStore.getState>["settings"],
+    } as unknown as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,
   });
 
@@ -288,7 +290,8 @@ describe("resume() with an active blocker", () => {
     // The prompt sent to Claude Code is the recovery prompt, not the
     // session's fallback build/verify prompt.
     expect(mockSendMessage).toHaveBeenCalled();
-    const firstMessage = mockSendMessage.mock.calls[0][1] as string;
+    const firstArgs = mockSendMessage.mock.calls[0] as unknown as [string, string];
+    const firstMessage = firstArgs[1];
     expect(firstMessage).toContain("RECOVERY-PROMPT");
     expect(firstMessage).toContain("kind=infra-state-drift");
   });

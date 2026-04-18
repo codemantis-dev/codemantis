@@ -85,9 +85,17 @@ FINAL LINE — always emit, always last:
 
 /**
  * Build a verification prompt for a single guide session.
- * Always prepends VERIFY_MODE_PREAMBLE. Prefers the session's dedicated
- * verification prompt when present; otherwise builds one from the
- * verify checklist.
+ *
+ * The authoritative list is session.verifyChecks. The orchestrator
+ * validates the response against those exact labels, so every check
+ * MUST be answered — including when a custom verificationPrompt is set.
+ *
+ * When session.verificationPrompt is present we include it as extra
+ * guidance above the mandatory checklist. It describes *how* to verify;
+ * the checklist describes *what* must be answered. Prior behavior
+ * replaced the checklist with verificationPrompt, which silently dropped
+ * checks and caused the orchestrator to pause with "verifier did not
+ * produce evidence for all items" every time the two were out of sync.
  */
 export function buildSessionVerifyPrompt(
   session: SessionForVerify,
@@ -98,15 +106,14 @@ export function buildSessionVerifyPrompt(
     ? `\n\nAlso read the Verification Audit at docs/specs/${auditFilename} and use it as a checklist. Every VERIFY directive in it is subject to the same evidence contract above.`
     : "";
 
-  // Always prepend the preamble — even when using a stored verificationPrompt.
-  // This retrofits old DB guides whose stored prompt text predates the contract.
-  if (session.verificationPrompt) {
-    return `${VERIFY_MODE_PREAMBLE}\n${session.verificationPrompt}${auditLine}`;
-  }
-
   const total = session.verifyChecks.length;
 
   if (total === 0) {
+    // No checklist. Fall back to a dedicated verificationPrompt if any,
+    // otherwise the minimal typecheck/tests form.
+    if (session.verificationPrompt) {
+      return `${VERIFY_MODE_PREAMBLE}\n${session.verificationPrompt}${auditLine}`;
+    }
     return `${VERIFY_MODE_PREAMBLE}
 Verify Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
 
@@ -121,9 +128,29 @@ End with the final accounting line described in the preamble.${auditLine}`;
     .map((c, i) => `${i + 1}. [${c.kind ?? "static"}] ${c.label}`)
     .join("\n");
 
+  // When a custom verificationPrompt is set, include it as guidance above
+  // the mandatory checklist. The checklist is never dropped — the
+  // orchestrator strictly validates against its labels.
+  const guidanceBlock = session.verificationPrompt
+    ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GUIDANCE (from the session's verification prompt — describes HOW to verify).
+Use it alongside the MANDATORY CHECKLIST below; do NOT stop after
+answering only the guidance. Every numbered checklist item must still
+receive its own PASS/FAIL/SKIPPED/N/A line.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${session.verificationPrompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANDATORY CHECKLIST — ${total} items. Answer every one below.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`
+    : "";
+
   return `${VERIFY_MODE_PREAMBLE}
 Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
-
+${guidanceBlock}
 Items to verify (${total} total) — report PASS or FAIL for each. The
 [kind] tag on each item dictates what kind of evidence is required
 (see the preamble):

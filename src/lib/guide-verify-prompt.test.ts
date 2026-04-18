@@ -101,12 +101,19 @@ describe("buildSessionVerifyPrompt", () => {
     expect(result).toContain("pnpm tsc --noEmit");
   });
 
-  it("prefers verificationPrompt over checklist when available", () => {
+  it("always includes the mandatory checklist alongside a custom verificationPrompt", () => {
+    // Regression: prior behavior replaced the checklist when verificationPrompt
+    // was set. That silently dropped checks and made the orchestrator pause
+    // with "verifier did not produce evidence for all items" on every run.
+    // The new contract: verificationPrompt is guidance, checklist is mandatory.
     const result = buildSessionVerifyPrompt(
       {
         index: 1,
         name: "Database Schema",
-        verifyChecks: [{ label: "TypeScript compiles" }],
+        verifyChecks: [
+          { label: "TypeScript compiles" },
+          { label: "Migration applied on remote", kind: "side-effect" },
+        ],
         verificationPrompt:
           "Open src/models/user.ts.\nVERIFY: User model exists.",
       },
@@ -114,11 +121,19 @@ describe("buildSessionVerifyPrompt", () => {
       null,
     );
 
+    // Guidance block is included.
     expect(result).toContain("Open src/models/user.ts");
     expect(result).toContain("VERIFY: User model exists");
-    expect(result).not.toContain("Items to verify");
-    // Checklist fallback must not leak in alongside the dedicated prompt.
-    expect(result).not.toContain("1. TypeScript compiles");
+    // Mandatory checklist is ALSO present (heading form is unique — the
+    // GUIDANCE block forward-references "MANDATORY CHECKLIST below").
+    expect(result).toContain("MANDATORY CHECKLIST — 2 items");
+    expect(result).toContain("1. [static] TypeScript compiles");
+    expect(result).toContain("2. [side-effect] Migration applied on remote");
+    // Order: user's guidance text appears above the MANDATORY CHECKLIST
+    // heading (match the full heading so we don't hit the forward-ref).
+    expect(result.indexOf("VERIFY: User model exists")).toBeLessThan(
+      result.indexOf("MANDATORY CHECKLIST — 2 items"),
+    );
   });
 
   it("retrofits stored verificationPrompt by prepending the preamble", () => {
