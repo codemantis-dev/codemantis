@@ -20,6 +20,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useSelfDriveStore, useBlockerHasResolution } from "../../stores/selfDriveStore";
+import CopyButton from "../shared/CopyButton";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { SelfDrivePhase } from "../../types/implementation-guide";
 import RunLogViewer from "./RunLogViewer";
@@ -123,6 +124,22 @@ export default function SelfDriveStatus() {
       ? "Pick an option on the blocker card above, or answer in the main chat."
       : "Resume Self-Drive";
 
+    // Plain-text snapshot for the Copy button. Rebuilt on each click via
+    // the lazy getText callback so the latest pauseReason is captured.
+    const buildPausedText = (): string => {
+      const lines: string[] = ["PAUSED"];
+      if (activeBlocker) {
+        if (activeBlocker.summary) lines.push(activeBlocker.summary);
+        if (activeBlocker.resolutionCriteria) {
+          lines.push(`Resolution criteria: ${activeBlocker.resolutionCriteria}`);
+        }
+      }
+      if (pauseReason && pauseReason !== activeBlocker?.summary) {
+        lines.push(pauseReason);
+      }
+      return lines.filter((l) => l.trim().length > 0).join("\n\n");
+    };
+
     return (
       <div
         className="mx-1 mt-1.5 px-3 py-2 rounded-lg border"
@@ -136,32 +153,36 @@ export default function SelfDriveStatus() {
           <span className="text-label font-semibold" style={{ color: "var(--yellow, #eab308)" }}>
             PAUSED
           </span>
+          <div className="flex-1" />
+          <CopyButton getText={buildPausedText} label="Copy pause message" size={12} />
         </div>
 
-        {activeBlocker ? (
-          <>
-            <p className="text-detail leading-relaxed font-medium" style={{ color: "var(--text-primary)" }}>
-              {activeBlocker.summary}
-            </p>
-            <p
-              className="text-detail mt-0.5 leading-relaxed"
-              style={{ color: blockedOnAnswer ? "var(--yellow, #eab308)" : "var(--text-secondary)" }}
-            >
-              {blockedOnAnswer
-                ? "Waiting for your decision — pick an option above or answer in chat, then Resume."
-                : "Answer captured — click Resume to verify and continue."}
-            </p>
-            {pauseReason && pauseReason !== activeBlocker.summary && (
-              <p className="text-detail mt-1 mb-2 leading-relaxed" style={{ color: "var(--text-ghost)" }}>
-                {pauseReason}
+        <div className="select-text">
+          {activeBlocker ? (
+            <>
+              <p className="text-detail leading-relaxed font-medium" style={{ color: "var(--text-primary)" }}>
+                {activeBlocker.summary}
               </p>
-            )}
-          </>
-        ) : (
-          <p className="text-detail mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            {pauseReason}
-          </p>
-        )}
+              <p
+                className="text-detail mt-0.5 leading-relaxed"
+                style={{ color: blockedOnAnswer ? "var(--yellow, #eab308)" : "var(--text-secondary)" }}
+              >
+                {blockedOnAnswer
+                  ? "Waiting for your decision — pick an option above or answer in chat, then Resume."
+                  : "Answer captured — click Resume to verify and continue."}
+              </p>
+              {pauseReason && pauseReason !== activeBlocker.summary && (
+                <p className="text-detail mt-1 mb-2 leading-relaxed" style={{ color: "var(--text-ghost)" }}>
+                  {pauseReason}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-detail mb-2 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {pauseReason}
+            </p>
+          )}
+        </div>
 
         <div className="flex items-center gap-1.5 mt-2">
           <button

@@ -80,11 +80,10 @@ describe("RunLogViewer", () => {
     });
 
     render(<RunLogViewer onClose={onClose} />);
-    // The close button is the X icon button in the header
-    const header = screen.getByText("Self-Drive Run Log");
-    const closeBtn = header.parentElement!.querySelector("button");
-    expect(closeBtn).toBeTruthy();
-    fireEvent.click(closeBtn!);
+    // The header now has both a Copy button and the X close button; pick
+    // the close one by its title.
+    const closeBtn = screen.getByTitle("Close");
+    fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -135,6 +134,36 @@ describe("RunLogViewer", () => {
 
     // Now prompt text should be visible
     expect(screen.getByText("Fix these TypeScript errors in src/main.ts")).toBeInTheDocument();
+  });
+
+  it("Copy button flattens the log to plain text", () => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    const ts = new Date(2026, 0, 15, 10, 30, 45).getTime();
+    useSelfDriveStore.setState({
+      runLog: [
+        makeLogEntry({ timestamp: ts, summary: "line one" }),
+        makeLogEntry({ timestamp: ts + 1000, summary: "line two", prompt: "PROMPT-BODY" }),
+      ],
+      startedAt: ts,
+    });
+    render(<RunLogViewer onClose={onClose} />);
+
+    const copyBtn = screen.getByTitle("Copy full log");
+    fireEvent.click(copyBtn);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    const copied = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(copied).toContain("line one");
+    expect(copied).toContain("line two");
+    // The expanded prompt body is indented beneath the summary line.
+    expect(copied).toContain("    PROMPT-BODY");
+  });
+
+  it("Copy button is absent when the log is empty", () => {
+    render(<RunLogViewer onClose={onClose} />);
+    expect(screen.queryByTitle("Copy full log")).toBeNull();
   });
 
   it("shows summary footer with session and fix counts", () => {

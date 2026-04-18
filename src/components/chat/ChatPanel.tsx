@@ -231,6 +231,21 @@ export default function ChatPanel() {
                 index < visibleMessages.length - 1 &&
                 !visibleMessages[index + 1].isRestored;
 
+              // Mark the most recent assistant bubble (skipping Self-Drive
+              // decision cards) so MessageBubble can render the Copy icon
+              // as always-visible on the latest AI response.
+              let isLatestAssistant = false;
+              if (message.role === "assistant" && !message.selfDriveEvent) {
+                isLatestAssistant = true;
+                for (let j = index + 1; j < visibleMessages.length; j++) {
+                  const later = visibleMessages[j];
+                  if (later.role === "assistant" && !later.selfDriveEvent) {
+                    isLatestAssistant = false;
+                    break;
+                  }
+                }
+              }
+
               return (
                 <div key={message.id}>
                   {message.selfDriveEvent ? (
@@ -245,6 +260,7 @@ export default function ChatPanel() {
                         message.isStreaming ? streaming.streamingContent : undefined
                       }
                       onRestart={message.restartable ? handleRestart : undefined}
+                      isLatest={isLatestAssistant}
                     />
                   )}
                   {isRestoredBoundary && (

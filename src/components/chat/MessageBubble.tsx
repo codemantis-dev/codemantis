@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from "react";
-import { RotateCcw, Copy, Check, Zap } from "lucide-react";
+import React from "react";
+import { RotateCcw, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
@@ -9,6 +9,7 @@ import StreamingCursor from "./StreamingCursor";
 import CodeBlock from "./CodeBlock";
 import { ExternalLink } from "../../lib/external-links";
 import TurnStatsPopover from "./TurnStatsPopover";
+import CopyButton from "../shared/CopyButton";
 
 interface MessageBubbleProps {
   message: Message;
@@ -16,6 +17,12 @@ interface MessageBubbleProps {
   sessionId?: string;
   onRestart?: () => void;
   onRetry?: () => void;
+  /**
+   * True when this is the most recent assistant message in the thread.
+   * The Copy icon is rendered always-visible for the latest reply (so
+   * the user doesn't have to hunt for it), hover-only for older ones.
+   */
+  isLatest?: boolean;
 }
 
 export default React.memo(function MessageBubble({
@@ -24,6 +31,7 @@ export default React.memo(function MessageBubble({
   sessionId,
   onRestart,
   onRetry,
+  isLatest = false,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const displayContent = message.isStreaming
@@ -33,12 +41,12 @@ export default React.memo(function MessageBubble({
   const timeStr = formatTime(message.timestamp);
   const durationMs = message.turnStats?.durationMs;
 
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(message.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [message.content]);
+  // Lazy text getter — snapshot at click time, not render time. For
+  // streaming assistant messages the content keeps updating; the Copy
+  // button reads whatever is current when the user clicks.
+  const getCopyText = (): string => (
+    message.isStreaming && streamingContent != null ? streamingContent : message.content
+  );
 
   if (isUser) {
     const isSelfDrive = message.isSelfDrive === true;
@@ -69,13 +77,12 @@ export default React.memo(function MessageBubble({
                 {message.content}
               </p>
             </div>
-            <button
-              onClick={handleCopy}
-              className="absolute -left-7 top-1/2 -translate-y-1/2 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1 rounded-md hover:bg-bg-elevated text-text-ghost hover:text-text-secondary"
-              title="Copy message"
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-            </button>
+            <CopyButton
+              getText={getCopyText}
+              label="Copy message"
+              size={14}
+              className="absolute -left-7 top-1/2 -translate-y-1/2 opacity-0 group-hover/msg:opacity-100 transition-opacity"
+            />
           </div>
           <span className="text-detail text-text-ghost px-1">{timeStr}</span>
         </div>
@@ -84,7 +91,7 @@ export default React.memo(function MessageBubble({
   }
 
   return (
-    <div className="mb-4 min-w-0">
+    <div className="group/msg mb-4 min-w-0">
       <ActivityChip messageId={message.id} sessionId={sessionId} />
       <div className="mt-1 selectable min-w-0 overflow-hidden">
         <div className="markdown-content text-chat text-text-secondary">
@@ -119,7 +126,8 @@ export default React.memo(function MessageBubble({
             Retry
           </button>
         )}
-        {/* Turn stats + timestamp (shown after streaming completes) */}
+        {/* Turn stats + timestamp + inline Copy. Always visible on the
+            latest assistant reply, hover-only on older ones. */}
         {!message.isStreaming && !message.restartable && (
           <div className="mt-1.5 flex items-center gap-2">
             {message.turnStats && <TurnStatsPopover stats={message.turnStats} />}
@@ -129,6 +137,12 @@ export default React.memo(function MessageBubble({
                 <> · took {formatDuration(durationMs, "medium")}</>
               )}
             </span>
+            <CopyButton
+              getText={getCopyText}
+              label="Copy message"
+              size={13}
+              className={`transition-opacity ${isLatest ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"}`}
+            />
           </div>
         )}
       </div>

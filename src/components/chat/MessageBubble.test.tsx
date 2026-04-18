@@ -161,4 +161,35 @@ describe("MessageBubble", () => {
     render(<MessageBubble message={msg} />);
     expect(screen.queryByText("Self-Drive")).not.toBeInTheDocument();
   });
+
+  it("renders a Copy button on assistant messages in the stats row", () => {
+    const msg = makeMessage({ role: "assistant", content: "Assistant reply" });
+    render(<MessageBubble message={msg} />);
+    // title="Copy message" comes from the CopyButton idle state.
+    expect(screen.getByTitle("Copy message")).toBeInTheDocument();
+  });
+
+  it("Copy button on latest assistant message is opacity-100 (always visible)", () => {
+    const msg = makeMessage({ role: "assistant", content: "Latest reply" });
+    render(<MessageBubble message={msg} isLatest={true} />);
+    const copyBtn = screen.getByTitle("Copy message");
+    expect(copyBtn.className).toContain("opacity-100");
+    expect(copyBtn.className).not.toContain("group-hover/msg:opacity-100");
+  });
+
+  it("Copy button on older assistant messages is hover-only (opacity-0)", () => {
+    const msg = makeMessage({ role: "assistant", content: "Older reply" });
+    render(<MessageBubble message={msg} isLatest={false} />);
+    const copyBtn = screen.getByTitle("Copy message");
+    expect(copyBtn.className).toContain("opacity-0");
+    expect(copyBtn.className).toContain("group-hover/msg:opacity-100");
+  });
+
+  it("assistant Copy button copies the message content", () => {
+    const msg = makeMessage({ role: "assistant", content: "Copy this assistant text" });
+    render(<MessageBubble message={msg} isLatest={true} />);
+    const copyBtn = screen.getByTitle("Copy message");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Copy this assistant text");
+  });
 });

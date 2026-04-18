@@ -7,6 +7,7 @@ import { X, ChevronRight, ChevronDown } from "lucide-react";
 import { useSelfDriveStore } from "../../stores/selfDriveStore";
 import { formatDuration } from "../../lib/format-utils";
 import type { RunLogEntry } from "../../types/implementation-guide";
+import CopyButton from "../shared/CopyButton";
 
 interface Props {
   onClose: () => void;
@@ -61,6 +62,21 @@ export default function RunLogViewer({ onClose }: Props) {
   const pauseCount = runLog.filter((e) => e.phase === "paused").length;
   const orchestratorCalls = runLog.filter((e) => e.phase === "decision").length;
 
+  // Flatten the run log to plain text for the header Copy button. Each
+  // entry becomes one line; expanded prompts are appended indented below.
+  const buildLogText = (): string => {
+    return runLog
+      .map((e) => {
+        const head = `${formatTimestamp(e.timestamp)}  ${e.summary}`;
+        if (e.prompt) {
+          const indented = e.prompt.split("\n").map((l) => `    ${l}`).join("\n");
+          return `${head}\n${indented}`;
+        }
+        return head;
+      })
+      .join("\n");
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -76,16 +92,22 @@ export default function RunLogViewer({ onClose }: Props) {
           <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
             Self-Drive Run Log
           </span>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-bg-elevated transition-colors"
-          >
-            <X size={14} style={{ color: "var(--text-ghost)" }} />
-          </button>
+          <div className="flex items-center gap-1">
+            {runLog.length > 0 && (
+              <CopyButton getText={buildLogText} label="Copy full log" size={14} />
+            )}
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-bg-elevated transition-colors"
+              title="Close"
+            >
+              <X size={14} style={{ color: "var(--text-ghost)" }} />
+            </button>
+          </div>
         </div>
 
         {/* Log entries */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5 font-mono text-label">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-2 space-y-0.5 font-mono text-label select-text">
           {runLog.length === 0 ? (
             <p className="text-center py-4" style={{ color: "var(--text-ghost)" }}>
               No log entries yet

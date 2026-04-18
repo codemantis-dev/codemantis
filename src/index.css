@@ -228,7 +228,12 @@ body,
   line-height: 1.65;
   overflow-wrap: anywhere;
   word-break: break-word;
+  /* Both properties are required: #root sets `user-select: none` and some
+     WebKit builds only honor the override when `-webkit-user-select` is
+     also explicit. Without the prefixed form, Cmd+C won't copy the
+     highlighted selection in the Tauri webview. */
   user-select: text;
+  -webkit-user-select: text;
 }
 
 .markdown-content p {
@@ -335,16 +340,26 @@ body,
 .changelog-markdown li { margin-bottom: 0.15em; }
 .changelog-markdown strong { color: var(--text-primary); font-weight: 600; }
 .changelog-markdown a { color: var(--accent-light); }
-.changelog-markdown { user-select: text; cursor: text; }
+.changelog-markdown { user-select: text; -webkit-user-select: text; cursor: text; }
 
 /* Textarea */
 textarea {
   user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Selectable text in chat */
 .selectable {
   user-select: text;
+  -webkit-user-select: text;
+}
+
+/* General-purpose opt-in for any element that should allow text selection
+   and Cmd+C copying inside the `#root { user-select: none }` context. */
+.select-text {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 /* xterm.js overrides */
