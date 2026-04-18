@@ -1,5 +1,39 @@
 # CodeMantis Releases
 
+## 1.1.1
+
+### Self-Drive
+- **Persistent paused runs**: Self-Drive state is saved to SQLite (`self_drive_runs` table) across app restarts — paused runs rehydrate at boot and require the user to attach a live session before resuming
+- **Session and guide pinning**: lock the target sessionId and guide snapshot at start so tab/project switches cannot retarget Claude or swap plans mid-run
+- **Structured blockers**: typed blocker kinds with options, resolution lifecycle, and a dedicated recovery phase — the orchestrator verifies blocker resolution via a recovery prompt before normal flow resumes
+- **Blocker input required**: pause stamps `prePauseLastMessageId`; Resume is blocked until the user provides resolution via a one-click option pick or main chat reply
+- **Tool extraction from activity feed**: derive tool names from activityStore instead of unused activityIds
+- **Verification prompt always merges checklist**: custom `verificationPrompt` is now guidance above the numbered `verifyChecks` list so the orchestrator never loses checklist items
+
+### UI
+- **Shared CopyButton**: extracted component with lazy `getText()` for click-time snapshots — used in MessageBubble (always-visible copy on latest assistant reply, streaming-safe), RunLogViewer, and Self-Drive paused status
+- **Text selection**: `-webkit-user-select` and `.select-text` so Cmd+C works in the Tauri webview; run log body is now selectable
+- **Chat scroll stability**: track container `clientHeight` so reflow-driven scroll events (e.g. ThinkingIndicator growth) don't flip the user off the bottom or flash the new-messages affordance
+
+### Claude CLI
+- Pass `--thinking-display summarized` so Opus 4.7+ still streams usable thinking summaries for the reasoning panel
+
+### Security
+- **Skill template shell expansion allowlist**: validate `!`cmd`!` fragments against a read-only command allowlist before running via `sh`, with null stdin and explicit stdio pipes
+- Harden preview `port_detector` regex init with labeled expect/panic messages and a compile smoke test
+- MCP `read_json_file` edge-case tests for truncated/empty JSON
+
+### Refactoring
+- Extract `useSpecWriterActions` hook from SpecWriterSlideOver (1,479 lines moved to a thinner component + dedicated hook with tests)
+- Add `useAssistantAttachments` test coverage
+
+### Testing
+- **128 new Rust unit tests** covering IPC command modules: `api_logs`, `clone`, `guide`, `preview`, `specwriter`, `startup`, `super_bro`, `terminal`
+- 2 new TypeScript integration tests for Self-Drive navigation safety
+
+### Documentation
+- Updated user guide and Super-Bro knowledge for v1.1.0 permission modes, status bar, shortcuts, safety guidance, and Python/uv install hints
+
 ## 1.1.0
 
 ### Claude Code CLI Compatibility
