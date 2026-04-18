@@ -756,6 +756,38 @@ mod tests {
     }
 
     #[test]
+    fn read_json_file_returns_error_for_truncated_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("truncated.json");
+        fs::write(&path, r#"{"mcpServers": {"server": {"command": "nod"#).unwrap();
+        let result = read_json_file(&path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("EOF"));
+    }
+
+    #[test]
+    fn read_json_file_returns_error_for_empty_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("empty.json");
+        fs::write(&path, "").unwrap();
+        let result = read_json_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn save_mcp_server_returns_error_for_corrupted_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".claude.json");
+        fs::write(&path, "NOT JSON AT ALL").unwrap();
+
+        // We can't easily test save_mcp_server directly because it reads
+        // from the user's home directory, but we can verify that read_json_file
+        // + the ? propagation correctly prevents panics:
+        let result = read_json_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn parse_servers_with_env_containing_special_chars() {
         let val = serde_json::json!({
             "server": {

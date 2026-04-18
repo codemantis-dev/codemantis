@@ -11,22 +11,22 @@ static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| {
         r"|\x1b\].*?(?:\x1b\\|\x07)",     // OSC sequences (e.g. \e]8;;url\e\\)
         r"|\x1b[()][A-Z0-9]",             // Character set selection
         r"|\x1b[=>]",                      // Keypad mode
-    )).unwrap()
+    )).expect("ANSI_RE: invalid regex pattern")
 });
 
 static LSOF_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r":(\d+)\s+\(LISTEN\)").unwrap()
+    Regex::new(r":(\d+)\s+\(LISTEN\)").expect("LSOF_PORT_RE: invalid regex pattern")
 });
 
 /// Lines indicating a port is already occupied — must be skipped before pattern matching.
 static PORT_IN_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:already in use|is in use|in use.*trying|using available port|EADDRINUSE|address already|port is occupied|is already running on port)").unwrap()
+    Regex::new(r"(?i)(?:already in use|is in use|in use.*trying|using available port|EADDRINUSE|address already|port is occupied|is already running on port)").expect("PORT_IN_USE_RE: invalid regex pattern")
 });
 
 /// Extract the occupied port number from "port in use" messages.
 /// E.g. "Port 5173 is in use, trying another one..." → 5173
 static OCCUPIED_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:port\s+)(\d+)(?:\s+is\s+(?:already\s+)?in\s+use|.*EADDRINUSE|.*address already|\s+is\s+occupied|\s+is\s+already\s+running)").unwrap()
+    Regex::new(r"(?i)(?:port\s+)(\d+)(?:\s+is\s+(?:already\s+)?in\s+use|.*EADDRINUSE|.*address already|\s+is\s+occupied|\s+is\s+already\s+running)").expect("OCCUPIED_PORT_RE: invalid regex pattern")
 });
 
 /// Common dev server ports to probe as a last-resort fallback when terminal
@@ -40,23 +40,26 @@ pub const DEFAULT_DEV_PORTS: &[u16] = &[
 ];
 
 static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    vec![
+    let patterns = [
         // Framework-specific patterns (most reliable)
         // Vite: "Local: http://localhost:5173/"
-        Regex::new(r"Local:\s+https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)").unwrap(),
+        (r"Local:\s+https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)", "Vite Local"),
         // Next.js: "ready started server on 0.0.0.0:3000, url: http://localhost:3000"
-        Regex::new(r"ready started server on .+?:(\d+)").unwrap(),
+        (r"ready started server on .+?:(\d+)", "Next.js ready"),
         // Next.js (newer): "▲ Next.js 15 ... Local: http://localhost:3000"
-        Regex::new(r"Local:\s+https?://localhost:(\d+)").unwrap(),
+        (r"Local:\s+https?://localhost:(\d+)", "Next.js Local"),
         // Generic URL patterns
-        Regex::new(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)").unwrap(),
+        (r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)", "generic URL"),
         // "listening on port 3000"
-        Regex::new(r"(?i)listening on (?:port )?(\d+)").unwrap(),
+        (r"(?i)listening on (?:port )?(\d+)", "listening on port"),
         // "server running at http://...:3000"
-        Regex::new(r"(?i)server (?:running|started|listening) (?:at|on) .+?:(\d+)").unwrap(),
+        (r"(?i)server (?:running|started|listening) (?:at|on) .+?:(\d+)", "server running"),
         // Uvicorn: "Uvicorn running on http://127.0.0.1:8000"
-        Regex::new(r"Uvicorn running on https?://(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)").unwrap(),
-    ]
+        (r"Uvicorn running on https?://(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)", "Uvicorn"),
+    ];
+    patterns.iter().map(|(pat, label)| {
+        Regex::new(pat).unwrap_or_else(|e| panic!("PORT_PATTERNS[{}]: invalid regex: {}", label, e))
+    }).collect()
 });
 
 /// Scan a line of terminal output for a dev server URL/port.
@@ -154,7 +157,7 @@ pub fn extract_occupied_port(line: &str) -> Option<u16> {
     // Fallback: scan for any port number in the line
     // (handles formats like "EADDRINUSE :::5173" where the port is after :::)
     static FALLBACK_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?::::|port\s+)(\d+)").unwrap()
+        Regex::new(r"(?::::|port\s+)(\d+)").expect("FALLBACK_PORT_RE: invalid regex pattern")
     });
     if let Some(caps) = FALLBACK_PORT_RE.captures(line) {
         if let Some(port_match) = caps.get(1) {
@@ -217,6 +220,22 @@ pub fn scan_pid_ports(pid: u32) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Static regex compilation validation ──
+
+    #[test]
+    fn all_static_regexes_compile_successfully() {
+        // Force evaluation of all LazyLock regexes to verify patterns are valid.
+        // If any pattern is broken, this test panics with a descriptive message
+        // (from the .expect() calls) instead of failing silently at runtime.
+        let _ = ANSI_RE.as_str();
+        let _ = LSOF_PORT_RE.as_str();
+        let _ = PORT_IN_USE_RE.as_str();
+        let _ = OCCUPIED_PORT_RE.as_str();
+        assert!(!PORT_PATTERNS.is_empty(), "PORT_PATTERNS should contain patterns");
+        // FALLBACK_PORT_RE is inside extract_occupied_port — exercise it:
+        let _ = extract_occupied_port("dummy");
+    }
 
     // --- Vite patterns ---
 

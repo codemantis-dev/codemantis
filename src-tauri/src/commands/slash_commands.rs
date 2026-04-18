@@ -1,8 +1,17 @@
 use crate::claude::session::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tauri::State;
 use tokio::process::Command;
+
+/// Allowlist of commands permitted in skill template `!`cmd`!` expansion.
+/// These should be read-only / informational commands only — never destructive.
+const ALLOWED_TEMPLATE_COMMANDS: &[&str] = &[
+    "basename", "cat", "date", "dirname", "echo", "env", "find", "git",
+    "grep", "head", "hostname", "id", "ls", "node", "printenv", "printf",
+    "pwd", "readlink", "tail", "test", "tr", "uname", "wc", "which", "whoami",
+];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SlashCommand {
@@ -440,10 +449,41 @@ async fn expand_shell_commands(text: &str) -> String {
     result
 }
 
+/// Validate that a template shell command starts with an allowed binary.
+fn validate_template_command(cmd: &str) -> Result<(), String> {
+    let trimmed = cmd.trim();
+    let first_token = trimmed
+        .split(|c: char| c.is_whitespace() || c == ';' || c == '&' || c == '|')
+        .find(|s| !s.is_empty() && !s.contains('='))
+        .unwrap_or("");
+    let basename = first_token.rsplit('/').next().unwrap_or(first_token);
+
+    if basename.is_empty() {
+        return Err("Empty template command".to_string());
+    }
+    if ALLOWED_TEMPLATE_COMMANDS.contains(&basename) {
+        return Ok(());
+    }
+    Err(format!(
+        "Template command '{}' is not in the allowed list",
+        basename
+    ))
+}
+
 async fn execute_shell_command(cmd: &str) -> String {
+    if let Err(e) = validate_template_command(cmd) {
+        return format!("[blocked: {}]", e);
+    }
+
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        Command::new("sh").arg("-c").arg(cmd).output(),
+        Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
     )
     .await;
 
@@ -697,6 +737,107 @@ mod tests {
         let input = "Start !`no closing backtick here";
         let result = expand_shell_commands(input).await;
         assert_eq!(result, "Start !`no closing backtick here");
+    }
+
+    // ── validate_template_command ──
+
+    #[test]
+    fn validate_template_command_allows_echo() {
+        assert!(validate_template_command("echo hello").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_git() {
+        assert!(validate_template_command("git branch --show-current").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_pwd() {
+        assert!(validate_template_command("pwd").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_uname() {
+        assert!(validate_template_command("uname -a").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_which() {
+        assert!(validate_template_command("which node").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_full_path() {
+        assert!(validate_template_command("/usr/bin/git status").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_allows_env_prefix() {
+        assert!(validate_template_command("FOO=bar echo test").is_ok());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_rm() {
+        let result = validate_template_command("rm -rf /");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not in the allowed list"));
+    }
+
+    #[test]
+    fn validate_template_command_blocks_curl() {
+        assert!(validate_template_command("curl https://evil.com").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_wget() {
+        assert!(validate_template_command("wget https://evil.com").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_python() {
+        assert!(validate_template_command("python3 -c 'import os; os.system(\"rm -rf /\")'").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_bash() {
+        assert!(validate_template_command("bash -c 'dangerous stuff'").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_sh() {
+        assert!(validate_template_command("sh -c 'evil'").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_blocks_chmod() {
+        assert!(validate_template_command("chmod 777 /etc/passwd").is_err());
+    }
+
+    #[test]
+    fn validate_template_command_rejects_empty() {
+        let result = validate_template_command("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Empty template command"));
+    }
+
+    #[test]
+    fn validate_template_command_rejects_whitespace_only() {
+        assert!(validate_template_command("   ").is_err());
+    }
+
+    #[tokio::test]
+    async fn expand_shell_commands_blocks_dangerous_command() {
+        let input = "Before !`rm -rf /tmp/test` after";
+        let result = expand_shell_commands(input).await;
+        assert!(result.contains("[blocked:"));
+        assert!(result.contains("not in the allowed list"));
+    }
+
+    #[tokio::test]
+    async fn expand_shell_commands_allows_safe_commands() {
+        let input = "Branch: !`echo main`";
+        let result = expand_shell_commands(input).await;
+        assert_eq!(result, "Branch: main");
     }
 
     // ── scan_command_dir ──
