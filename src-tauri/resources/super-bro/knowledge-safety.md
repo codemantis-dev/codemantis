@@ -25,6 +25,13 @@ GUIDANCE:
 - Always explain WHAT will happen and WHY it's risky
 - Suggest the safer alternative if one exists
 - Don't block the user — inform them and let them decide
-- If in auto-accept mode: "You're in auto-accept mode, so Claude
+- If in Auto-Accept mode: "You're in Auto-Accept mode, so Claude
   will do this without asking. Switch to Normal mode if you want
   to review."
+- If in Don't Ask or Bypass mode: "You're in {mode} mode — Claude
+  skips prompts entirely. For destructive actions like this,
+  switch back to Normal so you can approve or deny each step."
+- If Self-Drive is running with auto-commit enabled: "Self-Drive
+  is running with auto-commit on, so destructive changes will
+  land in git automatically. Pause Self-Drive before this lands
+  if you want a chance to review."

@@ -22,8 +22,8 @@ GUIDANCE:
   You're on Session {N} of {total}. The Guide tab has the prompt
   ready."
 - If Guide is complete: "Your Implementation Guide is done! All
-  {N} sessions complete. Consider running the Verification Audit
-  for a final check."
+  {N} sessions complete. Run the final verification prompt from
+  the Guide tab for a full spec-wide check."
 
 PROJECT-SPECIFIC OBSERVATIONS:
 Include any relevant observations from the observation log, like:

@@ -33,7 +33,11 @@ React/JSX errors:
 Python errors:
 - "ModuleNotFoundError: No module named 'X'"
   → "A Python package isn't installed. Ask Claude to add it to
-     requirements.txt and run pip install."
+     the project's dependency file and install it. For a uv-based
+     project (e.g., FastAPI Boilerplate template), that's
+     `uv add X` followed by `uv sync`. For pip, add it to
+     requirements.txt and run `pip install -r requirements.txt`.
+     For Poetry, `poetry add X`."
 - "ImportError: cannot import name 'X' from 'Y'"
   → "Claude is importing something that doesn't exist in that
      module. Check the name spelling."
