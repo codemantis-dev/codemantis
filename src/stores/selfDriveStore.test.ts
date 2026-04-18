@@ -1782,7 +1782,13 @@ describe("selfDriveStore — project isolation", () => {
     expect(useSelfDriveStore.getState().status).toBe("running");
   });
 
-  it("pauses on guide project mismatch during handleTurnComplete", async () => {
+  it("KEEPS RUNNING when the UI's guide store flips to a different project mid-run", async () => {
+    // Regression: Self-Drive USED to pause with "Project switched" when
+    // useGuideStore.guide.projectPath stopped matching state.projectPath.
+    // That broke the core UX requirement: users expect Self-Drive to keep
+    // executing on its own project regardless of which tab they view.
+    // The fix pinned the guide into Self-Drive's own state (state.guide),
+    // so UI navigation no longer affects the run.
     setupReadyState();
 
     mockCallOrchestrator.mockResolvedValue({
@@ -1794,17 +1800,22 @@ describe("selfDriveStore — project isolation", () => {
     await useSelfDriveStore.getState().start();
     const emit = captureListenCallback();
 
-    // Simulate guide store loading a different project's guide
+    // User navigates to a different project — guideStore reloads to that
+    // project's guide. This must NOT affect Self-Drive.
     useGuideStore.setState({
       guide: makeGuide({ projectPath: "/other-project" }),
     });
 
     emit(makeTurnCompleteEvent());
 
+    // Self-Drive continues running on its pinned guide.
     await vi.waitFor(() => {
-      expect(useSelfDriveStore.getState().status).toBe("paused");
-      expect(useSelfDriveStore.getState().pauseReason).toContain("Project switched");
+      // Orchestrator was still consulted — Self-Drive processed the turn.
+      expect(mockCallOrchestrator).toHaveBeenCalled();
     });
+    expect(useSelfDriveStore.getState().status).not.toBe("paused");
+    // Pinned guide still belongs to the original project.
+    expect(useSelfDriveStore.getState().guide?.projectPath).toBe("/test");
   });
 });
 

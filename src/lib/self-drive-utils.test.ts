@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Message } from "../types/session";
 import type { ImplementationGuide } from "../types/implementation-guide";
+import type { ActivityEntry } from "../types/activity";
 
 // guideStore needs tauri-commands for persistence
 vi.mock("./tauri-commands", () => ({
@@ -12,11 +13,26 @@ vi.mock("./tauri-commands", () => ({
 }));
 
 import { useGuideStore } from "../stores/guideStore";
+import { useActivityStore } from "../stores/activityStore";
 import {
   extractToolsFromTurn,
   truncateResponse,
   getCurrentSessionPlan,
 } from "./self-drive-utils";
+
+const SID = "session-sd-util";
+
+function makeActivity(overrides: Partial<ActivityEntry> & { messageId: string; toolName: string }): ActivityEntry {
+  return {
+    id: `act-${Math.random().toString(36).slice(2, 8)}`,
+    toolUseId: `tu-${Math.random().toString(36).slice(2, 8)}`,
+    toolInput: {},
+    status: "done",
+    timestamp: new Date().toISOString(),
+    isError: false,
+    ...overrides,
+  };
+}
 
 function makeGuide(): ImplementationGuide {
   return {
@@ -61,26 +77,65 @@ function makeGuide(): ImplementationGuide {
 // ── extractToolsFromTurn ──────────────────────────────────────────
 
 describe("extractToolsFromTurn", () => {
-  it("extracts tool names from activity IDs", () => {
-    const messages: Message[] = [
-      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
-      {
-        id: "m2",
-        role: "assistant",
-        content: "Done",
-        timestamp: "",
-        activityIds: ["read-123456", "write-789012", "bash-345678"],
-        isStreaming: false,
-      },
-    ];
-
-    const tools = extractToolsFromTurn(messages);
-    expect(tools).toContain("read");
-    expect(tools).toContain("write");
-    expect(tools).toContain("bash");
+  beforeEach(() => {
+    // Clear activity store between tests so entries don't leak.
+    useActivityStore.setState({
+      sessionEntries: new Map(),
+      sessionQuestions: new Map(),
+    });
   });
 
-  it("extracts tool names from content patterns", () => {
+  it("picks up tool names from the activity store (even when msg.activityIds is empty)", () => {
+    // Regression: msg.activityIds is always [] in production — the fix is to
+    // read from activityStore by (sessionId, messageId). This is the failure
+    // the user hit where Self-Drive thought Claude Code was fabricating work.
+    const store = useActivityStore.getState();
+    store.addEntry(SID, makeActivity({ messageId: "m2", toolName: "Write" }));
+    store.addEntry(SID, makeActivity({ messageId: "m2", toolName: "Bash" }));
+    store.addEntry(SID, makeActivity({ messageId: "m2", toolName: "Edit" }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "Done.", timestamp: "", activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).toContain("Write");
+    expect(tools).toContain("Bash");
+    expect(tools).toContain("Edit");
+  });
+
+  it("ignores activity entries from OTHER sessions", () => {
+    // Sub-tab safety: tools used in another Claude Code session must not
+    // bleed into Self-Drive's tool list.
+    useActivityStore.getState().addEntry("other-session", makeActivity({
+      messageId: "m2", toolName: "Write",
+    }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "Done.", timestamp: "", activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).not.toContain("Write");
+  });
+
+  it("ignores activity entries tagged to a DIFFERENT message id", () => {
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "other-msg", toolName: "Bash",
+    }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "Done.", timestamp: "", activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).not.toContain("Bash");
+  });
+
+  it("falls back to scanning assistant text when the store has no entries", () => {
     const messages: Message[] = [
       { id: "m1", role: "user", content: "Do stuff", timestamp: "", activityIds: [], isStreaming: false },
       {
@@ -93,60 +148,50 @@ describe("extractToolsFromTurn", () => {
       },
     ];
 
-    const tools = extractToolsFromTurn(messages);
+    const tools = extractToolsFromTurn(messages, SID);
     expect(tools).toContain("Read");
     expect(tools).toContain("Grep");
   });
 
-  it("stops at the last user message boundary", () => {
+  it("stops at the last user message boundary — tools from prior turns are excluded", () => {
+    const store = useActivityStore.getState();
+    store.addEntry(SID, makeActivity({ messageId: "m1", toolName: "Bash" })); // old turn
+    store.addEntry(SID, makeActivity({ messageId: "m3", toolName: "Read" })); // new turn
+
     const messages: Message[] = [
-      {
-        id: "m1",
-        role: "assistant",
-        content: "Old turn with Bash",
-        timestamp: "",
-        activityIds: ["bash-111"],
-        isStreaming: false,
-      },
+      { id: "m1", role: "assistant", content: "Old turn", timestamp: "", activityIds: [], isStreaming: false },
       { id: "m2", role: "user", content: "New turn", timestamp: "", activityIds: [], isStreaming: false },
-      {
-        id: "m3",
-        role: "assistant",
-        content: "New turn using Read",
-        timestamp: "",
-        activityIds: ["read-222"],
-        isStreaming: false,
-      },
+      { id: "m3", role: "assistant", content: "New turn text", timestamp: "", activityIds: [], isStreaming: false },
     ];
 
-    const tools = extractToolsFromTurn(messages);
-    expect(tools).toContain("read");
+    const tools = extractToolsFromTurn(messages, SID);
     expect(tools).toContain("Read");
-    // Should NOT contain tools from old turn
-    expect(tools).not.toContain("bash");
+    // Old turn's Bash must not leak in.
+    expect(tools).not.toContain("Bash");
   });
 
   it("returns empty array for empty messages", () => {
-    expect(extractToolsFromTurn([])).toEqual([]);
+    expect(extractToolsFromTurn([], SID)).toEqual([]);
   });
 
-  it("deduplicates tool names", () => {
+  it("deduplicates tool names across store entries and content scan", () => {
+    const store = useActivityStore.getState();
+    store.addEntry(SID, makeActivity({ messageId: "m1", toolName: "Read" }));
+    store.addEntry(SID, makeActivity({ messageId: "m1", toolName: "Read" }));
+
     const messages: Message[] = [
       {
         id: "m1",
         role: "assistant",
         content: "Read then Read again",
         timestamp: "",
-        activityIds: ["read-111", "read-222"],
+        activityIds: [],
         isStreaming: false,
       },
     ];
 
-    const tools = extractToolsFromTurn(messages);
-    const readCount = tools.filter((t) => t.toLowerCase() === "read").length;
-    // Each source (activity ID pattern vs content pattern) produces a separate entry
-    // but within each source, Set ensures uniqueness
-    expect(readCount).toBeLessThanOrEqual(2);
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools.filter((t) => t === "Read")).toHaveLength(1);
   });
 });
 

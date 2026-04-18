@@ -14,6 +14,7 @@ import type {
   RunLogEntry,
   Blocker,
   BlockerKind,
+  ImplementationGuide,
 } from "../types/implementation-guide";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
 import type { SessionMode } from "../types/session";
@@ -21,7 +22,7 @@ import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
 import { showToast } from "./toastStore";
-import { sendMessage, syncSessionMode } from "../lib/tauri-commands";
+import { sendMessage, syncSessionMode, updateGuideData } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
@@ -35,16 +36,33 @@ import {
   getTestCommand,
 } from "../lib/self-drive-utils";
 
-// ── Module-level listener handles ───────────────────────────────────
+// ── Module-level listener handle ────────────────────────────────────
+// NOTE: the session id is deliberately NOT a module-level variable.
+// It lives in store state (see SelfDriveState.sessionId) so it can't
+// be overwritten by UI navigation. Keeping it here would reintroduce
+// the same race that caused Self-Drive to send prompts to the wrong
+// Claude Code session after a sub-tab switch.
 
 let chatEventUnlisten: UnlistenFn | null = null;
-let activeSessionId: string | null = null;
 
 // ── Store interface ─────────────────────────────────────────────────
 
 interface SelfDriveState {
   status: SelfDriveStatus;
   projectPath: string | null;
+  /**
+   * Claude Code session id this Self-Drive run is pinned to. Captured at
+   * start() and never re-read from useSessionStore's "active" map —
+   * that's a UI-facing concept and changes when the user switches tabs.
+   * Self-Drive's target session must not change during a run.
+   */
+  sessionId: string | null;
+  /**
+   * Snapshot of the guide Self-Drive is executing. Taken at start() from
+   * useGuideStore, then mutated through applyGuideMutation. All orchestrator
+   * reads use THIS field, not useGuideStore.guide (which follows UI navigation).
+   */
+  guide: ImplementationGuide | null;
   currentSessionIndex: number | null;
   currentPhase: SelfDrivePhase | null;
 
@@ -107,6 +125,8 @@ function getConfigFromSettings(): SelfDriveConfig {
 export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   status: "idle",
   projectPath: null,
+  sessionId: null,
+  guide: null,
   currentSessionIndex: null,
   currentPhase: null,
   previousSessionMode: null,
@@ -150,6 +170,13 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       showToast("No guide loaded", "error");
       return;
     }
+    // Hardening: the guide shown in the UI must belong to the project we're
+    // about to start Self-Drive on. Prevents a race where the user navigates
+    // away between clicking Start and the snapshot being taken.
+    if (guide.projectPath !== projectPath) {
+      showToast("Guide does not belong to the active project", "error");
+      return;
+    }
 
     const firstActive = guide.sessions.find((s) => s.status === "active");
     if (!firstActive) {
@@ -167,11 +194,16 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     // Save current mode and switch to auto-accept
     const currentMode = useSessionStore.getState().sessionModes.get(sessionId) || "normal";
-    activeSessionId = sessionId;
 
     set({
       status: "running",
       projectPath,
+      // Pin the session id to state — this is now the source of truth for
+      // Self-Drive's target session, immune to UI sub-tab switches.
+      sessionId,
+      // Snapshot the guide — UI navigation changing useGuideStore.guide no
+      // longer affects Self-Drive's view.
+      guide,
       currentSessionIndex: firstActive.index,
       currentPhase: "preparing",
       previousSessionMode: currentMode,
@@ -220,7 +252,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       useSessionStore.getState().setSessionBusy(sessionId, true);
 
       await sendMessage(sessionId, firstActive.prompt);
-      useGuideStore.getState().markPromptSent(firstActive.index);
+      markPromptSentForSession(firstActive.index);
     } catch (e) {
       handlePause(`Failed to send build prompt: ${e}`);
     }
@@ -232,28 +264,22 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     const state = get();
     if (state.status !== "paused") return;
 
-    // Use the session from Self-Drive's own project, not the globally active one
-    const selfDriveProjectPath = state.projectPath;
-    if (!selfDriveProjectPath) {
-      showToast("No project associated with Self-Drive", "error");
-      return;
-    }
-
-    const sessionId = useSessionStore.getState().projectActiveSession.get(selfDriveProjectPath) ?? null;
+    // Self-Drive is pinned to the session it started on. Do NOT re-read
+    // projectActiveSession — the user may have clicked a different sub-tab
+    // in the meantime, which would silently re-target a different session.
+    const sessionId = state.sessionId;
     if (!sessionId) {
-      showToast("No active session in Self-Drive project", "error");
+      showToast("Self-Drive has no pinned session — stop and restart.", "error");
       return;
     }
-
-    activeSessionId = sessionId;
 
     set({ status: "running", pauseReason: null });
     addLogEntry(state.currentSessionIndex ?? 0, "resumed", "Self-Drive resumed by user");
 
-    // Re-start listeners
+    // Re-start listeners on the pinned session.
     await startListeners(sessionId);
 
-    // Ensure auto-accept mode
+    // Ensure auto-accept mode on the pinned session.
     try {
       await syncSessionMode(sessionId, "auto-accept");
       useSessionStore.getState().setSessionMode(sessionId, "auto-accept");
@@ -296,12 +322,12 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       return;
     }
 
-    // Determine resume action from guide session flags (not the ambiguous currentPhase)
-    const guide = useGuideStore.getState().guide;
+    // Determine resume action from the PINNED guide's session flags.
+    const guide = state.guide;
     const session = guide?.sessions.find((s) => s.index === state.currentSessionIndex);
 
     if (!session) {
-      handlePause("Could not find current session in guide");
+      handlePause("Could not find current session in pinned guide");
       return;
     }
 
@@ -315,7 +341,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
         `Resuming: sending creation prompt for Session ${session.index}`,
         undefined, session.prompt);
       await sendMessageToSession(session.prompt);
-      useGuideStore.getState().markPromptSent(session.index);
+      markPromptSentForSession(session.index);
     } else if (!session.verifyRequested) {
       // Build was attempted but verification hasn't started — re-check build
       await handleBuildCheck({ action: "build_check", summary: "Re-checking build after resume", confidence: "high" });
@@ -385,8 +411,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     // Inject a visible marker into the chat so history records the decision.
     // Marked isSelfDrive so the chat-since-pause reader ignores it (we'd be
     // double-counting: userResolution + marker).
-    if (activeSessionId) {
-      useSessionStore.getState().addMessage(activeSessionId, {
+    const pinnedSessionId = state.sessionId;
+    if (pinnedSessionId) {
+      useSessionStore.getState().addMessage(pinnedSessionId, {
         id: `sd-pick-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         role: "user",
         content: `(Self-Drive) Picked option: ${text}`,
@@ -401,6 +428,113 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     await get().resume();
   },
 }));
+
+// ── Guide mutation (project-isolated) ───────────────────────────────
+//
+// Self-Drive owns its guide snapshot (state.guide). Mutations:
+//   1) update the snapshot, so the next orchestrator cycle sees them;
+//   2) persist to the database, so other views/sessions pick them up;
+//   3) sync the UI's guide store — but ONLY when the user is currently
+//      viewing Self-Drive's project. When they're not, we must NOT
+//      overwrite the guide the user is looking at (it belongs to the
+//      OTHER project).
+//
+// This replaces calls that used to go through useGuideStore.* directly
+// (markPromptSent, markVerifyRequested, markSessionComplete, toggleVerifyCheck).
+
+function applyGuideMutation(mutator: (g: ImplementationGuide) => ImplementationGuide): void {
+  const current = useSelfDriveStore.getState().guide;
+  if (!current) return;
+  const next = mutator(current);
+  if (next === current) return; // no-op transform
+
+  useSelfDriveStore.setState({ guide: next });
+
+  // Persist. Fire-and-forget; the tauri command is idempotent and the
+  // UI can always reload from disk if it ever falls behind.
+  void updateGuideData(next.id, JSON.stringify(next)).catch((e) =>
+    console.warn("[Self-Drive] Failed to persist guide mutation:", e),
+  );
+
+  // Mirror into useGuideStore ONLY when the user is looking at this
+  // project — otherwise we'd overwrite some other project's guide.
+  const uiGuide = useGuideStore.getState().guide;
+  if (uiGuide && uiGuide.projectPath === next.projectPath) {
+    useGuideStore.setState({ guide: next });
+  }
+}
+
+function markPromptSentForSession(sessionIndex: number): void {
+  applyGuideMutation((g) => ({
+    ...g,
+    sessions: g.sessions.map((s) =>
+      s.index === sessionIndex ? { ...s, promptSent: true } : s,
+    ),
+  }));
+}
+
+function markVerifyRequestedForSession(sessionIndex: number): void {
+  applyGuideMutation((g) => ({
+    ...g,
+    sessions: g.sessions.map((s) =>
+      s.index === sessionIndex ? { ...s, verifyRequested: true } : s,
+    ),
+  }));
+}
+
+function toggleVerifyCheckForSession(sessionIndex: number, checkId: string): void {
+  applyGuideMutation((g) => ({
+    ...g,
+    sessions: g.sessions.map((s) => {
+      if (s.index !== sessionIndex) return s;
+      return {
+        ...s,
+        verifyChecks: s.verifyChecks.map((c) =>
+          c.id === checkId ? { ...c, checked: !c.checked } : c,
+        ),
+      };
+    }),
+  }));
+}
+
+/**
+ * Mark a session complete. Returns true if the transition was applied,
+ * false otherwise (e.g., session not found or verify checks incomplete).
+ */
+function markSessionCompleteForSession(sessionIndex: number): boolean {
+  const current = useSelfDriveStore.getState().guide;
+  if (!current) return false;
+  const target = current.sessions.find((s) => s.index === sessionIndex);
+  if (!target) return false;
+  if (target.status === "done") return true; // already done, idempotent
+  const allChecked =
+    target.verifyChecks.length === 0 ||
+    target.verifyChecks.every((c) => c.checked);
+  if (!allChecked) return false;
+
+  // Flip the current session to done; promote the next pending session
+  // to active (if any).
+  const nextPending = current.sessions.find(
+    (s) => s.index !== sessionIndex && s.status === "pending",
+  );
+  applyGuideMutation((g) => {
+    const updatedGuide = g.sessions.every(
+      (s) => s.index === sessionIndex || s.status === "done",
+    );
+    return {
+      ...g,
+      status: updatedGuide ? "completed" : g.status,
+      sessions: g.sessions.map((s) => {
+        if (s.index === sessionIndex) return { ...s, status: "done" };
+        if (nextPending && s.index === nextPending.index) {
+          return { ...s, status: "active" };
+        }
+        return s;
+      }),
+    };
+  });
+  return true;
+}
 
 // ── Event listeners ─────────────────────────────────────────────────
 
@@ -442,29 +576,29 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   const state = useSelfDriveStore.getState();
   if (state.status !== "running") return;
 
-  const sessionId = activeSessionId;
+  // Pinned session id — immune to UI sub-tab switches.
+  const sessionId = state.sessionId;
   if (!sessionId) return;
 
-  // Safety check: ensure the guide store still has OUR project's guide
-  // (user may have switched projects, causing the guide store to reload)
-  const guide = useGuideStore.getState().guide;
+  // Pinned guide snapshot — immune to UI project switches. The user can
+  // be viewing a completely different project; we continue operating on
+  // the guide we started with.
+  const guide = state.guide;
   if (!guide) {
-    handlePause("Guide was dismissed during Self-Drive");
+    handlePause("Self-Drive lost its guide snapshot (internal error)");
     return;
   }
-  if (state.projectPath && guide.projectPath !== state.projectPath) {
-    handlePause("Project switched — switch back to Self-Drive's project to resume.");
-    return;
-  }
+  // NOTE: no "Project switched" pause. Self-Drive keeps running on its
+  // pinned state regardless of where the user navigates in the UI.
 
-  // Gather Claude Code's response
+  // Gather Claude Code's response from the pinned session's message list.
   const messages = useSessionStore.getState().sessionMessages.get(sessionId) || [];
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-  const toolsUsed = extractToolsFromTurn(messages);
+  const toolsUsed = extractToolsFromTurn(messages, sessionId);
 
-  const sessionPlan = getCurrentSessionPlan(state.currentSessionIndex!);
+  const sessionPlan = getCurrentSessionPlan(state.currentSessionIndex!, state.guide);
   if (!sessionPlan) {
-    handlePause("Could not get session plan — guide may have been dismissed");
+    handlePause("Could not get session plan — pinned guide missing that session");
     return;
   }
 
@@ -650,7 +784,8 @@ export function validateVerifyAdvance(
 async function handleAdvance(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
-  const guide = useGuideStore.getState().guide;
+  // Read from the pinned guide — not the UI's guideStore.
+  const guide = state.guide;
   const session = guide?.sessions.find((s) => s.index === sessionIndex);
 
   // Gate: when advancing out of a verification phase, require per-check
@@ -667,19 +802,22 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
       return;
     }
 
-    // Mark ONLY the checks the orchestrator confirmed passed.
+    // Mark ONLY the checks the orchestrator confirmed passed, via the
+    // pinned-guide mutation helper (keeps Self-Drive's snapshot, DB, and
+    // the UI's guide store in sync — but only touches the UI when the
+    // user is currently viewing Self-Drive's project).
     const resultsByLabel = new Map(
       (decision.checkResults ?? []).map((r) => [r.label, r]),
     );
     for (const check of session.verifyChecks) {
       const r = resultsByLabel.get(check.label);
       if (r?.passed && !check.checked) {
-        useGuideStore.getState().toggleVerifyCheck(sessionIndex, check.id);
+        toggleVerifyCheckForSession(sessionIndex, check.id);
       }
     }
 
     // Defense-in-depth: if anything stayed unchecked, do not advance.
-    const freshSession = useGuideStore.getState().guide?.sessions
+    const freshSession = useSelfDriveStore.getState().guide?.sessions
       .find((s) => s.index === sessionIndex);
     const stillUnchecked = freshSession?.verifyChecks.filter((c) => !c.checked) ?? [];
     if (stillUnchecked.length > 0) {
@@ -695,8 +833,8 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
     }
   }
 
-  // Mark session complete. If it fails, something went wrong with the guide state.
-  const completed = useGuideStore.getState().markSessionComplete(sessionIndex);
+  // Mark session complete via the pinned-guide mutation helper.
+  const completed = markSessionCompleteForSession(sessionIndex);
   if (!completed) {
     const alreadyDone = guide?.sessions
       .find((s) => s.index === sessionIndex)?.status === "done";
@@ -737,7 +875,7 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // Optional: git commit between sessions (skip if coming from commit phase)
   if (liveConfig.autoCommit && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "committing" });
-    const plan = getCurrentSessionPlan(sessionIndex);
+    const plan = getCurrentSessionPlan(sessionIndex, useSelfDriveStore.getState().guide);
     const commitPrompt = `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`;
     addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`, undefined, commitPrompt);
     await sendMessageToSession(commitPrompt);
@@ -751,7 +889,8 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
 async function handleVerify(): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
-  const guide = useGuideStore.getState().guide;
+  // Read the pinned guide; the UI's guide may be on a different project.
+  const guide = state.guide;
   if (!guide) return;
 
   const session = guide.sessions.find((s) => s.index === sessionIndex);
@@ -762,7 +901,7 @@ async function handleVerify(): Promise<void> {
   const verifyPrompt = buildSessionVerifyPrompt(session, guide.specFilename, guide.auditFilename);
   addLogEntry(sessionIndex, "verifying", `Verifying Session ${sessionIndex}`, undefined, verifyPrompt);
   await sendMessageToSession(verifyPrompt);
-  useGuideStore.getState().markVerifyRequested(sessionIndex);
+  markVerifyRequestedForSession(sessionIndex);
 }
 
 async function handleFix(decision: OrchestratorDecision): Promise<void> {
@@ -821,9 +960,10 @@ async function handleCommit(): Promise<void> {
 }
 
 async function startNextSession(): Promise<void> {
-  const guide = useGuideStore.getState().guide;
+  // Read from the pinned guide — any UI navigation is irrelevant here.
+  const guide = useSelfDriveStore.getState().guide;
   if (!guide) {
-    handlePause("Guide was dismissed");
+    handlePause("Pinned guide missing (internal error)");
     return;
   }
 
@@ -853,7 +993,7 @@ async function startNextSession(): Promise<void> {
 
   addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`, undefined, nextSession.prompt);
   await sendMessageToSession(nextSession.prompt);
-  useGuideStore.getState().markPromptSent(nextSession.index);
+  markPromptSentForSession(nextSession.index);
 }
 
 // ── Pause / Abort / Crash handlers ──────────────────────────────────
@@ -910,8 +1050,9 @@ function buildBlockerFromDecision(
   // Find the id of the last message visible in the chat at pause time.
   // Resume() uses this as the boundary for "messages since pause".
   let prePauseLastMessageId: string | null = null;
-  if (activeSessionId) {
-    const msgs = useSessionStore.getState().sessionMessages.get(activeSessionId) ?? [];
+  const pinnedSessionId = useSelfDriveStore.getState().sessionId;
+  if (pinnedSessionId) {
+    const msgs = useSessionStore.getState().sessionMessages.get(pinnedSessionId) ?? [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (!msgs[i].isSelfDrive) {
         prePauseLastMessageId = msgs[i].id;
@@ -945,8 +1086,9 @@ function buildBlockerFromDecision(
  * while Self-Drive was paused. Returns [] if the boundary can't be found.
  */
 export function readChatSincePause(blocker: Blocker | null): { role: "user" | "assistant"; content: string }[] {
-  if (!blocker || !activeSessionId) return [];
-  const msgs = useSessionStore.getState().sessionMessages.get(activeSessionId) ?? [];
+  const sessionId = useSelfDriveStore.getState().sessionId;
+  if (!blocker || !sessionId) return [];
+  const msgs = useSessionStore.getState().sessionMessages.get(sessionId) ?? [];
   if (msgs.length === 0) return [];
   let startIdx = 0;
   if (blocker.prePauseLastMessageId) {
@@ -1057,10 +1199,11 @@ async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<vo
 
   // Resume normal session flow. We re-use the same branching that
   // resume() uses, but without re-entering the recovery branch.
-  const guide = useGuideStore.getState().guide;
+  // Read from the pinned guide — not useGuideStore (which follows UI nav).
+  const guide = useSelfDriveStore.getState().guide;
   const session = guide?.sessions.find((s) => s.index === blocker.sessionIndex);
   if (!session) {
-    handlePause("Guide no longer has the recovered session — cannot continue");
+    handlePause("Pinned guide no longer has the recovered session — cannot continue");
     return;
   }
 
@@ -1072,7 +1215,7 @@ async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<vo
       `Post-recovery: sending creation prompt for Session ${session.index}`,
       undefined, session.prompt);
     await sendMessageToSession(session.prompt);
-    useGuideStore.getState().markPromptSent(session.index);
+    markPromptSentForSession(session.index);
   } else if (!session.verifyRequested) {
     await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });
   } else {
@@ -1104,12 +1247,12 @@ function handleProcessCrash(payload: ProcessExitedEvent): void {
 
 async function restoreSessionMode(): Promise<void> {
   const previousMode = useSelfDriveStore.getState().previousSessionMode;
-  // Use Self-Drive's own activeSessionId, not the globally active one
-  // (user may have switched to a different project)
-  if (previousMode && activeSessionId) {
+  // Use Self-Drive's pinned session id from state — not UI-active state.
+  const sessionId = useSelfDriveStore.getState().sessionId;
+  if (previousMode && sessionId) {
     try {
-      await syncSessionMode(activeSessionId, previousMode);
-      useSessionStore.getState().setSessionMode(activeSessionId, previousMode as SessionMode);
+      await syncSessionMode(sessionId, previousMode);
+      useSessionStore.getState().setSessionMode(sessionId, previousMode as SessionMode);
     } catch { /* ignore */ }
     useSelfDriveStore.setState({ previousSessionMode: null });
   }
@@ -1141,9 +1284,10 @@ function addLogEntry(
 }
 
 async function sendMessageToSession(prompt: string): Promise<void> {
-  const sessionId = activeSessionId;
+  // Always read from the pinned state — never from the UI's "active" session.
+  const sessionId = useSelfDriveStore.getState().sessionId;
   if (!sessionId) {
-    handlePause("No active session — cannot send message");
+    handlePause("No pinned session — cannot send message");
     return;
   }
 
@@ -1176,7 +1320,7 @@ function injectDecisionMessage(
   sessionIndex: number,
   phase: string,
 ): void {
-  const sessionId = activeSessionId;
+  const sessionId = useSelfDriveStore.getState().sessionId;
   if (!sessionId) return;
   useSessionStore.getState().addMessage(sessionId, {
     id: `sd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1200,7 +1344,7 @@ function injectDecisionMessage(
  * pick an offered option (or provide free-text) and Resume.
  */
 function injectBlockerCard(blocker: Blocker, sessionIndex: number): void {
-  const sessionId = activeSessionId;
+  const sessionId = useSelfDriveStore.getState().sessionId;
   if (!sessionId) return;
   useSessionStore.getState().addMessage(sessionId, {
     id: `sd-blk-${blocker.id}`,

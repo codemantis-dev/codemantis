@@ -171,9 +171,13 @@ function makeBlocker(overrides: Partial<Blocker> = {}): Blocker {
 
 function seedPaused(blocker: Blocker): void {
   // Pretend Self-Drive was mid-run and paused with a structured blocker.
+  // Pinned state (sessionId + guide) must be populated — Self-Drive refuses
+  // to operate without them now that UI-active reads have been eliminated.
   useSelfDriveStore.setState({
     status: "paused",
     projectPath: PROJECT,
+    sessionId: SESSION_ID,
+    guide: makeGuide(),
     currentSessionIndex: 1,
     currentPhase: "building",
     fixAttempt: 0,
