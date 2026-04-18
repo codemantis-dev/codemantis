@@ -309,13 +309,19 @@ impl ClaudeProcess {
             // Tool approval is handled by the PreToolUse hook + CodeMantis's
             // approval server instead.
             "--dangerously-skip-permissions",
+            // Opus 4.7+ defaults thinking.display to "omitted", which streams
+            // thinking blocks with empty text. We need summarized content so
+            // the Reasoning panel in the Activity tab can show it.
+            "--thinking-display",
+            "summarized",
         ]);
 
         // Always pass --settings so thinking output (alwaysThinkingEnabled,
         // showThinkingSummaries) is explicitly enabled — CLI v2.1.90+ disabled
-        // thinking summaries by default. If an approval server is running we
-        // also bundle the PreToolUse + UserPromptSubmit hooks in the same
-        // settings blob so they only affect THIS process.
+        // thinking summaries by default. --thinking-display above handles
+        // the API-level display parameter separately. If an approval server
+        // is running we also bundle the PreToolUse + UserPromptSubmit hooks
+        // in the same settings blob so they only affect THIS process.
         let settings_json = if let Some(port) = approval_server_port {
             let hook_script = ensure_hook_script()?;
             let title_hook_script = ensure_title_hook_script()?;

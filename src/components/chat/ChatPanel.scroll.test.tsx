@@ -1,8 +1,27 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import ChatPanel from "./ChatPanel";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { Session, Message } from "../../types/session";
+
+function setScrollMetrics(
+  el: Element,
+  metrics: { scrollHeight: number; scrollTop: number; clientHeight: number }
+): void {
+  Object.defineProperty(el, "scrollHeight", {
+    configurable: true,
+    value: metrics.scrollHeight,
+  });
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    writable: true,
+    value: metrics.scrollTop,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    configurable: true,
+    value: metrics.clientHeight,
+  });
+}
 
 const SESSION: Session = {
   id: "s1",
@@ -197,5 +216,40 @@ describe("ChatPanel — scroll and message rendering", () => {
     expect(
       screen.getByText("Open a project to start a session")
     ).toBeInTheDocument();
+  });
+
+  it("ignores scroll events caused by container resize (ThinkingIndicator growth)", () => {
+    setSessionState(SESSION, makeMessages(4));
+    const { container } = render(<ChatPanel />);
+    const scrollEl = container.querySelector(".overflow-y-auto") as HTMLElement;
+    expect(scrollEl).toBeTruthy();
+
+    // Baseline: user pinned at bottom, clientHeight = 400.
+    setScrollMetrics(scrollEl, { scrollHeight: 800, scrollTop: 400, clientHeight: 400 });
+    fireEvent.scroll(scrollEl);
+    expect(screen.queryByText("New messages")).not.toBeInTheDocument();
+
+    // ThinkingIndicator appears and shrinks the container to clientHeight=300.
+    // scrollTop is unchanged, so scrollHeight - scrollTop - clientHeight = 100, which
+    // would normally latch "not at bottom". The fix must detect the clientHeight change
+    // and swallow this pseudo-scroll.
+    setScrollMetrics(scrollEl, { scrollHeight: 800, scrollTop: 400, clientHeight: 300 });
+    fireEvent.scroll(scrollEl);
+    expect(screen.queryByText("New messages")).not.toBeInTheDocument();
+  });
+
+  it("still shows 'New messages' on a genuine user scroll up", () => {
+    setSessionState(SESSION, makeMessages(4));
+    const { container } = render(<ChatPanel />);
+    const scrollEl = container.querySelector(".overflow-y-auto") as HTMLElement;
+
+    setScrollMetrics(scrollEl, { scrollHeight: 800, scrollTop: 400, clientHeight: 400 });
+    fireEvent.scroll(scrollEl);
+    expect(screen.queryByText("New messages")).not.toBeInTheDocument();
+
+    // Same clientHeight, but scrollTop drops — the user actually scrolled up.
+    setScrollMetrics(scrollEl, { scrollHeight: 800, scrollTop: 100, clientHeight: 400 });
+    fireEvent.scroll(scrollEl);
+    expect(screen.getByText("New messages")).toBeInTheDocument();
   });
 });

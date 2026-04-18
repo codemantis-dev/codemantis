@@ -71,6 +71,7 @@ export default function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
+  const lastClientHeightRef = useRef(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const { startIndex, hasOlder, remainingCount, loadAll, sentinelRef } = useChatIncrementalLoad({
@@ -83,15 +84,24 @@ export default function ChatPanel() {
   const checkAtBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Scroll events also fire on container reflows (e.g. ThinkingIndicator growing shrinks
+    // clientHeight). Those aren't real user scrolls — swallow them and let the ResizeObserver
+    // settle the flags with a consistent post-resize measurement.
+    if (el.clientHeight !== lastClientHeightRef.current) {
+      lastClientHeightRef.current = el.clientHeight;
+      return;
+    }
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     isAtBottomRef.current = atBottom;
     setShowScrollButton(!atBottom);
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = true;
+    setShowScrollButton(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
 
   // Re-scroll to bottom when scroll container resizes (e.g., ThinkingIndicator appears/grows
@@ -101,10 +111,18 @@ export default function ChatPanel() {
     const el = scrollRef.current;
     if (!el) return;
 
+    lastClientHeightRef.current = el.clientHeight;
+
     const observer = new ResizeObserver(() => {
-      if (isAtBottomRef.current && el) {
-        el.scrollTop = el.scrollHeight;
+      const node = scrollRef.current;
+      if (!node) return;
+      if (isAtBottomRef.current) {
+        node.scrollTop = node.scrollHeight;
       }
+      const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 60;
+      isAtBottomRef.current = atBottom;
+      setShowScrollButton(!atBottom);
+      lastClientHeightRef.current = node.clientHeight;
     });
 
     observer.observe(el);
