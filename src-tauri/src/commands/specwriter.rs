@@ -638,6 +638,23 @@ When implementing a spec from docs/specs/:
    - Fix all failures
    - Only then say "Implementation complete"
 4. Never skip step 3. The verification audit catches issues that the implementation checklist misses.
+5. Dual-side rule for cross-system calls (HTTP, DB, Edge Function, queue, external API):
+   Before marking PASS on any item that crosses a system boundary, verify BOTH
+   the caller code AND the handler code actually exist, then run a real
+   non-mocked invocation and quote the output. A passing mocked test is NOT
+   sufficient — it only proves the caller can build a request, not that the
+   handler accepts it. If the handler does not exist yet, or if the file
+   contains markers like "until then … will return an error",
+   "NotImplementedError", "unknown action", or "TODO: implement", the item
+   is FAIL regardless of test status. Self-Drive runs a static ripgrep
+   parity check on declared cross-system actions; it will refuse to advance
+   a session if any action is missing its handler.
+6. Recommended CI step (optional but strongly advised): add a job that
+   greps producer-side action names and verifies each one has a handler
+   dispatch branch on the server. Fail the build on unpaired actions. This
+   prevents the exact failure mode where mocked tests pass while the real
+   handler is unimplemented (the "handlers land in a later session — until
+   then these calls will fail at runtime" pattern).
 "#;
 
     // Read existing CLAUDE.md content (or empty if doesn't exist)
@@ -666,6 +683,225 @@ When implementing a spec from docs/specs/:
     info!("Added SpecWriter Verification Workflow to CLAUDE.md at {:?}", claude_md_path);
 
     Ok("added".to_string())
+}
+
+// ── Cross-system action parity check ───────────────────────────────────
+//
+// The "mock-only PASS" failure mode we're trying to prevent: a caller
+// writes `client.call("insert_foo", …)` and its tests pass because the
+// HTTP client is mocked — but the server-side handler for "insert_foo"
+// was never implemented. In production, every call errors. Section 10
+// of the spec declares the contract (action → handler path); this
+// command walks that contract and ripgreps BOTH sides. If either side
+// lacks the action string, Self-Drive must refuse to mark the session
+// done regardless of what the verifier text claimed.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionParityRequest {
+    /// The action name issued by the caller (e.g. "insert_note_classification").
+    pub action: String,
+    /// Path the caller code lives under (file or directory). Absolute or relative to project root.
+    pub caller_path: String,
+    /// Path the handler code lives under (file or directory). Absolute or relative to project root.
+    pub handler_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionParityResult {
+    pub action: String,
+    /// true if the caller_path contains the action string somewhere.
+    pub caller_present: bool,
+    /// true if the handler_path contains the action string somewhere.
+    pub handler_present: bool,
+    /// true if handler_path exists on disk and contains no stub markers
+    /// ("until then", "NotImplementedError", "unknown action", "TODO: implement",
+    ///  "return 501", "pass  # stub").
+    pub handler_stub_free: bool,
+    /// Overall status: PASS iff caller_present && handler_present && handler_stub_free.
+    pub status: String,
+    /// Human-readable detail for display in the UI. Short — one sentence.
+    pub detail: String,
+}
+
+/// Run a static handshake-parity check across declared cross-system actions.
+///
+/// For each declared `(action, caller_path, handler_path)`, this command:
+///   1. ripgreps `caller_path` for the action string — must match.
+///   2. ripgreps `handler_path` for the action string — must match.
+///   3. ripgreps `handler_path` for stub markers — must NOT match.
+///
+/// Returns one `ActionParityResult` per input, in the same order. The
+/// caller (Self-Drive) decides whether to block session completion; this
+/// command intentionally does not fail itself on a missing handler.
+#[tauri::command]
+pub async fn verify_action_parity(
+    project_root: String,
+    actions: Vec<ActionParityRequest>,
+) -> Result<Vec<ActionParityResult>, String> {
+    let root = Path::new(&project_root);
+    if !root.is_dir() {
+        return Err(format!("project_root is not a directory: {}", project_root));
+    }
+
+    let mut results = Vec::with_capacity(actions.len());
+    for req in actions {
+        results.push(check_one_action(root, &req));
+    }
+    Ok(results)
+}
+
+fn check_one_action(root: &Path, req: &ActionParityRequest) -> ActionParityResult {
+    let caller_path = resolve_under(root, &req.caller_path);
+    let handler_path = resolve_under(root, &req.handler_path);
+
+    let caller_present = rg_has_match(&caller_path, &req.action);
+    let handler_present = rg_has_match(&handler_path, &req.action);
+
+    // Stub scan only matters when the handler path actually exists.
+    // An absent handler is already a fail; no point searching its files.
+    let handler_stub_free = if handler_path.exists() {
+        !rg_has_match(
+            &handler_path,
+            "until then|raise NotImplementedError|TODO: implement|unknown action|pass  # stub|return 501",
+        )
+    } else {
+        false
+    };
+
+    let pass = caller_present && handler_present && handler_stub_free;
+    let detail = if pass {
+        format!(
+            "caller + handler both reference '{}' and handler is stub-free",
+            req.action
+        )
+    } else if !caller_present {
+        format!(
+            "caller path '{}' does not reference action '{}'",
+            req.caller_path, req.action
+        )
+    } else if !handler_present {
+        format!(
+            "handler path '{}' does not reference action '{}' — the other side of this call has not been implemented",
+            req.handler_path, req.action
+        )
+    } else {
+        format!(
+            "handler path '{}' contains a stub/NotImplemented/unknown-action marker — implementation is incomplete",
+            req.handler_path
+        )
+    };
+
+    ActionParityResult {
+        action: req.action.clone(),
+        caller_present,
+        handler_present,
+        handler_stub_free,
+        status: if pass { "PASS".to_string() } else { "FAIL".to_string() },
+        detail,
+    }
+}
+
+fn resolve_under(root: &Path, relative_or_abs: &str) -> std::path::PathBuf {
+    // Strip any "::symbol" suffix first — only the file/dir path is rg-able.
+    let path_only = relative_or_abs
+        .split("::")
+        .next()
+        .unwrap_or(relative_or_abs);
+    let p = Path::new(path_only);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(p)
+    }
+}
+
+/// Return true iff any file under `path` contains at least one of the
+/// fixed-string alternates in `pattern` (alternates separated by `|`).
+///
+/// Implemented in pure Rust — not via an `rg` subprocess — because the
+/// production environment cannot guarantee ripgrep is on PATH, and this
+/// check must never silently pass just because a tool is missing. Pure
+/// Rust also means the logic is testable and deterministic.
+///
+/// Skips common noise dirs (node_modules, .git, dist, build, target,
+/// __pycache__) and binary-like files (>2 MB or content containing a
+/// NUL byte in the first 8KiB). Binary skipping matters because source
+/// trees sometimes include vendored .sqlite/.so files, which we don't
+/// want to scan.
+fn rg_has_match(path: &Path, pattern: &str) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let needles: Vec<&str> = pattern.split('|').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if needles.is_empty() {
+        return false;
+    }
+    scan_for_any(path, &needles)
+}
+
+fn scan_for_any(path: &Path, needles: &[&str]) -> bool {
+    if path.is_file() {
+        return file_contains_any(path, needles);
+    }
+    if !path.is_dir() {
+        return false;
+    }
+    let entries = match std::fs::read_dir(path) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        let child = entry.path();
+        let name = child.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if child.is_dir() {
+            if matches!(
+                name,
+                "node_modules"
+                    | ".git"
+                    | "dist"
+                    | "build"
+                    | "target"
+                    | "__pycache__"
+                    | ".next"
+                    | ".venv"
+            ) {
+                continue;
+            }
+            if scan_for_any(&child, needles) {
+                return true;
+            }
+        } else if child.is_file() && file_contains_any(&child, needles) {
+            return true;
+        }
+    }
+    false
+}
+
+fn file_contains_any(path: &Path, needles: &[&str]) -> bool {
+    const MAX_BYTES: u64 = 2 * 1024 * 1024;
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    if meta.len() > MAX_BYTES {
+        return false;
+    }
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    // Cheap binary sniff — a NUL in the first 8KiB → treat as binary.
+    let sniff_end = bytes.len().min(8192);
+    if bytes[..sniff_end].contains(&0) {
+        return false;
+    }
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    needles.iter().any(|n| text.contains(n))
 }
 
 fn list_files_shallow(dir: &Path, max_depth: usize, files: &mut Vec<String>, base: &Path) {
@@ -1040,6 +1276,258 @@ mod tests {
         let r2 = add_verification_workflow_to_claude_md(project_path).await;
         assert!(r2.is_ok());
         assert_eq!(r2.unwrap(), "already_exists");
+    }
+
+    #[tokio::test]
+    async fn add_verification_workflow_includes_dual_side_rule() {
+        // The dual-side rule is the whole reason this text was modified —
+        // without it, implementers can mark a cross-system feature PASS
+        // based on mocked tests alone. The block must appear verbatim,
+        // not paraphrased away by a future edit.
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        add_verification_workflow_to_claude_md(project_path)
+            .await
+            .unwrap();
+
+        let content = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+        assert!(
+            content.contains("Dual-side rule for cross-system calls"),
+            "CLAUDE.md text missing dual-side rule header"
+        );
+        assert!(
+            content.contains("passing mocked test is NOT"),
+            "CLAUDE.md text missing mock-not-sufficient sentence"
+        );
+        assert!(
+            content.contains("ripgrep"),
+            "CLAUDE.md text missing parity check description"
+        );
+        assert!(
+            content.contains("CI step"),
+            "CLAUDE.md text missing CI recommendation"
+        );
+    }
+
+    // ── verify_action_parity ─────────────────────────────────────────────
+
+    fn write(path: &std::path::PathBuf, body: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, body).unwrap();
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_errors_when_root_missing() {
+        let res = verify_action_parity("/tmp/nonexistent-codemantis-root".to_string(), vec![]).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_passes_when_both_sides_reference_action() {
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("workers/notes/notes_write.py"),
+            "def write_classification():\n    return client.call('data-write', 'insert_note_classification', {})\n",
+        );
+        write(
+            &root.join("functions/worker-data-write/actions/notes.py"),
+            "def handle(action):\n    if action == 'insert_note_classification':\n        return do_insert()\n",
+        );
+
+        let actions = vec![ActionParityRequest {
+            action: "insert_note_classification".to_string(),
+            caller_path: "workers/notes".to_string(),
+            handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+        }];
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            actions,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert_eq!(r.status, "PASS");
+        assert!(r.caller_present);
+        assert!(r.handler_present);
+        assert!(r.handler_stub_free);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_fails_when_handler_is_missing() {
+        // The original incident: caller ships, handler never lands.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("workers/notes/notes_write.py"),
+            "client.call('data-write', 'insert_note_classification', {})\n",
+        );
+        // Handler file exists but does NOT mention the action at all.
+        write(
+            &root.join("functions/worker-data-write/actions/notes.py"),
+            "def handle(action):\n    return None\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "insert_note_classification".to_string(),
+                caller_path: "workers/notes".to_string(),
+                handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let r = &results[0];
+        assert_eq!(r.status, "FAIL");
+        assert!(r.caller_present);
+        assert!(!r.handler_present);
+        assert!(r.detail.contains("handler path"));
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_fails_when_handler_file_does_not_exist() {
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("workers/notes/notes_write.py"),
+            "client.call('data-write', 'insert_note_classification', {})\n",
+        );
+        // Handler path never created.
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "insert_note_classification".to_string(),
+                caller_path: "workers/notes".to_string(),
+                handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let r = &results[0];
+        assert_eq!(r.status, "FAIL");
+        assert!(!r.handler_present);
+        assert!(!r.handler_stub_free);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_fails_on_stub_marker_in_handler() {
+        // The handler references the action name — but also contains
+        // "until then … will return an error". This is the exact pattern
+        // from the incident: the code admits it's not implemented.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("workers/notes/notes_write.py"),
+            "client.call('data-write', 'insert_note_classification', {})\n",
+        );
+        write(
+            &root.join("functions/worker-data-write/actions/notes.py"),
+            "# insert_note_classification: until then, these calls will return an error\n\
+             def handle(action):\n    raise NotImplementedError()\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "insert_note_classification".to_string(),
+                caller_path: "workers/notes".to_string(),
+                handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let r = &results[0];
+        assert_eq!(r.status, "FAIL");
+        assert!(r.caller_present);
+        assert!(r.handler_present); // the action string IS there — but...
+        assert!(!r.handler_stub_free); // ...the file is a stub
+        assert!(r.detail.contains("stub") || r.detail.contains("NotImplemented"));
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_strips_symbol_suffix_from_handler_path() {
+        // Handler declarations often use `file.py::handle_x`. The command
+        // must split on "::" and only ripgrep the file portion — otherwise
+        // the existence check fails on a perfectly valid handler.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("services/audit/sink.ts"),
+            "export function recordAudit(action: string) {\n  if (action === 'emit_audit_log') doit();\n}\n",
+        );
+        write(
+            &root.join("producers/audit.ts"),
+            "client.call('audit', 'emit_audit_log', {});\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "emit_audit_log".to_string(),
+                caller_path: "producers/audit.ts".to_string(),
+                handler_path: "services/audit/sink.ts::recordAudit".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results[0].status, "PASS");
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_runs_multiple_actions_in_order() {
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+
+        write(
+            &root.join("caller.ts"),
+            "call('a'); call('b');\n",
+        );
+        write(
+            &root.join("handler.ts"),
+            "switch(action) { case 'a': ok(); }\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![
+                ActionParityRequest {
+                    action: "a".to_string(),
+                    caller_path: "caller.ts".to_string(),
+                    handler_path: "handler.ts".to_string(),
+                },
+                ActionParityRequest {
+                    action: "b".to_string(),
+                    caller_path: "caller.ts".to_string(),
+                    handler_path: "handler.ts".to_string(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].action, "a");
+        assert_eq!(results[0].status, "PASS");
+        assert_eq!(results[1].action, "b");
+        assert_eq!(results[1].status, "FAIL");
+        assert!(!results[1].handler_present);
     }
 
     // ── detect_framework ─────────────────────────────────────────────────

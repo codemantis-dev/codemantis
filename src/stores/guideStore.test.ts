@@ -381,4 +381,106 @@ describe("guideStore", () => {
     useGuideStore.getState().updateSessionStatus(2, "active");
     expect(useGuideStore.getState().guide!.sessions[1].status).toBe("active");
   });
+
+  it("createGuide preserves kind=\"integration\" and crossSystemActions on sessions", async () => {
+    const plan: ParsedSessionPlan = {
+      title: "Test App",
+      sessions: [
+        {
+          index: 1,
+          name: "Notes writer",
+          scope: "Cross-system",
+          readSections: "Section 4",
+          files: ["workers/notes/notes_write.py"],
+          prompt: "Wire up note inserts.",
+          verifyChecks: [
+            { label: "caller + handler present", kind: "integration" },
+            { label: "TypeScript compiles" },
+          ],
+          crossSystemActions: [
+            {
+              action: "insert_note_classification",
+              handler:
+                "supabase/functions/worker-data-write/actions/notes.py",
+            },
+          ],
+        },
+        {
+          index: 2,
+          name: "Polish",
+          scope: "Final",
+          readSections: "Section 5",
+          files: [],
+          prompt: "Polish.",
+          verifyChecks: [{ label: "done" }],
+        },
+      ],
+    };
+
+    await useGuideStore
+      .getState()
+      .createGuide(PROJECT, "notes.md", null, plan);
+    const guide = useGuideStore.getState().guide!;
+
+    // kind round-trips for [integration] and default
+    expect(guide.sessions[0].verifyChecks[0].kind).toBe("integration");
+    expect(guide.sessions[0].verifyChecks[1].kind).toBeUndefined();
+
+    // crossSystemActions attached on session 1, absent on session 2
+    expect(guide.sessions[0].crossSystemActions).toEqual([
+      {
+        action: "insert_note_classification",
+        handler: "supabase/functions/worker-data-write/actions/notes.py",
+      },
+    ]);
+    expect(guide.sessions[1].crossSystemActions).toBeUndefined();
+  });
+
+  it("loadGuideForProject round-trips kind=integration and crossSystemActions", async () => {
+    const guide: ImplementationGuide = {
+      id: "guide-xyz",
+      projectPath: PROJECT,
+      specFilename: "notes.md",
+      auditFilename: null,
+      title: "Notes",
+      sessions: [
+        {
+          index: 1,
+          name: "Writer",
+          scope: "",
+          readSections: "",
+          files: [],
+          prompt: "",
+          verifyChecks: [
+            {
+              id: "verify-1-0",
+              label: "caller + handler",
+              checked: false,
+              kind: "integration",
+            },
+          ],
+          crossSystemActions: [
+            { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+          ],
+          status: "active",
+        },
+      ],
+      createdAt: "2026-04-01T00:00:00.000Z",
+      status: "active",
+    };
+
+    const { loadGuide } = await import("../lib/tauri-commands");
+    (loadGuide as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: "guide-xyz",
+      dataJson: JSON.stringify(guide),
+    });
+
+    await useGuideStore.getState().loadGuideForProject(PROJECT);
+    const loaded = useGuideStore.getState().guide!;
+
+    expect(loaded.sessions[0].verifyChecks[0].kind).toBe("integration");
+    expect(loaded.sessions[0].crossSystemActions).toEqual([
+      { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+    ]);
+  });
 });

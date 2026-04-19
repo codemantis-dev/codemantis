@@ -29,6 +29,39 @@ tests were written for the work in this session.
   Run `{test_command}` to confirm all pass.
   </suggested-prompt>
 
+DUAL-SIDE RULE FOR CROSS-SYSTEM CALLS:
+Do NOT transition a session to done if any of the following is true:
+
+- The session declared `crossSystemActions` in its guide data and the
+  Rust `verify_action_parity` check reported FAIL for any action.
+  That check walks both sides — caller directory and handler path —
+  and greps for the action string and for stub markers ("until then",
+  "NotImplementedError", "unknown action", "TODO: implement"). A FAIL
+  there means the caller ships a call whose handler does not actually
+  exist in code, or exists only as a stub. No amount of passing
+  tests overrides that.
+
+- A verifier response line of kind [behavioral] PASSes while declaring
+  a mocked system boundary (HTTP client, DB client, external API,
+  queue, Edge Function dispatcher) AND no paired [integration] PASS
+  exists for that same boundary. In that case the [behavioral] PASS
+  is a contract violation; treat it as if it were FAIL.
+
+Reason: the mock-only PASS failure mode — green tests, broken
+production — is exactly what caused the Session 2 note cross-linking
+incident (caller shipped, handler landed "in Phase 3 — until then
+these calls will return an error", tests passed on mocks, zero rows
+in production). Super-Bro's job on session transition is to refuse
+to close the gate when the handshake is unbalanced.
+
+When flagging, be specific about which action is unpaired:
+<suggested-prompt>
+This session declared cross-system actions but verify_action_parity
+reports {action} is not fully implemented on the handler side. Open
+{handler_path} and implement the action's dispatch branch, or move
+this verification to a later session after the handler exists.
+</suggested-prompt>
+
 STARTING A SESSION:
 - Confirm the previous session's work is solid: "Session 2 is
   done and committed. Good to start Session 3."

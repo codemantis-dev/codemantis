@@ -28,12 +28,48 @@ describe("VERIFY_MODE_PREAMBLE", () => {
     expect(VERIFY_MODE_PREAMBLE).toContain(FINAL_ACCOUNTING);
   });
 
-  it("teaches per-kind evidence (static / side-effect / behavioral)", () => {
+  it("teaches per-kind evidence (static / side-effect / behavioral / integration)", () => {
     expect(VERIFY_MODE_PREAMBLE).toContain("[static]");
     expect(VERIFY_MODE_PREAMBLE).toContain("[side-effect]");
     expect(VERIFY_MODE_PREAMBLE).toContain("[behavioral]");
+    expect(VERIFY_MODE_PREAMBLE).toContain("[integration]");
     // side-effect rule: file is NOT evidence — must be command output
     expect(VERIFY_MODE_PREAMBLE).toContain("A file is NOT evidence");
+  });
+
+  it("mandates mock-surface disclosure on [behavioral] PASS lines", () => {
+    expect(VERIFY_MODE_PREAMBLE).toContain("MANDATORY MOCK DISCLOSURE");
+    // Per-line form: "· mocks={…}"
+    expect(VERIFY_MODE_PREAMBLE).toMatch(/mocks=\{.*list.*\}/i);
+  });
+
+  it("requires [integration] evidence to cite BOTH caller and handler and a real invocation", () => {
+    expect(VERIFY_MODE_PREAMBLE).toContain("caller=");
+    expect(VERIFY_MODE_PREAMBLE).toContain("handler=");
+    expect(VERIFY_MODE_PREAMBLE).toContain("real non-mocked invocation");
+  });
+
+  it("treats missing/stubbed handlers as automatic FAIL for [integration] items", () => {
+    // Specifically the failure-mode language that caused the original
+    // incident — a module that says "until then … will return an error"
+    // must be detected and produce FAIL, not PASS based on mocked tests.
+    expect(VERIFY_MODE_PREAMBLE).toContain("until then");
+    expect(VERIFY_MODE_PREAMBLE).toContain("NotImplemented");
+    expect(VERIFY_MODE_PREAMBLE).toContain("unknown action");
+  });
+
+  it("flags [behavioral] PASS without paired [integration] as a contract violation", () => {
+    expect(VERIFY_MODE_PREAMBLE).toMatch(
+      /paired \[integration\] (PASS|item)/i,
+    );
+    expect(VERIFY_MODE_PREAMBLE).toContain("contract violation");
+  });
+
+  it("includes a retroactive notice for old PASS marks", () => {
+    expect(VERIFY_MODE_PREAMBLE).toContain("RETROACTIVE NOTICE");
+    expect(VERIFY_MODE_PREAMBLE).toMatch(
+      /prior PASS[\s\S]+is no longer trustworthy|re-verified against THIS contract/i,
+    );
   });
 
   it("specifies batching of 10 items per batch with a running tally", () => {
@@ -174,6 +210,25 @@ describe("buildSessionVerifyPrompt", () => {
     expect(result).toContain(PREAMBLE_HEADER);
     expect(result).toContain("Items to verify (1 total)");
     expect(result).toContain("1. [static] TypeScript compiles");
+  });
+
+  it("renders [integration] kind in the numbered checklist", () => {
+    const result = buildSessionVerifyPrompt(
+      {
+        index: 2,
+        name: "Notes writer",
+        verifyChecks: [
+          { label: "caller + handler present for insert_note_classification", kind: "integration" },
+          { label: "Rows land in note_classifications after real call", kind: "integration" },
+        ],
+      },
+      "notes-pipeline.md",
+      null,
+    );
+
+    expect(result).toContain("1. [integration] caller + handler present for insert_note_classification");
+    expect(result).toContain("2. [integration] Rows land in note_classifications after real call");
+    expect(result).toContain("Items to verify (2 total)");
   });
 
   it("appends audit line to verificationPrompt when audit filename provided", () => {

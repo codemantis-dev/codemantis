@@ -787,6 +787,34 @@ export async function addVerificationWorkflowToClaudeMd(
   return invoke<string>("add_verification_workflow_to_claude_md", { projectPath });
 }
 
+// ── Cross-system action parity (the "mock-only PASS" gate) ────────────
+
+export interface ActionParityRequest {
+  action: string;
+  callerPath: string;
+  handlerPath: string;
+}
+
+export interface ActionParityResult {
+  action: string;
+  callerPresent: boolean;
+  handlerPresent: boolean;
+  handlerStubFree: boolean;
+  /** "PASS" iff caller + handler both present AND handler stub-free. */
+  status: "PASS" | "FAIL";
+  detail: string;
+}
+
+export async function verifyActionParity(
+  projectRoot: string,
+  actions: ActionParityRequest[],
+): Promise<ActionParityResult[]> {
+  return invoke<ActionParityResult[]>("verify_action_parity", {
+    projectRoot,
+    actions,
+  });
+}
+
 export async function gatherProjectSnapshot(
   projectPath: string,
 ): Promise<string> {

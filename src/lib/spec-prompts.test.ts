@@ -377,6 +377,59 @@ describe("prompt constants", () => {
       expect(prompt).toContain("Verified X/Y | PASS n · FAIL n · SKIPPED n");
     }
   });
+
+  // ── Dual-side handshake rules (the mock-only-PASS fix) ────────────────
+
+  it("session plan rules describe the [integration] kind", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("[integration]");
+      // Both sides must be implemented
+      expect(prompt).toMatch(/caller AND the handler/);
+      // The failure mode this exists to prevent
+      expect(prompt).toContain('"mocked green, production broken"');
+    }
+  });
+
+  it("session plan rules mandate the Cross-system actions introduced block", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("**Cross-system actions introduced:**");
+      expect(prompt).toMatch(/action:\s*`[^`]+`\s*→\s*handler:/);
+      // The runtime enforcement (may wrap across lines in the prompt text).
+      expect(prompt).toMatch(/ripgrep-based parity\s+check/);
+      expect(prompt).toContain("CANNOT advance");
+    }
+  });
+
+  it("audit template includes the Dual-Side Implementation Verification section", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("Dual-Side Implementation Verification");
+      expect(prompt).toContain("VERIFY caller");
+      expect(prompt).toContain("VERIFY handler");
+      expect(prompt).toContain("VERIFY handshake parity");
+      expect(prompt).toContain("VERIFY real invocation");
+      expect(prompt).toContain("handshake-parity.sh");
+      // Tests-passing-on-mocks does not override a failure here
+      expect(prompt).toContain("Tests passing on mocks do NOT override");
+    }
+  });
+
+  it("audit pre-flight includes the stub scan", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("Stub scan");
+      expect(prompt).toContain("until then");
+      expect(prompt).toContain("NotImplementedError");
+      expect(prompt).toContain("unknown action");
+      expect(prompt).toContain("AUTOMATIC\n  FAIL");
+    }
+  });
+
+  it("Phase 4 checklist includes the mock-disclosure rule", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      expect(prompt).toContain("MOCK DISCLOSURE");
+      expect(prompt).toContain("NON-mocked integration test");
+      expect(prompt).toContain("Mocked tests are NOT sufficient evidence");
+    }
+  });
 });
 
 describe("buildClaudeCodePrompt", () => {

@@ -22,9 +22,29 @@ export interface GuideSession {
   prompt: string;
   verifyChecks: VerifyCheck[];
   verificationPrompt?: string | null;
+  /**
+   * Actions this session introduces that cross a system boundary (worker
+   * → Edge Function, frontend → backend endpoint, producer → consumer).
+   * Each row declares the caller's action name and the handler it must
+   * dispatch to. Parsed from the spec's
+   * `**Cross-system actions introduced:**` block. Used by Self-Drive to
+   * run a static parity check before marking the session done.
+   */
+  crossSystemActions?: CrossSystemAction[];
   status: "pending" | "active" | "done";
   promptSent?: boolean;
   verifyRequested?: boolean;
+}
+
+export interface CrossSystemAction {
+  /** The action name as issued by the caller (e.g. "insert_note_classification"). */
+  action: string;
+  /**
+   * Path (and optional ::symbol) of the handler expected to dispatch this
+   * action. The file portion is grep-searched for the action string; if
+   * not found, the session cannot transition to done.
+   */
+  handler: string;
 }
 
 export interface VerifyCheck {
@@ -37,8 +57,14 @@ export interface VerifyCheck {
    *  - "side-effect": requires a live command output / query result.
    *                   (e.g. DB row, HTTP status, deployed schema row)
    *  - "behavioral":  requires a passing test run with quoted assertion.
+   *                   Must declare its mock surface; if the test mocks a
+   *                   cross-system boundary, a paired [integration] check
+   *                   is mandatory for the same boundary.
+   *  - "integration": requires BOTH caller and handler code to be cited
+   *                   AND a real non-mocked invocation with quoted output.
+   *                   The only kind that proves cross-system calls end-to-end.
    */
-  kind?: "static" | "side-effect" | "behavioral";
+  kind?: "static" | "side-effect" | "behavioral" | "integration";
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -114,7 +140,8 @@ export interface OrchestratorInput {
     name: string;
     scope: string;
     prompt: string;
-    verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
+    verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" | "integration" }[];
+    crossSystemActions?: CrossSystemAction[];
     isLastSession: boolean;
     hasAuditDocument: boolean;
   };

@@ -92,6 +92,7 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       verificationPrompt: s.verificationPrompt
         ? fixSpecReference(s.verificationPrompt)
         : null,
+      crossSystemActions: s.crossSystemActions,
       status: i === 0 ? "active" : "pending",
       promptSent: false,
       verifyRequested: false,

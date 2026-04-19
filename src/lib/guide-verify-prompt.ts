@@ -6,7 +6,10 @@
 interface SessionForVerify {
   index: number;
   name: string;
-  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
+  verifyChecks: {
+    label: string;
+    kind?: "static" | "side-effect" | "behavioral" | "integration";
+  }[];
   verificationPrompt?: string | null;
 }
 
@@ -40,9 +43,27 @@ THE CONTRACT (evidence form depends on the item's [kind] tag):
   PASS requires concrete output showing the effect. FAIL quotes the
   error or missing-row result.
 - [behavioral] — a passing test or running behavior. Run the test
-  and quote the PASS line or assertion. Example evidence:
+  and quote the PASS line or assertion. MANDATORY MOCK DISCLOSURE:
+  every [behavioral] PASS line MUST append \`· mocks={comma list or
+  "none"}\` naming what the test mocks. If any listed mock crosses a
+  system boundary (HTTP client, DB client, external API, queue,
+  Edge Function dispatcher), this PASS is NOT sufficient on its own —
+  a paired [integration] item covering that boundary is required.
+  A [behavioral] PASS with a boundary-crossing mock but no paired
+  [integration] PASS is a contract violation → mark the item FAIL.
+  Example evidence:
     $ pnpm test -- foo.test.ts
-    ✓ does the thing (12ms)
+    ✓ does the thing (12ms) · mocks=httpClient,fsWrite
+- [integration] — a cross-system call proven end-to-end. Evidence MUST
+  contain THREE parts on one line: the caller site, the handler site,
+  and a real non-mocked invocation with its observable output. Use:
+    caller={file}:{lines} · handler={file}:{lines} · $ {real command} → {quoted output}
+  The handler MUST exist as real code (not a stub, not a TODO, not
+  a "NotImplemented", not an "unknown action" default branch). If
+  the handler is missing, or if the handler file contains a marker
+  such as "until then … will return an error", the item is FAIL —
+  regardless of any passing test. This is the kind that exists to
+  catch the "mocked green, production broken" failure mode.
 
 COMMON RULES:
 - You may NEVER emit "all X pass", "looks fine", "should work",
@@ -55,9 +76,10 @@ COMMON RULES:
 
 OUTPUT FORMAT — one line per item, exactly this shape:
   {N}. {item label} — PASS|FAIL|SKIPPED|N/A — {evidence}
-  where {evidence} is either {file}:{lines} — {quoted code}  (static)
-                          OR $ {command} → {quoted output}    (side-effect)
-                          OR {test}:{line} — {quoted assert}  (behavioral)
+  where {evidence} is either {file}:{lines} — {quoted code}                  (static)
+                          OR $ {command} → {quoted output}                    (side-effect)
+                          OR {test}:{line} — {quoted assert} · mocks={list}   (behavioral)
+                          OR caller={file}:{lines} · handler={file}:{lines} · $ {cmd} → {output}  (integration)
 
 PACING (prevents context rushing):
 - Process items in BATCHES OF 10.
@@ -79,6 +101,14 @@ FORBIDDEN PHRASES (their presence means you skimmed — retract and redo):
 FINAL LINE — always emit, always last:
   Verified X/Y items | PASS: a | FAIL: b | SKIPPED: c | N/A: d
   If X != Y, explain the delta in one sentence.
+
+RETROACTIVE NOTICE — applies to guides that were marked PASS under
+an older contract that did not enforce mock disclosure or the
+[integration] dual-side rule:
+  Every [behavioral] and [side-effect] item below must be re-verified
+  against THIS contract before its prior PASS is honoured. A prior
+  green check built on a mocked boundary is no longer trustworthy.
+  Re-run this session's checklist from scratch.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `;

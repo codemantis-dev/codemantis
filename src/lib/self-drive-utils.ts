@@ -126,7 +126,7 @@ export function getCurrentSessionPlan(
   name: string;
   scope: string;
   prompt: string;
-  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
+  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" | "integration" }[];
   isLastSession: boolean;
   hasAuditDocument: boolean;
 } | null {

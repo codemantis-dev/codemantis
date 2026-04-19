@@ -34,6 +34,25 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mockListen,
 }));
 
+interface ParityCallResult {
+  action: string;
+  callerPresent: boolean;
+  handlerPresent: boolean;
+  handlerStubFree: boolean;
+  status: "PASS" | "FAIL";
+  detail: string;
+}
+interface ParityCallRequest {
+  action: string;
+  callerPath: string;
+  handlerPath: string;
+}
+const mockVerifyActionParity = vi.hoisted(() =>
+  vi.fn<
+    (root: string, actions: ParityCallRequest[]) => Promise<ParityCallResult[]>
+  >(() => Promise.resolve([])),
+);
+
 vi.mock("../lib/tauri-commands", () => ({
   sendMessage: mockSendMessage,
   syncSessionMode: mockSyncSessionMode,
@@ -48,6 +67,8 @@ vi.mock("../lib/tauri-commands", () => ({
   loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
   listSelfDriveStates: vi.fn(() => Promise.resolve([])),
   deleteSelfDriveState: vi.fn(() => Promise.resolve()),
+  // Cross-system action parity gate — used by attemptMarkSessionComplete.
+  verifyActionParity: mockVerifyActionParity,
 }));
 
 vi.mock("../lib/self-drive-orchestrator", () => ({
@@ -72,7 +93,11 @@ vi.mock("../lib/self-drive-utils", () => ({
   getTestCommand: vi.fn(() => "pnpm test"),
 }));
 
-import { useSelfDriveStore, validateVerifyAdvance } from "./selfDriveStore";
+import {
+  useSelfDriveStore,
+  validateVerifyAdvance,
+  attemptMarkSessionComplete,
+} from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -2032,5 +2057,332 @@ describe("validateVerifyAdvance", () => {
     expect(reason).toContain("1 checks missing");
     expect(reason).toContain("1 PASS entries lack file:line evidence");
     expect(reason).toContain("1 unknown labels");
+  });
+
+  // ── Mock-disclosure + dual-side rules (the mock-only-PASS fix) ─────────
+
+  it("rejects a [behavioral] PASS with no mocks= disclosure at all", () => {
+    const behavioralSession = {
+      verifyChecks: [
+        { label: "Check A", kind: "behavioral" as const },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "test/a.test.ts:12 — `expect(x).toBe(1)`" },
+      ],
+    });
+    const reason = validateVerifyAdvance(behavioralSession, decision);
+    expect(reason).toContain("lack mock-surface disclosure");
+  });
+
+  it("accepts a [behavioral] PASS with mocks=none", () => {
+    const behavioralSession = {
+      verifyChecks: [{ label: "Check A", kind: "behavioral" as const }],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "Check A",
+          passed: true,
+          evidence:
+            'test/a.test.ts:12 — `expect(x).toBe(1)` · mocks=none',
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(behavioralSession, decision)).toBeNull();
+  });
+
+  it("rejects [behavioral] PASS that mocks a boundary without paired [integration] PASS — the incident fix", () => {
+    // This is the exact shape of the failure: 43 tests pass, every one
+    // mocked the api client; no real integration test ever ran; and
+    // production note_* tables stay empty. With the new rule Self-Drive
+    // will now refuse to advance.
+    const session = {
+      verifyChecks: [
+        {
+          label: "worker inserts note classification",
+          kind: "behavioral" as const,
+        },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "worker inserts note classification",
+          passed: true,
+          evidence:
+            'test/notes.test.ts:42 — `expect(writer.insert).toHaveBeenCalled()` · mocks=get_api_client',
+        },
+      ],
+    });
+    const reason = validateVerifyAdvance(session, decision);
+    expect(reason).toContain(
+      "mock a system boundary but no paired [integration] PASS",
+    );
+  });
+
+  it("accepts [behavioral] PASS that mocks a boundary WHEN a paired [integration] PASS is present", () => {
+    const session = {
+      verifyChecks: [
+        {
+          label: "worker inserts note classification",
+          kind: "behavioral" as const,
+        },
+        {
+          label: "insert_note_classification end-to-end",
+          kind: "integration" as const,
+        },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "worker inserts note classification",
+          passed: true,
+          evidence:
+            'test/notes.test.ts:42 — `expect(writer.insert).toHaveBeenCalled()` · mocks=get_api_client',
+        },
+        {
+          label: "insert_note_classification end-to-end",
+          passed: true,
+          evidence:
+            "caller=workers/notes/notes_write.py:18 · handler=functions/worker-data-write/actions/notes.py:3 · $ curl … → {\"inserted\":1}",
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(session, decision)).toBeNull();
+  });
+
+  it("identifies common boundary mock names (http, supabase, dbClient, etc.)", () => {
+    const cases = [
+      "httpClient",
+      "fetch",
+      "axios",
+      "supabaseClient",
+      "dbClient",
+      "postgresPool",
+      "edgeDispatcher",
+      "sqsQueue",
+    ];
+    for (const mockName of cases) {
+      const session = {
+        verifyChecks: [
+          { label: "behavioral check", kind: "behavioral" as const },
+        ],
+      };
+      const decision = makeDecision({
+        checkResults: [
+          {
+            label: "behavioral check",
+            passed: true,
+            evidence: `test/a.test.ts:1 — "works" · mocks=${mockName}`,
+          },
+        ],
+      });
+      const reason = validateVerifyAdvance(session, decision);
+      expect(
+        reason,
+        `expected ${mockName} to trigger boundary rule`,
+      ).toContain("mock a system boundary but no paired [integration] PASS");
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// attemptMarkSessionComplete — the cross-system parity gate
+//
+// This is the primary defence against the "mocked tests green, handler
+// missing" shipping pattern. No matter how many checks are ticked, a
+// session that declared cross-system actions CANNOT be marked done if
+// the Rust parity check reports any action unpaired.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("attemptMarkSessionComplete — cross-system parity gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  function makeSession(overrides: {
+    index: number;
+    checks: { id: string; label: string; checked: boolean }[];
+    status?: "pending" | "active" | "done";
+    files?: string[];
+    crossSystemActions?: { action: string; handler: string }[];
+  }): ImplementationGuide["sessions"][number] {
+    return {
+      index: overrides.index,
+      name: `Session ${overrides.index}`,
+      scope: "",
+      readSections: "",
+      files: overrides.files ?? [],
+      prompt: "",
+      verifyChecks: overrides.checks,
+      status: overrides.status ?? "active",
+      promptSent: false,
+      verifyRequested: false,
+      crossSystemActions: overrides.crossSystemActions,
+    };
+  }
+
+  function seed(guide: ImplementationGuide, projectPath = "/project"): void {
+    useSelfDriveStore.setState({ guide, projectPath });
+  }
+
+  it("returns session-not-found when guide is absent", async () => {
+    // resetStores doesn't touch selfDriveStore.guide (it's merged, not
+    // replaced), so tests that depend on a null guide must clear it
+    // explicitly.
+    useSelfDriveStore.setState({ guide: null, projectPath: null });
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome).toEqual({ ok: false, reason: "session-not-found" });
+  });
+
+  it("returns checks-incomplete when not all checks are ticked", async () => {
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [
+              { id: "a", label: "A", checked: true },
+              { id: "b", label: "B", checked: false },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { reason: string }).reason).toBe("checks-incomplete");
+    expect(mockVerifyActionParity).not.toHaveBeenCalled();
+  });
+
+  it("succeeds without invoking parity when no cross-system actions are declared", async () => {
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "A", checked: true }],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(true);
+    expect(mockVerifyActionParity).not.toHaveBeenCalled();
+
+    const s1 = useSelfDriveStore.getState().guide!.sessions[0];
+    expect(s1.status).toBe("done");
+  });
+
+  it("blocks completion when parity check reports FAIL — this is the incident fix", async () => {
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "insert_note_classification",
+        callerPresent: true,
+        handlerPresent: false,
+        handlerStubFree: false,
+        status: "FAIL",
+        detail:
+          "handler path 'worker-data-write/actions/notes.py' does not reference action 'insert_note_classification' — the other side of this call has not been implemented",
+      },
+    ]);
+
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "caller + handler present", checked: true }],
+            files: ["workers/notes/notes_write.py"],
+            crossSystemActions: [
+              {
+                action: "insert_note_classification",
+                handler: "worker-data-write/actions/notes.py",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { reason: string }).reason).toBe("parity-failed");
+
+    // Session stays "active" — NOT flipped to done.
+    const s1 = useSelfDriveStore.getState().guide!.sessions[0];
+    expect(s1.status).toBe("active");
+
+    // Parity command was invoked with the declared action pair.
+    expect(mockVerifyActionParity).toHaveBeenCalledTimes(1);
+    const [passedRoot, passedActions] = mockVerifyActionParity.mock.calls[0];
+    expect(passedRoot).toBe("/project");
+    expect(passedActions).toHaveLength(1);
+    expect(passedActions[0].action).toBe("insert_note_classification");
+  });
+
+  it("allows completion when parity check PASSes for all actions", async () => {
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "emit_audit_log",
+        callerPresent: true,
+        handlerPresent: true,
+        handlerStubFree: true,
+        status: "PASS",
+        detail: "caller + handler both reference 'emit_audit_log'",
+      },
+    ]);
+
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: ["producers/audit.ts"],
+            crossSystemActions: [
+              { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(true);
+    expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("done");
+  });
+
+  it("treats a parity invocation that throws as FAIL (fails closed)", async () => {
+    mockVerifyActionParity.mockRejectedValueOnce(new Error("rg binary missing"));
+
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: ["producers/audit.ts"],
+            crossSystemActions: [
+              { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { reason: string }).reason).toBe("parity-failed");
+    // Synthesised FAIL explains the situation.
+    const results = (outcome as { results: { status: string; detail: string }[] }).results;
+    expect(results[0].status).toBe("FAIL");
+    expect(results[0].detail).toMatch(/errored/i);
   });
 });

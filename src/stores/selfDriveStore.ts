@@ -28,6 +28,8 @@ import {
   updateGuideData,
   saveSelfDriveState,
   deleteSelfDriveState,
+  verifyActionParity,
+  type ActionParityResult,
 } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
@@ -765,6 +767,12 @@ function toggleVerifyCheckForSession(sessionIndex: number, checkId: string): voi
 /**
  * Mark a session complete. Returns true if the transition was applied,
  * false otherwise (e.g., session not found or verify checks incomplete).
+ *
+ * NOTE: the cross-system action parity gate lives in
+ * `attemptMarkSessionComplete` (async wrapper below). This function runs
+ * the synchronous guard (all checks ticked) and applies the state
+ * transition; callers that need the parity gate MUST go through
+ * `attemptMarkSessionComplete` instead.
  */
 function markSessionCompleteForSession(sessionIndex: number): boolean {
   const current = useSelfDriveStore.getState().guide;
@@ -799,6 +807,118 @@ function markSessionCompleteForSession(sessionIndex: number): boolean {
     };
   });
   return true;
+}
+
+/**
+ * Async wrapper around `markSessionCompleteForSession` that runs the
+ * cross-system action parity gate BEFORE applying the transition.
+ *
+ * For any session whose guide data declares `crossSystemActions`, this
+ * invokes the Rust `verify_action_parity` command and refuses to mark
+ * the session done if any action is unpaired (caller has it, handler
+ * does not — or handler exists but contains stub markers). The verifier
+ * text cannot override this gate; this is the primary defence against
+ * the "mocked tests green, production handler missing" failure mode.
+ *
+ * Returns:
+ *   { ok: true }                                if transition applied
+ *   { ok: false, reason: "checks-incomplete" }  if verify checks not all ticked
+ *   { ok: false, reason: "session-not-found" }  if sessionIndex doesn't exist
+ *   { ok: false, reason: "parity-failed", results } if parity check blocked it
+ *
+ * Callers (UI buttons, auto-advance) should surface `detail` from each
+ * failing `ActionParityResult` to the user so they know which handler
+ * is missing.
+ */
+export async function attemptMarkSessionComplete(
+  sessionIndex: number,
+): Promise<
+  | { ok: true }
+  | { ok: false; reason: "checks-incomplete" }
+  | { ok: false; reason: "session-not-found" }
+  | { ok: false; reason: "parity-failed"; results: ActionParityResult[] }
+> {
+  const current = useSelfDriveStore.getState().guide;
+  const projectPath = useSelfDriveStore.getState().projectPath;
+  if (!current) return { ok: false, reason: "session-not-found" };
+
+  const target = current.sessions.find((s) => s.index === sessionIndex);
+  if (!target) return { ok: false, reason: "session-not-found" };
+
+  // Already done → idempotent success.
+  if (target.status === "done") return { ok: true };
+
+  // Fast-path checks (same as sync version).
+  const allChecked =
+    target.verifyChecks.length === 0 ||
+    target.verifyChecks.every((c) => c.checked);
+  if (!allChecked) return { ok: false, reason: "checks-incomplete" };
+
+  // Parity gate — only when the session declared cross-system actions.
+  const actions = target.crossSystemActions ?? [];
+  if (actions.length > 0 && projectPath) {
+    try {
+      const results = await verifyActionParity(
+        projectPath,
+        actions.map((a) => ({
+          action: a.action,
+          callerPath: deriveCallerPath(target.files, a.action),
+          handlerPath: a.handler,
+        })),
+      );
+      const failed = results.filter((r) => r.status !== "PASS");
+      if (failed.length > 0) {
+        return { ok: false, reason: "parity-failed", results };
+      }
+    } catch (e) {
+      // The parity check itself failed (missing rg, I/O, etc.). Treat
+      // as a failure to protect against false positives. The user gets
+      // a synthesized FAIL result explaining the situation.
+      console.warn("[selfDriveStore] verifyActionParity failed:", e);
+      return {
+        ok: false,
+        reason: "parity-failed",
+        results: actions.map((a) => ({
+          action: a.action,
+          callerPresent: false,
+          handlerPresent: false,
+          handlerStubFree: false,
+          status: "FAIL",
+          detail: `Parity check itself errored (${String(e)}) — treat as unverified.`,
+        })),
+      };
+    }
+  }
+
+  const applied = markSessionCompleteForSession(sessionIndex);
+  return applied ? { ok: true } : { ok: false, reason: "checks-incomplete" };
+}
+
+/**
+ * Best-effort caller-path inference. The spec's
+ * `**Cross-system actions introduced:**` block names the handler path
+ * explicitly but not the caller path — the caller is implicit: it's
+ * one of the session's declared Files. For parity, we pass the whole
+ * files list as a pseudo-caller-path: the Rust scan walks each entry.
+ *
+ * Joining with a comma is deliberate: Rust's `resolve_under` gets the
+ * first path via `Path::new`, which treats the whole string as one
+ * path. So we pass ONLY the first file here and rely on directory
+ * scanning for broader coverage. If the session has no Files list, we
+ * fall back to the project root (expensive but correct).
+ *
+ * NOTE: we do not currently have richer metadata tying a specific
+ * caller line to a specific action — that would be an enhancement.
+ * For now, if the action string appears anywhere in the session's
+ * declared files, the caller side is considered present.
+ */
+function deriveCallerPath(files: string[], _action: string): string {
+  // Use the first declared file's directory if multiple files exist;
+  // the Rust scan walks directories recursively.
+  if (files.length === 0) return ".";
+  const first = files[0];
+  const slash = first.lastIndexOf("/");
+  return slash > 0 ? first.slice(0, slash) : first;
 }
 
 // ── Event listeners ─────────────────────────────────────────────────
@@ -1002,6 +1122,64 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
 // ── Step handlers ───────────────────────────────────────────────────
 
 /**
+ * Substrings in a [behavioral] evidence `mocks=` list that indicate the
+ * mock crosses a system boundary. Keep conservative — false positives
+ * waste verifier time, but false negatives are exactly the bug this
+ * exists to prevent. This list matches mock surfaces Claude Code is
+ * likely to name when it explains what a test mocked.
+ */
+const BOUNDARY_MOCK_SIGNALS = [
+  "http",
+  "fetch",
+  "axios",
+  "superagent",
+  "got",
+  "supabase",
+  "client", // db client, api client, etc.
+  "db",
+  "database",
+  "postgres",
+  "mysql",
+  "sqlite",
+  "redis",
+  "queue",
+  "kafka",
+  "sqs",
+  "rabbit",
+  "edge",
+  "api_client",
+  "get_api_client", // the exact one from the incident
+  "dispatch",
+  "invoke",
+];
+
+/**
+ * Extract the comma-separated mocks list from a [behavioral] PASS
+ * evidence string.
+ *
+ *   'test.ts:12 — "does a thing" · mocks=httpClient,fsWrite'
+ *    →   ["httpClient", "fsWrite"]
+ *   'test.ts:12 — "does a thing" · mocks=none'     →   ["none"]
+ *   'test.ts:12 — "does a thing"'                  →   null   (no disclosure)
+ */
+function extractMocksFromEvidence(evidence: string): string[] | null {
+  const match = evidence.match(/(?:·|mocks=)\s*mocks=([^·\n]+)$/i)
+    ?? evidence.match(/·\s*mocks=([^·\n]+)$/i)
+    ?? evidence.match(/\bmocks=([^·\n]+)$/i);
+  if (!match) return null;
+  return match[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function mockCrossesBoundary(mockName: string): boolean {
+  const lower = mockName.toLowerCase();
+  if (lower === "none") return false;
+  return BOUNDARY_MOCK_SIGNALS.some((sig) => lower.includes(sig));
+}
+
+/**
  * Validate an orchestrator's "advance" verdict against a session's verify
  * checks. Returns null when the verdict is acceptable, or a short reason
  * string describing the first violation found.
@@ -1011,11 +1189,25 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
  *  2. Every passed:true entry must carry an `evidence` string containing
  *     at least a ":" (file:lines citation).
  *  3. No checkResults entry may reference a label that isn't in the session.
+ *  4. Mock-disclosure rule (the mock-only-PASS fix): any [behavioral]
+ *     PASS whose evidence declares a mock list containing a
+ *     boundary-crossing surface (HTTP client, DB client, API client,
+ *     Edge Function dispatcher, queue, etc.) must be accompanied by at
+ *     least one [integration] PASS in the same verdict. A [behavioral]
+ *     PASS with no `mocks=` disclosure at all is also a violation — the
+ *     preamble requires disclosure. (These together catch the failure
+ *     mode where all 43 tests pass on mocks while the real handler is
+ *     unimplemented.)
  *
  * Exported for tests; not part of the store's public API.
  */
 export function validateVerifyAdvance(
-  session: { verifyChecks: { label: string }[] },
+  session: {
+    verifyChecks: {
+      label: string;
+      kind?: "static" | "side-effect" | "behavioral" | "integration";
+    }[];
+  },
   decision: OrchestratorDecision,
 ): string | null {
   const results = decision.checkResults ?? [];
@@ -1025,6 +1217,9 @@ export function validateVerifyAdvance(
 
   const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
   const resultLabels = new Set(results.map((r) => r.label));
+  const kindByLabel = new Map(
+    session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
+  );
 
   const missing = session.verifyChecks
     .filter((c) => !resultLabels.has(c.label))
@@ -1038,10 +1233,42 @@ export function validateVerifyAdvance(
     .filter((r) => r.passed && (!r.evidence || !r.evidence.includes(":")))
     .map((r) => r.label);
 
+  // Mock-disclosure rule. Only checks typed [behavioral] in the session
+  // are subject to it — static/side-effect/integration have their own
+  // evidence forms.
+  const behavioralPassesMissingDisclosure: string[] = [];
+  const behavioralPassesWithBoundaryMock: string[] = [];
+  const hasIntegrationPass = results.some(
+    (r) => r.passed && kindByLabel.get(r.label) === "integration",
+  );
+
+  for (const r of results) {
+    if (!r.passed) continue;
+    if (kindByLabel.get(r.label) !== "behavioral") continue;
+    const mocks = extractMocksFromEvidence(r.evidence ?? "");
+    if (mocks === null) {
+      behavioralPassesMissingDisclosure.push(r.label);
+      continue;
+    }
+    if (mocks.some(mockCrossesBoundary) && !hasIntegrationPass) {
+      behavioralPassesWithBoundaryMock.push(r.label);
+    }
+  }
+
   const parts: string[] = [];
   if (missing.length > 0) parts.push(`${missing.length} checks missing from verdict`);
   if (passedWithoutEvidence.length > 0) parts.push(`${passedWithoutEvidence.length} PASS entries lack file:line evidence`);
   if (unknown.length > 0) parts.push(`${unknown.length} unknown labels in verdict`);
+  if (behavioralPassesMissingDisclosure.length > 0) {
+    parts.push(
+      `${behavioralPassesMissingDisclosure.length} [behavioral] PASS entries lack mock-surface disclosure`,
+    );
+  }
+  if (behavioralPassesWithBoundaryMock.length > 0) {
+    parts.push(
+      `${behavioralPassesWithBoundaryMock.length} [behavioral] PASS entries mock a system boundary but no paired [integration] PASS exists`,
+    );
+  }
 
   return parts.length > 0 ? parts.join("; ") : null;
 }
@@ -1098,9 +1325,28 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
     }
   }
 
-  // Mark session complete via the pinned-guide mutation helper.
-  const completed = markSessionCompleteForSession(sessionIndex);
-  if (!completed) {
+  // Mark session complete — but run the cross-system parity gate first.
+  // A session that declared cross-system actions whose handlers aren't
+  // implemented CANNOT advance, even if every verify check is ticked.
+  // This is the gate that would have stopped the note cross-linking
+  // incident from shipping (mocked tests green, handlers missing).
+  const outcome = await attemptMarkSessionComplete(sessionIndex);
+  if (!outcome.ok) {
+    if (outcome.reason === "parity-failed") {
+      const failedActions = outcome.results
+        .filter((r) => r.status !== "PASS")
+        .map((r) => `${r.action}: ${r.detail}`)
+        .join(" | ");
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Advance blocked by parity gate — ${failedActions}`,
+      );
+      handlePause(
+        `Self-Drive halted: cross-system action parity check failed. ${failedActions}`,
+      );
+      return;
+    }
     const alreadyDone = guide?.sessions
       .find((s) => s.index === sessionIndex)?.status === "done";
     if (!alreadyDone) {

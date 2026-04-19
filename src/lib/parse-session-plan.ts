@@ -2,6 +2,13 @@
 // Session Plan Parser — extracts structured data from spec markdown
 // ═══════════════════════════════════════════════════════════════════════
 
+export type ParsedCheckKind = "static" | "side-effect" | "behavioral" | "integration";
+
+export interface ParsedCrossSystemAction {
+  action: string;
+  handler: string;
+}
+
 export interface ParsedSession {
   index: number;
   name: string;
@@ -9,31 +16,62 @@ export interface ParsedSession {
   readSections: string;
   files: string[];
   prompt: string;
-  verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[];
+  verifyChecks: { label: string; kind?: ParsedCheckKind }[];
   verificationPrompt?: string | null;
+  crossSystemActions?: ParsedCrossSystemAction[];
 }
 
 /**
  * Extract an optional `[kind]` suffix (or prefix) from a VerifyCheck line.
- * Accepts `[side-effect]`, `[behavioral]`, `[static]` (case-insensitive);
- * any other bracketed content is treated as part of the label.
+ * Accepts `[side-effect]`, `[behavioral]`, `[static]`, `[integration]`
+ * (case-insensitive); any other bracketed content is treated as part of
+ * the label.
  *
  * Returns { label, kind } where kind is undefined for "static" (default).
  */
-function extractCheckKind(raw: string): { label: string; kind?: "static" | "side-effect" | "behavioral" } {
+function extractCheckKind(raw: string): { label: string; kind?: ParsedCheckKind } {
   // Trailing tag: "… thing to verify [side-effect]"
-  const tail = raw.match(/^(.*?)\s*\[(static|side-effect|behavioral)\]\s*$/i);
+  const tail = raw.match(/^(.*?)\s*\[(static|side-effect|behavioral|integration)\]\s*$/i);
   if (tail) {
-    const kind = tail[2].toLowerCase() as "static" | "side-effect" | "behavioral";
+    const kind = tail[2].toLowerCase() as ParsedCheckKind;
     return { label: tail[1].trim(), kind: kind === "static" ? undefined : kind };
   }
   // Leading tag: "[side-effect] thing to verify"
-  const head = raw.match(/^\s*\[(static|side-effect|behavioral)\]\s*(.+)$/i);
+  const head = raw.match(/^\s*\[(static|side-effect|behavioral|integration)\]\s*(.+)$/i);
   if (head) {
-    const kind = head[1].toLowerCase() as "static" | "side-effect" | "behavioral";
+    const kind = head[1].toLowerCase() as ParsedCheckKind;
     return { label: head[2].trim(), kind: kind === "static" ? undefined : kind };
   }
   return { label: raw.trim() };
+}
+
+/**
+ * Parse the optional `**Cross-system actions introduced:**` block from a
+ * session chunk. Each declared row has the form:
+ *   - action: `name` → handler: `path::symbol`
+ * or the looser form:
+ *   - `name` → `path`
+ * Returns an empty array if the block is absent or malformed.
+ *
+ * Why this is a first-class parse: Self-Drive uses the list to run a
+ * ripgrep-based parity check before marking a session done. A session
+ * that ships a caller without a matching handler will be blocked by the
+ * check — even if the verifier text claimed PASS — which is the whole
+ * point of this feature.
+ */
+function extractCrossSystemActions(chunk: string): ParsedCrossSystemAction[] {
+  const block = chunk.match(
+    /\*\*Cross-system\s+actions\s+introduced:\*\*\s*\n((?:\s*-\s*.+\n?)+)/i,
+  );
+  if (!block) return [];
+  const actions: ParsedCrossSystemAction[] = [];
+  const rowRegex = /^\s*-\s*(?:action:\s*)?`?([^`\s→]+)`?\s*(?:→|->)\s*(?:handler:\s*)?`?([^`\n]+?)`?\s*$/gim;
+  for (const m of block[1].matchAll(rowRegex)) {
+    const action = m[1].trim();
+    const handler = m[2].trim();
+    if (action && handler) actions.push({ action, handler });
+  }
+  return actions;
 }
 
 export interface ParsedSessionPlan {
@@ -134,7 +172,7 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
   const prompt = promptMatch?.[1]?.trim() ?? "";
 
   // Extract verify checks (lines with - [ ] or □)
-  const verifyChecks: { label: string; kind?: "static" | "side-effect" | "behavioral" }[] = [];
+  const verifyChecks: { label: string; kind?: ParsedCheckKind }[] = [];
   const verifySection = chunk.match(
     /\*\*Verify\b[^*]*\*\*[:\s]*\n((?:\s*-\s*\[[\sx]\].*\n?)+)/i,
   );
@@ -168,6 +206,8 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
     return null;
   }
 
+  const crossSystemActions = extractCrossSystemActions(chunk);
+
   return {
     index,
     name,
@@ -177,5 +217,6 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
     prompt,
     verifyChecks,
     verificationPrompt,
+    crossSystemActions: crossSystemActions.length > 0 ? crossSystemActions : undefined,
   };
 }

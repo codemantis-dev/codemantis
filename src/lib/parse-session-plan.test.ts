@@ -134,6 +134,112 @@ Do.
     expect(result!.sessions[0].verifyChecks[0].kind).toBe("side-effect");
     expect(result!.sessions[0].verifyChecks[1].kind).toBe("behavioral");
   });
+
+  it("parses [integration] kind tags (trailing, leading, case-insensitive)", () => {
+    const s = `### Session 1: Cross-system
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+**Verify before next session:**
+- [ ] caller writes action + handler accepts it [integration]
+- [ ] [integration] insert_note_probe end-to-end
+- [ ] upload pipeline end-to-end [INTEGRATION]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    expect(result).not.toBeNull();
+    const checks = result!.sessions[0].verifyChecks;
+    expect(checks).toHaveLength(3);
+    expect(checks[0]).toEqual({
+      label: "caller writes action + handler accepts it",
+      kind: "integration",
+    });
+    expect(checks[1]).toEqual({
+      label: "insert_note_probe end-to-end",
+      kind: "integration",
+    });
+    expect(checks[2].kind).toBe("integration");
+  });
+});
+
+describe("parseSessionPlan — Cross-system actions block", () => {
+  it("parses the **Cross-system actions introduced:** block", () => {
+    const s = `### Session 1: Notes pipeline
+**Scope:** implement note insert calls
+**Files:**
+- \`workers/notes/notes_write.py\` (create)
+
+**Cross-system actions introduced:**
+- action: \`insert_note_classification\` → handler: \`supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_classification\`
+- action: \`insert_note_probe\` → handler: \`supabase/functions/worker-data-write/actions/notes.py\`
+
+**Prompt for Claude Code:**
+\`\`\`
+Implement writer calls.
+\`\`\`
+
+**Verify before next session:**
+- [ ] caller + handler present [integration]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    expect(result).not.toBeNull();
+
+    const actions = result!.sessions[0].crossSystemActions;
+    expect(actions).toBeDefined();
+    expect(actions).toHaveLength(2);
+    expect(actions![0]).toEqual({
+      action: "insert_note_classification",
+      handler:
+        "supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_classification",
+    });
+    expect(actions![1]).toEqual({
+      action: "insert_note_probe",
+      handler: "supabase/functions/worker-data-write/actions/notes.py",
+    });
+
+    // Absent block on session 2 → undefined (not [])
+    expect(result!.sessions[1].crossSystemActions).toBeUndefined();
+  });
+
+  it("supports the shorter `action` → `handler` form without labels", () => {
+    const s = `### Session 1: Notes
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+
+**Cross-system actions introduced:**
+- \`emit_audit_log\` → \`services/audit/sink.ts\`
+- \`record_metric\` → \`services/metrics/consumer.ts::recordMetric\`
+
+**Verify before next session:**
+- [ ] paired [integration]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    const actions = result!.sessions[0].crossSystemActions;
+    expect(actions).toEqual([
+      { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+      { action: "record_metric", handler: "services/metrics/consumer.ts::recordMetric" },
+    ]);
+  });
 });
 
 describe("parseSessionPlan", () => {

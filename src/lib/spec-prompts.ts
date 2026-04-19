@@ -399,6 +399,15 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] {utility}.test.ts: all branches, edge inputs
   - [ ] Run full test suite: \`{test_command}\` — all pass including
         new tests
+  - [ ] MOCK DISCLOSURE: for each new test file that mocks a system
+        boundary (HTTP client, DB client, external API, queue, Edge
+        Function dispatcher), the same feature MUST also have at
+        least one NON-mocked integration test OR a dedicated
+        [integration] verify item in Section 10 covering that boundary.
+        Mocked tests are NOT sufficient evidence that a cross-system
+        call works in production. Enumerate each mocked boundary:
+    - [ ] {test file}: mocks {boundary} → paired with {integration test
+          file | Section 10 [integration] check id}
 
 DEPLOYMENT ITEMS IN PHASES:
 Every phase that creates deployment artifacts MUST end with
@@ -558,13 +567,49 @@ RULES:
                       Example: "- [ ] Migration applied: all 7 tables
                       exist on remote [side-effect]".
     [behavioral]   — item is proven by a passing test or running behavior.
+                      NOTE: a [behavioral] PASS on a test that mocks a
+                      system boundary is NOT sufficient — it must be
+                      paired with an [integration] item for the same
+                      boundary. See below.
                       Example: "- [ ] Tests pass: ask-kb handler
                       returns 200 with retrieved chunks [behavioral]".
+    [integration]  — MANDATORY when the session introduces a call that
+                      crosses a system boundary (worker→Edge Function,
+                      frontend→backend endpoint, producer→consumer).
+                      Requires BOTH the caller AND the handler to be
+                      implemented AND a real non-mocked invocation with
+                      observable output.
+                      Example: "- [ ] insert_note_classification end-to-end:
+                      caller + handler present, real call inserts row
+                      [integration]".
     (no tag)       — default. File-level / static assertion verifiable by
                       opening the code and quoting lines. Most items.
   Tagging matters: mislabeling a side-effect as static lets the verifier
   cite a file that only *requests* the effect, missing bugs where the
   effect never happened (e.g. migration written but not deployed).
+  Mislabeling a cross-system call as [behavioral] is the exact failure
+  mode that ships "mocked green, production broken" code — the [integration]
+  tag exists to prevent it.
+
+- Every session that introduces a cross-system call MUST also include a
+  **Cross-system actions introduced:** block BEFORE the **Prompt for
+  Claude Code:** block. Each row names one action and its handler path:
+
+    **Cross-system actions introduced:**
+    - action: \`insert_note_classification\` → handler: \`supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_classification\`
+    - action: \`insert_note_probe\` → handler: \`supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_probe\`
+
+  Self-Drive parses this block and runs a static ripgrep-based parity
+  check before marking the session \`done\`: for each declared action it
+  greps the caller files for the action string AND greps the handler
+  path for the same action string. If either side is missing, the
+  session CANNOT advance — regardless of what the verifier text says.
+  This is the primary gate that catches "handlers land in a later
+  session — until then these calls will fail at runtime" shipping green.
+  If a session ships a caller whose handler is scheduled for a LATER
+  session, the caller session's verify list MUST contain an [integration]
+  item asserting the handler exists — the session does not complete
+  until the handler actually lands in code.
 - Do NOT use alternative formats (numbered lists, >, etc.)
 - Do NOT omit the prompt code block for any session
 - The LAST session's verify section may use "**Verify (full audit):**"
@@ -1065,6 +1110,14 @@ If the spec had any ⚠️ INFERRED or ❓ ASSUMED items:
 - 🔴 CRITICAL: Run \`pnpm tsc --noEmit\` → zero errors
 - 🔴 CRITICAL: Run \`pnpm test\` → all existing tests pass
 - 🔴 CRITICAL: Run \`pnpm lint\` → no new lint errors
+- 🔴 CRITICAL: Stub scan — across the files listed in this spec's Files
+  sections, run:
+    \`rg -n 'until then|raise NotImplementedError|TODO: implement|unknown action|pass  # stub|return 501' {each file or dir}\`
+  Expected: ZERO matches. Any match in this spec's scope is an AUTOMATIC
+  FAIL for the enclosing VERIFY directive — the caller's counterpart
+  handler is not actually implemented. This check catches the
+  "handlers land in a later session — until then these calls will fail
+  at runtime" pattern that ships mocked-green code to production.
 Stop if any fail.
 
 ## Data Model Verification
@@ -1109,6 +1162,42 @@ For each integration point from the spec:
 - Check shared state (stores, URL params, props)
 - Check callback signatures: does the consumer receive ALL the
   data it needs? (e.g., onSave passes complete object, not partial)
+
+## Dual-Side Implementation Verification (MANDATORY when the spec introduces
+## any cross-system call — producer/consumer, worker/Edge Function,
+## frontend/backend endpoint, message emitter/subscriber)
+
+For every cross-system action declared in the spec's Section 10
+\`**Cross-system actions introduced:**\` blocks, emit ONE block of VERIFY
+directives. Skipping this section is a contract violation — the whole
+point is to block "mocked green, production broken" from shipping.
+
+### {ActionName} — e.g. insert_note_classification
+- 🔴 VERIFY caller: Open {caller_file}:{lines}
+  Expected: request construction visible (the action string is issued).
+  Quote the request-building code.
+- 🔴 VERIFY handler: Open {handler_file}:{lines}
+  Expected: a branch that dispatches on the action string to real logic.
+  Not expected: "unknown action" / default-case error / NotImplementedError
+  / stub that returns 501 / "until then this will fail at runtime".
+  If the handler file does not contain the action string OR contains any
+  of the forbidden markers above, this is FAIL — do not continue.
+- 🔴 VERIFY handshake parity: Run
+    \`rg -n '"{action_name}"' {caller_dir} {handler_dir}\`
+  Expected: matches in BOTH {caller_dir} AND {handler_dir}. If a
+  generated \`handshake-parity.sh\` script exists at the project root
+  (emitted by CodeMantis alongside this audit), run it instead and
+  quote its final line. Exit code must be 0.
+- 🔴 VERIFY real invocation: Run {curl / sql / node / python one-liner}
+  that hits the real service and produces observable output.
+  Expected: non-zero row count / 200 response / log line confirming the
+  effect happened in the real system.
+  Not expected: 0 rows after the call; 4xx/5xx; handler error in logs;
+  "unknown action" in the response body.
+
+If any of the four directives fails for any action, the whole spec's
+verification is FAIL until the pair is implemented and re-verified.
+Tests passing on mocks do NOT override a failure here.
 
 ## State Transition Verification
 For complex components (3+ states):
@@ -1703,6 +1792,15 @@ Apply this exhaustive enumeration to EVERY category below:
   - [ ] {utility}.test.ts: all branches, edge inputs
   - [ ] Run full test suite: \`{test_command}\` — all pass including
         new tests
+  - [ ] MOCK DISCLOSURE: for each new test file that mocks a system
+        boundary (HTTP client, DB client, external API, queue, Edge
+        Function dispatcher), the same feature MUST also have at
+        least one NON-mocked integration test OR a dedicated
+        [integration] verify item in Section 10 covering that boundary.
+        Mocked tests are NOT sufficient evidence that a cross-system
+        call works in production. Enumerate each mocked boundary:
+    - [ ] {test file}: mocks {boundary} → paired with {integration test
+          file | Section 10 [integration] check id}
 
 DEPLOYMENT ITEMS IN PHASES:
 Every phase that creates deployment artifacts MUST end with
@@ -1862,13 +1960,49 @@ RULES:
                       Example: "- [ ] Migration applied: all 7 tables
                       exist on remote [side-effect]".
     [behavioral]   — item is proven by a passing test or running behavior.
+                      NOTE: a [behavioral] PASS on a test that mocks a
+                      system boundary is NOT sufficient — it must be
+                      paired with an [integration] item for the same
+                      boundary. See below.
                       Example: "- [ ] Tests pass: ask-kb handler
                       returns 200 with retrieved chunks [behavioral]".
+    [integration]  — MANDATORY when the session introduces a call that
+                      crosses a system boundary (worker→Edge Function,
+                      frontend→backend endpoint, producer→consumer).
+                      Requires BOTH the caller AND the handler to be
+                      implemented AND a real non-mocked invocation with
+                      observable output.
+                      Example: "- [ ] insert_note_classification end-to-end:
+                      caller + handler present, real call inserts row
+                      [integration]".
     (no tag)       — default. File-level / static assertion verifiable by
                       opening the code and quoting lines. Most items.
   Tagging matters: mislabeling a side-effect as static lets the verifier
   cite a file that only *requests* the effect, missing bugs where the
   effect never happened (e.g. migration written but not deployed).
+  Mislabeling a cross-system call as [behavioral] is the exact failure
+  mode that ships "mocked green, production broken" code — the [integration]
+  tag exists to prevent it.
+
+- Every session that introduces a cross-system call MUST also include a
+  **Cross-system actions introduced:** block BEFORE the **Prompt for
+  Claude Code:** block. Each row names one action and its handler path:
+
+    **Cross-system actions introduced:**
+    - action: \`insert_note_classification\` → handler: \`supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_classification\`
+    - action: \`insert_note_probe\` → handler: \`supabase/functions/worker-data-write/actions/notes.py::handle_insert_note_probe\`
+
+  Self-Drive parses this block and runs a static ripgrep-based parity
+  check before marking the session \`done\`: for each declared action it
+  greps the caller files for the action string AND greps the handler
+  path for the same action string. If either side is missing, the
+  session CANNOT advance — regardless of what the verifier text says.
+  This is the primary gate that catches "handlers land in a later
+  session — until then these calls will fail at runtime" shipping green.
+  If a session ships a caller whose handler is scheduled for a LATER
+  session, the caller session's verify list MUST contain an [integration]
+  item asserting the handler exists — the session does not complete
+  until the handler actually lands in code.
 - Do NOT use alternative formats (numbered lists, >, etc.)
 - Do NOT omit the prompt code block for any session
 - The LAST session's verify section may use "**Verify (full audit):**"
@@ -2318,6 +2452,14 @@ If the spec had ⚠️/❓ items, verify they were all resolved:
 - 🔴 CRITICAL: Run \`pnpm tsc --noEmit\` → zero errors
 - 🔴 CRITICAL: Run \`pnpm test\` → all tests pass
 - 🔴 CRITICAL: Run \`pnpm lint\` → no new lint errors
+- 🔴 CRITICAL: Stub scan — across the files listed in this spec's Files
+  sections, run:
+    \`rg -n 'until then|raise NotImplementedError|TODO: implement|unknown action|pass  # stub|return 501' {each file or dir}\`
+  Expected: ZERO matches. Any match in this spec's scope is an AUTOMATIC
+  FAIL for the enclosing VERIFY directive — the caller's counterpart
+  handler is not actually implemented. This check catches the
+  "handlers land in a later session — until then these calls will fail
+  at runtime" pattern that ships mocked-green code to production.
 Stop if any fail.
 
 ## Data Model Verification
@@ -2360,6 +2502,42 @@ For each integration point:
   (see spec Section 7)
 - Verify callback signatures pass COMPLETE data (see spec Section 5)
 - Navigate: verify nav item position, route, and active state (all three)
+
+## Dual-Side Implementation Verification (MANDATORY when the spec introduces
+## any cross-system call — producer/consumer, worker/Edge Function,
+## frontend/backend endpoint, message emitter/subscriber)
+
+For every cross-system action declared in the spec's Section 10
+\`**Cross-system actions introduced:**\` blocks, emit ONE block of VERIFY
+directives. Skipping this section is a contract violation — the whole
+point is to block "mocked green, production broken" from shipping.
+
+### {ActionName} — e.g. insert_note_classification
+- 🔴 VERIFY caller: Open {caller_file}:{lines}
+  Expected: request construction visible (the action string is issued).
+  Quote the request-building code.
+- 🔴 VERIFY handler: Open {handler_file}:{lines}
+  Expected: a branch that dispatches on the action string to real logic.
+  Not expected: "unknown action" / default-case error / NotImplementedError
+  / stub that returns 501 / "until then this will fail at runtime".
+  If the handler file does not contain the action string OR contains any
+  of the forbidden markers above, this is FAIL — do not continue.
+- 🔴 VERIFY handshake parity: Run
+    \`rg -n '"{action_name}"' {caller_dir} {handler_dir}\`
+  Expected: matches in BOTH {caller_dir} AND {handler_dir}. If a
+  generated \`handshake-parity.sh\` script exists at the project root
+  (emitted by CodeMantis alongside this audit), run it instead and
+  quote its final line. Exit code must be 0.
+- 🔴 VERIFY real invocation: Run {curl / sql / node / python one-liner}
+  that hits the real service and produces observable output.
+  Expected: non-zero row count / 200 response / log line confirming the
+  effect happened in the real system.
+  Not expected: 0 rows after the call; 4xx/5xx; handler error in logs;
+  "unknown action" in the response body.
+
+If any of the four directives fails for any action, the whole spec's
+verification is FAIL until the pair is implemented and re-verified.
+Tests passing on mocks do NOT override a failure here.
 
 ## State Transition Verification
 For each complex component (3+ states):
