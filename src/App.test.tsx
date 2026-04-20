@@ -124,6 +124,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     selfDriveProvider: "anthropic", selfDriveModel: "claude-haiku-4-5",
     selfDriveMaxFixAttempts: 3, selfDriveRunBuildCheck: true,
     selfDriveRunTests: true, selfDriveAutoCommit: false,
+    selfDriveEnableRecheckLoop: true,
     ...overrides,
   };
 }

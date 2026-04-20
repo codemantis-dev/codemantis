@@ -215,6 +215,7 @@ export default function SettingsModal() {
                 runBuildCheck={state.selfDriveRunBuildCheck}
                 runTests={state.selfDriveRunTests}
                 autoCommit={state.selfDriveAutoCommit}
+                enableRecheckLoop={state.selfDriveEnableRecheckLoop}
                 apiKeys={state.apiKeys}
                 onProviderChange={state.setSelfDriveProvider}
                 onModelChange={state.setSelfDriveModel}
@@ -222,6 +223,7 @@ export default function SettingsModal() {
                 onRunBuildCheckChange={state.setSelfDriveRunBuildCheck}
                 onRunTestsChange={state.setSelfDriveRunTests}
                 onAutoCommitChange={state.setSelfDriveAutoCommit}
+                onEnableRecheckLoopChange={state.setSelfDriveEnableRecheckLoop}
               />
             )}
 

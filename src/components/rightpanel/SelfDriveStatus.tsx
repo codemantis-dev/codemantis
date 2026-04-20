@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   LifeBuoy,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { useSelfDriveStore, useBlockerHasResolution } from "../../stores/selfDriveStore";
 import CopyButton from "../shared/CopyButton";
@@ -36,6 +37,7 @@ const PHASE_CONFIG: Record<SelfDrivePhase, { icon: typeof Hammer; label: string;
   advancing:       { icon: Play,         label: "Advancing",       color: "var(--color-green, #22c55e)" },
   committing:      { icon: GitCommit,    label: "Committing",      color: "var(--accent)" },
   recovering:      { icon: LifeBuoy,     label: "Recovering",      color: "var(--yellow, #eab308)" },
+  rechecking:      { icon: RefreshCw,    label: "Re-checking",     color: "var(--accent)" },
 };
 
 export default function SelfDriveStatus() {

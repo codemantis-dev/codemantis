@@ -111,6 +111,14 @@ export interface AppSettings {
   selfDriveRunBuildCheck: boolean;
   selfDriveRunTests: boolean;
   selfDriveAutoCommit: boolean;
+  /**
+   * Opt-in to the orchestrator's `request_recheck` loop. When enabled
+   * (default), the orchestrator can ask Claude Code to re-state evidence
+   * for specific verify items before pausing, up to 2 rounds per session.
+   * Disable if the loop ever runs away or the user wants to review every
+   * verification pause manually.
+   */
+  selfDriveEnableRecheckLoop: boolean;
 }
 
 export { getDefaultModelPricing };

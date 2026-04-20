@@ -90,7 +90,8 @@ function makeSettings(overrides?: Partial<AppSettings>): AppSettings {
     selfDriveMaxFixAttempts: 3,
     selfDriveRunBuildCheck: true,
     selfDriveRunTests: true,
-    selfDriveAutoCommit: false,
+selfDriveAutoCommit: false,
+    selfDriveEnableRecheckLoop: true,
     ...overrides,
   } as AppSettings;
 }

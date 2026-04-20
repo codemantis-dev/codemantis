@@ -141,7 +141,8 @@ function resetStores(): void {
       selfDriveMaxFixAttempts: 3,
       selfDriveRunBuildCheck: true,
       selfDriveRunTests: true,
-      selfDriveAutoCommit: false,
+selfDriveAutoCommit: false,
+      selfDriveEnableRecheckLoop: true,
     },
     loaded: true,
   });

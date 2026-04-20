@@ -76,7 +76,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   selfDriveMaxFixAttempts: 3,
   selfDriveRunBuildCheck: true,
   selfDriveRunTests: true,
-  selfDriveAutoCommit: false,
+selfDriveAutoCommit: false,
+  selfDriveEnableRecheckLoop: true,
 };
 
 function resetStore(): void {

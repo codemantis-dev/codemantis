@@ -270,7 +270,8 @@ describe("useSettingsFormState", () => {
       selfDriveMaxFixAttempts: 5,
       selfDriveRunBuildCheck: false,
       selfDriveRunTests: false,
-      selfDriveAutoCommit: true,
+selfDriveAutoCommit: true,
+      selfDriveEnableRecheckLoop: true,
     });
 
     act(() => {

@@ -293,6 +293,160 @@ describe("parseOrchestratorResponse", () => {
     expect(decision.action).toBe("pause");
     expect(decision.pauseReason).toContain("Could not parse AI response");
   });
+
+  // ── Truncation handling (the "Expected ']'" incident) ─────────────────
+
+  it("detects truncated JSON and reports a diagnostic reason", async () => {
+    // This is the exact shape of the failure the user hit: the
+    // verification decision ran out of maxTokens partway through
+    // checkResults, so the response opens `{…[…` and never closes.
+    // Previously: regex `/\{[\s\S]*\}/` returned an unbalanced slice and
+    // JSON.parse threw "Expected ']'". Now: we detect truncation and say so.
+    const truncated = String.raw`{"action":"advance","summary":"Session 1 verified","confidence":"high","checkResults":[{"label":"Migration files present","passed":true,"evidence":"supabase/migrations/:1 — \`20260420072452_...sql\`"},{"label":"Tables exist","passed":true,"evidence":"$ list_tables → \`public.imple`;
+
+    const decision = await callAndResolveWith(truncated);
+    expect(decision.action).toBe("pause");
+    expect(decision.pauseReason).toContain("Could not parse AI response");
+    // Either diagnostic path is acceptable — the key invariant is that
+    // the message helps a future maintainer diagnose it as truncation.
+    expect(decision.pauseReason).toMatch(/truncated|maxTokens/i);
+  });
+
+  it("parses a response whose string values contain literal braces and brackets", async () => {
+    // Evidence strings routinely contain `{file}:{lines}` or `[…]`
+    // placeholders that the model quotes from the verifier. The balanced-
+    // brace extractor must treat them as string content, not structure.
+    const payload = JSON.stringify({
+      action: "advance",
+      summary: "ok",
+      confidence: "high",
+      checkResults: [
+        {
+          label: "Check A",
+          passed: true,
+          evidence:
+            "src/a.ts:1 — `export const tpl = \"{name}:{port}\"` · form matches `[kind]`",
+        },
+      ],
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("advance");
+    expect(decision.checkResults).toHaveLength(1);
+    expect(decision.checkResults?.[0].evidence).toContain("{name}:{port}");
+  });
+
+  // ── request_recheck parsing ──────────────────────────────────────────
+
+  it("accepts a well-formed request_recheck decision", async () => {
+    const payload = JSON.stringify({
+      action: "request_recheck",
+      summary: "Two items need re-statement",
+      confidence: "high",
+      recheckItems: ["Pytest passes for src/helpers/", "No helper imports from pipeline/"],
+      recheckPrompt:
+        "Re-state item 1 as `$ pytest src/helpers/ -v → \"<first pass line>\" · mocks=<list>` and item 2 as `$ rg 'from pipeline' src/helpers/ → \"<output>\"`. Do not re-do other items.",
+      checkResults: [
+        { label: "Pytest passes for src/helpers/", passed: false, reason: "no $ cmd in evidence" },
+      ],
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("request_recheck");
+    expect(decision.recheckItems).toEqual([
+      "Pytest passes for src/helpers/",
+      "No helper imports from pipeline/",
+    ]);
+    expect(decision.recheckPrompt).toContain("Re-state item 1");
+    expect(decision.checkResults).toHaveLength(1);
+  });
+
+  it("demotes request_recheck with empty recheckItems to pause (does NOT throw)", async () => {
+    const payload = JSON.stringify({
+      action: "request_recheck",
+      summary: "no items",
+      confidence: "medium",
+      recheckItems: [],
+      recheckPrompt: "please re-state",
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("pause");
+    expect(decision.pauseReason).toContain("recheckItems is empty");
+    expect(decision.recheckItems).toBeUndefined();
+  });
+
+  it("demotes request_recheck with empty recheckPrompt to pause", async () => {
+    const payload = JSON.stringify({
+      action: "request_recheck",
+      summary: "no prompt",
+      confidence: "medium",
+      recheckItems: ["X"],
+      recheckPrompt: "   ",
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("pause");
+    expect(decision.pauseReason).toContain("recheckPrompt is empty");
+    expect(decision.recheckPrompt).toBeUndefined();
+  });
+
+  it("caps recheckPrompt at 2000 characters", async () => {
+    const bigPrompt = "x".repeat(5000);
+    const payload = JSON.stringify({
+      action: "request_recheck",
+      summary: "oversized",
+      confidence: "medium",
+      recheckItems: ["A"],
+      recheckPrompt: bigPrompt,
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("request_recheck");
+    expect(decision.recheckPrompt).toHaveLength(2000);
+  });
+
+  it("drops non-string entries from recheckItems", async () => {
+    const payload = JSON.stringify({
+      action: "request_recheck",
+      summary: "dirty list",
+      confidence: "medium",
+      recheckItems: ["A", 7, null, "", "  ", "B"],
+      recheckPrompt: "re-state A and B",
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("request_recheck");
+    expect(decision.recheckItems).toEqual(["A", "B"]);
+  });
+
+  it("drops recheck fields when action is not request_recheck", async () => {
+    const payload = JSON.stringify({
+      action: "advance",
+      summary: "ok",
+      confidence: "high",
+      recheckItems: ["oops"],
+      recheckPrompt: "should not be here",
+    });
+    const decision = await callAndResolveWith(payload);
+    expect(decision.action).toBe("advance");
+    expect(decision.recheckItems).toBeUndefined();
+    expect(decision.recheckPrompt).toBeUndefined();
+  });
+
+  // ── System prompt teaches the new action ──────────────────────────────
+
+  it("system prompt teaches the request_recheck action with a decision tree", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "anthropic", "sk-ant-key", "claude-sonnet-4-20250514");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const sp = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+    expect(sp).toContain("request_recheck");
+    // Decision tree order (fix → request_recheck → pause)
+    expect(sp).toContain("THREE-WAY DECISION TREE");
+    // Must name the required fields
+    expect(sp).toContain("recheckItems");
+    expect(sp).toContain("recheckPrompt");
+    // Must teach "prefer recheck over pause on format-only misses"
+    expect(sp).toMatch(/PREFER "request_recheck"|PREFERENCE ORDER/);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -371,7 +525,11 @@ describe("callOrchestrator", () => {
     expect(call.provider).toBe("anthropic");
     expect(call.apiKey).toBe("sk-ant-key");
     expect(call.model).toBe("claude-sonnet-4-20250514");
-    expect(call.maxTokens).toBe(1024);
+    // Must be large enough to fit a verification decision with 8+
+    // checkResults whose `evidence` strings carry [integration]/[behavioral]
+    // proof forms (100–300 chars each). See the ORCHESTRATOR_MAX_TOKENS
+    // comment in self-drive-orchestrator.ts for the reasoning.
+    expect(call.maxTokens).toBeGreaterThanOrEqual(4096);
   });
 
   it("system prompt requires per-check evidence with file:lines citations for advance", async () => {

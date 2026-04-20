@@ -14,7 +14,7 @@ const {
   mockGetCurrentSessionPlan,
 } = vi.hoisted(() => ({
   mockListen: vi.fn<(channel: string, handler: (event: { payload: FrontendEvent }) => void) => Promise<() => void>>(() => Promise.resolve(vi.fn())),
-  mockSendMessage: vi.fn(() => Promise.resolve()),
+  mockSendMessage: vi.fn<(sessionId: string, prompt: string) => Promise<void>>(() => Promise.resolve()),
   mockSyncSessionMode: vi.fn(() => Promise.resolve()),
   mockCallOrchestrator: vi.fn<(input: OrchestratorInput, provider: string, apiKey: string, model: string) => Promise<OrchestratorDecision>>(),
   mockBuildSessionVerifyPrompt: vi.fn(() => "Verify session prompt"),
@@ -248,6 +248,7 @@ function setupReadyState(): void {
       selfDriveRunBuildCheck: true,
       selfDriveRunTests: false,
       selfDriveAutoCommit: false,
+      selfDriveEnableRecheckLoop: true,
     },
     loaded: true,
   });
@@ -2187,6 +2188,163 @@ describe("validateVerifyAdvance", () => {
       ).toContain("mock a system boundary but no paired [integration] PASS");
     }
   });
+
+  // ── Per-kind evidence rules (the "Session 1 PAUSED despite 5/5 PASS" fix) ──
+
+  it("accepts [side-effect] evidence of the form `$ cmd → \"output\"` WITHOUT requiring a colon", () => {
+    // Regression for the exact user-reported incident: verifier produced
+    //   "$ ls src/helpers/ → \"agent_profiles.py / ...\""
+    // and the old validator rejected it for lacking a file:line citation.
+    const sess = {
+      verifyChecks: [
+        { label: "All helper files exist", kind: "side-effect" as const },
+        {
+          label: "No helper imports from pipeline/",
+          kind: "side-effect" as const,
+        },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "All helper files exist",
+          passed: true,
+          evidence:
+            '$ ls src/helpers/ → "agent_profiles.py / token_budget.py / tech_stack_detection.py / test_agent_profiles.py / test_token_budget.py / test_tech_stack_detection.py"',
+        },
+        {
+          label: "No helper imports from pipeline/",
+          passed: true,
+          evidence:
+            "Grep for 'from pipeline|from src\\.pipeline' across src/helpers/ → \"No matches found\"",
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+  });
+
+  it("accepts [behavioral] evidence that uses `$ test-cmd → …` without a test-file colon", () => {
+    const sess = {
+      verifyChecks: [
+        { label: "Pytest passes for src/helpers/", kind: "behavioral" as const },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "Pytest passes for src/helpers/",
+          passed: true,
+          evidence:
+            '$ pytest src/helpers/ -v → "31 passed in 0.02s" · mocks=none (tests exercise real helpers)',
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+  });
+
+  it("accepts [behavioral] `mocks=none` when followed by parenthetical commentary", () => {
+    // "mocks=none (tests exercise real helper functions ...)" was being
+    // rejected because the old regex anchored on end-of-string.
+    const sess = {
+      verifyChecks: [
+        { label: "Tests pass", kind: "behavioral" as const },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "Tests pass",
+          passed: true,
+          evidence:
+            '$ pytest → "31 passed" · mocks=none (no mock / Mock / patch / monkeypatch imports in test files — verified by grep)',
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+  });
+
+  it("still rejects [static] evidence without a file:lines citation", () => {
+    const sess = {
+      verifyChecks: [{ label: "A", kind: "static" as const }],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        { label: "A", passed: true, evidence: "it exists" },
+      ],
+    });
+    expect(validateVerifyAdvance(sess, decision)).toContain(
+      "lack file:line evidence",
+    );
+  });
+
+  it("still rejects [integration] evidence missing the handler cite", () => {
+    const sess = {
+      verifyChecks: [{ label: "A", kind: "integration" as const }],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "A",
+          passed: true,
+          evidence: "caller=src/a.ts:1 · $ curl → \"ok\"",
+        },
+      ],
+    });
+    // No handler= cite → rejected
+    expect(validateVerifyAdvance(sess, decision)).toContain(
+      "lack file:line evidence",
+    );
+  });
+
+  it("accepts the complete 5-check verifier output from the Session 1 regression", () => {
+    // End-to-end regression: the exact shape of the 5 checks the user
+    // showed. If this passes, the Session 1 PAUSED-despite-5/5-PASS
+    // incident cannot recur.
+    const sess = {
+      verifyChecks: [
+        { label: "All 6 helper files exist; tests co-located", kind: "side-effect" as const },
+        { label: "Pytest passes for src/helpers/", kind: "behavioral" as const },
+        { label: "PyYAML in requirements.txt", kind: "static" as const },
+        { label: "No helper imports from pipeline/", kind: "side-effect" as const },
+        { label: "No test mocks the helper functions themselves", kind: "side-effect" as const },
+      ],
+    };
+    const decision = makeDecision({
+      checkResults: [
+        {
+          label: "All 6 helper files exist; tests co-located",
+          passed: true,
+          evidence:
+            '$ ls src/helpers/ → "agent_profiles.py / token_budget.py / tech_stack_detection.py / test_agent_profiles.py / test_token_budget.py / test_tech_stack_detection.py"',
+        },
+        {
+          label: "Pytest passes for src/helpers/",
+          passed: true,
+          evidence:
+            '$ pytest src/helpers/ -v → "31 passed in 0.02s" · mocks=none (tests exercise real helpers; no mock/Mock/patch/monkeypatch imports)',
+        },
+        {
+          label: "PyYAML in requirements.txt",
+          passed: true,
+          evidence:
+            "fly-containers/specforge-worker/requirements.txt:16 — `PyYAML>=6.0.1`",
+        },
+        {
+          label: "No helper imports from pipeline/",
+          passed: true,
+          evidence:
+            "Grep for 'from pipeline|from src\\.pipeline' across src/helpers/ → \"No matches found\"",
+        },
+        {
+          label: "No test mocks the helper functions themselves",
+          passed: true,
+          evidence:
+            "Grep for 'mock|Mock|patch|monkeypatch' across src/helpers/test_*.py → \"No matches found\"; tests invoke get_profile, allocate_budget, enforce_profile_cap, detect_tech_stack directly",
+        },
+      ],
+    });
+    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2384,5 +2542,452 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     const results = (outcome as { results: { status: string; detail: string }[] }).results;
     expect(results[0].status).toBe("FAIL");
     expect(results[0].detail).toMatch(/errored/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// handleRecheck — request_recheck action drives Claude Code re-statement
+//
+// The recheck loop is the user-visible fix for "orchestrator pauses on
+// format-only evidence misses". These tests drive it end-to-end via
+// mockCallOrchestrator returning a request_recheck decision and assert:
+//   - sendMessage is called with decision.recheckPrompt
+//   - phase transitions to "rechecking"
+//   - budget (rounds + per-item) is enforced
+//   - feature flag off falls back to pause
+// ─────────────────────────────────────────────────────────────────────
+
+describe("handleRecheck — request_recheck loop", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("sends recheckPrompt to Claude Code and transitions to 'rechecking'", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "Item 1 needs a $ cmd",
+      confidence: "high",
+      recheckItems: ["Check A"],
+      recheckPrompt:
+        "Re-state Check A as `$ ls src/helpers/ → \"<output>\"`. Do not re-do other items.",
+      checkResults: [
+        { label: "Check A", passed: false, reason: "missing $ cmd" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `export const b = 2`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("Re-state Check A"),
+      );
+    });
+
+    const state = useSelfDriveStore.getState();
+    expect(state.currentPhase).toBe("rechecking");
+    expect(state.recheckRoundsUsed).toBe(1);
+    expect(state.rechecksPerItem["Check A"]).toBe(1);
+    expect(state.pinnedCheckResults).toHaveLength(2);
+    // Not paused — the loop is active.
+    expect(state.status).toBe("running");
+  });
+
+  it("re-enters 'verifying' when the next turn_complete arrives from 'rechecking'", async () => {
+    setupReadyState();
+    // 1st call: request_recheck
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "one more time",
+      confidence: "high",
+      recheckItems: ["Check A"],
+      recheckPrompt: "Re-state Check A.",
+      checkResults: [{ label: "Check A", passed: false, reason: "fmt" }],
+    });
+    // 2nd call: after Claude Code re-stated, everything passes
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "All items now have proper evidence",
+      confidence: "high",
+      checkResults: [
+        { label: "Check A", passed: true, evidence: '$ ls → "files"' },
+        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `x`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentPhase).toBe("rechecking");
+    });
+
+    // Append a NEW assistant message simulating Claude Code's re-statement,
+    // then fire another turn_complete.
+    const msgs = useSessionStore.getState().sessionMessages.get(SESSION_ID)!;
+    useSessionStore.setState({
+      sessionMessages: new Map([
+        [SESSION_ID, [
+          ...msgs,
+          {
+            id: "msg-recheck",
+            role: "assistant",
+            content: '$ ls src/helpers/ → "files" (re-stated)',
+            timestamp: "",
+            activityIds: [],
+            isStreaming: false,
+          },
+        ]],
+      ]),
+    });
+    emit(makeTurnCompleteEvent());
+
+    // Second orchestrator call receives the MERGED response.
+    await vi.waitFor(() => {
+      expect(mockCallOrchestrator).toHaveBeenCalledTimes(2);
+    });
+    const secondInput = mockCallOrchestrator.mock.calls[1][0];
+    // The merged response includes both the original AND the recheck reply,
+    // joined by the separator token.
+    expect(secondInput.claudeCodeResponse).toContain("--- RECHECK RESPONSE ---");
+    expect(secondInput.claudeCodeResponse).toContain("Done building foundation");
+    expect(secondInput.claudeCodeResponse).toContain("(re-stated)");
+    // The orchestrator evaluates it under verify rules, not rechecking.
+    expect(secondInput.currentPhase).toBe("verifying");
+  });
+
+  it("pauses when MAX_RECHECK_ROUNDS (2) is already consumed", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "still unclear",
+      confidence: "medium",
+      recheckItems: ["Check A"],
+      recheckPrompt: "re-state A",
+      checkResults: [{ label: "Check A", passed: false, reason: "fmt" }],
+    });
+
+    await useSelfDriveStore.getState().start();
+    // Simulate we've already burned both rounds.
+    useSelfDriveStore.setState({ currentPhase: "verifying", recheckRoundsUsed: 2 });
+
+    const emit = captureListenCallback();
+    // Reset the sendMessage mock AFTER start() so we only capture what
+    // handleRecheck itself sends (start() emits the initial session prompt).
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+    });
+    const reason = useSelfDriveStore.getState().pauseReason ?? "";
+    expect(reason).toMatch(/exhausted recheck budget/i);
+    // sendMessage must NOT have been called — we short-circuited before send.
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("refuses to recheck the same item twice and pauses if nothing eligible remains", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "same item again",
+      confidence: "medium",
+      recheckItems: ["Check A"],
+      recheckPrompt: "re-state A (again)",
+      checkResults: [{ label: "Check A", passed: false, reason: "fmt" }],
+    });
+
+    await useSelfDriveStore.getState().start();
+    // Simulate Check A was rechecked in a prior round.
+    useSelfDriveStore.setState({
+      currentPhase: "verifying",
+      rechecksPerItem: { "Check A": 1 },
+    });
+
+    const emit = captureListenCallback();
+    // Reset the sendMessage mock AFTER start() so we only capture what
+    // handleRecheck itself sends (start() emits the initial session prompt).
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+    });
+    const reason = useSelfDriveStore.getState().pauseReason ?? "";
+    expect(reason).toMatch(/already rechecked/i);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("falls back to pause when settings.selfDriveEnableRecheckLoop is false", async () => {
+    setupReadyState();
+    useSettingsStore.setState((prev) => ({
+      settings: { ...prev.settings, selfDriveEnableRecheckLoop: false },
+    }));
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "would recheck",
+      confidence: "high",
+      recheckItems: ["Check A"],
+      recheckPrompt: "re-state A",
+      checkResults: [{ label: "Check A", passed: false, reason: "fmt" }],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+    const emit = captureListenCallback();
+    // Reset the sendMessage mock AFTER start() so we only capture what
+    // handleRecheck itself sends (start() emits the initial session prompt).
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+    });
+    expect(useSelfDriveStore.getState().pauseReason).toMatch(/disabled in settings/i);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("concatenates ALL assistant messages since the Self-Drive prompt (not just the last)", async () => {
+    // Regression for "verifier response truncated — only item 5 visible":
+    // Claude Code emits one assistant message per verified item (each
+    // wrapped around a tool-use cycle). The orchestrator must see all of
+    // them, not just the last fragment.
+    setupReadyState();
+
+    // Replace the seeded messages with a user prompt + 5 assistant items.
+    // We simulate this BEFORE start() runs its own initial send.
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "All 5 items PASS",
+      confidence: "high",
+      checkResults: [
+        { label: "Check A", passed: true, evidence: '$ ls → "files"' },
+        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `x`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    // Stage a user message representing the Self-Drive verify prompt,
+    // plus 5 assistant messages (one per verified item) coming after it.
+    // The existing store state already has a pre-seeded assistant message
+    // — that one sits BEFORE our marker and must not leak into the result.
+    const promptId = "sd-user-test-marker";
+    const preSeed = useSessionStore.getState().sessionMessages.get(SESSION_ID) || [];
+    useSessionStore.setState({
+      sessionMessages: new Map([[
+        SESSION_ID,
+        [
+          ...preSeed,
+          { id: promptId, role: "user", content: "Verify session 1", timestamp: "", activityIds: [], isStreaming: false, isSelfDrive: true },
+          { id: "m1", role: "assistant", content: "Item 1 — PASS — $ ls → files", timestamp: "", activityIds: [], isStreaming: false },
+          { id: "m2", role: "assistant", content: "Item 2 — PASS — $ pytest → 31 passed · mocks=none", timestamp: "", activityIds: [], isStreaming: false },
+          { id: "m3", role: "assistant", content: "Item 3 — PASS — requirements.txt:16 — `PyYAML>=6.0.1`", timestamp: "", activityIds: [], isStreaming: false },
+          { id: "m4", role: "assistant", content: "Item 4 — PASS — grep returned no matches", timestamp: "", activityIds: [], isStreaming: false },
+          { id: "m5", role: "assistant", content: "Item 5 — PASS — grep returned no matches\n\nVerified 5/5 | PASS: 5", timestamp: "", activityIds: [], isStreaming: false },
+        ],
+      ]]),
+    });
+
+    useSelfDriveStore.setState({
+      currentPhase: "verifying",
+      lastSelfDrivePromptMessageId: promptId,
+    });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(mockCallOrchestrator).toHaveBeenCalled();
+    });
+
+    // The orchestrator input should contain ALL 5 items' content,
+    // concatenated — not just item 5. And it must NOT contain messages
+    // from before the Self-Drive prompt marker.
+    const input = mockCallOrchestrator.mock.calls[0][0];
+    expect(input.claudeCodeResponse).toContain("Item 1 — PASS");
+    expect(input.claudeCodeResponse).toContain("Item 2 — PASS");
+    expect(input.claudeCodeResponse).toContain("Item 3 — PASS");
+    expect(input.claudeCodeResponse).toContain("Item 4 — PASS");
+    expect(input.claudeCodeResponse).toContain("Item 5 — PASS");
+    expect(input.claudeCodeResponse).toContain("Verified 5/5");
+    // The pre-seeded message ("Done building foundation.") sits BEFORE
+    // our marker and must not leak into the orchestrator input.
+    expect(input.claudeCodeResponse).not.toContain("Done building foundation");
+  });
+
+  it("auto-converts a validator-rejected advance into request_recheck (the user-reported incident)", async () => {
+    // The exact flow the user hit: orchestrator emits `advance` with
+    // passed:true entries, but the evidence strings don't satisfy the
+    // per-kind format rules (e.g., [behavioral] evidence with neither
+    // `$ ` nor `:` nor `mocks=` disclosure). Previously Self-Drive paused.
+    // After the fix, the client auto-composes a request_recheck rather
+    // than halting the run.
+    setupReadyState();
+
+    // Force both checks on session 1 to kind=behavioral so format
+    // validation applies. Must be set BEFORE start() snapshots the guide.
+    const guideWithBehavioral = makeGuide();
+    guideWithBehavioral.sessions[0].verifyChecks = guideWithBehavioral
+      .sessions[0].verifyChecks.map((c) => ({ ...c, kind: "behavioral" as const }));
+    useGuideStore.setState({ guide: guideWithBehavioral });
+
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "All passed (semantic)",
+      confidence: "high",
+      checkResults: [
+        // Evidence without `$ ` or `:` — fails per-kind + lacks mocks=
+        { label: "Check A", passed: true, evidence: "files look fine, all present" },
+        { label: "Check B", passed: true, evidence: "tests are green" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+    mockSendMessage.mockClear();
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    // Self-Drive should auto-route through handleRecheck and send a
+    // composed re-prompt — NOT pause.
+    await vi.waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+    const promptSent = mockSendMessage.mock.calls[0]?.[1];
+    expect(promptSent).toBeDefined();
+    expect(promptSent).toContain("Re-state ONLY the items below");
+    expect(promptSent).toContain("Check A");
+    expect(promptSent).toContain("Check B");
+    expect(promptSent).toContain("mocks="); // form hint for behavioral
+
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("running");
+    expect(state.currentPhase).toBe("rechecking");
+    expect(state.recheckRoundsUsed).toBe(1);
+    expect(state.pauseReason).toBeNull();
+  });
+
+  it("ticks checks and advances when orchestrator returns advance after a recheck round", async () => {
+    // Regression for "Could not mark Session 2 complete — unexpected state":
+    // After auto-recheck, previousPhase at handleTurnComplete is "rechecking"
+    // (not "verifying"). The gate that ticks verify-checks only fired for
+    // "verifying", so on the recheck path the checks were never toggled,
+    // attemptMarkSessionComplete returned "checks-incomplete", and Self-Drive
+    // paused with a confusing "unexpected state" message even though the
+    // orchestrator had correctly advanced.
+    setupReadyState();
+
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "All 2 items now carry proper file:line evidence",
+      confidence: "high",
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `export const A = 1`" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:5 — `export function b() {}`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    // Simulate we're coming BACK from a recheck round — this is the exact
+    // phase the bug triggered under.
+    useSelfDriveStore.setState({
+      currentPhase: "rechecking",
+      recheckRoundsUsed: 1,
+      rechecksPerItem: { "Check A": 1, "Check B": 1 },
+    });
+
+    const emit = captureListenCallback();
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("running");
+      expect(useSelfDriveStore.getState().currentSessionIndex).toBeGreaterThan(1);
+    });
+
+    // Session 1 should now be done with every check ticked — the whole
+    // point of the gate that the previousPhase="rechecking" case bypassed.
+    const s1 = useSelfDriveStore.getState().guide!.sessions[0];
+    expect(s1.status).toBe("done");
+    expect(s1.verifyChecks.every((c) => c.checked)).toBe(true);
+    // And no pause with "unexpected state" language.
+    expect(useSelfDriveStore.getState().pauseReason).toBeNull();
+  });
+
+  it("still pauses when the validator flags UNRECOVERABLE issues (missing labels)", async () => {
+    setupReadyState();
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "claimed done",
+      confidence: "high",
+      // Session has Check A and Check B; orchestrator only reports A.
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+    mockSendMessage.mockClear();
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("paused");
+    });
+    // No recheck — missing items are not a format-only issue.
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(useSelfDriveStore.getState().pauseReason).toMatch(/checks missing from verdict/);
+  });
+
+  it("resets recheck state when a session advances", async () => {
+    setupReadyState();
+    // First verifying turn → advance
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "done",
+      confidence: "high",
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    // Seed stale recheck bookkeeping from a prior cycle.
+    useSelfDriveStore.setState({
+      currentPhase: "verifying",
+      recheckRoundsUsed: 1,
+      rechecksPerItem: { "Check A": 1 },
+      originalVerifierResponse: "stale original",
+      recheckResponses: ["stale recheck"],
+      pinnedCheckResults: [{ label: "Check A", passed: false, reason: "old" }],
+    });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentSessionIndex).toBeGreaterThan(1);
+    });
+    const state = useSelfDriveStore.getState();
+    expect(state.recheckRoundsUsed).toBe(0);
+    expect(state.rechecksPerItem).toEqual({});
+    expect(state.originalVerifierResponse).toBeNull();
+    expect(state.recheckResponses).toEqual([]);
+    expect(state.pinnedCheckResults).toEqual([]);
   });
 });

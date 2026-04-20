@@ -56,6 +56,28 @@ describe("uiStore", () => {
     expect(useUiStore.getState().rightPanelWidth).toBe(400);
   });
 
+  it("setRightPanelMinWidth bumps rightPanelWidth up when the new min exceeds current width", () => {
+    // Regression for "Guide tab hidden when project opens with a populated
+    // guide". When RightPanel measures its tab bar and sees it needs 530px,
+    // setRightPanelMinWidth(530) must also push the stored width up so the
+    // panel actually renders wide enough to show the Guide tab.
+    useUiStore.setState({ rightPanelWidth: 420, rightPanelMinWidth: 200 });
+    useUiStore.getState().setRightPanelMinWidth(530);
+    const state = useUiStore.getState();
+    expect(state.rightPanelMinWidth).toBe(530);
+    expect(state.rightPanelWidth).toBe(530);
+  });
+
+  it("setRightPanelMinWidth does NOT shrink rightPanelWidth when the new min is lower", () => {
+    // If the user has already dragged the panel wider than the current
+    // minimum, shrinking the minimum must NOT shrink their chosen width.
+    useUiStore.setState({ rightPanelWidth: 700, rightPanelMinWidth: 530 });
+    useUiStore.getState().setRightPanelMinWidth(300);
+    const state = useUiStore.getState();
+    expect(state.rightPanelMinWidth).toBe(300);
+    expect(state.rightPanelWidth).toBe(700);
+  });
+
   it("setShowApprovalModal toggles modal", () => {
     useUiStore.getState().setShowApprovalModal(true);
     expect(useUiStore.getState().showApprovalModal).toBe(true);

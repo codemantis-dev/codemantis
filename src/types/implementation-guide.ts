@@ -122,7 +122,16 @@ export type SelfDrivePhase =
   | "evaluating"
   | "advancing"
   | "committing"
-  | "recovering";
+  | "recovering"
+  /**
+   * Orchestrator asked Claude Code to re-state evidence for specific
+   * verify items because the first response was missing a required
+   * format element (e.g. "$ cmd" for a side-effect, "mocks=" on a
+   * behavioral). The session is NOT stuck — we're waiting for a
+   * targeted follow-up from Claude Code that will re-enter "verifying"
+   * with the merged response.
+   */
+  | "rechecking";
 
 export interface SelfDriveConfig {
   provider: string;
@@ -174,7 +183,18 @@ export type OrchestratorAction =
   | "commit"
   | "pause"
   | "abort"
-  | "advance_recovery";
+  | "advance_recovery"
+  /**
+   * Target the VERIFIER's response (not the code). Emitted when the
+   * implementation is probably correct but the verifier's evidence is
+   * missing a required format element for one or more items. The
+   * orchestrator composes a short, concrete re-prompt that asks Claude
+   * Code to re-state ONLY those items. Self-Drive enters the
+   * "rechecking" phase, sends the prompt, merges the response, and
+   * calls the orchestrator again. Distinct from "fix" (which modifies
+   * CODE) and "pause" (which needs a human).
+   */
+  | "request_recheck";
 
 export interface OrchestratorDecision {
   action: OrchestratorAction;
@@ -184,6 +204,21 @@ export interface OrchestratorDecision {
   pauseReason?: string;
   abortReason?: string;
   checkResults?: { label: string; passed: boolean; reason?: string; evidence?: string }[];
+  /**
+   * Labels of verify checks that need re-stated evidence. Only meaningful
+   * when `action === "request_recheck"`. Each label MUST appear in the
+   * session's verifyChecks; labels outside the session are dropped during
+   * parse. A non-empty list is required for the recheck path to run.
+   */
+  recheckItems?: string[];
+  /**
+   * Prompt the orchestrator composes for Claude Code, naming exact
+   * commands, file paths, and evidence forms for each recheck item.
+   * Capped at 2000 chars by the parser — over-long prompts usually mean
+   * the orchestrator is asking for too much, which should become a fix
+   * or a pause instead.
+   */
+  recheckPrompt?: string;
   summary: string;
   confidence: "high" | "medium" | "low";
   /**

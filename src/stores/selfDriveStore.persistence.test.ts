@@ -210,7 +210,8 @@ function setupSettings(): void {
       selfDriveMaxFixAttempts: 3,
       selfDriveRunBuildCheck: true,
       selfDriveRunTests: false,
-      selfDriveAutoCommit: false,
+selfDriveAutoCommit: false,
+      selfDriveEnableRecheckLoop: true,
     } as unknown as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,
   });

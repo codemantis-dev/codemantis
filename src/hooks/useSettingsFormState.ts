@@ -89,6 +89,9 @@ export function useSettingsFormState() {
   const [selfDriveRunBuildCheck, setSelfDriveRunBuildCheck] = useState(settings.selfDriveRunBuildCheck);
   const [selfDriveRunTests, setSelfDriveRunTests] = useState(settings.selfDriveRunTests);
   const [selfDriveAutoCommit, setSelfDriveAutoCommit] = useState(settings.selfDriveAutoCommit);
+  const [selfDriveEnableRecheckLoop, setSelfDriveEnableRecheckLoop] = useState(
+    settings.selfDriveEnableRecheckLoop ?? true,
+  );
 
   // --- Task Board ---
   const [taskBoardPlanningModel, setTaskBoardPlanningModel] = useState(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
@@ -144,6 +147,7 @@ export function useSettingsFormState() {
       setSelfDriveRunBuildCheck(settings.selfDriveRunBuildCheck);
       setSelfDriveRunTests(settings.selfDriveRunTests);
       setSelfDriveAutoCommit(settings.selfDriveAutoCommit);
+      setSelfDriveEnableRecheckLoop(settings.selfDriveEnableRecheckLoop ?? true);
       setTaskBoardPlanningModel(settings.taskBoardPlanningModel ?? "gemini-3-flash-preview");
       setTaskBoardMaxTokens(settings.taskBoardMaxTokens ?? 64000);
       // taskBoardMaxRetries, taskBoardAutoStartNext, taskBoardAutoOpenSlideOver retained for settings compat
@@ -207,6 +211,7 @@ export function useSettingsFormState() {
       selfDriveRunBuildCheck,
       selfDriveRunTests,
       selfDriveAutoCommit,
+      selfDriveEnableRecheckLoop,
     });
 
     // Trigger OpenRouter model fetch if key changed
@@ -393,6 +398,8 @@ export function useSettingsFormState() {
     setSelfDriveRunTests,
     selfDriveAutoCommit,
     setSelfDriveAutoCommit,
+    selfDriveEnableRecheckLoop,
+    setSelfDriveEnableRecheckLoop,
 
     // Task Board tab
     taskBoardPlanningModel,

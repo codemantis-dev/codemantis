@@ -10,6 +10,27 @@ const ORCHESTRATOR_ASSISTANT_ID = "__self-drive-orchestrator__";
 const ORCHESTRATOR_TIMEOUT_MS = 30_000;
 
 /**
+ * Max tokens for the orchestrator's structured JSON response.
+ *
+ * A verification-phase decision must enumerate one checkResults entry per
+ * VerifyCheck in the session. Each entry carries an `evidence` string that
+ * quotes code or command output lifted from the verifier's reply. With the
+ * dual-side contract now demanding richer evidence forms —
+ *   [integration]: "caller={file}:{lines} · handler={file}:{lines} · $ cmd → output"
+ *   [behavioral]:  "{test}:{line} — `assertion` · mocks=x,y"
+ * — each entry runs ~150–300 chars. Eight-check sessions (common) easily
+ * blow through 1024 tokens of JSON, and the regex `/\{[\s\S]*\}/` in
+ * parseOrchestratorResponse then returns an unbalanced slice and throws
+ * "Expected ']'". Symptom: Self-Drive pauses with "Could not parse AI
+ * response" even when the verifier response was perfect.
+ *
+ * 4096 tokens comfortably covers sessions up to ~20 checks and keeps one
+ * retry (via the selfDriveStore fallback path) well within a 30s budget
+ * even for slower providers.
+ */
+const ORCHESTRATOR_MAX_TOKENS = 4096;
+
+/**
  * Build the system prompt for the Self-Drive orchestrator.
  */
 function buildSystemPrompt(): string {
@@ -33,12 +54,88 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
 - Parse Claude Code's response line by line. Do NOT infer, summarize, or trust claims without evidence.
 - For EACH VerifyCheck in the session, emit EXACTLY ONE checkResults entry matching by "label" verbatim.
 - Each entry must be one of:
-  - { label, passed: true, evidence: "{file}:{lines} — {quoted code}" } — requires a file:lines citation AND a quoted code snippet lifted from Claude Code's response. The evidence string MUST contain a ":" between file and line range. No citation or no quoted code → NOT passed.
-  - { label, passed: false, reason: "{short reason}" } — including when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
-- EVIDENCE KIND DEPENDS ON VerifyCheck.kind (see session plan):
-  - "static" (default): cite {file}:{lines} AND quote code. File reads are required.
-  - "side-effect": cite the COMMAND RUN AND quote its OUTPUT (stdout, query result, HTTP status). A file citation alone is INSUFFICIENT — the file merely requests the effect; you need evidence the effect happened. Evidence form: "$ {command} → {quoted output snippet}". Still contains ":" (after the $ or the command).
-  - "behavioral": cite a TEST NAME and quote the PASSING ASSERTION line. Evidence form: "{test-file}:{lines} — {quoted assertion or "PASS" line from runner}".
+  - { label, passed: true, evidence: "..." } — see EVIDENCE KIND below for the required shape
+  - { label, passed: false, reason: "{short reason}" } — when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
+- EVIDENCE KIND — preserve the verifier's evidence form. Each kind has a different legitimate shape; do not force one shape onto another.
+  - "static" (default): {file}:{lines} — \`{quoted code}\`
+    The evidence string contains ":" (the file:lines citation). Example:
+      src/a.ts:12 — \`export const A = 1\`
+  - "side-effect": $ {command} → {quoted output} (OR grep/query form with →)
+    The evidence contains "$ " (a command) or "→" (command → output). A
+    file citation is NOT sufficient on its own — a file describes the
+    intended effect, not that the effect happened. Example:
+      $ pytest src/helpers/ -v → "31 passed in 0.02s"
+      Grep for 'from pipeline' across src/helpers/ → "No matches found"
+  - "behavioral": $ {test command} → {quoted assertion or PASS line} · mocks={list or "none"}
+    MANDATORY: preserve the \` · mocks=...\` suffix verbatim — do NOT strip it.
+    The system validates that every behavioral PASS discloses its mock
+    surface; dropping the mocks= tag makes a correct verification look
+    like a contract violation. Example:
+      $ pytest src/notes_test.py → "✓ writes classification (12ms)" · mocks=httpClient
+      $ pytest src/helpers/ -v → "31 passed in 0.02s" · mocks=none
+  - "integration": caller={file}:{lines} · handler={file}:{lines} · $ {real command} → {quoted output}
+    Cross-system call proven end-to-end: BOTH caller AND handler code
+    sites plus a real non-mocked invocation with observable output. Example:
+      caller=workers/notes/notes_write.py:18 · handler=functions/worker-data-write/actions/notes.py:3 · $ curl ... → {"inserted":1}
+  - Rule of thumb: lift the verifier's whole line into evidence (trim
+    only the "{N}. {label} — PASS — " prefix). Do NOT translate between
+    kinds. If the verifier wrote \`$ ls → ...\` for a [side-effect] item,
+    emit exactly \`$ ls → ...\` — do NOT rewrite it into a \`file:lines\` shape.
+- SEMANTIC-OVER-LITERAL: when the verifier uses a slightly different
+  command, file ordering, or phrasing than what the session prompt
+  suggested, but the MEANING matches — e.g. ran \`pnpm test\` instead of
+  \`pnpm vitest\`, greps a parent dir instead of a specific subdir,
+  quotes command output in plain text instead of a fenced block —
+  accept it. Check the intent, not the exact string. Only mark
+  passed:false when the evidence genuinely doesn't match the check's
+  intent, or is absent entirely.
+- THREE-WAY DECISION TREE when an item's evidence is not crisp (read in order, first match wins):
+  1. "fix" — the CODE is wrong. The evidence itself shows a failure
+     (test fails, migration didn't apply, handler file contains a stub
+     marker, expected symbol is absent). Target: modify the implementation.
+     Only emit this when there is real evidence of a code defect — not
+     just that the verifier's line was malformed.
+  2. "request_recheck" — the CODE is probably correct, but the verifier
+     didn't emit evidence in the form the check's [kind] requires.
+     Examples that belong here:
+       - A [side-effect] item has a file citation but no "$ cmd → output"
+       - A [behavioral] item has a test pass but no "· mocks=..." tag
+       - An [integration] item has "caller=..." but no "handler=..."
+       - A [static] item has a vague line like "it exists" with no
+         file:lines
+     Target: ask Claude Code to RE-STATE those items (do not touch code).
+     Emit:
+       {
+         "action": "request_recheck",
+         "recheckItems": [<labels from session verifyChecks>],
+         "recheckPrompt": "...<concrete prompt naming exact commands, files, and required evidence form>",
+         "checkResults": [<per-item verdict, preserved for rounds this doesn't re-open>],
+         "summary": "...",
+         "confidence": "high" | "medium"
+       }
+     The recheckPrompt SHOULD:
+       * name each item by its exact label
+       * name the SPECIFIC command / file / format for each item
+       * tell Claude Code NOT to re-do other items
+       * ask for the exact form from EVIDENCE KIND above
+     DO NOT emit "request_recheck":
+       * for more than a handful of items at once (if 5+ items all need
+         re-statement, the verifier skimmed — use "pause")
+       * when recheckPrompt would exceed ~2000 chars (overly broad)
+       * for an item you already rechecked this round (the runtime will
+         refuse it — fall back to "pause")
+  3. "pause" — needs a human. Use when: the verifier clearly skimmed;
+     the check depends on a judgement call; fixAttempt ≥ maxFixAttempts
+     AND the code is genuinely broken; the orchestrator has exhausted
+     rechecks and items still aren't clear.
+
+- PREFERENCE ORDER: when uncertain between "request_recheck" and "pause",
+  PREFER "request_recheck" as long as you can name specific items and a
+  concrete re-prompt. The runtime enforces the per-item and per-round
+  caps for you — you don't need to self-gatekeep.
+- A pause because of a missing "·" separator, a missing "$ " prefix, or
+  a behavioral PASS without "mocks=" is a BUG in the orchestrator's
+  decision. Use request_recheck instead.
 - SKIMMING DETECTION: if Claude Code's response contains any of these phrases covering unverified items, mark those items { passed: false, reason: "verifier used batch-PASS language without evidence" }:
   - "all remaining items pass"
   - "the rest look correct"
@@ -50,7 +147,7 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
   - If any entry is passed:false AND fixAttempt < maxFixAttempts → action: "fix" with a fixPrompt that lists each failed label + its reason.
   - If any entry is passed:false AND fixAttempt >= maxFixAttempts → action: "pause" with pauseReason summarizing the remaining failures.
   - If you cannot produce a complete per-check verdict (coverage < full) → action: "pause" with pauseReason "orchestrator could not produce per-check evidence for all items" and confidence: "low".
-- "advance" is NOT a trust signal — it is a structured assertion that every check is confirmed with evidence. The system validates your checkResults and will reject "advance" if any passed:true entry lacks evidence.
+- "advance" is NOT a trust signal — it is a structured assertion that every check is confirmed with evidence. The system validates your checkResults and will reject "advance" if any passed:true entry lacks evidence appropriate for its kind.
 
 AFTER A FIX PHASE (currentPhase = "fixing"):
 - Evaluate whether the fix was applied → {"action": "build_check", "summary": "Fix applied. Re-checking build.", "confidence": "high"}
@@ -226,7 +323,7 @@ export async function callOrchestrator(
         model,
         systemPrompt,
         messages: [{ role: "user", content: userMessage }],
-        maxTokens: 1024,
+        maxTokens: ORCHESTRATOR_MAX_TOKENS,
       }).catch((err) => {
         clearTimeout(timeout);
         if (!resolved) {
@@ -261,6 +358,15 @@ export async function callOrchestrator(
 
 /**
  * Parse the orchestrator's JSON response with robust error handling.
+ *
+ * The response may arrive truncated when the model runs into its
+ * maxTokens budget mid-array — e.g. a verification decision with 8
+ * checkResults that got cut off after the 6th. In that case the greedy
+ * `\{[\s\S]*\}` regex returned a slice with more `{` than `}` and
+ * JSON.parse failed with "Expected ']'". We now attempt a balanced-brace
+ * extraction (finds the outermost fully-closed JSON object), and on
+ * failure surface a diagnostic message that lets the caller (and the
+ * retry path in selfDriveStore) act intelligently.
  */
 function parseOrchestratorResponse(content: string): OrchestratorDecision {
   // Strip any markdown code fences that the model might add despite instructions
@@ -269,20 +375,47 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
-  // Try to find JSON object in the response
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonSlice = extractBalancedJsonObject(cleaned);
+  if (!jsonSlice) {
+    // Differentiate truly-empty from truncated-mid-object — the retry
+    // path logs the reason, and a truncation reason is a strong signal
+    // to raise maxTokens for the next call.
+    if (cleaned.includes("{")) {
+      throw new Error(
+        "Response appears truncated — no balanced JSON object found (likely hit maxTokens mid-response)",
+      );
+    }
     throw new Error("No JSON object found in response");
   }
 
-  const parsed = JSON.parse(jsonMatch[0]);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonSlice);
+  } catch (e) {
+    const wrapped = new Error(
+      `Response JSON invalid (${e instanceof Error ? e.message : String(e)}) — likely truncated mid-field`,
+    );
+    (wrapped as Error & { cause?: unknown }).cause = e;
+    throw wrapped;
+  }
 
   // Validate required fields
   if (!parsed.action || typeof parsed.action !== "string") {
     throw new Error("Missing or invalid 'action' field");
   }
 
-  const validActions = ["advance", "verify", "fix", "build_check", "test", "commit", "pause", "abort", "advance_recovery"];
+  const validActions = [
+    "advance",
+    "verify",
+    "fix",
+    "build_check",
+    "test",
+    "commit",
+    "pause",
+    "abort",
+    "advance_recovery",
+    "request_recheck",
+  ];
   if (!validActions.includes(parsed.action)) {
     throw new Error(`Invalid action: ${parsed.action}`);
   }
@@ -293,6 +426,46 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
 
   if (!parsed.confidence || !["high", "medium", "low"].includes(parsed.confidence)) {
     parsed.confidence = "medium";
+  }
+
+  // Sanitize request_recheck decisions. An orchestrator can emit this
+  // action but miss one of the required fields (recheckItems or
+  // recheckPrompt) — in that case the recheck loop can't run, so demote
+  // the decision to a targeted fix or a pause rather than letting
+  // Self-Drive proceed with an empty re-prompt.
+  //
+  // Rules (demoting rather than throwing so a valid summary/checkResults
+  // payload isn't lost):
+  //   - recheckItems must be a non-empty array of strings
+  //   - recheckPrompt must be a non-empty string; capped at 2000 chars
+  //   - if either fails, drop the two fields and flip action=pause with a
+  //     reason that names the specific defect
+  if (parsed.action === "request_recheck") {
+    const items = Array.isArray(parsed.recheckItems)
+      ? (parsed.recheckItems as unknown[]).filter(
+          (s): s is string => typeof s === "string" && s.trim() !== "",
+        )
+      : [];
+    const promptRaw = typeof parsed.recheckPrompt === "string" ? parsed.recheckPrompt : "";
+    const prompt = promptRaw.length > 2000 ? promptRaw.slice(0, 2000) : promptRaw;
+
+    if (items.length === 0 || prompt.trim() === "") {
+      parsed.action = "pause";
+      parsed.pauseReason =
+        parsed.pauseReason ??
+        `Orchestrator emitted request_recheck but ${
+          items.length === 0 ? "recheckItems is empty" : "recheckPrompt is empty"
+        }; falling back to pause.`;
+      delete parsed.recheckItems;
+      delete parsed.recheckPrompt;
+    } else {
+      parsed.recheckItems = items;
+      parsed.recheckPrompt = prompt;
+    }
+  } else {
+    // Non-recheck actions should never carry these fields.
+    delete parsed.recheckItems;
+    delete parsed.recheckPrompt;
   }
 
   // Sanitize the optional blocker object: wrong shapes are dropped rather
@@ -325,4 +498,50 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
   }
 
   return parsed as OrchestratorDecision;
+}
+
+/**
+ * Find the outermost JSON object with balanced braces in `s` and return
+ * its exact substring. Returns null when no balanced object exists —
+ * including the truncation case where the response opens `{…` and runs
+ * out of tokens before closing.
+ *
+ * Correctly skips braces inside string literals (handles escaped quotes
+ * like `"\\""`) so `{"evidence":"a\\"}"` doesn't confuse the counter.
+ *
+ * Not a full JSON grammar — it's only brace-balanced extraction, which
+ * is enough because the subsequent JSON.parse catches every syntactic
+ * problem that isn't a bracket-mismatch from truncation.
+ */
+function extractBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        return s.slice(start, i + 1);
+      }
+    }
+  }
+  return null; // truncated — opening `{` never closed
 }

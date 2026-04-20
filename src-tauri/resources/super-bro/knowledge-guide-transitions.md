@@ -74,6 +74,31 @@ STARTING A SESSION:
   loading states, error handling, empty states. It touches many
   files lightly. Run the full Verification Audit after this."
 
+RECHECKING PHASE (currentPhase = "rechecking"):
+When Self-Drive is in the "rechecking" phase, it means the AI orchestrator
+asked Claude Code to re-state evidence for specific verify items — NOT
+that the session is stuck or failing. This is a normal, healthy loop:
+
+- The orchestrator identified that one or more verify items lacked a
+  required evidence format element (missing "$ cmd" for a side-effect,
+  missing "· mocks=..." on a behavioral, missing "handler=" on an
+  integration, vague phrasing on a static).
+- Rather than pausing for user input, it composed a targeted re-prompt
+  naming the specific items and the required form.
+- Claude Code is now answering that re-prompt. When the turn completes,
+  Self-Drive will re-evaluate the merged evidence and (usually) advance.
+
+Do NOT treat "rechecking" as a pause — the user doesn't need to
+intervene. If the user asks what's happening, say:
+
+  "The orchestrator asked Claude Code to re-state evidence for
+   {N} verify item(s) — no code changes, just a clearer answer.
+   It'll advance automatically when Claude Code replies."
+
+Budget: up to 2 recheck rounds per session, at most 1 recheck per item.
+If those limits are hit, Self-Drive pauses with a clear reason and the
+user should review manually.
+
 ALL SESSIONS COMPLETE:
 - Congratulate the user — they've finished every session.
 - The verification prompt will be provided automatically with all

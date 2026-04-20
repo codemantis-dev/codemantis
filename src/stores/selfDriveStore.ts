@@ -53,6 +53,23 @@ import {
 
 let chatEventUnlisten: UnlistenFn | null = null;
 
+/**
+ * How many recheck rounds can fire per session before Self-Drive gives
+ * up and pauses. 2 is the sweet spot: one to catch a first-round format
+ * miss, one to confirm after Claude Code re-stated. A third would
+ * almost always indicate the orchestrator is looping and needs human
+ * judgement.
+ */
+const MAX_RECHECK_ROUNDS = 2;
+
+/**
+ * How many times the SAME verify-item can be rechecked per session.
+ * 1 means "one recheck per item, then pause". If Claude Code's first
+ * re-statement still isn't enough, repeating the request usually won't
+ * help — it's time for the user to look.
+ */
+const MAX_RECHECKS_PER_ITEM = 1;
+
 // ── Store interface ─────────────────────────────────────────────────
 
 interface SelfDriveState {
@@ -92,6 +109,35 @@ interface SelfDriveState {
   maxFixAttempts: number;
   previousFixPrompts: string[];
   lowConfidenceCount: number;
+
+  /**
+   * Verifier-recheck loop state. When the orchestrator emits
+   * `request_recheck`, Self-Drive sends a targeted re-prompt to Claude
+   * Code and merges the response with the original verifier text before
+   * calling the orchestrator again. These fields guard against infinite
+   * loops and are reset each time the session advances.
+   */
+  /** Number of recheck rounds issued for the current session. Cap: 2. */
+  recheckRoundsUsed: number;
+  /** Per-item recheck counter. Same item cannot be rechecked twice. */
+  rechecksPerItem: Record<string, number>;
+  /** Original verifier response for the current cycle (set at first verifying turn). */
+  originalVerifierResponse: string | null;
+  /** Ordered recheck responses from Claude Code, appended each time. */
+  recheckResponses: string[];
+  /** Per-item verdict carried forward across recheck rounds so unaffected items don't get lost. */
+  pinnedCheckResults: { label: string; passed: boolean; reason?: string; evidence?: string }[];
+
+  /**
+   * ID of the most recent user message that Self-Drive itself sent
+   * (verify prompt, fix prompt, recheck prompt, etc.). Used to reliably
+   * capture Claude Code's full response when it spans multiple assistant
+   * messages (common in verify phases — each verify item usually triggers
+   * its own tool-use cycle, so a single turn_complete covers N assistant
+   * messages). Taking just the last assistant message loses items 1..N-1.
+   * Null when Self-Drive has not sent anything yet this run.
+   */
+  lastSelfDrivePromptMessageId: string | null;
 
   runLog: RunLogEntry[];
 
@@ -200,6 +246,12 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   maxFixAttempts: 3,
   previousFixPrompts: [],
   lowConfidenceCount: 0,
+  recheckRoundsUsed: 0,
+  rechecksPerItem: {},
+  originalVerifierResponse: null,
+  recheckResponses: [],
+  pinnedCheckResults: [],
+  lastSelfDrivePromptMessageId: null,
   runLog: [],
   startedAt: null,
   sessionStartedAt: null,
@@ -276,6 +328,12 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       fixAttempt: 0,
       previousFixPrompts: [],
       lowConfidenceCount: 0,
+      recheckRoundsUsed: 0,
+      rechecksPerItem: {},
+      originalVerifierResponse: null,
+      recheckResponses: [],
+      pinnedCheckResults: [],
+      lastSelfDrivePromptMessageId: null,
       runLog: [],
       startedAt: Date.now(),
       sessionStartedAt: Date.now(),
@@ -709,6 +767,52 @@ function deletePersistedRunState(projectPath: string | null): void {
 // This replaces calls that used to go through useGuideStore.* directly
 // (markPromptSent, markVerifyRequested, markSessionComplete, toggleVerifyCheck).
 
+/**
+ * Collect Claude Code's full response to the most recent Self-Drive
+ * prompt by concatenating every assistant message that arrived AFTER the
+ * user message we sent.
+ *
+ * Why this exists: verify phases almost always span multiple assistant
+ * messages because each verified item triggers its own tool-use cycle
+ * (Read / Bash / Grep). Claude Code emits:
+ *   user("prompt") → assistant("ok let me check item 1") → tool_use(bash)
+ *   → tool_result → assistant("item 1 — PASS\n\nNow item 2") → tool_use
+ *   → tool_result → assistant("item 2 — PASS ...") → ... → turn_complete
+ *
+ * Taking only `messages.reverse().find(m.role === "assistant")` returns
+ * the LAST fragment — losing items 1..N-1. That's the "verifier response
+ * truncated — only item 5 visible" bug.
+ *
+ * Strategy: find the Self-Drive prompt's user-message by id, then gather
+ * every assistant message that follows it, joined by double newlines.
+ * If the marker is null (fresh run) or missing from the list (messages
+ * were cleared), fall back to the last assistant message to preserve
+ * backwards-compatible behaviour.
+ *
+ * `role === "assistant"` entries with tool-use-only content produce the
+ * empty string; those are filtered out so the result is clean prose.
+ */
+function collectAssistantResponseSince(
+  messages: Array<{ id: string; role: string; content: string }>,
+  promptMessageId: string | null,
+): string {
+  if (!promptMessageId) {
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    return last?.content ?? "";
+  }
+  const promptIdx = messages.findIndex((m) => m.id === promptMessageId);
+  if (promptIdx < 0) {
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    return last?.content ?? "";
+  }
+  const parts = messages
+    .slice(promptIdx + 1)
+    .filter((m) => m.role === "assistant" && m.content.trim() !== "")
+    .map((m) => m.content);
+  if (parts.length === 0) return "";
+  return parts.join("\n\n");
+}
+
 function applyGuideMutation(mutator: (g: ImplementationGuide) => ImplementationGuide): void {
   const current = useSelfDriveStore.getState().guide;
   if (!current) return;
@@ -977,8 +1081,16 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   // pinned state regardless of where the user navigates in the UI.
 
   // Gather Claude Code's response from the pinned session's message list.
+  // A single turn can emit MULTIPLE assistant messages — verify phases
+  // especially, because each verified item is usually a tool-use cycle
+  // that splits the assistant's text. Taking only the last message loses
+  // everything before it. Walk forward from the self-drive prompt marker
+  // and concatenate every assistant message after it.
   const messages = useSessionStore.getState().sessionMessages.get(sessionId) || [];
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const assistantSinceLastPrompt = collectAssistantResponseSince(
+    messages,
+    state.lastSelfDrivePromptMessageId,
+  );
   const toolsUsed = extractToolsFromTurn(messages, sessionId);
 
   const sessionPlan = getCurrentSessionPlan(state.currentSessionIndex!, state.guide);
@@ -998,10 +1110,31 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     return;
   }
 
+  // Recheck-loop response assembly. The orchestrator needs both the
+  // original verifier response AND every recheck follow-up so it can see
+  // the full picture. If this turn completed while we were in
+  // "rechecking", append the new response to recheckResponses[] and
+  // prepend the original verifier text.
+  const currentResponse = truncateResponse(assistantSinceLastPrompt);
+  let assembledResponse = currentResponse;
+  if (state.currentPhase === "rechecking") {
+    const merged = [state.originalVerifierResponse ?? "", ...state.recheckResponses, currentResponse]
+      .filter((s) => s && s.trim() !== "")
+      .join("\n\n--- RECHECK RESPONSE ---\n\n");
+    assembledResponse = merged;
+    useSelfDriveStore.setState({
+      recheckResponses: [...state.recheckResponses, currentResponse],
+    });
+  } else if (state.currentPhase === "verifying" && state.originalVerifierResponse === null) {
+    // First verifying turn of this cycle — stash it so a later recheck
+    // can re-merge. Cleared on advance/stop/fix.
+    useSelfDriveStore.setState({ originalVerifierResponse: currentResponse });
+  }
+
   const orchestratorInput = {
     currentPhase: mapPhaseForOrchestrator(state.currentPhase),
     sessionPlan,
-    claudeCodeResponse: truncateResponse(lastAssistant?.content || ""),
+    claudeCodeResponse: assembledResponse,
     claudeCodeToolsUsed: toolsUsed,
     turnDurationMs: payload.duration_ms || 0,
     fixAttempt: state.fixAttempt,
@@ -1080,6 +1213,10 @@ function mapPhaseForOrchestrator(
     case "testing": return "testing";
     case "committing": return "committing";
     case "recovering": return "recovering";
+    // A turn that completes from "rechecking" is a follow-up verification
+    // response — re-evaluate it under verify rules so the orchestrator can
+    // decide advance / fix / another recheck / pause.
+    case "rechecking": return "verifying";
     case "evaluating": return "building"; // fallback
     default: return "building";
   }
@@ -1115,6 +1252,9 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
       break;
     case "abort":
       handleAbort(decision.abortReason || "Critical failure");
+      break;
+    case "request_recheck":
+      await handleRecheck(decision);
       break;
   }
 }
@@ -1155,19 +1295,34 @@ const BOUNDARY_MOCK_SIGNALS = [
 
 /**
  * Extract the comma-separated mocks list from a [behavioral] PASS
- * evidence string.
+ * evidence string. Verifiers often annotate the list with a parenthetical
+ * or additional context — we accept all of these shapes:
  *
- *   'test.ts:12 — "does a thing" · mocks=httpClient,fsWrite'
- *    →   ["httpClient", "fsWrite"]
- *   'test.ts:12 — "does a thing" · mocks=none'     →   ["none"]
- *   'test.ts:12 — "does a thing"'                  →   null   (no disclosure)
+ *   'test.ts:12 — "x" · mocks=httpClient,fsWrite'
+ *     → ["httpClient", "fsWrite"]
+ *   '$ pytest → "31 passed" · mocks=none'
+ *     → ["none"]
+ *   '$ pytest → "31 passed" · mocks=none (tests exercise real helpers, no mocks imported)'
+ *     → ["none"]           (trailing "(...)" commentary is stripped)
+ *   'test.ts:12 — "x"'    → null  (no disclosure — rule violation)
+ *
+ * The previous regex anchored to `$` (end-of-string), which rejected any
+ * evidence that had tail text after the mocks list. That meant a verifier
+ * correctly disclosing `mocks=none (real call)` still tripped
+ * "behavioral PASS lacks mock-surface disclosure" — a false positive
+ * the user hit in practice.
  */
 function extractMocksFromEvidence(evidence: string): string[] | null {
-  const match = evidence.match(/(?:·|mocks=)\s*mocks=([^·\n]+)$/i)
-    ?? evidence.match(/·\s*mocks=([^·\n]+)$/i)
-    ?? evidence.match(/\bmocks=([^·\n]+)$/i);
+  // Match `mocks=<value>` anywhere in the string. Stop at the next `·`
+  // separator, a newline, or end-of-string. Do NOT anchor to `$`.
+  const match = evidence.match(/\bmocks\s*=\s*([^·\n]+?)(?:\s*·|\s*$)/i);
   if (!match) return null;
-  return match[1]
+  const rawList = match[1]
+    // Strip a trailing "(…)" commentary like "none (tests exercise …)".
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .trim();
+  if (!rawList) return null;
+  return rawList
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -1179,6 +1334,57 @@ function mockCrossesBoundary(mockName: string): boolean {
   return BOUNDARY_MOCK_SIGNALS.some((sig) => lower.includes(sig));
 }
 
+type VerifyKind = "static" | "side-effect" | "behavioral" | "integration";
+
+/**
+ * Per-kind evidence validation. Each kind's evidence has a different
+ * legitimate shape — the previous blanket "must contain `:`" rule
+ * rejected perfectly valid side-effect evidence like
+ * `$ ls src/helpers → "...files..."` and command-output for greps.
+ *
+ * Returns null when the evidence is acceptable for its kind, or a
+ * short reason string naming what's missing. An empty/undefined
+ * evidence string is always a violation.
+ *
+ *   static        → must carry a ":" (file:lines citation)
+ *   side-effect   → must carry "$ " (a command) or "→" (command → output)
+ *   behavioral    → must carry "$ " or ":" (a test file citation) AND
+ *                   "mocks=" disclosure; mock-boundary rule is handled
+ *                   separately by the caller because it cross-references
+ *                   other checks' kinds.
+ *   integration   → must carry BOTH "caller=" AND "handler=" — the
+ *                   dual-side contract exists to force both cites.
+ */
+function validateEvidenceForKind(
+  evidence: string | undefined,
+  kind: VerifyKind,
+): string | null {
+  if (!evidence || evidence.trim() === "") return "no evidence provided";
+
+  const has = (s: string) => evidence.includes(s);
+
+  switch (kind) {
+    case "static":
+      return has(":") ? null : "static evidence needs a file:lines citation";
+    case "side-effect":
+      // Either "$ cmd" or "cmd → output" is acceptable. A file:lines
+      // citation on its own is NOT — the file only describes the
+      // intended effect, not that it happened.
+      if (has("$ ") || has("→") || has(" -> ")) return null;
+      return "side-effect evidence needs a command ($ cmd) and its output";
+    case "behavioral":
+      // Either a test command ("$ pytest ...") or a test-file:line
+      // pair is acceptable for the run site. Mock disclosure is
+      // required but enforced in the dedicated behavioral pass below,
+      // so we only check the run-site signal here.
+      if (has("$ ") || has(":")) return null;
+      return "behavioral evidence needs a test command or test-file:line";
+    case "integration":
+      if (has("caller=") && has("handler=")) return null;
+      return "integration evidence needs caller= AND handler= cites";
+  }
+}
+
 /**
  * Validate an orchestrator's "advance" verdict against a session's verify
  * checks. Returns null when the verdict is acceptable, or a short reason
@@ -1186,8 +1392,8 @@ function mockCrossesBoundary(mockName: string): boolean {
  *
  * Rules (all must hold):
  *  1. checkResults must cover every VerifyCheck label in the session.
- *  2. Every passed:true entry must carry an `evidence` string containing
- *     at least a ":" (file:lines citation).
+ *  2. Every passed:true entry must carry evidence appropriate for its
+ *     kind (see validateEvidenceForKind above).
  *  3. No checkResults entry may reference a label that isn't in the session.
  *  4. Mock-disclosure rule (the mock-only-PASS fix): any [behavioral]
  *     PASS whose evidence declares a mock list containing a
@@ -1205,7 +1411,7 @@ export function validateVerifyAdvance(
   session: {
     verifyChecks: {
       label: string;
-      kind?: "static" | "side-effect" | "behavioral" | "integration";
+      kind?: VerifyKind;
     }[];
   },
   decision: OrchestratorDecision,
@@ -1217,7 +1423,7 @@ export function validateVerifyAdvance(
 
   const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
   const resultLabels = new Set(results.map((r) => r.label));
-  const kindByLabel = new Map(
+  const kindByLabel = new Map<string, VerifyKind>(
     session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
   );
 
@@ -1230,7 +1436,11 @@ export function validateVerifyAdvance(
     .map((r) => r.label);
 
   const passedWithoutEvidence = results
-    .filter((r) => r.passed && (!r.evidence || !r.evidence.includes(":")))
+    .filter((r) => {
+      if (!r.passed) return false;
+      const kind = kindByLabel.get(r.label) ?? "static";
+      return validateEvidenceForKind(r.evidence, kind) !== null;
+    })
     .map((r) => r.label);
 
   // Mock-disclosure rule. Only checks typed [behavioral] in the session
@@ -1273,6 +1483,143 @@ export function validateVerifyAdvance(
   return parts.length > 0 ? parts.join("; ") : null;
 }
 
+/**
+ * Structured variant of validateVerifyAdvance. Returns the per-rule
+ * label lists so a caller can decide to recover (via request_recheck)
+ * instead of pausing — without re-parsing the message.
+ *
+ * Exported for handleAdvance's auto-recheck fallback and for tests.
+ */
+export function analyzeVerifyAdvance(
+  session: {
+    verifyChecks: { label: string; kind?: VerifyKind }[];
+  },
+  decision: OrchestratorDecision,
+): {
+  ok: boolean;
+  missing: string[];
+  unknown: string[];
+  passedWithoutEvidence: { label: string; kind: VerifyKind }[];
+  behavioralPassesMissingDisclosure: string[];
+  behavioralPassesWithBoundaryMock: string[];
+} {
+  const results = decision.checkResults ?? [];
+  const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
+  const resultLabels = new Set(results.map((r) => r.label));
+  const kindByLabel = new Map<string, VerifyKind>(
+    session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
+  );
+
+  const missing = session.verifyChecks
+    .filter((c) => !resultLabels.has(c.label))
+    .map((c) => c.label);
+
+  const unknown = results
+    .filter((r) => !sessionLabels.has(r.label))
+    .map((r) => r.label);
+
+  const passedWithoutEvidence: { label: string; kind: VerifyKind }[] = [];
+  for (const r of results) {
+    if (!r.passed) continue;
+    const kind = kindByLabel.get(r.label) ?? "static";
+    if (validateEvidenceForKind(r.evidence, kind) !== null) {
+      passedWithoutEvidence.push({ label: r.label, kind });
+    }
+  }
+
+  const behavioralPassesMissingDisclosure: string[] = [];
+  const behavioralPassesWithBoundaryMock: string[] = [];
+  const hasIntegrationPass = results.some(
+    (r) => r.passed && kindByLabel.get(r.label) === "integration",
+  );
+  for (const r of results) {
+    if (!r.passed) continue;
+    if (kindByLabel.get(r.label) !== "behavioral") continue;
+    const mocks = extractMocksFromEvidence(r.evidence ?? "");
+    if (mocks === null) {
+      behavioralPassesMissingDisclosure.push(r.label);
+      continue;
+    }
+    if (mocks.some(mockCrossesBoundary) && !hasIntegrationPass) {
+      behavioralPassesWithBoundaryMock.push(r.label);
+    }
+  }
+
+  const ok =
+    missing.length === 0 &&
+    unknown.length === 0 &&
+    passedWithoutEvidence.length === 0 &&
+    behavioralPassesMissingDisclosure.length === 0 &&
+    behavioralPassesWithBoundaryMock.length === 0;
+
+  return {
+    ok,
+    missing,
+    unknown,
+    passedWithoutEvidence,
+    behavioralPassesMissingDisclosure,
+    behavioralPassesWithBoundaryMock,
+  };
+}
+
+/**
+ * Compose a `request_recheck` prompt that asks Claude Code to re-state
+ * evidence for specific items in the exact form each item's [kind]
+ * requires. Used by handleAdvance to auto-recover from format-only
+ * validator pauses instead of halting the run.
+ *
+ * The prompt is deliberately short and form-focused:
+ *   - names each item by its label
+ *   - gives the evidence-shape snippet for its kind
+ *   - tells Claude Code NOT to re-do other items
+ */
+function composeFormatRecheckPrompt(
+  items: { label: string; kind: VerifyKind }[],
+  missingDisclosureLabels: string[],
+): string {
+  const lines: string[] = [];
+  lines.push(
+    "A few verify items came back with evidence in the wrong form. Re-state ONLY the items below — do NOT re-do any other items.",
+  );
+  lines.push("");
+  let n = 0;
+  for (const { label, kind } of items) {
+    n++;
+    lines.push(`${n}. [${kind}] ${label}`);
+    switch (kind) {
+      case "static":
+        lines.push(`   Form: {file}:{lines} — \`{quoted code}\``);
+        break;
+      case "side-effect":
+        lines.push(`   Form: $ {command} → "{quoted output}"`);
+        break;
+      case "behavioral":
+        lines.push(
+          `   Form: $ {test command} → "{quoted PASS/assertion line}" · mocks={comma list or "none"}`,
+        );
+        break;
+      case "integration":
+        lines.push(
+          `   Form: caller={file}:{lines} · handler={file}:{lines} · $ {real command} → "{quoted output}"`,
+        );
+        break;
+    }
+  }
+  for (const label of missingDisclosureLabels) {
+    if (items.some((i) => i.label === label)) continue;
+    n++;
+    lines.push(
+      `${n}. [behavioral] ${label}`,
+    );
+    lines.push(
+      `   Missing mock disclosure — append \` · mocks={comma list or "none"}\` to your prior evidence line. Keep the rest verbatim.`,
+    );
+  }
+  lines.push("");
+  lines.push("Emit one corrected line per item, in the format shown. End with `Verified X/Y | PASS n · FAIL n · SKIPPED n`.");
+  return lines.join("\n");
+}
+
 async function handleAdvance(decision: OrchestratorDecision, previousPhase?: SelfDrivePhase | null): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
@@ -1284,9 +1631,77 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // evidence and selectively mark only items the orchestrator confirmed.
   // Advancing from test/commit phases doesn't carry a per-check verdict —
   // checks must already be marked from the preceding verify pass.
-  if (session && previousPhase === "verifying") {
-    const gateError = validateVerifyAdvance(session, decision);
-    if (gateError) {
+  //
+  // "rechecking" is ALSO a verify-class phase: a decision returned after
+  // an auto-recheck is semantically a verify decision (the orchestrator
+  // evaluated the merged verifier+recheck response). Without treating it
+  // as such, the checks would never get ticked on the recheck path and
+  // attemptMarkSessionComplete would reject with "checks-incomplete",
+  // surfacing as a confusing "unexpected state" pause to the user.
+  const fromVerifyClass = previousPhase === "verifying" || previousPhase === "rechecking";
+  if (session && fromVerifyClass) {
+    const analysis = analyzeVerifyAdvance(session, decision);
+    if (!analysis.ok) {
+      const gateError = validateVerifyAdvance(session, decision) ?? "structural validator mismatch";
+
+      // Recoverable vs unrecoverable objections.
+      //   Recoverable (fixable by re-stating evidence):
+      //     - passedWithoutEvidence       (wrong shape for the kind)
+      //     - behavioralPassesMissingDisclosure  (no mocks= tag)
+      //   Unrecoverable (genuine verdict problem — needs a human or fix):
+      //     - missing                     (verifier skipped items)
+      //     - unknown                     (fabricated labels)
+      //     - behavioralPassesWithBoundaryMock (contract violation, not format)
+      const hasUnrecoverable =
+        analysis.missing.length > 0 ||
+        analysis.unknown.length > 0 ||
+        analysis.behavioralPassesWithBoundaryMock.length > 0;
+
+      const recheckableItems = [
+        ...analysis.passedWithoutEvidence,
+        ...analysis.behavioralPassesMissingDisclosure
+          .filter((label) => !analysis.passedWithoutEvidence.some((p) => p.label === label))
+          .map((label) => ({ label, kind: "behavioral" as const })),
+      ];
+
+      const settings = useSettingsStore.getState().settings;
+      const recheckEnabled = settings.selfDriveEnableRecheckLoop ?? true;
+      const currentState = useSelfDriveStore.getState();
+      const roundsRemaining = MAX_RECHECK_ROUNDS - currentState.recheckRoundsUsed;
+      const eligibleForThisRound = recheckableItems.filter(
+        (it) => (currentState.rechecksPerItem[it.label] ?? 0) < MAX_RECHECKS_PER_ITEM,
+      );
+
+      if (
+        !hasUnrecoverable &&
+        recheckEnabled &&
+        roundsRemaining > 0 &&
+        eligibleForThisRound.length > 0
+      ) {
+        // Auto-recover: instead of pausing, synthesize a request_recheck
+        // decision that asks Claude Code to re-state only the malformed
+        // items in the required shape. handleRecheck enforces per-item
+        // and per-round caps defensively.
+        addLogEntry(
+          sessionIndex,
+          "verifying",
+          `Validator flagged format-only issues (${gateError}) — auto-requesting recheck for ${eligibleForThisRound.length} item(s)`,
+        );
+        const recheckDecision: OrchestratorDecision = {
+          action: "request_recheck",
+          summary: `Auto-recheck: ${eligibleForThisRound.length} item(s) need re-stated evidence`,
+          confidence: "medium",
+          recheckItems: eligibleForThisRound.map((i) => i.label),
+          recheckPrompt: composeFormatRecheckPrompt(
+            eligibleForThisRound,
+            analysis.behavioralPassesMissingDisclosure,
+          ),
+          checkResults: decision.checkResults,
+        };
+        await handleRecheck(recheckDecision);
+        return;
+      }
+
       addLogEntry(sessionIndex, "verifying", `Advance rejected: ${gateError}`);
       handlePause(
         `Self-Drive halted: verifier/orchestrator did not produce evidence for all checks (${gateError}). Review the run log and continue manually.`,
@@ -1371,6 +1786,16 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   addLogEntry(sessionIndex, "advancing", `Session ${sessionIndex} complete`);
   showToast(`Session ${sessionIndex} verified`, "success");
 
+  // Session advanced — clear recheck bookkeeping so the next session
+  // starts with a fresh budget and no stale verifier responses.
+  useSelfDriveStore.setState({
+    recheckRoundsUsed: 0,
+    rechecksPerItem: {},
+    originalVerifierResponse: null,
+    recheckResponses: [],
+    pinnedCheckResults: [],
+  });
+
   // Re-read config from settings (user may have toggled options mid-run)
   const liveConfig = getConfigFromSettings();
 
@@ -1433,6 +1858,14 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
     currentPhase: isRecovering ? "recovering" : "fixing",
     fixAttempt,
     previousFixPrompts: [...state.previousFixPrompts, decision.fixPrompt || ""],
+    // The code is about to change. The recheck loop's stashed
+    // verifier response no longer matches reality — clear it so the next
+    // verifying turn starts a fresh cycle.
+    originalVerifierResponse: null,
+    recheckResponses: [],
+    recheckRoundsUsed: 0,
+    rechecksPerItem: {},
+    pinnedCheckResults: [],
   });
 
   addLogEntry(
@@ -1445,6 +1878,112 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
 
   showToast(`${isRecovering ? "Retrying recovery" : "Fix applied, re-checking"}... (${fixAttempt}/${state.maxFixAttempts})`, "info");
   await sendMessageToSession(decision.fixPrompt!);
+}
+
+/**
+ * Handle an orchestrator `request_recheck` decision: ask Claude Code to
+ * re-state evidence for specific verify items, and prepare Self-Drive
+ * to evaluate the follow-up under verify rules.
+ *
+ * Guards (all enforced here — the orchestrator doesn't self-gatekeep):
+ *   - Feature flag (settings.selfDrive.enableRecheckLoop). When off,
+ *     request_recheck decisions fall through to pause.
+ *   - `recheckRoundsUsed < MAX_RECHECK_ROUNDS`. Hit the cap → pause.
+ *   - Each item in `decision.recheckItems` must not already have been
+ *     rechecked this session (`rechecksPerItem[label] < MAX_RECHECKS_PER_ITEM`).
+ *     Any item over the cap is stripped; if nothing remains → pause.
+ *   - `decision.recheckPrompt` must be non-empty and ≤ 2000 chars
+ *     (parser already enforced; this is defence-in-depth).
+ *
+ * Pins `decision.checkResults` (the per-item verdict the orchestrator
+ * made THIS round) into state so items NOT in recheckItems keep their
+ * earlier verdict when the orchestrator re-evaluates. Without this
+ * pin, the next round's orchestrator might lose visibility into which
+ * items were already accepted.
+ */
+async function handleRecheck(decision: OrchestratorDecision): Promise<void> {
+  const state = useSelfDriveStore.getState();
+  const sessionIndex = state.currentSessionIndex!;
+  const settings = useSettingsStore.getState().settings;
+  const enabled = settings.selfDriveEnableRecheckLoop ?? true;
+
+  if (!enabled) {
+    handlePause(
+      `Orchestrator requested a recheck (${decision.summary}), but the recheck loop is disabled in settings — pausing for user review.`,
+      decision,
+    );
+    return;
+  }
+
+  if (state.recheckRoundsUsed >= MAX_RECHECK_ROUNDS) {
+    handlePause(
+      `Orchestrator exhausted recheck budget (${MAX_RECHECK_ROUNDS} rounds) — pausing for user review. ${decision.summary}`,
+      decision,
+    );
+    return;
+  }
+
+  const requested = decision.recheckItems ?? [];
+  const alreadyRechecked: string[] = [];
+  const eligible: string[] = [];
+  for (const label of requested) {
+    const count = state.rechecksPerItem[label] ?? 0;
+    if (count >= MAX_RECHECKS_PER_ITEM) {
+      alreadyRechecked.push(label);
+    } else {
+      eligible.push(label);
+    }
+  }
+
+  if (eligible.length === 0) {
+    const detail = alreadyRechecked.length > 0
+      ? `items already rechecked once: ${alreadyRechecked.join(", ")}`
+      : "no recheck items supplied";
+    handlePause(
+      `Recheck refused (${detail}) — pausing for user review. ${decision.summary}`,
+      decision,
+    );
+    return;
+  }
+
+  const prompt = (decision.recheckPrompt ?? "").trim();
+  if (prompt === "") {
+    handlePause(
+      `Recheck refused: orchestrator supplied no prompt text. ${decision.summary}`,
+      decision,
+    );
+    return;
+  }
+
+  // Update counters and pin the current verdict before sending.
+  const nextRechecksPerItem = { ...state.rechecksPerItem };
+  for (const label of eligible) {
+    nextRechecksPerItem[label] = (nextRechecksPerItem[label] ?? 0) + 1;
+  }
+
+  useSelfDriveStore.setState({
+    currentPhase: "rechecking",
+    recheckRoundsUsed: state.recheckRoundsUsed + 1,
+    rechecksPerItem: nextRechecksPerItem,
+    pinnedCheckResults: decision.checkResults ?? state.pinnedCheckResults,
+  });
+
+  const skippedNote = alreadyRechecked.length > 0
+    ? ` (skipped ${alreadyRechecked.length} item${alreadyRechecked.length === 1 ? "" : "s"} already rechecked: ${alreadyRechecked.join(", ")})`
+    : "";
+  addLogEntry(
+    sessionIndex,
+    "verifying",
+    `Recheck round ${state.recheckRoundsUsed + 1}/${MAX_RECHECK_ROUNDS}: ${eligible.length} item${eligible.length === 1 ? "" : "s"} — ${decision.summary}${skippedNote}`,
+    decision,
+    prompt,
+  );
+  showToast(
+    `Re-checking ${eligible.length} item${eligible.length === 1 ? "" : "s"}... (${state.recheckRoundsUsed + 1}/${MAX_RECHECK_ROUNDS})`,
+    "info",
+  );
+
+  await sendMessageToSession(prompt);
 }
 
 async function handleBuildCheck(decision: OrchestratorDecision): Promise<void> {
@@ -1820,6 +2359,12 @@ async function sendMessageToSession(prompt: string): Promise<void> {
     isStreaming: false,
     isSelfDrive: true,
   });
+  // Record the prompt's message id so handleTurnComplete can scan forward
+  // from it and collect ALL subsequent assistant messages — not just the
+  // last one. Fixes the "verifier response truncated — only item 5 visible"
+  // bug: verifiers often emit one assistant message per item (each wrapped
+  // around a tool-use call), so `lastAssistant` alone loses items 1..N-1.
+  useSelfDriveStore.setState({ lastSelfDrivePromptMessageId: msgId });
   useSessionStore.getState().setSessionBusy(sessionId, true);
 
   try {

@@ -66,9 +66,14 @@ export default function RightPanel() {
   useEffect(() => {
     const el = tabHeaderRef.current;
     if (!el) return;
-    // Measure once after mount
+    // Re-measure synchronously whenever this effect runs. In particular,
+    // when `hasGuide` flips from false→true (project with a populated
+    // guide opens after the first render), React appends a 6th tab
+    // button — but ResizeObserver only fires on elements it's already
+    // observing, so without re-running this effect the new button would
+    // never be measured and the panel would stay clamped to the 5-tab
+    // minimum. Re-running via the `hasGuide` dep picks up the new child.
     measureTabWidth();
-    // Re-measure if font size changes (observed via any child resizing)
     const ro = new ResizeObserver(measureTabWidth);
     for (const child of el.children) {
       ro.observe(child);
@@ -76,7 +81,7 @@ export default function RightPanel() {
     // Also observe the container itself for panel resize
     ro.observe(el);
     return () => ro.disconnect();
-  }, [measureTabWidth]);
+  }, [measureTabWidth, hasGuide]);
 
   // Auto-dismiss activity detail panel on tab change
   useEffect(() => {

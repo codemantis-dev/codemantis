@@ -13,6 +13,7 @@ interface SelfDriveTabProps {
   runBuildCheck: boolean;
   runTests: boolean;
   autoCommit: boolean;
+  enableRecheckLoop: boolean;
   apiKeys: Record<string, string>;
   onProviderChange: (v: string) => void;
   onModelChange: (v: string) => void;
@@ -20,6 +21,7 @@ interface SelfDriveTabProps {
   onRunBuildCheckChange: (v: boolean) => void;
   onRunTestsChange: (v: boolean) => void;
   onAutoCommitChange: (v: boolean) => void;
+  onEnableRecheckLoopChange: (v: boolean) => void;
 }
 
 const PROVIDERS = [
@@ -44,6 +46,7 @@ export default function SelfDriveTab({
   runBuildCheck,
   runTests,
   autoCommit,
+  enableRecheckLoop,
   apiKeys,
   onProviderChange,
   onModelChange,
@@ -51,6 +54,7 @@ export default function SelfDriveTab({
   onRunBuildCheckChange,
   onRunTestsChange,
   onAutoCommitChange,
+  onEnableRecheckLoopChange,
 }: SelfDriveTabProps) {
   const models = getModelOptions(provider);
   const availableProviders = PROVIDERS.filter((p) => !!apiKeys[p.id]?.trim());
@@ -172,6 +176,22 @@ export default function SelfDriveTab({
               <div
                 className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
                   autoCommit ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </FieldRow>
+
+          {/* Recheck loop */}
+          <FieldRow label="Recheck loop (instead of pausing on format gaps)">
+            <button
+              onClick={() => onEnableRecheckLoopChange(!enableRecheckLoop)}
+              className={`w-10 h-5 rounded-full transition-colors relative ${
+                enableRecheckLoop ? "bg-accent" : "bg-bg-elevated"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                  enableRecheckLoop ? "translate-x-5" : "translate-x-0.5"
                 }`}
               />
             </button>
