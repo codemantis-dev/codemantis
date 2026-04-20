@@ -2485,6 +2485,83 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     expect(passedActions[0].action).toBe("insert_note_classification");
   });
 
+  it("SKIPS the parity check on a handler-authoring session (handler file is in session files)", async () => {
+    // Regression for the Session-3-style incident: when the session
+    // IMPLEMENTS the handlers (adds action branches to worker-data-write),
+    // callers don't exist yet. Running parity produces a wall of false
+    // negatives because deriveCallerPath guesses wrong — it picks the
+    // first file's directory, which might be a completely different
+    // module (e.g. worker-data-read). The gate should skip entirely.
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "all 13 actions present", checked: true }],
+            // Session modifies BOTH read and write; write is where the
+            // handlers being authored live. files[0] is read/index.ts —
+            // the exact ordering that broke deriveCallerPath in the wild.
+            files: [
+              "supabase/functions/worker-data-read/index.ts",
+              "supabase/functions/worker-data-write/index.ts",
+            ],
+            crossSystemActions: [
+              {
+                action: "insert_implementation_guide",
+                handler: "supabase/functions/worker-data-write/index.ts",
+              },
+              {
+                action: "insert_guide_session",
+                handler: "supabase/functions/worker-data-write/index.ts",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(true);
+    // Parity command must NOT have been invoked — this is the whole point.
+    expect(mockVerifyActionParity).not.toHaveBeenCalled();
+    expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("done");
+  });
+
+  it("still runs parity on a CALLER session (handler file NOT in session files)", async () => {
+    // Counterpart to the handler-authoring test — when the session is the
+    // caller (handler lives in a different, not-yet-modified file), the
+    // gate must still fire. This is the original "mock-only PASS" defence.
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "emit_audit_log",
+        callerPresent: true,
+        handlerPresent: false,
+        handlerStubFree: false,
+        status: "FAIL",
+        detail: "handler missing",
+      },
+    ]);
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "caller writes log", checked: true }],
+            // Caller side only — handler lives elsewhere.
+            files: ["producers/audit.ts"],
+            crossSystemActions: [
+              { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(false);
+    expect(mockVerifyActionParity).toHaveBeenCalledTimes(1);
+  });
+
   it("allows completion when parity check PASSes for all actions", async () => {
     mockVerifyActionParity.mockResolvedValueOnce([
       {

@@ -958,9 +958,23 @@ export async function attemptMarkSessionComplete(
     target.verifyChecks.every((c) => c.checked);
   if (!allChecked) return { ok: false, reason: "checks-incomplete" };
 
-  // Parity gate — only when the session declared cross-system actions.
+  // Parity gate — only when the session declared cross-system actions
+  // AND this is NOT a handler-authoring session.
+  //
+  // A handler-authoring session is one where every declared handler is
+  // a file this session itself modifies. In that case the callers don't
+  // exist yet (they land in a later session), so running parity against
+  // an inferred caller path produces false negatives. The session's
+  // own verify checks still confirm each handler branch was implemented,
+  // so the parity gate is redundant here and should be skipped.
+  //
+  // A follow-up CALLER session will declare the same actions with a
+  // different (non-handler) caller context, and parity will fire there.
   const actions = target.crossSystemActions ?? [];
-  if (actions.length > 0 && projectPath) {
+  const handlerAuthoring =
+    actions.length > 0 && actions.every((a) => isHandlerInSessionFiles(a.handler, target.files));
+
+  if (actions.length > 0 && projectPath && !handlerAuthoring) {
     try {
       const results = await verifyActionParity(
         projectPath,
@@ -1023,6 +1037,33 @@ function deriveCallerPath(files: string[], _action: string): string {
   const first = files[0];
   const slash = first.lastIndexOf("/");
   return slash > 0 ? first.slice(0, slash) : first;
+}
+
+/**
+ * True when the declared handler path points to (or inside) one of the
+ * files this session itself modifies. That marks it as a handler-
+ * authoring session — the handler code is being WRITTEN here, so there
+ * are no callers to check yet.
+ *
+ * Handles both `path/to/file.ts` and `path/to/file.ts::handleFoo` forms
+ * by stripping any `::symbol` suffix from the handler first. Tolerant of
+ * leading `./` on either side.
+ */
+function isHandlerInSessionFiles(handlerPath: string, files: string[]): boolean {
+  if (files.length === 0) return false;
+  const handlerFile = handlerPath.split("::")[0].replace(/^\.\//, "").trim();
+  if (!handlerFile) return false;
+  for (const raw of files) {
+    const f = raw.replace(/^\.\//, "").trim();
+    if (!f) continue;
+    if (f === handlerFile) return true;
+    // Directory containment either way: file is "a/b/c.ts", handler is
+    // declared as "a/b/" — or vice versa.
+    if (handlerFile.startsWith(f + "/") || f.startsWith(handlerFile + "/")) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ── Event listeners ─────────────────────────────────────────────────
