@@ -98,6 +98,11 @@ import {
   assessVerifyAdvance,
   fuzzyLabelMatch,
   attemptMarkSessionComplete,
+  handleVerify,
+  isSelfDriveOwningProject,
+  toggleVerifyCheckForSession,
+  markPromptSentForSession,
+  markVerifyRequestedForSession,
 } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
@@ -810,6 +815,110 @@ describe("selfDriveStore", () => {
         expect(session1.verifyChecks[1].checked).toBe(true);
         expect(session1.status).toBe("done");
       });
+    });
+
+    // H2 regression — skipped items advance cleanly.
+    // Before the fix, an orchestrator that returned one check as
+    // { passed:false, skipped:true } (e.g. optional integration test,
+    // no credentials) left the check unticked, which tripped the
+    // "stillUnchecked > 0" gate and paused forever. Now skipped items
+    // are treated as satisfied.
+    it("accepts skipped:true items as satisfied and advances without looping (H2)", async () => {
+      setupReadyState();
+
+      mockCallOrchestrator.mockResolvedValue({
+        action: "advance",
+        summary: "1 check skipped; others pass",
+        confidence: "high",
+        checkResults: [
+          { label: "Check A", passed: true, evidence: "src/a.ts:5 — `export const a = 1`" },
+          { label: "Check B", passed: false, skipped: true, reason: "optional — no credentials available" },
+        ],
+      });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+      const emit = captureListenCallback();
+      emit(makeTurnCompleteEvent());
+
+      await vi.waitFor(() => {
+        // Session 1 should be done, Session 2 should be active.
+        expect(useSelfDriveStore.getState().currentSessionIndex).toBe(2);
+      });
+      const guide = useGuideStore.getState().guide!;
+      expect(guide.sessions[0].verifyChecks[0].checked).toBe(true);
+      expect(guide.sessions[0].verifyChecks[1].checked).toBe(true);
+      expect(guide.sessions[0].status).toBe("done");
+      expect(useSelfDriveStore.getState().status).toBe("running");
+    });
+
+    // H3 regression — matched-but-failed items auto-request a recheck
+    // instead of pausing immediately. Previously only unmatched labels
+    // could trigger recheck, so a matched passed:false item skipped
+    // straight to pause with no automation recovery.
+    it("auto-requests a recheck when the orchestrator emits advance with a matched-but-failed item (H3)", async () => {
+      setupReadyState();
+
+      // First orchestrator call: advance with one item passed:false (not
+      // skipped, not unmatched). Should trigger recheck, not immediate pause.
+      mockCallOrchestrator.mockResolvedValueOnce({
+        action: "advance",
+        summary: "One item failed",
+        confidence: "medium",
+        checkResults: [
+          { label: "Check A", passed: true, evidence: "src/a.ts:5 — `ok`" },
+          { label: "Check B", passed: false, reason: "evidence missing" },
+        ],
+      });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+      const emit = captureListenCallback();
+      emit(makeTurnCompleteEvent());
+
+      await vi.waitFor(() => {
+        expect(useSelfDriveStore.getState().currentPhase).toBe("rechecking");
+      });
+
+      // Recheck counters advanced — one eligible item.
+      const state = useSelfDriveStore.getState();
+      expect(state.recheckRoundsUsed).toBe(1);
+      expect(state.rechecksPerItem["Check B"]).toBe(1);
+      // Did NOT pause.
+      expect(state.status).toBe("running");
+    });
+
+    // H2 log — skipped items render as SKIP in the summary, not FAIL.
+    it("renders skipped items as SKIP in the advance log (H2 cosmetic)", async () => {
+      setupReadyState();
+
+      mockCallOrchestrator.mockResolvedValue({
+        action: "advance",
+        summary: "Mix of pass and skip",
+        confidence: "high",
+        checkResults: [
+          { label: "Check A", passed: true, evidence: "src/a.ts:5 — `ok`" },
+          { label: "Check B", passed: false, skipped: true, reason: "optional" },
+        ],
+      });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.setState({ currentPhase: "verifying" });
+
+      const emit = captureListenCallback();
+      emit(makeTurnCompleteEvent());
+
+      await vi.waitFor(() => {
+        expect(useSelfDriveStore.getState().currentSessionIndex).toBe(2);
+      });
+
+      const log = useSelfDriveStore.getState().runLog;
+      const advancingEntry = log.find(
+        (e) => e.phase === "advancing" && e.summary.includes("SKIP: Check B"),
+      );
+      expect(advancingEntry).toBeDefined();
     });
   });
 
@@ -2082,7 +2191,7 @@ describe("assessVerifyAdvance — structural-only gate", () => {
     expect(a.structuralError).toMatch(/session labels have no match/i);
   });
 
-  it("blocks when no checkResult has passed:true on an advance", () => {
+  it("blocks when no checkResult is passed:true or skipped:true on an advance", () => {
     const decision = makeDecision({
       checkResults: [
         { label: "Check A", passed: false, reason: "x" },
@@ -2090,7 +2199,18 @@ describe("assessVerifyAdvance — structural-only gate", () => {
       ],
     });
     const a = assessVerifyAdvance(session, decision);
-    expect(a.structuralError).toMatch(/no checkResults entry has passed:true/i);
+    expect(a.structuralError).toMatch(/no checkResults entry is passed:true or skipped:true/i);
+  });
+
+  it("accepts an all-skipped verdict as structurally valid (skipped counts as satisfied)", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: false, skipped: true, reason: "optional, no creds" },
+        { label: "Check B", passed: false, skipped: true, reason: "optional, no creds" },
+      ],
+    });
+    const a = assessVerifyAdvance(session, decision);
+    expect(a.structuralError).toBeNull();
   });
 
   it("emits advisory warnings for fuzzy-matched drift — does NOT block", () => {
@@ -2394,8 +2514,9 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("done");
   });
 
-  it("treats a parity invocation that throws as FAIL (fails closed)", async () => {
+  it("retries once on a parity invocation that throws, and returns 'parity-errored' (not 'parity-failed') after the second throw so the caller can distinguish check-broken from real parity FAIL", async () => {
     mockVerifyActionParity.mockRejectedValueOnce(new Error("rg binary missing"));
+    mockVerifyActionParity.mockRejectedValueOnce(new Error("rg binary missing again"));
 
     seed(
       makeGuide({
@@ -2414,11 +2535,45 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
 
     const outcome = await attemptMarkSessionComplete(1);
     expect(outcome.ok).toBe(false);
-    expect((outcome as { reason: string }).reason).toBe("parity-failed");
-    // Synthesised FAIL explains the situation.
+    expect((outcome as { reason: string }).reason).toBe("parity-errored");
+    // Retried exactly once before giving up.
+    expect(mockVerifyActionParity).toHaveBeenCalledTimes(2);
     const results = (outcome as { results: { status: string; detail: string }[] }).results;
     expect(results[0].status).toBe("FAIL");
-    expect(results[0].detail).toMatch(/errored/i);
+    expect(results[0].detail).toMatch(/errored twice/i);
+  });
+
+  it("recovers when the first parity call throws but the retry succeeds (transient I/O)", async () => {
+    mockVerifyActionParity.mockRejectedValueOnce(new Error("transient fs blip"));
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "emit_audit_log",
+        callerPresent: true,
+        handlerPresent: true,
+        handlerStubFree: true,
+        status: "PASS",
+        detail: "OK",
+      },
+    ]);
+
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: ["producers/audit.ts"],
+            crossSystemActions: [
+              { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(true);
+    expect(mockVerifyActionParity).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -2891,5 +3046,197 @@ describe("handleRecheck — request_recheck loop", () => {
     expect(state.originalVerifierResponse).toBeNull();
     expect(state.recheckResponses).toEqual([]);
     expect(state.pinnedCheckResults).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// H4 — handleVerify pauses (instead of silently returning) when the
+// pinned guide or session is missing. Before the fix, a missing guide
+// caused handleVerify to return with `status:"running"` still set and
+// no prompt sent, producing a permanent silent hang with the spinner on.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("H4 — handleVerify pauses on missing guide/session instead of silent hang", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListen.mockImplementation(() => Promise.resolve(vi.fn()));
+    useGuideStore.setState({ guide: null });
+    useSelfDriveStore.setState({
+      status: "running",
+      currentPhase: "verifying",
+      currentSessionIndex: 1,
+      guide: null,
+      projectPath: "/test",
+      sessionId: SESSION_ID,
+      activeBlocker: null,
+      runLog: [],
+      recheckRoundsUsed: 0,
+      rechecksPerItem: {},
+      originalVerifierResponse: null,
+      recheckResponses: [],
+      pinnedCheckResults: [],
+    });
+  });
+
+  it("pauses with a clear reason when the pinned guide is null", async () => {
+    await handleVerify();
+
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("paused");
+    expect(state.pauseReason).toMatch(/pinned guide missing/i);
+    // No prompt was sent — silent-hang defence.
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("pauses with a clear reason when the session is not in the pinned guide", async () => {
+    useSelfDriveStore.setState({
+      guide: makeGuide(),
+      currentSessionIndex: 99, // doesn't exist
+    });
+
+    await handleVerify();
+
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("paused");
+    expect(state.pauseReason).toMatch(/Session 99 not found/i);
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// H5 — resume() must NOT re-enter enterRecoveryPhase when the blocker is
+// already in "verifying" status. Before the fix, a blocker hydrated from
+// disk mid-recovery (e.g. after an app restart) would re-send the
+// recovery prompt on every Resume click, flipping state backward.
+// ─────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────
+// H1 — UI helpers (toggleVerifyCheckForSession etc.) mirror mutations
+// into BOTH selfDriveStore.guide and useGuideStore.guide when the
+// projects match. GuidePanel uses these when Self-Drive owns the active
+// project; without them, the pinned guide desyncs and resume() loops.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("H1 — Self-Drive guide helpers mirror both stores", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListen.mockImplementation(() => Promise.resolve(vi.fn()));
+  });
+
+  it("isSelfDriveOwningProject returns true only when Self-Drive is running/paused on the given project", () => {
+    useSelfDriveStore.setState({
+      status: "running",
+      projectPath: "/test",
+    });
+    expect(isSelfDriveOwningProject("/test")).toBe(true);
+    expect(isSelfDriveOwningProject("/other")).toBe(false);
+    expect(isSelfDriveOwningProject(null)).toBe(false);
+
+    useSelfDriveStore.setState({ status: "paused" });
+    expect(isSelfDriveOwningProject("/test")).toBe(true);
+
+    useSelfDriveStore.setState({ status: "idle" });
+    expect(isSelfDriveOwningProject("/test")).toBe(false);
+  });
+
+  it("toggleVerifyCheckForSession mutates both guideStore AND selfDriveStore when paths match", () => {
+    const guide = makeGuide();
+    useGuideStore.setState({ guide });
+    useSelfDriveStore.setState({ guide, projectPath: "/test" });
+
+    toggleVerifyCheckForSession(1, "v-1-0");
+
+    const sdGuide = useSelfDriveStore.getState().guide!;
+    const uiGuide = useGuideStore.getState().guide!;
+    expect(sdGuide.sessions[0].verifyChecks[0].checked).toBe(true);
+    expect(uiGuide.sessions[0].verifyChecks[0].checked).toBe(true);
+    // Same reference — both point at the mutated guide.
+    expect(sdGuide).toBe(uiGuide);
+  });
+
+  it("markPromptSentForSession flips promptSent in both stores", () => {
+    const guide = makeGuide();
+    useGuideStore.setState({ guide });
+    useSelfDriveStore.setState({ guide, projectPath: "/test" });
+
+    markPromptSentForSession(1);
+
+    expect(useSelfDriveStore.getState().guide!.sessions[0].promptSent).toBe(true);
+    expect(useGuideStore.getState().guide!.sessions[0].promptSent).toBe(true);
+  });
+
+  it("markVerifyRequestedForSession flips verifyRequested in both stores", () => {
+    const guide = makeGuide();
+    useGuideStore.setState({ guide });
+    useSelfDriveStore.setState({ guide, projectPath: "/test" });
+
+    markVerifyRequestedForSession(1);
+
+    expect(useSelfDriveStore.getState().guide!.sessions[0].verifyRequested).toBe(true);
+    expect(useGuideStore.getState().guide!.sessions[0].verifyRequested).toBe(true);
+  });
+
+  it("does NOT mirror into guideStore when the UI is looking at a different project", () => {
+    const sdGuide = makeGuide({ projectPath: "/test" });
+    const uiGuide = makeGuide({ projectPath: "/other", id: "guide-other" });
+    useGuideStore.setState({ guide: uiGuide });
+    useSelfDriveStore.setState({ guide: sdGuide, projectPath: "/test" });
+
+    toggleVerifyCheckForSession(1, "v-1-0");
+
+    expect(useSelfDriveStore.getState().guide!.sessions[0].verifyChecks[0].checked).toBe(true);
+    // UI guide for a different project must NOT be clobbered.
+    expect(useGuideStore.getState().guide!.sessions[0].verifyChecks[0].checked).toBe(false);
+    expect(useGuideStore.getState().guide!.projectPath).toBe("/other");
+  });
+});
+
+describe("H5 — resume skips recovery re-entry for 'verifying' blockers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListen.mockImplementation(() => Promise.resolve(vi.fn()));
+    setupReadyState();
+  });
+
+  it("does NOT re-enter enterRecoveryPhase when resuming a blocker already in 'verifying'", async () => {
+    // Simulate: previous recovery turn already sent (blocker.status="verifying"),
+    // then app paused. Resume click should fall through to normal session
+    // flow — NOT re-send the recovery prompt.
+    useSelfDriveStore.setState({
+      status: "paused",
+      currentPhase: "recovering",
+      currentSessionIndex: 1,
+      projectPath: "/test",
+      sessionId: SESSION_ID,
+      guide: makeGuide(),
+      activeBlocker: {
+        id: "b-1",
+        sessionIndex: 1,
+        detectedAt: Date.now(),
+        kind: "credentials",
+        summary: "Needs API key",
+        detail: "Claude Code asked for a key.",
+        optionsOffered: [],
+        resolutionCriteria: "User provides key",
+        status: "verifying",
+        userResolution: "picked option 1",
+        prePauseLastMessageId: "msg-0",
+      },
+    });
+
+    await useSelfDriveStore.getState().resume();
+
+    // No recovery-verification prompt should have been re-sent.
+    // Allowed: the normal session-flow re-send (building/verifying), but
+    // NOT a recovery prompt. The recovery prompt is what Self-Drive
+    // composes in enterRecoveryPhase — assert its signature is absent.
+    const recoveryCalls = mockSendMessage.mock.calls.filter(
+      ([, prompt]) => typeof prompt === "string" && /evaluate.*blocker|resolution criteria/i.test(prompt),
+    );
+    expect(recoveryCalls.length).toBe(0);
+
+    // Blocker status should NOT have been bumped back to "user-decided".
+    const blockerAfter = useSelfDriveStore.getState().activeBlocker;
+    expect(blockerAfter?.status).toBe("verifying");
   });
 });

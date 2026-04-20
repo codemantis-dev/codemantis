@@ -57,6 +57,7 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
 - Each entry must be one of:
   - { label, passed: true, evidence: "..." } — see EVIDENCE KIND below for the preferred shape
   - { label, passed: false, reason: "{short reason}" } — when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
+  - { label, passed: false, skipped: true, reason: "{why skipped}" } — for OPTIONAL items that are legitimately not-applicable this run. Use ONLY when the session's verify list explicitly marks the item "(Optional...)", "(recommended but skippable)", or similar AND the skip reason is a genuine environmental gap (no credentials for a real-API integration test, credentials file absent, external service unreachable). Do NOT use skipped for items the verifier simply didn't run — those are passed:false with a clear reason. Skipped items are treated by the runtime as satisfied (they don't block advance) but still count toward coverage.
 - EVIDENCE KIND — preserve the verifier's evidence form. Each kind has a different legitimate shape; do not force one shape onto another.
   - "static" (default): {file}:{lines} — \`{quoted code}\`
     The evidence string contains ":" (the file:lines citation). Example:
@@ -158,9 +159,9 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
   - "I'll assume the pattern holds"
   - "LGTM" / "looks good" / "should work"
 - DECISION:
-  - action: "advance" is allowed ONLY when checkResults.length === number of VerifyCheck labels AND every entry is either passed:true (with evidence) or passed:false (with reason). Use when EVERY entry is passed:true.
-  - If any entry is passed:false AND fixAttempt < maxFixAttempts → action: "fix" with a fixPrompt that lists each failed label + its reason.
-  - If any entry is passed:false AND fixAttempt >= maxFixAttempts → action: "pause" with pauseReason summarizing the remaining failures.
+  - action: "advance" is allowed ONLY when checkResults.length === number of VerifyCheck labels AND every entry is one of: passed:true (with evidence), skipped:true (with reason), or passed:false (with reason). Use when EVERY entry is passed:true OR skipped:true — i.e. no real failures remain.
+  - If any entry is passed:false (NOT skipped) AND fixAttempt < maxFixAttempts → action: "fix" with a fixPrompt that lists each failed label + its reason.
+  - If any entry is passed:false (NOT skipped) AND fixAttempt >= maxFixAttempts → action: "pause" with pauseReason summarizing the remaining failures.
   - If you cannot produce a complete per-check verdict (coverage < full) → action: "pause" with pauseReason "orchestrator could not produce per-check evidence for all items" and confidence: "low".
 - "advance" is NOT a trust signal — it is a structured assertion that every check is confirmed with evidence. The system validates your checkResults and will reject "advance" if any passed:true entry lacks evidence appropriate for its kind.
 

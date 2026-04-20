@@ -5,7 +5,15 @@ import { useGuideStore } from "../../stores/guideStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useSelfDriveStore, useSelfDriveStatusForActiveProject } from "../../stores/selfDriveStore";
+import {
+  useSelfDriveStore,
+  useSelfDriveStatusForActiveProject,
+  isSelfDriveOwningProject,
+  toggleVerifyCheckForSession,
+  markPromptSentForSession,
+  markVerifyRequestedForSession,
+  attemptMarkSessionComplete,
+} from "../../stores/selfDriveStore";
 import { showToast } from "../../stores/toastStore";
 import { readSpecDocument } from "../../lib/tauri-commands";
 import GuideSessionCard from "./GuideSessionCard";
@@ -40,7 +48,77 @@ export default function GuidePanel() {
     }
   }, [activeProjectPath, loadGuideForProject]);
 
-  const handleMarkComplete = (sessionIndex: number) => {
+  // When Self-Drive owns this project, UI mutations must route through
+  // selfDriveStore helpers (which mirror both stores via applyGuideMutation).
+  // Otherwise `selfDriveStore.guide` stays stale and resume() loops back to
+  // the already-completed session. Route only when Self-Drive is paused/
+  // running for THIS project — otherwise fall through to the guideStore
+  // path which is correct for the idle case.
+  const routeThroughSelfDrive = (): boolean =>
+    !!activeProjectPath && isSelfDriveOwningProject(activeProjectPath);
+
+  const handleToggleVerifyCheck = (sessionIndex: number, checkId: string) => {
+    if (routeThroughSelfDrive()) {
+      toggleVerifyCheckForSession(sessionIndex, checkId);
+    } else {
+      toggleVerifyCheck(sessionIndex, checkId);
+    }
+  };
+
+  const handleMarkPromptSent = (sessionIndex: number) => {
+    if (routeThroughSelfDrive()) {
+      markPromptSentForSession(sessionIndex);
+    } else {
+      markPromptSent(sessionIndex);
+    }
+  };
+
+  const handleMarkVerifyRequested = (sessionIndex: number) => {
+    if (routeThroughSelfDrive()) {
+      markVerifyRequestedForSession(sessionIndex);
+    } else {
+      markVerifyRequested(sessionIndex);
+    }
+  };
+
+  const handleMarkComplete = async (sessionIndex: number) => {
+    if (routeThroughSelfDrive()) {
+      // Self-Drive path — use the async wrapper so the cross-system parity
+      // gate runs before flipping the session done. Surface each failure
+      // reason clearly so the user isn't left wondering why the click
+      // appeared to do nothing.
+      const outcome = await attemptMarkSessionComplete(sessionIndex);
+      if (!outcome.ok) {
+        if (outcome.reason === "checks-incomplete") {
+          showToast("Complete all verify checks before marking done.", "error");
+        } else if (outcome.reason === "parity-failed") {
+          const failed = outcome.results
+            .filter((r) => r.status !== "PASS")
+            .map((r) => `${r.action}: ${r.detail}`)
+            .join(" | ");
+          showToast(`Parity gate failed: ${failed}`, "error");
+        } else if (outcome.reason === "parity-errored") {
+          showToast(
+            "Parity check itself errored — this is not a code failure. Check ripgrep/workspace and retry.",
+            "error",
+          );
+        } else if (outcome.reason === "session-not-found") {
+          showToast("Session not found in pinned guide.", "error");
+        }
+        return;
+      }
+      const g = useSelfDriveStore.getState().guide;
+      if (g?.status === "completed") {
+        showToast("All sessions complete! Your implementation is done.", "success");
+      } else {
+        const nextSession = g?.sessions.find((s) => s.status === "active");
+        if (nextSession) {
+          showToast(`Session ${sessionIndex} complete! Next: Session ${nextSession.index}`, "success");
+        }
+      }
+      return;
+    }
+
     const success = markSessionComplete(sessionIndex);
     if (success) {
       const g = useGuideStore.getState().guide;
@@ -203,11 +281,13 @@ export default function GuidePanel() {
             specFilename={guide.specFilename}
             auditFilename={guide.auditFilename}
             onToggleVerifyCheck={(checkId) =>
-              toggleVerifyCheck(session.index, checkId)
+              handleToggleVerifyCheck(session.index, checkId)
             }
-            onMarkComplete={() => handleMarkComplete(session.index)}
-            onMarkPromptSent={() => markPromptSent(session.index)}
-            onMarkVerifyRequested={() => markVerifyRequested(session.index)}
+            onMarkComplete={() => {
+              void handleMarkComplete(session.index);
+            }}
+            onMarkPromptSent={() => handleMarkPromptSent(session.index)}
+            onMarkVerifyRequested={() => handleMarkVerifyRequested(session.index)}
           />
         ))}
       </div>

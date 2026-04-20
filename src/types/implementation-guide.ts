@@ -203,7 +203,16 @@ export interface OrchestratorDecision {
   testCommand?: string;
   pauseReason?: string;
   abortReason?: string;
-  checkResults?: { label: string; passed: boolean; reason?: string; evidence?: string }[];
+  /**
+   * Per-item verdict. `passed:true` with `evidence` = green tick.
+   * `passed:false` with `reason` = real failure (orchestrator should have
+   * emitted "fix" or "pause" instead of "advance", but defense-in-depth).
+   * `skipped:true` = the orchestrator judged the item as not-applicable
+   * for this session (e.g. optional integration test with no credentials
+   * available). Treated as satisfied by the advance gate — still counted
+   * toward coverage, but does NOT require `passed:true`.
+   */
+  checkResults?: { label: string; passed: boolean; skipped?: boolean; reason?: string; evidence?: string }[];
   /**
    * Labels of verify checks that need re-stated evidence. Only meaningful
    * when `action === "request_recheck"`. Each label MUST appear in the

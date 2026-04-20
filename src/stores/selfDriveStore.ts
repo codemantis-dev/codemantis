@@ -126,7 +126,7 @@ interface SelfDriveState {
   /** Ordered recheck responses from Claude Code, appended each time. */
   recheckResponses: string[];
   /** Per-item verdict carried forward across recheck rounds so unaffected items don't get lost. */
-  pinnedCheckResults: { label: string; passed: boolean; reason?: string; evidence?: string }[];
+  pinnedCheckResults: { label: string; passed: boolean; skipped?: boolean; reason?: string; evidence?: string }[];
 
   /**
    * ID of the most recent user message that Self-Drive itself sent
@@ -454,8 +454,21 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     // "user answered": (a) a picked option stored as blocker.userResolution,
     // or (b) chat messages that arrived after prePauseLastMessageId. If
     // neither exists we keep the pause — Resume is not silent wish-making.
+    //
+    // Exclude "verifying" — a recovery turn was ALREADY sent and we are
+    // waiting for Claude Code's response. Re-entering enterRecoveryPhase
+    // here would re-send the recovery prompt, confusing the orchestrator
+    // and flipping state backward. This path most often triggers after an
+    // app restart that caught the blocker mid-verification; the turn-
+    // complete listener (re-attached via startListeners above) will pick
+    // up the pending response naturally.
     const blocker = useSelfDriveStore.getState().activeBlocker;
-    if (blocker && blocker.status !== "resolved" && blocker.status !== "abandoned") {
+    if (
+      blocker &&
+      blocker.status !== "resolved" &&
+      blocker.status !== "abandoned" &&
+      blocker.status !== "verifying"
+    ) {
       const chatSincePause = readChatSincePause(blocker);
       const hasUserResolution = (blocker.userResolution ?? "").trim().length > 0;
       const hasChat = chatSincePause.length > 0;
@@ -835,7 +848,7 @@ function applyGuideMutation(mutator: (g: ImplementationGuide) => ImplementationG
   }
 }
 
-function markPromptSentForSession(sessionIndex: number): void {
+export function markPromptSentForSession(sessionIndex: number): void {
   applyGuideMutation((g) => ({
     ...g,
     sessions: g.sessions.map((s) =>
@@ -844,7 +857,7 @@ function markPromptSentForSession(sessionIndex: number): void {
   }));
 }
 
-function markVerifyRequestedForSession(sessionIndex: number): void {
+export function markVerifyRequestedForSession(sessionIndex: number): void {
   applyGuideMutation((g) => ({
     ...g,
     sessions: g.sessions.map((s) =>
@@ -853,7 +866,7 @@ function markVerifyRequestedForSession(sessionIndex: number): void {
   }));
 }
 
-function toggleVerifyCheckForSession(sessionIndex: number, checkId: string): void {
+export function toggleVerifyCheckForSession(sessionIndex: number, checkId: string): void {
   applyGuideMutation((g) => ({
     ...g,
     sessions: g.sessions.map((s) => {
@@ -941,6 +954,7 @@ export async function attemptMarkSessionComplete(
   | { ok: false; reason: "checks-incomplete" }
   | { ok: false; reason: "session-not-found" }
   | { ok: false; reason: "parity-failed"; results: ActionParityResult[] }
+  | { ok: false; reason: "parity-errored"; results: ActionParityResult[] }
 > {
   const current = useSelfDriveStore.getState().guide;
   const projectPath = useSelfDriveStore.getState().projectPath;
@@ -975,36 +989,45 @@ export async function attemptMarkSessionComplete(
     actions.length > 0 && actions.every((a) => isHandlerInSessionFiles(a.handler, target.files));
 
   if (actions.length > 0 && projectPath && !handlerAuthoring) {
+    const actionInputs = actions.map((a) => ({
+      action: a.action,
+      callerPath: deriveCallerPath(target.files, a.action),
+      handlerPath: a.handler,
+    }));
+
+    // Transient I/O (missing rg binary, permissions blip, transient fs
+    // error) shouldn't permanently block a session. Try once, retry once
+    // on throw, then surface a distinct "parity-errored" reason so the
+    // caller can distinguish "check itself broken" from "real parity FAIL".
+    let results: ActionParityResult[];
+    let firstError: unknown = null;
     try {
-      const results = await verifyActionParity(
-        projectPath,
-        actions.map((a) => ({
-          action: a.action,
-          callerPath: deriveCallerPath(target.files, a.action),
-          handlerPath: a.handler,
-        })),
-      );
-      const failed = results.filter((r) => r.status !== "PASS");
-      if (failed.length > 0) {
-        return { ok: false, reason: "parity-failed", results };
-      }
+      results = await verifyActionParity(projectPath, actionInputs);
     } catch (e) {
-      // The parity check itself failed (missing rg, I/O, etc.). Treat
-      // as a failure to protect against false positives. The user gets
-      // a synthesized FAIL result explaining the situation.
-      console.warn("[selfDriveStore] verifyActionParity failed:", e);
-      return {
-        ok: false,
-        reason: "parity-failed",
-        results: actions.map((a) => ({
-          action: a.action,
-          callerPresent: false,
-          handlerPresent: false,
-          handlerStubFree: false,
-          status: "FAIL",
-          detail: `Parity check itself errored (${String(e)}) — treat as unverified.`,
-        })),
-      };
+      firstError = e;
+      console.warn("[selfDriveStore] verifyActionParity threw, retrying once:", e);
+      try {
+        results = await verifyActionParity(projectPath, actionInputs);
+      } catch (e2) {
+        console.warn("[selfDriveStore] verifyActionParity retry also threw:", e2);
+        return {
+          ok: false,
+          reason: "parity-errored",
+          results: actions.map((a) => ({
+            action: a.action,
+            callerPresent: false,
+            handlerPresent: false,
+            handlerStubFree: false,
+            status: "FAIL",
+            detail: `Parity check itself errored twice (${String(e2)}; first: ${String(firstError)}) — check rg installation or workspace state, then retry. Not a real code failure.`,
+          })),
+        };
+      }
+    }
+
+    const failed = results.filter((r) => r.status !== "PASS");
+    if (failed.length > 0) {
+      return { ok: false, reason: "parity-failed", results };
     }
   }
 
@@ -1473,11 +1496,11 @@ export function assessVerifyAdvance(
 ): {
   structuralError: string | null;
   warnings: string[];
-  matchedResults: Map<string, { label: string; passed: boolean; evidence?: string; reason?: string }>;
+  matchedResults: Map<string, { label: string; passed: boolean; skipped?: boolean; evidence?: string; reason?: string }>;
 } {
   const results = decision.checkResults ?? [];
   const warnings: string[] = [];
-  const matchedResults = new Map<string, { label: string; passed: boolean; evidence?: string; reason?: string }>();
+  const matchedResults = new Map<string, { label: string; passed: boolean; skipped?: boolean; evidence?: string; reason?: string }>();
 
   if (results.length === 0) {
     return {
@@ -1511,11 +1534,14 @@ export function assessVerifyAdvance(
     };
   }
 
-  // Structural check 3: no passed:true entries on an advance.
-  const anyPassed = results.some((r) => r.passed);
-  if (!anyPassed) {
+  // Structural check 3: no passed:true AND no skipped:true entries on an
+  // advance. A verdict with only passed:false items contradicts "advance"
+  // — the orchestrator should have emitted "fix" or "pause". Skipped is
+  // accepted as a satisfied state (see handleAdvance gate below).
+  const anySatisfied = results.some((r) => r.passed || r.skipped);
+  if (!anySatisfied) {
     return {
-      structuralError: "orchestrator returned advance but no checkResults entry has passed:true",
+      structuralError: "orchestrator returned advance but no checkResults entry is passed:true or skipped:true",
       warnings,
       matchedResults,
     };
@@ -1658,16 +1684,70 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
       );
     }
 
-    // Tick the checks the orchestrator confirmed passed — using the
-    // fuzzy-matched map so a slightly-different label in the result still
-    // ticks the corresponding session check. Without this, a fuzzy-matched
-    // label would leave the session check unchecked and attemptMarkSession-
-    // Complete would then fail with "checks-incomplete".
+    // Tick the checks the orchestrator confirmed passed OR explicitly
+    // skipped (optional items judged not-applicable for this session, e.g.
+    // integration test with no credentials). Uses the fuzzy-matched map so
+    // a slightly-different label in the result still ticks the session's
+    // canonical check. Without this, a fuzzy-matched label would leave the
+    // session check unchecked and attemptMarkSessionComplete would fail
+    // with "checks-incomplete".
+    const skippedLabels: string[] = [];
     for (const check of session.verifyChecks) {
       const r = assessment.matchedResults.get(check.label);
-      if (r?.passed && !check.checked) {
+      if ((r?.passed || r?.skipped) && !check.checked) {
         toggleVerifyCheckForSession(sessionIndex, check.id);
+        if (r?.skipped && !r?.passed) skippedLabels.push(check.label);
       }
+    }
+    if (skippedLabels.length > 0) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Skipped (not-applicable) items accepted: ${skippedLabels.join(", ")}`,
+      );
+    }
+
+    // H3: matched-but-failed recheck. If the orchestrator returned
+    // "advance" with some items at passed:false (not skipped), those items
+    // stayed unchecked above. Before pausing, consider auto-recheck — this
+    // catches the case where the orchestrator over-eagerly emits "advance"
+    // while one or two items have weak evidence that a targeted re-state
+    // could fix. Eligible items are those with recheck budget remaining
+    // that have a matched-but-failed verdict. Unmatched-label recheck
+    // already fired above.
+    const matchedFailed: string[] = [];
+    for (const check of session.verifyChecks) {
+      if (check.checked) continue;
+      const r = assessment.matchedResults.get(check.label);
+      if (r && !r.passed && !r.skipped) matchedFailed.push(check.label);
+    }
+    const recheckEnabledH3 = settingsState.selfDriveEnableRecheckLoop ?? true;
+    const stateH3 = useSelfDriveStore.getState();
+    const roundsRemainingH3 = MAX_RECHECK_ROUNDS - stateH3.recheckRoundsUsed;
+    const eligibleFailedForRecheck = matchedFailed.filter(
+      (label) => (stateH3.rechecksPerItem[label] ?? 0) < MAX_RECHECKS_PER_ITEM,
+    );
+    if (
+      matchedFailed.length > 0 &&
+      recheckEnabledH3 &&
+      roundsRemainingH3 > 0 &&
+      eligibleFailedForRecheck.length > 0
+    ) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `${matchedFailed.length} item(s) matched but marked passed:false — auto-requesting recheck for ${eligibleFailedForRecheck.length}`,
+      );
+      const recheckDecision: OrchestratorDecision = {
+        action: "request_recheck",
+        summary: `Auto-recheck: ${eligibleFailedForRecheck.length} matched-but-failed item(s)`,
+        confidence: "medium",
+        recheckItems: eligibleFailedForRecheck,
+        recheckPrompt: composeStructuralRecheckPrompt(eligibleFailedForRecheck, session),
+        checkResults: decision.checkResults,
+      };
+      await handleRecheck(recheckDecision);
+      return;
     }
 
     // Defense-in-depth: if anything stayed unchecked, do not advance.
@@ -1675,13 +1755,14 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
       .find((s) => s.index === sessionIndex);
     const stillUnchecked = freshSession?.verifyChecks.filter((c) => !c.checked) ?? [];
     if (stillUnchecked.length > 0) {
+      const uncheckedLabels = stillUnchecked.map((c) => c.label).join(", ");
       addLogEntry(
         sessionIndex,
         "verifying",
-        `Advance rejected: ${stillUnchecked.length} checks remain unchecked after orchestrator verdict`,
+        `Advance rejected: ${stillUnchecked.length} check(s) remain unchecked — ${uncheckedLabels}`,
       );
       handlePause(
-        `Self-Drive halted: ${stillUnchecked.length} checks could not be confirmed. Review the run log and continue manually.`,
+        `Self-Drive halted: ${stillUnchecked.length} check(s) could not be confirmed (${uncheckedLabels}). Review the run log and continue manually.`,
       );
       return;
     }
@@ -1709,6 +1790,20 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
       );
       return;
     }
+    if (outcome.reason === "parity-errored") {
+      const erroredActions = outcome.results
+        .map((r) => `${r.action}: ${r.detail}`)
+        .join(" | ");
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Parity check errored (not a real FAIL) — ${erroredActions}`,
+      );
+      handlePause(
+        `Self-Drive halted: the parity check itself errored. This is NOT a code failure — the rg-based scan could not complete. Check that ripgrep is installed and the workspace is readable, then click Resume to retry.`,
+      );
+      return;
+    }
     const alreadyDone = guide?.sessions
       .find((s) => s.index === sessionIndex)?.status === "done";
     if (!alreadyDone) {
@@ -1721,7 +1816,7 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   if (decision.checkResults?.length) {
     const checkSummary = decision.checkResults
       .map((r) => {
-        const verdict = r.passed ? "PASS" : "FAIL";
+        const verdict = r.passed ? "PASS" : r.skipped ? "SKIP" : "FAIL";
         const detail = r.passed
           ? (r.evidence ? ` [${r.evidence}]` : "")
           : (r.reason ? ` (${r.reason})` : "");
@@ -1769,15 +1864,25 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   await startNextSession();
 }
 
-async function handleVerify(): Promise<void> {
+export async function handleVerify(): Promise<void> {
   const state = useSelfDriveStore.getState();
   const sessionIndex = state.currentSessionIndex!;
   // Read the pinned guide; the UI's guide may be on a different project.
   const guide = state.guide;
-  if (!guide) return;
+  if (!guide) {
+    handlePause(
+      "Self-Drive cannot verify: pinned guide missing. Stop and restart Self-Drive on this project.",
+    );
+    return;
+  }
 
   const session = guide.sessions.find((s) => s.index === sessionIndex);
-  if (!session) return;
+  if (!session) {
+    handlePause(
+      `Self-Drive cannot verify: Session ${sessionIndex} not found in pinned guide. Stop and restart Self-Drive on this project.`,
+    );
+    return;
+  }
 
   useSelfDriveStore.setState({ currentPhase: "verifying" });
 
@@ -2424,6 +2529,19 @@ export function useSelfDriveStatusForActiveProject(): SelfDriveStatus {
   const status = useSelfDriveStore((s) => s.status);
   if (sdProjectPath !== activeProjectPath) return "idle";
   return status;
+}
+
+/**
+ * Imperative (non-hook) check: does Self-Drive currently own the guide for
+ * the given project path? Use from event handlers when you need to decide
+ * whether a UI mutation should route through selfDriveStore's helpers
+ * (which also mirror into guideStore) or directly into guideStore.
+ */
+export function isSelfDriveOwningProject(projectPath: string | null): boolean {
+  if (!projectPath) return false;
+  const state = useSelfDriveStore.getState();
+  if (state.projectPath !== projectPath) return false;
+  return state.status === "running" || state.status === "paused";
 }
 
 /**
