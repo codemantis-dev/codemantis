@@ -74,6 +74,27 @@ STARTING A SESSION:
   loading states, error handling, empty states. It touches many
   files lightly. Run the full Verification Audit after this."
 
+VERIFIER EVIDENCE FORMAT:
+The orchestrator AI is the authoritative judge of whether the verifier's
+evidence is adequate. Self-Drive's client side no longer rejects verdicts
+for evidence-shape reasons (missing ":", "$ ", "mocks=", "caller=",
+"handler=", etc.). If the orchestrator accepts evidence as PASS, it
+advances — full stop.
+
+Two gates still apply:
+  1. Structural integrity: if the orchestrator's verdict is empty,
+     fabricates ≥50% of session labels, or returns no passed:true
+     entries on an advance, Self-Drive pauses. These are red flags the
+     orchestrator went off the rails, not style concerns.
+  2. Cross-system action parity: a Rust-side ripgrep of caller + handler
+     files. Independent of the orchestrator.
+
+When the user asks why a pause happened, check the run log for the
+structural reason first. If there's none, it's the parity gate or a
+legitimate orchestrator-reported failure (fix attempt, user decision
+needed, etc.). Do NOT lecture the user about evidence format — that's
+a closed chapter.
+
 RECHECKING PHASE (currentPhase = "rechecking"):
 When Self-Drive is in the "rechecking" phase, it means the AI orchestrator
 asked Claude Code to re-state evidence for specific verify items — NOT

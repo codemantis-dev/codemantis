@@ -1302,362 +1302,278 @@ async function executeDecision(decision: OrchestratorDecision, previousPhase?: S
 
 // ── Step handlers ───────────────────────────────────────────────────
 
-/**
- * Substrings in a [behavioral] evidence `mocks=` list that indicate the
- * mock crosses a system boundary. Keep conservative — false positives
- * waste verifier time, but false negatives are exactly the bug this
- * exists to prevent. This list matches mock surfaces Claude Code is
- * likely to name when it explains what a test mocked.
- */
-const BOUNDARY_MOCK_SIGNALS = [
-  "http",
-  "fetch",
-  "axios",
-  "superagent",
-  "got",
-  "supabase",
-  "client", // db client, api client, etc.
-  "db",
-  "database",
-  "postgres",
-  "mysql",
-  "sqlite",
-  "redis",
-  "queue",
-  "kafka",
-  "sqs",
-  "rabbit",
-  "edge",
-  "api_client",
-  "get_api_client", // the exact one from the incident
-  "dispatch",
-  "invoke",
-];
-
-/**
- * Extract the comma-separated mocks list from a [behavioral] PASS
- * evidence string. Verifiers often annotate the list with a parenthetical
- * or additional context — we accept all of these shapes:
- *
- *   'test.ts:12 — "x" · mocks=httpClient,fsWrite'
- *     → ["httpClient", "fsWrite"]
- *   '$ pytest → "31 passed" · mocks=none'
- *     → ["none"]
- *   '$ pytest → "31 passed" · mocks=none (tests exercise real helpers, no mocks imported)'
- *     → ["none"]           (trailing "(...)" commentary is stripped)
- *   'test.ts:12 — "x"'    → null  (no disclosure — rule violation)
- *
- * The previous regex anchored to `$` (end-of-string), which rejected any
- * evidence that had tail text after the mocks list. That meant a verifier
- * correctly disclosing `mocks=none (real call)` still tripped
- * "behavioral PASS lacks mock-surface disclosure" — a false positive
- * the user hit in practice.
- */
-function extractMocksFromEvidence(evidence: string): string[] | null {
-  // Match `mocks=<value>` anywhere in the string. Stop at the next `·`
-  // separator, a newline, or end-of-string. Do NOT anchor to `$`.
-  const match = evidence.match(/\bmocks\s*=\s*([^·\n]+?)(?:\s*·|\s*$)/i);
-  if (!match) return null;
-  const rawList = match[1]
-    // Strip a trailing "(…)" commentary like "none (tests exercise …)".
-    .replace(/\s*\([^)]*\)\s*$/, "")
-    .trim();
-  if (!rawList) return null;
-  return rawList
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function mockCrossesBoundary(mockName: string): boolean {
-  const lower = mockName.toLowerCase();
-  if (lower === "none") return false;
-  return BOUNDARY_MOCK_SIGNALS.some((sig) => lower.includes(sig));
-}
-
 type VerifyKind = "static" | "side-effect" | "behavioral" | "integration";
 
 /**
- * Per-kind evidence validation. Each kind's evidence has a different
- * legitimate shape — the previous blanket "must contain `:`" rule
- * rejected perfectly valid side-effect evidence like
- * `$ ls src/helpers → "...files..."` and command-output for greps.
+ * Normalize a verify-check label for fuzzy comparison.
  *
- * Returns null when the evidence is acceptable for its kind, or a
- * short reason string naming what's missing. An empty/undefined
- * evidence string is always a violation.
- *
- *   static        → must carry a ":" (file:lines citation)
- *   side-effect   → must carry "$ " (a command) or "→" (command → output)
- *   behavioral    → must carry "$ " or ":" (a test file citation) AND
- *                   "mocks=" disclosure; mock-boundary rule is handled
- *                   separately by the caller because it cross-references
- *                   other checks' kinds.
- *   integration   → must carry BOTH "caller=" AND "handler=" — the
- *                   dual-side contract exists to force both cites.
+ * Orchestrators regularly emit labels that differ from the session's
+ * canonical label by whitespace, backticks, surrounding punctuation, or
+ * by stripping the leading `[kind]` prefix. These variations have no
+ * semantic meaning — matching on them verbatim just creates false
+ * "missing + unknown label" pairs. Normalize first, then compare.
  */
-function validateEvidenceForKind(
-  evidence: string | undefined,
-  kind: VerifyKind,
-): string | null {
-  if (!evidence || evidence.trim() === "") return "no evidence provided";
-
-  const has = (s: string) => evidence.includes(s);
-
-  switch (kind) {
-    case "static":
-      return has(":") ? null : "static evidence needs a file:lines citation";
-    case "side-effect":
-      // Either "$ cmd" or "cmd → output" is acceptable. A file:lines
-      // citation on its own is NOT — the file only describes the
-      // intended effect, not that it happened.
-      if (has("$ ") || has("→") || has(" -> ")) return null;
-      return "side-effect evidence needs a command ($ cmd) and its output";
-    case "behavioral":
-      // Either a test command ("$ pytest ...") or a test-file:line
-      // pair is acceptable for the run site. Mock disclosure is
-      // required but enforced in the dedicated behavioral pass below,
-      // so we only check the run-site signal here.
-      if (has("$ ") || has(":")) return null;
-      return "behavioral evidence needs a test command or test-file:line";
-    case "integration":
-      if (has("caller=") && has("handler=")) return null;
-      return "integration evidence needs caller= AND handler= cites";
-  }
+function normalizeLabel(label: string): string {
+  return label
+    .toLowerCase()
+    // Strip a leading "[kind]" tag like "[static] " or "[behavioral]".
+    .replace(/^\s*\[(?:static|side-effect|behavioral|integration)\]\s*/i, "")
+    // Collapse runs of whitespace to a single space.
+    .replace(/\s+/g, " ")
+    // Remove backticks anywhere.
+    .replace(/`/g, "")
+    // Trim edge punctuation that commonly varies (parentheses, quotes, colons).
+    .replace(/^[\s"'(:.,]+|[\s"')?!:.,]+$/g, "")
+    .trim();
 }
 
 /**
- * Validate an orchestrator's "advance" verdict against a session's verify
- * checks. Returns null when the verdict is acceptable, or a short reason
- * string describing the first violation found.
- *
- * Rules (all must hold):
- *  1. checkResults must cover every VerifyCheck label in the session.
- *  2. Every passed:true entry must carry evidence appropriate for its
- *     kind (see validateEvidenceForKind above).
- *  3. No checkResults entry may reference a label that isn't in the session.
- *  4. Mock-disclosure rule (the mock-only-PASS fix): any [behavioral]
- *     PASS whose evidence declares a mock list containing a
- *     boundary-crossing surface (HTTP client, DB client, API client,
- *     Edge Function dispatcher, queue, etc.) must be accompanied by at
- *     least one [integration] PASS in the same verdict. A [behavioral]
- *     PASS with no `mocks=` disclosure at all is also a violation — the
- *     preamble requires disclosure. (These together catch the failure
- *     mode where all 43 tests pass on mocks while the real handler is
- *     unimplemented.)
- *
- * Exported for tests; not part of the store's public API.
+ * Levenshtein distance (iterative, two-row). Small strings only — we
+ * never compare anything close to the quadratic ceiling here.
  */
-export function validateVerifyAdvance(
-  session: {
-    verifyChecks: {
-      label: string;
-      kind?: VerifyKind;
-    }[];
-  },
-  decision: OrchestratorDecision,
-): string | null {
-  const results = decision.checkResults ?? [];
-  if (results.length === 0) {
-    return "no checkResults in advance verdict";
-  }
-
-  const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
-  const resultLabels = new Set(results.map((r) => r.label));
-  const kindByLabel = new Map<string, VerifyKind>(
-    session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
-  );
-
-  const missing = session.verifyChecks
-    .filter((c) => !resultLabels.has(c.label))
-    .map((c) => c.label);
-
-  const unknown = results
-    .filter((r) => !sessionLabels.has(r.label))
-    .map((r) => r.label);
-
-  const passedWithoutEvidence = results
-    .filter((r) => {
-      if (!r.passed) return false;
-      const kind = kindByLabel.get(r.label) ?? "static";
-      return validateEvidenceForKind(r.evidence, kind) !== null;
-    })
-    .map((r) => r.label);
-
-  // Mock-disclosure rule. Only checks typed [behavioral] in the session
-  // are subject to it — static/side-effect/integration have their own
-  // evidence forms.
-  const behavioralPassesMissingDisclosure: string[] = [];
-  const behavioralPassesWithBoundaryMock: string[] = [];
-  const hasIntegrationPass = results.some(
-    (r) => r.passed && kindByLabel.get(r.label) === "integration",
-  );
-
-  for (const r of results) {
-    if (!r.passed) continue;
-    if (kindByLabel.get(r.label) !== "behavioral") continue;
-    const mocks = extractMocksFromEvidence(r.evidence ?? "");
-    if (mocks === null) {
-      behavioralPassesMissingDisclosure.push(r.label);
-      continue;
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
     }
-    if (mocks.some(mockCrossesBoundary) && !hasIntegrationPass) {
-      behavioralPassesWithBoundaryMock.push(r.label);
-    }
+    [prev, curr] = [curr, prev];
   }
-
-  const parts: string[] = [];
-  if (missing.length > 0) parts.push(`${missing.length} checks missing from verdict`);
-  if (passedWithoutEvidence.length > 0) parts.push(`${passedWithoutEvidence.length} PASS entries lack file:line evidence`);
-  if (unknown.length > 0) parts.push(`${unknown.length} unknown labels in verdict`);
-  if (behavioralPassesMissingDisclosure.length > 0) {
-    parts.push(
-      `${behavioralPassesMissingDisclosure.length} [behavioral] PASS entries lack mock-surface disclosure`,
-    );
-  }
-  if (behavioralPassesWithBoundaryMock.length > 0) {
-    parts.push(
-      `${behavioralPassesWithBoundaryMock.length} [behavioral] PASS entries mock a system boundary but no paired [integration] PASS exists`,
-    );
-  }
-
-  return parts.length > 0 ? parts.join("; ") : null;
+  return prev[b.length];
 }
 
 /**
- * Structured variant of validateVerifyAdvance. Returns the per-rule
- * label lists so a caller can decide to recover (via request_recheck)
- * instead of pausing — without re-parsing the message.
+ * Fuzzy-match orchestrator result labels against session verify labels.
  *
- * Exported for handleAdvance's auto-recheck fallback and for tests.
+ * A session label S matches a result label R when any of:
+ *   - normalize(S) === normalize(R)
+ *   - one normalised form is a prefix of the other (orchestrators often
+ *     truncate or expand trailing parentheticals)
+ *   - Levenshtein distance on the normalised forms ≤ 20% of the shorter
+ *     length (small edits, typos, word re-ordering in short labels)
+ *
+ * Each session label pairs with at most one result label (first match
+ * wins in session-order). Unmatched session labels + unmatched result
+ * labels are returned for the caller to decide what to do.
+ *
+ * Exported for tests and diagnostics.
  */
-export function analyzeVerifyAdvance(
+export function fuzzyLabelMatch(
+  sessionLabels: string[],
+  resultLabels: string[],
+): {
+  matched: Map<string, string>; // session label → matched result label
+  unmatchedSessionLabels: string[];
+  unmatchedResultLabels: string[];
+} {
+  const matched = new Map<string, string>();
+  const usedResults = new Set<number>();
+
+  const norm = (s: string) => normalizeLabel(s);
+  const sNorm = sessionLabels.map(norm);
+  const rNorm = resultLabels.map(norm);
+
+  for (let i = 0; i < sessionLabels.length; i++) {
+    const s = sNorm[i];
+    if (!s) continue;
+    let bestIdx = -1;
+    let bestScore = Infinity;
+    for (let j = 0; j < resultLabels.length; j++) {
+      if (usedResults.has(j)) continue;
+      const r = rNorm[j];
+      if (!r) continue;
+      if (s === r) {
+        // Exact match wins outright — no further scoring needed.
+        bestIdx = j;
+        break;
+      }
+      // Word-boundary prefix match: the shorter normalised form is a
+      // prefix of the longer AND ends at a word boundary (or the shorter
+      // is itself ≥4 chars and the longer is at most 3× its length).
+      // This accepts "check b" ↔ "check b with parenthetical" (prefix
+      // + space boundary) but rejects "check" ↔ "check b and also c"
+      // where the prefix is too generic.
+      const longer = s.length >= r.length ? s : r;
+      const shorter = s.length >= r.length ? r : s;
+      if (
+        shorter.length >= 4 &&
+        longer !== shorter &&
+        longer.startsWith(shorter) &&
+        (longer.charAt(shorter.length) === " " ||
+          longer.length <= shorter.length * 3)
+      ) {
+        const score = shorter.length * 0.5;
+        if (score < bestScore) {
+          bestIdx = j;
+          bestScore = score;
+        }
+      }
+      const shorterLen = Math.min(s.length, r.length);
+      const budget = Math.max(2, Math.floor(shorterLen * 0.2));
+      const d = levenshtein(s, r);
+      if (d <= budget && d < bestScore) {
+        bestIdx = j;
+        bestScore = d;
+      }
+    }
+    if (bestIdx >= 0) {
+      matched.set(sessionLabels[i], resultLabels[bestIdx]);
+      usedResults.add(bestIdx);
+    }
+  }
+
+  const unmatchedSessionLabels = sessionLabels.filter((l) => !matched.has(l));
+  const unmatchedResultLabels = resultLabels.filter(
+    (_, j) => !usedResults.has(j),
+  );
+
+  return { matched, unmatchedSessionLabels, unmatchedResultLabels };
+}
+
+/**
+ * Assess the orchestrator's "advance" verdict for STRUCTURAL integrity
+ * only. This replaces the old `validateVerifyAdvance` + `analyzeVerifyAdvance`
+ * pair, which did substring format checks (must contain `:`, `$ `,
+ * `mocks=`, `caller=`, etc.) on the orchestrator's evidence strings and
+ * blocked on mismatches. That was second-guessing the LLM's judgment
+ * with a strictly worse oracle — the orchestrator sees the full verifier
+ * response and applies context (spec-declared deferral, intent-over-form,
+ * etc.) that a substring check cannot.
+ *
+ * New contract: the orchestrator is the authoritative judge. The client
+ * validator's job is to catch STRUCTURAL violations that indicate the
+ * verdict is untrustworthy as data:
+ *
+ *   1. `checkResults` is empty on an "advance" (internally inconsistent).
+ *   2. ≥50% of session labels have no fuzzy match in results (the
+ *      orchestrator fabricated labels or skipped checks wholesale).
+ *   3. Zero `passed:true` entries on an "advance" (internally inconsistent).
+ *
+ * Anything else — label drift that fuzzy-matched, `passed:false` items,
+ * evidence in a non-canonical shape — is a WARNING, not a block. Warnings
+ * are surfaced in the run log so the user can audit; they do not pause
+ * Self-Drive.
+ *
+ * The mock-only-PASS defence lives in the orchestrator's system prompt
+ * (VERIFY_MODE_PREAMBLE) and, definitively, in the rg-based parity gate
+ * (`verifyActionParity`). It does not live here anymore.
+ */
+export function assessVerifyAdvance(
   session: {
     verifyChecks: { label: string; kind?: VerifyKind }[];
   },
   decision: OrchestratorDecision,
 ): {
-  ok: boolean;
-  missing: string[];
-  unknown: string[];
-  passedWithoutEvidence: { label: string; kind: VerifyKind }[];
-  behavioralPassesMissingDisclosure: string[];
-  behavioralPassesWithBoundaryMock: string[];
+  structuralError: string | null;
+  warnings: string[];
+  matchedResults: Map<string, { label: string; passed: boolean; evidence?: string; reason?: string }>;
 } {
   const results = decision.checkResults ?? [];
-  const sessionLabels = new Set(session.verifyChecks.map((c) => c.label));
-  const resultLabels = new Set(results.map((r) => r.label));
-  const kindByLabel = new Map<string, VerifyKind>(
-    session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
-  );
+  const warnings: string[] = [];
+  const matchedResults = new Map<string, { label: string; passed: boolean; evidence?: string; reason?: string }>();
 
-  const missing = session.verifyChecks
-    .filter((c) => !resultLabels.has(c.label))
-    .map((c) => c.label);
-
-  const unknown = results
-    .filter((r) => !sessionLabels.has(r.label))
-    .map((r) => r.label);
-
-  const passedWithoutEvidence: { label: string; kind: VerifyKind }[] = [];
-  for (const r of results) {
-    if (!r.passed) continue;
-    const kind = kindByLabel.get(r.label) ?? "static";
-    if (validateEvidenceForKind(r.evidence, kind) !== null) {
-      passedWithoutEvidence.push({ label: r.label, kind });
-    }
+  if (results.length === 0) {
+    return {
+      structuralError: "orchestrator returned advance with no checkResults (internally inconsistent)",
+      warnings,
+      matchedResults,
+    };
   }
 
-  const behavioralPassesMissingDisclosure: string[] = [];
-  const behavioralPassesWithBoundaryMock: string[] = [];
-  const hasIntegrationPass = results.some(
-    (r) => r.passed && kindByLabel.get(r.label) === "integration",
-  );
-  for (const r of results) {
-    if (!r.passed) continue;
-    if (kindByLabel.get(r.label) !== "behavioral") continue;
-    const mocks = extractMocksFromEvidence(r.evidence ?? "");
-    if (mocks === null) {
-      behavioralPassesMissingDisclosure.push(r.label);
-      continue;
-    }
-    if (mocks.some(mockCrossesBoundary) && !hasIntegrationPass) {
-      behavioralPassesWithBoundaryMock.push(r.label);
-    }
+  const sessionLabels = session.verifyChecks.map((c) => c.label);
+  const resultLabels = results.map((r) => r.label);
+  const { matched, unmatchedSessionLabels, unmatchedResultLabels } =
+    fuzzyLabelMatch(sessionLabels, resultLabels);
+
+  // Build the matched map keyed by session label for the toggle loop.
+  const resultsByLabel = new Map(results.map((r) => [r.label, r]));
+  for (const [sessionLabel, resultLabel] of matched) {
+    const r = resultsByLabel.get(resultLabel);
+    if (r) matchedResults.set(sessionLabel, r);
   }
 
-  const ok =
-    missing.length === 0 &&
-    unknown.length === 0 &&
-    passedWithoutEvidence.length === 0 &&
-    behavioralPassesMissingDisclosure.length === 0 &&
-    behavioralPassesWithBoundaryMock.length === 0;
+  // Structural check 2: ≥50% of session labels unmatched → the
+  // orchestrator lost the plot or fabricated the verdict.
+  const total = sessionLabels.length;
+  const unmatchedFraction = total > 0 ? unmatchedSessionLabels.length / total : 0;
+  if (unmatchedFraction >= 0.5) {
+    return {
+      structuralError: `${unmatchedSessionLabels.length}/${total} session labels have no match in the verdict (orchestrator likely fabricated or skipped)`,
+      warnings,
+      matchedResults,
+    };
+  }
 
-  return {
-    ok,
-    missing,
-    unknown,
-    passedWithoutEvidence,
-    behavioralPassesMissingDisclosure,
-    behavioralPassesWithBoundaryMock,
-  };
+  // Structural check 3: no passed:true entries on an advance.
+  const anyPassed = results.some((r) => r.passed);
+  if (!anyPassed) {
+    return {
+      structuralError: "orchestrator returned advance but no checkResults entry has passed:true",
+      warnings,
+      matchedResults,
+    };
+  }
+
+  // From here down, everything is advisory.
+  // Count non-exact (i.e. fuzzy-matched) pairs — these indicate the
+  // orchestrator's label drifted from the session's canonical label.
+  // Not a problem (match still succeeded), but worth logging.
+  let driftCount = 0;
+  for (const [sessionLabel, resultLabel] of matched) {
+    if (sessionLabel !== resultLabel) driftCount++;
+  }
+  if (driftCount > 0) {
+    warnings.push(
+      `${driftCount} label(s) fuzzy-matched with wording drift — orchestrator's text differs from the session's canonical label`,
+    );
+  }
+  if (unmatchedSessionLabels.length > 0) {
+    warnings.push(
+      `${unmatchedSessionLabels.length} session label(s) have no match in the verdict`,
+    );
+  }
+  if (unmatchedResultLabels.length > 0) {
+    warnings.push(
+      `${unmatchedResultLabels.length} result label(s) did not correspond to any session label; treated as advisory`,
+    );
+  }
+
+  return { structuralError: null, warnings, matchedResults };
 }
 
 /**
- * Compose a `request_recheck` prompt that asks Claude Code to re-state
- * evidence for specific items in the exact form each item's [kind]
- * requires. Used by handleAdvance to auto-recover from format-only
- * validator pauses instead of halting the run.
- *
- * The prompt is deliberately short and form-focused:
- *   - names each item by its label
- *   - gives the evidence-shape snippet for its kind
- *   - tells Claude Code NOT to re-do other items
+ * Compose a targeted `request_recheck` prompt. Used by handleAdvance
+ * only when the orchestrator's verdict is STRUCTURALLY near-miss (20–50%
+ * unmatched session labels) — genuine format quibbles flow through the
+ * orchestrator's own `request_recheck` path now and don't hit this
+ * fallback.
  */
-function composeFormatRecheckPrompt(
-  items: { label: string; kind: VerifyKind }[],
-  missingDisclosureLabels: string[],
+function composeStructuralRecheckPrompt(
+  unmatchedSessionLabels: string[],
+  session: { verifyChecks: { label: string; kind?: VerifyKind }[] },
 ): string {
-  const lines: string[] = [];
-  lines.push(
-    "A few verify items came back with evidence in the wrong form. Re-state ONLY the items below — do NOT re-do any other items.",
+  const kindByLabel = new Map(
+    session.verifyChecks.map((c) => [c.label, c.kind ?? "static"]),
   );
+  const lines: string[] = [
+    "A few verify items did not appear in the previous response. Re-state ONLY the items below — do NOT re-do others.",
+    "",
+  ];
+  unmatchedSessionLabels.forEach((label, i) => {
+    const kind = kindByLabel.get(label) ?? "static";
+    lines.push(`${i + 1}. [${kind}] ${label}`);
+  });
   lines.push("");
-  let n = 0;
-  for (const { label, kind } of items) {
-    n++;
-    lines.push(`${n}. [${kind}] ${label}`);
-    switch (kind) {
-      case "static":
-        lines.push(`   Form: {file}:{lines} — \`{quoted code}\``);
-        break;
-      case "side-effect":
-        lines.push(`   Form: $ {command} → "{quoted output}"`);
-        break;
-      case "behavioral":
-        lines.push(
-          `   Form: $ {test command} → "{quoted PASS/assertion line}" · mocks={comma list or "none"}`,
-        );
-        break;
-      case "integration":
-        lines.push(
-          `   Form: caller={file}:{lines} · handler={file}:{lines} · $ {real command} → "{quoted output}"`,
-        );
-        break;
-    }
-  }
-  for (const label of missingDisclosureLabels) {
-    if (items.some((i) => i.label === label)) continue;
-    n++;
-    lines.push(
-      `${n}. [behavioral] ${label}`,
-    );
-    lines.push(
-      `   Missing mock disclosure — append \` · mocks={comma list or "none"}\` to your prior evidence line. Keep the rest verbatim.`,
-    );
-  }
-  lines.push("");
-  lines.push("Emit one corrected line per item, in the format shown. End with `Verified X/Y | PASS n · FAIL n · SKIPPED n`.");
+  lines.push(
+    "Emit one PASS/FAIL/SKIPPED line per item in the preamble's required form for the item's [kind]. End with `Verified X/Y | PASS n · FAIL n · SKIPPED n`.",
+  );
   return lines.join("\n");
 }
 
@@ -1681,84 +1597,74 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // surfacing as a confusing "unexpected state" pause to the user.
   const fromVerifyClass = previousPhase === "verifying" || previousPhase === "rechecking";
   if (session && fromVerifyClass) {
-    const analysis = analyzeVerifyAdvance(session, decision);
-    if (!analysis.ok) {
-      const gateError = validateVerifyAdvance(session, decision) ?? "structural validator mismatch";
+    const assessment = assessVerifyAdvance(session, decision);
 
-      // Recoverable vs unrecoverable objections.
-      //   Recoverable (fixable by re-stating evidence):
-      //     - passedWithoutEvidence       (wrong shape for the kind)
-      //     - behavioralPassesMissingDisclosure  (no mocks= tag)
-      //   Unrecoverable (genuine verdict problem — needs a human or fix):
-      //     - missing                     (verifier skipped items)
-      //     - unknown                     (fabricated labels)
-      //     - behavioralPassesWithBoundaryMock (contract violation, not format)
-      const hasUnrecoverable =
-        analysis.missing.length > 0 ||
-        analysis.unknown.length > 0 ||
-        analysis.behavioralPassesWithBoundaryMock.length > 0;
-
-      const recheckableItems = [
-        ...analysis.passedWithoutEvidence,
-        ...analysis.behavioralPassesMissingDisclosure
-          .filter((label) => !analysis.passedWithoutEvidence.some((p) => p.label === label))
-          .map((label) => ({ label, kind: "behavioral" as const })),
-      ];
-
-      const settings = useSettingsStore.getState().settings;
-      const recheckEnabled = settings.selfDriveEnableRecheckLoop ?? true;
-      const currentState = useSelfDriveStore.getState();
-      const roundsRemaining = MAX_RECHECK_ROUNDS - currentState.recheckRoundsUsed;
-      const eligibleForThisRound = recheckableItems.filter(
-        (it) => (currentState.rechecksPerItem[it.label] ?? 0) < MAX_RECHECKS_PER_ITEM,
-      );
-
-      if (
-        !hasUnrecoverable &&
-        recheckEnabled &&
-        roundsRemaining > 0 &&
-        eligibleForThisRound.length > 0
-      ) {
-        // Auto-recover: instead of pausing, synthesize a request_recheck
-        // decision that asks Claude Code to re-state only the malformed
-        // items in the required shape. handleRecheck enforces per-item
-        // and per-round caps defensively.
-        addLogEntry(
-          sessionIndex,
-          "verifying",
-          `Validator flagged format-only issues (${gateError}) — auto-requesting recheck for ${eligibleForThisRound.length} item(s)`,
-        );
-        const recheckDecision: OrchestratorDecision = {
-          action: "request_recheck",
-          summary: `Auto-recheck: ${eligibleForThisRound.length} item(s) need re-stated evidence`,
-          confidence: "medium",
-          recheckItems: eligibleForThisRound.map((i) => i.label),
-          recheckPrompt: composeFormatRecheckPrompt(
-            eligibleForThisRound,
-            analysis.behavioralPassesMissingDisclosure,
-          ),
-          checkResults: decision.checkResults,
-        };
-        await handleRecheck(recheckDecision);
-        return;
-      }
-
-      addLogEntry(sessionIndex, "verifying", `Advance rejected: ${gateError}`);
+    // Structural integrity first: if the orchestrator's verdict is
+    // empty, contains no passed:true entries, or ≥50% of session labels
+    // went unmatched, pause immediately. Rechecking an orchestrator that
+    // fabricated or skipped half the verdict is unlikely to help and
+    // burns the recheck budget.
+    if (assessment.structuralError) {
+      addLogEntry(sessionIndex, "verifying", `Advance rejected: ${assessment.structuralError}`);
       handlePause(
-        `Self-Drive halted: verifier/orchestrator did not produce evidence for all checks (${gateError}). Review the run log and continue manually.`,
+        `Self-Drive halted: ${assessment.structuralError}. Review the run log and continue manually.`,
       );
       return;
     }
 
-    // Mark ONLY the checks the orchestrator confirmed passed, via the
-    // pinned-guide mutation helper (keeps Self-Drive's snapshot, DB, and
-    // the UI's guide store in sync — but only touches the UI when the
-    // user is currently viewing Self-Drive's project).
-    const resultsByLabel = new Map(
-      (decision.checkResults ?? []).map((r) => [r.label, r]),
+    // Partial-match recovery: some session labels went unmatched but
+    // fewer than 50%. Ask the verifier to fill in just those items.
+    const sessionLabels = session.verifyChecks.map((c) => c.label);
+    const resultLabels = (decision.checkResults ?? []).map((r) => r.label);
+    const { unmatchedSessionLabels } = fuzzyLabelMatch(sessionLabels, resultLabels);
+    const settingsState = useSettingsStore.getState().settings;
+    const recheckEnabled = settingsState.selfDriveEnableRecheckLoop ?? true;
+    const currentState = useSelfDriveStore.getState();
+    const roundsRemaining = MAX_RECHECK_ROUNDS - currentState.recheckRoundsUsed;
+    const eligibleLabels = unmatchedSessionLabels.filter(
+      (label) => (currentState.rechecksPerItem[label] ?? 0) < MAX_RECHECKS_PER_ITEM,
     );
+    if (
+      unmatchedSessionLabels.length > 0 &&
+      recheckEnabled &&
+      roundsRemaining > 0 &&
+      eligibleLabels.length > 0
+    ) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `${unmatchedSessionLabels.length}/${sessionLabels.length} label(s) unmatched — auto-requesting recheck for ${eligibleLabels.length}`,
+      );
+      const recheckDecision: OrchestratorDecision = {
+        action: "request_recheck",
+        summary: `Auto-recheck: ${eligibleLabels.length} unmatched label(s)`,
+        confidence: "medium",
+        recheckItems: eligibleLabels,
+        recheckPrompt: composeStructuralRecheckPrompt(eligibleLabels, session),
+        checkResults: decision.checkResults,
+      };
+      await handleRecheck(recheckDecision);
+      return;
+    }
+
+    // Advisory warnings — surface in the run log so the user can audit,
+    // but do NOT block. This is the whole point of the trust-the-
+    // orchestrator shift: the LLM judged, we accept.
+    if (assessment.warnings.length > 0) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Orchestrator advanced with warnings: ${assessment.warnings.join("; ")}`,
+      );
+    }
+
+    // Tick the checks the orchestrator confirmed passed — using the
+    // fuzzy-matched map so a slightly-different label in the result still
+    // ticks the corresponding session check. Without this, a fuzzy-matched
+    // label would leave the session check unchecked and attemptMarkSession-
+    // Complete would then fail with "checks-incomplete".
     for (const check of session.verifyChecks) {
-      const r = resultsByLabel.get(check.label);
+      const r = assessment.matchedResults.get(check.label);
       if (r?.passed && !check.checked) {
         toggleVerifyCheckForSession(sessionIndex, check.id);
       }

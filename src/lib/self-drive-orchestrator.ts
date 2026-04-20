@@ -51,10 +51,11 @@ AFTER A BUILD CHECK (currentPhase = "build-checking"):
 - If there are TypeScript or build errors → {"action": "fix", "fixPrompt": "Fix these build errors: ...", "summary": "...", "confidence": "high"}
 
 AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
+- YOU ARE THE AUTHORITATIVE JUDGE of whether the verifier produced adequate evidence. The client side no longer re-checks evidence FORMAT (no substring grep for ":", "$ ", "mocks=", "caller=", "handler="). If you accept an item as PASS without evidence, the bug lands in production. If you require stricter evidence, request it via "request_recheck" — do not expect the client validator to catch it for you.
 - Parse Claude Code's response line by line. Do NOT infer, summarize, or trust claims without evidence.
-- For EACH VerifyCheck in the session, emit EXACTLY ONE checkResults entry matching by "label" verbatim.
+- For EACH VerifyCheck in the session, emit EXACTLY ONE checkResults entry. Match labels by MEANING, not literally: small wording drift (abbreviated labels, collapsed whitespace, dropped parenthetical) is fine — the runtime fuzzy-matches. BUT do not invent labels that don't correspond to any session check.
 - Each entry must be one of:
-  - { label, passed: true, evidence: "..." } — see EVIDENCE KIND below for the required shape
+  - { label, passed: true, evidence: "..." } — see EVIDENCE KIND below for the preferred shape
   - { label, passed: false, reason: "{short reason}" } — when evidence is missing, file wasn't opened, the check clearly fails, or the verifier used batch-PASS language.
 - EVIDENCE KIND — preserve the verifier's evidence form. Each kind has a different legitimate shape; do not force one shape onto another.
   - "static" (default): {file}:{lines} — \`{quoted code}\`
@@ -85,10 +86,20 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
   command, file ordering, or phrasing than what the session prompt
   suggested, but the MEANING matches — e.g. ran \`pnpm test\` instead of
   \`pnpm vitest\`, greps a parent dir instead of a specific subdir,
-  quotes command output in plain text instead of a fenced block —
+  quotes command output in plain text instead of a fenced block,
+  attaches a parenthetical to \`mocks=none (real helpers, no mocks imported)\` —
   accept it. Check the intent, not the exact string. Only mark
   passed:false when the evidence genuinely doesn't match the check's
   intent, or is absent entirely.
+- DEFERRED INTEGRATION RULE: if the verifier's response OR the session's
+  verify list explicitly indicates that integration testing is deferred
+  to a later session/phase (phrases like "integration pairing scoped to
+  Phase N per spec", "no callers yet", "handler-only session",
+  "integration deferred"), a [behavioral] PASS whose test mocks a
+  boundary-crossing service (HTTP, DB, api_client, queue, Edge Function)
+  is ACCEPTABLE. Do not demand a paired [integration] PASS in that case.
+  Otherwise: prefer to emit request_recheck asking the verifier to add
+  an [integration] item, or pause if the session genuinely lacks one.
 - THREE-WAY DECISION TREE when an item's evidence is not crisp (read in order, first match wins):
   1. "fix" — the CODE is wrong. The evidence itself shows a failure
      (test fails, migration didn't apply, handler file contains a stub
@@ -136,6 +147,10 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
 - A pause because of a missing "·" separator, a missing "$ " prefix, or
   a behavioral PASS without "mocks=" is a BUG in the orchestrator's
   decision. Use request_recheck instead.
+- The runtime no longer re-grades your verdict on format. Your
+  acceptance is final for everything except (a) the rg-based caller/
+  handler parity gate for cross-system actions, and (b) empty or
+  wholly-fabricated verdicts. Use that trust responsibly.
 - SKIMMING DETECTION: if Claude Code's response contains any of these phrases covering unverified items, mark those items { passed: false, reason: "verifier used batch-PASS language without evidence" }:
   - "all remaining items pass"
   - "the rest look correct"

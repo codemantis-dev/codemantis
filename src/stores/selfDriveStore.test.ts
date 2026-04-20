@@ -95,7 +95,8 @@ vi.mock("../lib/self-drive-utils", () => ({
 
 import {
   useSelfDriveStore,
-  validateVerifyAdvance,
+  assessVerifyAdvance,
+  fuzzyLabelMatch,
   attemptMarkSessionComplete,
 } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
@@ -718,11 +719,12 @@ describe("selfDriveStore", () => {
   // ── handleAdvance — markSessionComplete ─────────────────────────
 
   describe("handleAdvance markSessionComplete", () => {
-    it("rejects advance from verify phase when orchestrator verdict has unknown labels and no evidence", async () => {
+    it("rejects advance from verify phase when the orchestrator's verdict is wholly fabricated (≥50% labels unmatched)", async () => {
       setupReadyState();
-      // Session 1 has checks "Check A" and "Check B", both unchecked.
-      // The orchestrator returns a verdict that doesn't match — this is the
-      // exact skim-PASS failure mode the gate exists to prevent.
+      // Session 1 has "Check A" and "Check B"; orchestrator reports a
+      // completely different label for its one result → 2/2 unmatched →
+      // ≥50% → structural integrity pause, no recheck (the orchestrator
+      // fabricated the verdict, rechecking is unlikely to help).
       mockCallOrchestrator.mockResolvedValue({
         action: "advance",
         summary: "All done",
@@ -739,7 +741,6 @@ describe("selfDriveStore", () => {
       emit(makeTurnCompleteEvent());
 
       await vi.waitFor(() => {
-        // Gate must pause Self-Drive rather than blanket-mark checks.
         expect(useSelfDriveStore.getState().status).toBe("paused");
       });
 
@@ -749,6 +750,7 @@ describe("selfDriveStore", () => {
       expect(session1.verifyChecks[0].checked).toBe(false);
       expect(session1.verifyChecks[1].checked).toBe(false);
       expect(session1.status).toBe("active");
+      expect(useSelfDriveStore.getState().pauseReason).toMatch(/session labels have no match/);
     });
 
     it("continues when session is already done (re-advance after test/commit)", async () => {
@@ -1950,14 +1952,86 @@ describe("selfDriveStore — auto-commit live config", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// validateVerifyAdvance — the gate that prevents skim-PASS autonomous advances
+// fuzzyLabelMatch + assessVerifyAdvance — the (minimal) client-side gate
+//
+// The client no longer second-guesses the orchestrator's evidence-format
+// judgement (no substring grep for ":", "$ ", "mocks=", "caller=", etc.).
+// These tests cover the only things the client still gates on:
+//   1. Fuzzy label matching (tolerate whitespace/punct/abbreviation drift).
+//   2. Structural integrity (empty verdict, ≥50% fabricated labels, no
+//      passed:true on an advance).
+// Everything else goes through as a warning and does NOT block.
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("validateVerifyAdvance", () => {
+describe("fuzzyLabelMatch", () => {
+  it("matches identical labels", () => {
+    const r = fuzzyLabelMatch(["A", "B"], ["A", "B"]);
+    expect(r.matched.get("A")).toBe("A");
+    expect(r.matched.get("B")).toBe("B");
+    expect(r.unmatchedSessionLabels).toEqual([]);
+    expect(r.unmatchedResultLabels).toEqual([]);
+  });
+
+  it("matches when the result strips a leading [kind] prefix", () => {
+    const r = fuzzyLabelMatch(
+      ["All helper files exist"],
+      ["[behavioral] All helper files exist"],
+    );
+    expect(r.matched.size).toBe(1);
+    expect(r.unmatchedSessionLabels).toEqual([]);
+  });
+
+  it("matches when the orchestrator dropped a trailing parenthetical", () => {
+    const r = fuzzyLabelMatch(
+      ["NOT: any helper imports from `pipeline/` (helpers must stay leaf modules)"],
+      ["NOT: any helper imports from pipeline/"],
+    );
+    expect(r.matched.size).toBe(1);
+  });
+
+  it("matches when whitespace and punctuation edges differ", () => {
+    const r = fuzzyLabelMatch(
+      ["  Pytest passes for `src/helpers/` directory "],
+      ["Pytest passes for src/helpers/ directory."],
+    );
+    expect(r.matched.size).toBe(1);
+  });
+
+  it("tolerates small typos within the Levenshtein budget", () => {
+    // 'boundray' → 'boundary' is 2 edits over 32 chars = 6% — under 20%.
+    const r = fuzzyLabelMatch(
+      ["No boundary crossing in this check"],
+      ["No boundray crossing in this check"],
+    );
+    expect(r.matched.size).toBe(1);
+  });
+
+  it("does NOT match when the labels are semantically different", () => {
+    const r = fuzzyLabelMatch(
+      ["All helper files exist"],
+      ["Database migrations applied"],
+    );
+    expect(r.matched.size).toBe(0);
+    expect(r.unmatchedSessionLabels).toEqual(["All helper files exist"]);
+    expect(r.unmatchedResultLabels).toEqual(["Database migrations applied"]);
+  });
+
+  it("pairs each result with at most one session label (no double-matching)", () => {
+    const r = fuzzyLabelMatch(
+      ["Item A", "Item A variant"],
+      ["Item A"],
+    );
+    // Exact match wins first; the variant stays unmatched.
+    expect(r.matched.get("Item A")).toBe("Item A");
+    expect(r.unmatchedSessionLabels).toContain("Item A variant");
+  });
+});
+
+describe("assessVerifyAdvance — structural-only gate", () => {
   const session = {
     verifyChecks: [
-      { label: "Check A" },
-      { label: "Check B" },
+      { label: "Check A", kind: "static" as const },
+      { label: "Check B", kind: "behavioral" as const },
     ],
   };
 
@@ -1970,380 +2044,106 @@ describe("validateVerifyAdvance", () => {
     };
   }
 
-  it("accepts a verdict with full coverage and file:line evidence for every PASS", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:12 — `export const A = 1`" },
-        { label: "Check B", passed: true, evidence: "src/b.ts:5-7 — `function b() {}`" },
-      ],
-    });
-    expect(validateVerifyAdvance(session, decision)).toBeNull();
-  });
-
-  it("accepts a verdict with passed:false entries that carry a reason", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:12 — `export const A = 1`" },
-        { label: "Check B", passed: false, reason: "symbol not found in src/b.ts" },
-      ],
-    });
-    // validateVerifyAdvance returns null regardless of passed:false — it only
-    // checks STRUCTURE. The caller decides whether to advance (requires all true).
-    expect(validateVerifyAdvance(session, decision)).toBeNull();
-  });
-
-  it("rejects when checkResults is missing entirely", () => {
-    const decision = makeDecision({});
-    expect(validateVerifyAdvance(session, decision)).toContain("no checkResults");
-  });
-
-  it("rejects when checkResults is empty", () => {
-    const decision = makeDecision({ checkResults: [] });
-    expect(validateVerifyAdvance(session, decision)).toContain("no checkResults");
-  });
-
-  it("rejects when some session checks are missing from the verdict", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain("1 checks missing");
-  });
-
-  it("rejects when a passed:true entry lacks evidence", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
-        { label: "Check B", passed: true }, // no evidence
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain("1 PASS entries lack file:line evidence");
-  });
-
-  it("rejects when evidence is present but has no file:line separator", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
-        { label: "Check B", passed: true, evidence: "looks correct" }, // no ":"
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain("1 PASS entries lack file:line evidence");
-  });
-
-  it("rejects when verdict contains labels not present in the session", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
-        { label: "Check B", passed: true, evidence: "src/b.ts:1 — `y`" },
-        { label: "Fabricated check", passed: true, evidence: "src/c.ts:1 — `z`" },
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain("1 unknown labels");
-  });
-
-  it("combines multiple violations into one reason string", () => {
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true }, // no evidence (violation 1)
-        { label: "Fabricated", passed: true, evidence: "src/x.ts:1 — `x`" }, // unknown label (violation 2)
-        // Check B is missing entirely (violation 3)
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain("1 checks missing");
-    expect(reason).toContain("1 PASS entries lack file:line evidence");
-    expect(reason).toContain("1 unknown labels");
-  });
-
-  // ── Mock-disclosure + dual-side rules (the mock-only-PASS fix) ─────────
-
-  it("rejects a [behavioral] PASS with no mocks= disclosure at all", () => {
-    const behavioralSession = {
-      verifyChecks: [
-        { label: "Check A", kind: "behavioral" as const },
-      ],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        { label: "Check A", passed: true, evidence: "test/a.test.ts:12 — `expect(x).toBe(1)`" },
-      ],
-    });
-    const reason = validateVerifyAdvance(behavioralSession, decision);
-    expect(reason).toContain("lack mock-surface disclosure");
-  });
-
-  it("accepts a [behavioral] PASS with mocks=none", () => {
-    const behavioralSession = {
-      verifyChecks: [{ label: "Check A", kind: "behavioral" as const }],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "Check A",
-          passed: true,
-          evidence:
-            'test/a.test.ts:12 — `expect(x).toBe(1)` · mocks=none',
-        },
-      ],
-    });
-    expect(validateVerifyAdvance(behavioralSession, decision)).toBeNull();
-  });
-
-  it("rejects [behavioral] PASS that mocks a boundary without paired [integration] PASS — the incident fix", () => {
-    // This is the exact shape of the failure: 43 tests pass, every one
-    // mocked the api client; no real integration test ever ran; and
-    // production note_* tables stay empty. With the new rule Self-Drive
-    // will now refuse to advance.
-    const session = {
-      verifyChecks: [
-        {
-          label: "worker inserts note classification",
-          kind: "behavioral" as const,
-        },
-      ],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "worker inserts note classification",
-          passed: true,
-          evidence:
-            'test/notes.test.ts:42 — `expect(writer.insert).toHaveBeenCalled()` · mocks=get_api_client',
-        },
-      ],
-    });
-    const reason = validateVerifyAdvance(session, decision);
-    expect(reason).toContain(
-      "mock a system boundary but no paired [integration] PASS",
-    );
-  });
-
-  it("accepts [behavioral] PASS that mocks a boundary WHEN a paired [integration] PASS is present", () => {
-    const session = {
-      verifyChecks: [
-        {
-          label: "worker inserts note classification",
-          kind: "behavioral" as const,
-        },
-        {
-          label: "insert_note_classification end-to-end",
-          kind: "integration" as const,
-        },
-      ],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "worker inserts note classification",
-          passed: true,
-          evidence:
-            'test/notes.test.ts:42 — `expect(writer.insert).toHaveBeenCalled()` · mocks=get_api_client',
-        },
-        {
-          label: "insert_note_classification end-to-end",
-          passed: true,
-          evidence:
-            "caller=workers/notes/notes_write.py:18 · handler=functions/worker-data-write/actions/notes.py:3 · $ curl … → {\"inserted\":1}",
-        },
-      ],
-    });
-    expect(validateVerifyAdvance(session, decision)).toBeNull();
-  });
-
-  it("identifies common boundary mock names (http, supabase, dbClient, etc.)", () => {
-    const cases = [
-      "httpClient",
-      "fetch",
-      "axios",
-      "supabaseClient",
-      "dbClient",
-      "postgresPool",
-      "edgeDispatcher",
-      "sqsQueue",
+  it("accepts any non-empty evidence shape — no substring format gates", () => {
+    // The old validator rejected every one of these; the new one accepts
+    // them all because shape is the orchestrator's call now.
+    const shapes = [
+      "files look fine",                               // no `:` (old static reject)
+      "Grep for X → No matches",                       // no `:` (old static reject)
+      "$ pytest → 31 passed",                          // no mocks= (old behavioral reject)
+      "src/a.ts — function foo",                       // no `:` (old static reject)
+      "✓ does the thing · mocks=httpClient",           // boundary mock no [integration]
     ];
-    for (const mockName of cases) {
-      const session = {
-        verifyChecks: [
-          { label: "behavioral check", kind: "behavioral" as const },
-        ],
-      };
+    for (const evidence of shapes) {
       const decision = makeDecision({
         checkResults: [
-          {
-            label: "behavioral check",
-            passed: true,
-            evidence: `test/a.test.ts:1 — "works" · mocks=${mockName}`,
-          },
+          { label: "Check A", passed: true, evidence },
+          { label: "Check B", passed: true, evidence },
         ],
       });
-      const reason = validateVerifyAdvance(session, decision);
-      expect(
-        reason,
-        `expected ${mockName} to trigger boundary rule`,
-      ).toContain("mock a system boundary but no paired [integration] PASS");
+      const a = assessVerifyAdvance(session, decision);
+      expect(a.structuralError, `evidence: ${evidence}`).toBeNull();
     }
   });
 
-  // ── Per-kind evidence rules (the "Session 1 PAUSED despite 5/5 PASS" fix) ──
+  it("blocks on empty checkResults with advance action", () => {
+    const decision = makeDecision({ checkResults: [] });
+    const a = assessVerifyAdvance(session, decision);
+    expect(a.structuralError).toMatch(/no checkResults/i);
+  });
 
-  it("accepts [side-effect] evidence of the form `$ cmd → \"output\"` WITHOUT requiring a colon", () => {
-    // Regression for the exact user-reported incident: verifier produced
-    //   "$ ls src/helpers/ → \"agent_profiles.py / ...\""
-    // and the old validator rejected it for lacking a file:line citation.
-    const sess = {
+  it("blocks when ≥50% of session labels have no match in the verdict", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Completely Unrelated", passed: true, evidence: "x" },
+      ],
+    });
+    const a = assessVerifyAdvance(session, decision);
+    expect(a.structuralError).toMatch(/session labels have no match/i);
+  });
+
+  it("blocks when no checkResult has passed:true on an advance", () => {
+    const decision = makeDecision({
+      checkResults: [
+        { label: "Check A", passed: false, reason: "x" },
+        { label: "Check B", passed: false, reason: "y" },
+      ],
+    });
+    const a = assessVerifyAdvance(session, decision);
+    expect(a.structuralError).toMatch(/no checkResults entry has passed:true/i);
+  });
+
+  it("emits advisory warnings for fuzzy-matched drift — does NOT block", () => {
+    // 1 result label differs slightly (drops parenthetical) but fuzzy-matches.
+    const s = {
       verifyChecks: [
-        { label: "All helper files exist", kind: "side-effect" as const },
-        {
-          label: "No helper imports from pipeline/",
-          kind: "side-effect" as const,
-        },
+        { label: "Check A", kind: "static" as const },
+        { label: "Check B (with parenthetical)", kind: "behavioral" as const },
       ],
     };
     const decision = makeDecision({
       checkResults: [
-        {
-          label: "All helper files exist",
-          passed: true,
-          evidence:
-            '$ ls src/helpers/ → "agent_profiles.py / token_budget.py / tech_stack_detection.py / test_agent_profiles.py / test_token_budget.py / test_tech_stack_detection.py"',
-        },
-        {
-          label: "No helper imports from pipeline/",
-          passed: true,
-          evidence:
-            "Grep for 'from pipeline|from src\\.pipeline' across src/helpers/ → \"No matches found\"",
-        },
+        { label: "Check A", passed: true, evidence: "x" },
+        { label: "Check B", passed: true, evidence: "y" },
       ],
     });
-    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+    const a = assessVerifyAdvance(s, decision);
+    expect(a.structuralError).toBeNull();
+    expect(a.warnings.length).toBeGreaterThan(0);
+    expect(a.matchedResults.get("Check B (with parenthetical)")?.label).toBe("Check B");
   });
 
-  it("accepts [behavioral] evidence that uses `$ test-cmd → …` without a test-file colon", () => {
-    const sess = {
+  it("Session 4 regression: 5/5 PASS with 1 label drift + 1 weird-shape + 1 boundary mock — advances cleanly", () => {
+    // The exact pattern the user hit repeatedly. Before this rewrite,
+    // validateVerifyAdvance paused with:
+    //   "1 checks missing; 1 PASS entries lack file:line evidence;
+    //    1 unknown labels; 1 [behavioral] PASS mocks a boundary ..."
+    // After this rewrite: no structural issues → advances. Any remaining
+    // concerns live in the run-log warnings.
+    const s = {
       verifyChecks: [
-        { label: "Pytest passes for src/helpers/", kind: "behavioral" as const },
+        { label: "Both pipeline modules + both test files exist", kind: "behavioral" as const },
+        { label: "Pytest passes for the two test files", kind: "behavioral" as const },
+        { label: "All 3 worker actions used here have handlers in worker-data-read/index.ts (handshake parity by grep)", kind: "static" as const },
+        { label: 'NOT: any function returns hardcoded fake data ("when LLM is wired up...")', kind: "static" as const },
+        { label: "NOT: any soft-fail silently swallow a source file.", kind: "static" as const },
       ],
     };
     const decision = makeDecision({
       checkResults: [
-        {
-          label: "Pytest passes for src/helpers/",
-          passed: true,
-          evidence:
-            '$ pytest src/helpers/ -v → "31 passed in 0.02s" · mocks=none (tests exercise real helpers)',
-        },
+        { label: "Both pipeline modules + both test files exist", passed: true, evidence: '$ pytest --collect-only → "39 tests collected in 0.03s" · mocks=none' },
+        // LABEL DRIFT — verifier abbreviated; fuzzy matches.
+        { label: "Pytest passes for the two test files", passed: true, evidence: '$ pytest ... → "39 passed in 0.05s" · mocks=get_api_client, ModelSelector (integration deferred to Phase 9 per spec)' },
+        { label: "All 3 worker actions used here have handlers in worker-data-read/index.ts (handshake parity by grep)", passed: true, evidence: "worker-data-read/index.ts:1908, :1942, :1984" },
+        { label: 'NOT: any function returns hardcoded fake data ("when LLM is wired up...")', passed: true, evidence: '$ grep -i -nE "fake|TODO|hardcoded" ... → "No matches found"' },
+        // WEIRD SHAPE for the last one — no `:`, no `$ ` — used to be rejected.
+        { label: "NOT: any soft-fail silently swallow a source file.", passed: true, evidence: "guide_session_planning.py lines 104-110 use selector.generate_with_fallback without try/except — provider errors propagate" },
       ],
     });
-    expect(validateVerifyAdvance(sess, decision)).toBeNull();
-  });
-
-  it("accepts [behavioral] `mocks=none` when followed by parenthetical commentary", () => {
-    // "mocks=none (tests exercise real helper functions ...)" was being
-    // rejected because the old regex anchored on end-of-string.
-    const sess = {
-      verifyChecks: [
-        { label: "Tests pass", kind: "behavioral" as const },
-      ],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "Tests pass",
-          passed: true,
-          evidence:
-            '$ pytest → "31 passed" · mocks=none (no mock / Mock / patch / monkeypatch imports in test files — verified by grep)',
-        },
-      ],
-    });
-    expect(validateVerifyAdvance(sess, decision)).toBeNull();
-  });
-
-  it("still rejects [static] evidence without a file:lines citation", () => {
-    const sess = {
-      verifyChecks: [{ label: "A", kind: "static" as const }],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        { label: "A", passed: true, evidence: "it exists" },
-      ],
-    });
-    expect(validateVerifyAdvance(sess, decision)).toContain(
-      "lack file:line evidence",
-    );
-  });
-
-  it("still rejects [integration] evidence missing the handler cite", () => {
-    const sess = {
-      verifyChecks: [{ label: "A", kind: "integration" as const }],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "A",
-          passed: true,
-          evidence: "caller=src/a.ts:1 · $ curl → \"ok\"",
-        },
-      ],
-    });
-    // No handler= cite → rejected
-    expect(validateVerifyAdvance(sess, decision)).toContain(
-      "lack file:line evidence",
-    );
-  });
-
-  it("accepts the complete 5-check verifier output from the Session 1 regression", () => {
-    // End-to-end regression: the exact shape of the 5 checks the user
-    // showed. If this passes, the Session 1 PAUSED-despite-5/5-PASS
-    // incident cannot recur.
-    const sess = {
-      verifyChecks: [
-        { label: "All 6 helper files exist; tests co-located", kind: "side-effect" as const },
-        { label: "Pytest passes for src/helpers/", kind: "behavioral" as const },
-        { label: "PyYAML in requirements.txt", kind: "static" as const },
-        { label: "No helper imports from pipeline/", kind: "side-effect" as const },
-        { label: "No test mocks the helper functions themselves", kind: "side-effect" as const },
-      ],
-    };
-    const decision = makeDecision({
-      checkResults: [
-        {
-          label: "All 6 helper files exist; tests co-located",
-          passed: true,
-          evidence:
-            '$ ls src/helpers/ → "agent_profiles.py / token_budget.py / tech_stack_detection.py / test_agent_profiles.py / test_token_budget.py / test_tech_stack_detection.py"',
-        },
-        {
-          label: "Pytest passes for src/helpers/",
-          passed: true,
-          evidence:
-            '$ pytest src/helpers/ -v → "31 passed in 0.02s" · mocks=none (tests exercise real helpers; no mock/Mock/patch/monkeypatch imports)',
-        },
-        {
-          label: "PyYAML in requirements.txt",
-          passed: true,
-          evidence:
-            "fly-containers/specforge-worker/requirements.txt:16 — `PyYAML>=6.0.1`",
-        },
-        {
-          label: "No helper imports from pipeline/",
-          passed: true,
-          evidence:
-            "Grep for 'from pipeline|from src\\.pipeline' across src/helpers/ → \"No matches found\"",
-        },
-        {
-          label: "No test mocks the helper functions themselves",
-          passed: true,
-          evidence:
-            "Grep for 'mock|Mock|patch|monkeypatch' across src/helpers/test_*.py → \"No matches found\"; tests invoke get_profile, allocate_budget, enforce_profile_cap, detect_tech_stack directly",
-        },
-      ],
-    });
-    expect(validateVerifyAdvance(sess, decision)).toBeNull();
+    const a = assessVerifyAdvance(s, decision);
+    expect(a.structuralError).toBeNull();
+    // All 5 session labels should have a matched result.
+    expect(a.matchedResults.size).toBe(5);
   });
 });
 
@@ -2903,28 +2703,19 @@ describe("handleRecheck — request_recheck loop", () => {
     expect(input.claudeCodeResponse).not.toContain("Done building foundation");
   });
 
-  it("auto-converts a validator-rejected advance into request_recheck (the user-reported incident)", async () => {
-    // The exact flow the user hit: orchestrator emits `advance` with
-    // passed:true entries, but the evidence strings don't satisfy the
-    // per-kind format rules (e.g., [behavioral] evidence with neither
-    // `$ ` nor `:` nor `mocks=` disclosure). Previously Self-Drive paused.
-    // After the fix, the client auto-composes a request_recheck rather
-    // than halting the run.
+  it("advances cleanly when the orchestrator's evidence is non-canonical but all labels match (trust-the-orchestrator)", async () => {
+    // Previously: the client validator would reject evidence without `:`
+    // or `$ ` or `mocks=` and auto-request a recheck. Now: the orchestrator
+    // is the judge, so non-canonical evidence on a fully-matched verdict
+    // just advances. No recheck, no pause.
     setupReadyState();
-
-    // Force both checks on session 1 to kind=behavioral so format
-    // validation applies. Must be set BEFORE start() snapshots the guide.
-    const guideWithBehavioral = makeGuide();
-    guideWithBehavioral.sessions[0].verifyChecks = guideWithBehavioral
-      .sessions[0].verifyChecks.map((c) => ({ ...c, kind: "behavioral" as const }));
-    useGuideStore.setState({ guide: guideWithBehavioral });
 
     mockCallOrchestrator.mockResolvedValueOnce({
       action: "advance",
       summary: "All passed (semantic)",
       confidence: "high",
       checkResults: [
-        // Evidence without `$ ` or `:` — fails per-kind + lacks mocks=
+        // Evidence without `$ ` or `:` — old validator rejected, new one advances.
         { label: "Check A", passed: true, evidence: "files look fine, all present" },
         { label: "Check B", passed: true, evidence: "tests are green" },
       ],
@@ -2937,23 +2728,57 @@ describe("handleRecheck — request_recheck loop", () => {
     const emit = captureListenCallback();
     emit(makeTurnCompleteEvent());
 
-    // Self-Drive should auto-route through handleRecheck and send a
-    // composed re-prompt — NOT pause.
+    // No recheck prompt, no pause — session advances.
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentSessionIndex).toBeGreaterThan(1);
+    });
+    expect(useSelfDriveStore.getState().pauseReason).toBeNull();
+    // handleRecheck was not called for a format-only concern.
+    const sends = mockSendMessage.mock.calls.filter(
+      (c) => (c[1] as string).includes("Re-state ONLY the items below"),
+    );
+    expect(sends).toHaveLength(0);
+  });
+
+  it("auto-requests a recheck when the verdict is a STRUCTURAL near-miss (1 of 3 labels unmatched)", async () => {
+    // When the orchestrator skips a minority of session labels (<50%),
+    // the client triggers a recheck for the missing ones rather than
+    // pausing. This is the only remaining auto-recheck trigger client-side.
+    setupReadyState();
+    // Give the session 3 checks so 1 unmatched is ~33% (below the 50% structural-fail threshold).
+    const guide3 = makeGuide();
+    guide3.sessions[0].verifyChecks = [
+      { id: "v-1-a", label: "Alpha", checked: false },
+      { id: "v-1-b", label: "Beta", checked: false },
+      { id: "v-1-c", label: "Gamma", checked: false },
+    ];
+    useGuideStore.setState({ guide: guide3 });
+
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "skipped Gamma",
+      confidence: "high",
+      checkResults: [
+        { label: "Alpha", passed: true, evidence: "x" },
+        { label: "Beta", passed: true, evidence: "y" },
+        // Gamma missing entirely.
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "verifying" });
+    mockSendMessage.mockClear();
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
     await vi.waitFor(() => {
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
     });
     const promptSent = mockSendMessage.mock.calls[0]?.[1];
-    expect(promptSent).toBeDefined();
     expect(promptSent).toContain("Re-state ONLY the items below");
-    expect(promptSent).toContain("Check A");
-    expect(promptSent).toContain("Check B");
-    expect(promptSent).toContain("mocks="); // form hint for behavioral
-
-    const state = useSelfDriveStore.getState();
-    expect(state.status).toBe("running");
-    expect(state.currentPhase).toBe("rechecking");
-    expect(state.recheckRoundsUsed).toBe(1);
-    expect(state.pauseReason).toBeNull();
+    expect(promptSent).toContain("Gamma");
+    expect(useSelfDriveStore.getState().currentPhase).toBe("rechecking");
   });
 
   it("ticks checks and advances when orchestrator returns advance after a recheck round", async () => {
@@ -3003,15 +2828,16 @@ describe("handleRecheck — request_recheck loop", () => {
     expect(useSelfDriveStore.getState().pauseReason).toBeNull();
   });
 
-  it("still pauses when the validator flags UNRECOVERABLE issues (missing labels)", async () => {
+  it("pauses when ≥50% of session labels are fabricated or skipped (structural integrity gate)", async () => {
     setupReadyState();
     mockCallOrchestrator.mockResolvedValueOnce({
       action: "advance",
       summary: "claimed done",
       confidence: "high",
-      // Session has Check A and Check B; orchestrator only reports A.
+      // Session has Check A and Check B (2 labels). Orchestrator only reports
+      // something unrelated → 100% unmatched → ≥50% structural error.
       checkResults: [
-        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `x`" },
+        { label: "Something Fabricated", passed: true, evidence: "src/x.ts:1 — `x`" },
       ],
     });
 
@@ -3025,9 +2851,8 @@ describe("handleRecheck — request_recheck loop", () => {
     await vi.waitFor(() => {
       expect(useSelfDriveStore.getState().status).toBe("paused");
     });
-    // No recheck — missing items are not a format-only issue.
     expect(mockSendMessage).not.toHaveBeenCalled();
-    expect(useSelfDriveStore.getState().pauseReason).toMatch(/checks missing from verdict/);
+    expect(useSelfDriveStore.getState().pauseReason).toMatch(/session labels have no match/);
   });
 
   it("resets recheck state when a session advances", async () => {
