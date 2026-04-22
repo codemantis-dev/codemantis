@@ -235,4 +235,60 @@ describe("ActivityFeed", () => {
     expect(screen.getByText("second.ts")).toBeInTheDocument();
     expect(screen.getByText("third-cmd")).toBeInTheDocument();
   });
+
+  describe("cross-project bleed guard", () => {
+    it("renders no entries when active session belongs to a different project than activeProjectPath", () => {
+      // Scenario: activeSessionId points to a session whose project_path does
+      // NOT match activeProjectPath. Would previously display stale entries
+      // from that other-project session in the wrong tab.
+      useSessionStore.setState({
+        sessions: new Map([
+          [SESSION_ID, { id: SESSION_ID, name: "Other", project_path: "/projects/other", status: "connected" as const, created_at: "", model: null, icon_index: 0 }],
+        ]),
+        activeSessionId: SESSION_ID,
+        activeProjectPath: "/projects/current",
+        sessionMessages: new Map([[SESSION_ID, []]]),
+        sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
+        sessionContext: new Map([[SESSION_ID, { used: 0, max: 200000 }]]),
+        tabOrder: [SESSION_ID],
+      });
+      useActivityStore.setState({
+        sessionEntries: new Map([
+          [SESSION_ID, [
+            makeEntry({ id: "foreign", toolName: "Bash", toolInput: { command: "find /projects/other -name '*.py'" }, timestamp: "2026-01-01T12:00:00Z" }),
+          ]],
+        ]),
+        approvalQueue: [],
+        approvalSeenIds: new Set(),
+        currentApprovalIndex: 0,
+      });
+      render(<ActivityFeed />);
+      expect(screen.getByText("No activity yet")).toBeInTheDocument();
+      expect(screen.queryByText(/find \/projects\/other/)).not.toBeInTheDocument();
+    });
+
+    it("renders no entries when activeSessionId does not resolve to a known session", () => {
+      useSessionStore.setState({
+        sessions: new Map(),
+        activeSessionId: "ghost-session",
+        activeProjectPath: "/projects/current",
+        sessionMessages: new Map(),
+        sessionStreaming: new Map(),
+        sessionContext: new Map(),
+        tabOrder: [],
+      });
+      useActivityStore.setState({
+        sessionEntries: new Map([
+          ["ghost-session", [
+            makeEntry({ id: "orphan", toolName: "Bash", toolInput: { command: "echo hi" }, timestamp: "2026-01-01T12:00:00Z" }),
+          ]],
+        ]),
+        approvalQueue: [],
+        approvalSeenIds: new Set(),
+        currentApprovalIndex: 0,
+      });
+      render(<ActivityFeed />);
+      expect(screen.getByText("No activity yet")).toBeInTheDocument();
+    });
+  });
 });

@@ -96,6 +96,7 @@ export default function AppShell() {
   const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
   const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
   const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
+  const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
   useDevServerDetection();
@@ -163,11 +164,14 @@ export default function AppShell() {
     return () => { cancelled = true; unlisten?.(); };
   }, []);
 
-  // Reset project log / history view when switching projects
+  // Reset project log / history view when switching projects.
+  // Also clear the selected activity entry so the detail panel can't display
+  // an entry that belongs to the previous project.
   useEffect(() => {
     setShowProjectLog(false);
     setShowClaudeHistory(false);
-  }, [activeProjectPath, setShowProjectLog, setShowClaudeHistory]);
+    setSelectedActivityEntry(null);
+  }, [activeProjectPath, setShowProjectLog, setShowClaudeHistory, setSelectedActivityEntry]);
 
   const handleCloseSession = useCallback((sessionId: string) => {
     const session = useSessionStore.getState().sessions.get(sessionId);

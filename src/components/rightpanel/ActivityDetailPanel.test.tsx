@@ -301,4 +301,27 @@ describe("ActivityDetailPanel", () => {
     render(<ActivityDetailPanel />);
     expect(screen.queryByText("Show in Finder")).not.toBeInTheDocument();
   });
+
+  describe("cross-session bleed guard", () => {
+    it("renders nothing when entry.sessionId does not match activeSessionId", () => {
+      useSessionStore.setState({ activeProjectPath: "/project", activeSessionId: "current-session" });
+      showEntry(makeEntry({ sessionId: "other-session" }));
+      const { container } = render(<ActivityDetailPanel />);
+      expect(container.innerHTML).toBe("");
+    });
+
+    it("renders when entry.sessionId matches activeSessionId", () => {
+      useSessionStore.setState({ activeProjectPath: "/project", activeSessionId: "current-session" });
+      showEntry(makeEntry({ sessionId: "current-session" }));
+      render(<ActivityDetailPanel />);
+      expect(screen.getByText("Bash")).toBeInTheDocument();
+    });
+
+    it("renders legacy entries without sessionId (backward compatibility)", () => {
+      useSessionStore.setState({ activeProjectPath: "/project", activeSessionId: "current-session" });
+      showEntry(makeEntry()); // no sessionId
+      render(<ActivityDetailPanel />);
+      expect(screen.getByText("Bash")).toBeInTheDocument();
+    });
+  });
 });

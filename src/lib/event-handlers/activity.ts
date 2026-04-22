@@ -13,6 +13,7 @@ import { useFileViewerStore, getLanguageFromPath } from "../../stores/fileViewer
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { toolActivityLabel, subAgentActivityLabel, parseAgentUsage } from "../event-classifier";
+import { assertActivitySessionScope } from "../session-integrity";
 
 // Store state types (derived from Zustand store getState())
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
@@ -179,6 +180,7 @@ function handleToolUseStart(
     isError: false,
     sessionId,
   };
+  assertActivitySessionScope(sessionId, entry, "tool_use_start");
   activityStore.addEntry(sessionId, entry);
 
   // Cache file content before Write/Edit runs (for diff view)

@@ -5,6 +5,7 @@ import type { SessionMode } from "../types/session";
 import { useActivityStore, type PendingQuestion } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { assertActivitySessionScope } from "../lib/session-integrity";
 
 
 /**
@@ -92,19 +93,21 @@ export function useToolApprovalListener(): void {
 
       // Auto-approve if user previously clicked "Always allow" for this tool in this session
       if (activityStore.isToolAlwaysAllowed(forgeSessionId, toolName)) {
-        activityStore.addEntry(forgeSessionId, {
+        const autoEntry = {
           id: `auto-${requestId}`,
           toolUseId: requestId,
           toolName,
           toolInput,
-          status: "running",
+          status: "running" as const,
           result: "Auto-approved (always allowed)",
           timestamp: new Date().toISOString(),
           messageId: "",
           isError: false,
-          approvalStatus: "approved",
+          approvalStatus: "approved" as const,
           approvalTimestamp: new Date().toISOString(),
-        });
+        };
+        assertActivitySessionScope(forgeSessionId, autoEntry, "approval_auto_allow");
+        activityStore.addEntry(forgeSessionId, autoEntry);
         resolveToolApproval(requestId, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
         );

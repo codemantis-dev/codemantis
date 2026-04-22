@@ -112,7 +112,13 @@ export default function ActivityFeed() {
     // Session scope: use narrow selector (only re-renders when active session's entries change)
     if (activityFeedScope === "session" && activeSessionId) {
       const session = sessions.get(activeSessionId);
-      const label = session?.name ?? "Chat";
+      // Defensive invariant: the active session must belong to the active project.
+      // Without this, a misattributed entry or a stale activeSessionId would
+      // display activity from another project in the wrong tab.
+      if (!session || session.project_path !== activeProjectPath) {
+        return { sortedEntries: [] as LabeledEntry[], showLabels: false };
+      }
+      const label = session.name ?? "Chat";
       const labeled = activeSessionEntries.map((entry) => ({ ...entry, computedLabel: label }));
       const sorted = [...labeled].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       return { sortedEntries: sorted, showLabels: false };

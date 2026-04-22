@@ -41,8 +41,14 @@ function getToolDisplayName(toolName: string): string {
 export default function ActivityDetailPanel() {
   const entry = useUiStore((s) => s.selectedActivityEntry);
   const setEntry = useUiStore((s) => s.setSelectedActivityEntry);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const themeId = useSettingsStore((s) => s.settings.theme);
   const fontSize = useSettingsStore((s) => s.settings.fontSize);
+
+  // Defensive: a stored entry from a different session must never render here.
+  // Belt-and-suspenders alongside the project-switch clear in AppShell.
+  const entryBelongsToActiveSession =
+    entry && (!entry.sessionId || entry.sessionId === activeSessionId);
 
   const dismiss = useCallback(() => setEntry(null), [setEntry]);
 
@@ -106,7 +112,7 @@ export default function ActivityDetailPanel() {
     },
   }), [fontSize]);
 
-  if (!entry) return null;
+  if (!entry || !entryBelongsToActiveSession) return null;
 
   const activityType = getActivityType(entry.toolName);
   const color = typeColors[activityType] ?? "accent";
