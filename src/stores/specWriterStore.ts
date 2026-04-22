@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { saveTaskBoardState, loadTaskBoardState, closeSpecwriterSession } from "../lib/tauri-commands";
 import type {
+  CoverageAuditReport,
+  InputAnalysis,
   SpecConversation,
   SpecMessage,
   SpecAttachment,
@@ -50,6 +52,14 @@ interface SpecWriterState {
   // Claude Code CLI session IDs for SpecWriter (per project, runtime-only)
   cliSessionIds: Map<string, string>;
 
+  // Stage 3: Latest coverage-audit report per project (runtime-only).
+  // Populated by useSpecConversation after each spec turn; read by CoveragePanel.
+  coverageReports: Map<string, CoverageAuditReport>;
+
+  // Stage 3: Latest input-analyzer report per project (runtime-only).
+  // Populated by useSpecConversation when input docs are first analyzed.
+  inputAnalysisReports: Map<string, InputAnalysis>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -96,6 +106,10 @@ interface SpecWriterState {
   setCliSessionId: (projectPath: string, sessionId: string | null) => void;
   getCliSessionId: (projectPath: string) => string | undefined;
 
+  // Actions - Coverage audit (Stage 3)
+  setCoverageReport: (projectPath: string, report: CoverageAuditReport | null) => void;
+  setInputAnalysisReport: (projectPath: string, report: InputAnalysis | null) => void;
+
   // Actions - Turn completion (batched update to avoid intermediate re-renders)
   completeTurn: (projectPath: string, updates: {
     finalContent: string;
@@ -137,6 +151,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   draftText: new Map(),
   draftAttachments: new Map(),
   cliSessionIds: new Map(),
+  coverageReports: new Map(),
+  inputAnalysisReports: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -273,13 +289,17 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const cliSessionIds = new Map(state.cliSessionIds);
       const draftText = new Map(state.draftText);
       const draftAttachments = new Map(state.draftAttachments);
+      const coverageReports = new Map(state.coverageReports);
+      const inputAnalysisReports = new Map(state.inputAnalysisReports);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
       cliSessionIds.delete(projectPath);
       draftText.delete(projectPath);
       draftAttachments.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments };
+      coverageReports.delete(projectPath);
+      inputAnalysisReports.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports };
     });
   },
 
@@ -449,6 +469,29 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
 
   getCliSessionId: (projectPath) => get().cliSessionIds.get(projectPath),
 
+  // Coverage audit (Stage 3)
+  setCoverageReport: (projectPath, report) =>
+    set((state) => {
+      const coverageReports = new Map(state.coverageReports);
+      if (report === null) {
+        coverageReports.delete(projectPath);
+      } else {
+        coverageReports.set(projectPath, report);
+      }
+      return { coverageReports };
+    }),
+
+  setInputAnalysisReport: (projectPath, report) =>
+    set((state) => {
+      const inputAnalysisReports = new Map(state.inputAnalysisReports);
+      if (report === null) {
+        inputAnalysisReports.delete(projectPath);
+      } else {
+        inputAnalysisReports.set(projectPath, report);
+      }
+      return { inputAnalysisReports };
+    }),
+
   // Turn completion — single batched update to avoid intermediate re-renders from useShallow
   completeTurn: (projectPath, updates) =>
     set((state) => {
@@ -510,13 +553,17 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const cliSessionIds = new Map(s.cliSessionIds);
       const draftText = new Map(s.draftText);
       const draftAttachments = new Map(s.draftAttachments);
+      const coverageReports = new Map(s.coverageReports);
+      const inputAnalysisReports = new Map(s.inputAnalysisReports);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
       cliSessionIds.delete(projectPath);
       draftText.delete(projectPath);
       draftAttachments.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments };
+      coverageReports.delete(projectPath);
+      inputAnalysisReports.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports };
     });
   },
 

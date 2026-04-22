@@ -328,7 +328,7 @@ None.
     expect(result).toBeNull();
   });
 
-  it("returns null for malformed spec title heading", () => {
+  it("accepts any H1 as title when a valid session plan is present", () => {
     const spec = `# Just A Title
 
 ## Session Plan
@@ -336,7 +336,28 @@ ${makeSession(1)}
 ${makeSession(2)}
 `;
     const result = parseSessionPlan(spec);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Just A Title");
+    expect(result!.sessions).toHaveLength(2);
+  });
+
+  it("keeps descriptive em-dash suffix that is not a known kind label", () => {
+    // Regression for _examples/specloom-workbench-catch.md — SpecWriter
+    // occasionally emits a descriptive suffix instead of "— Specification".
+    // The parser must still recognize the spec as a multi-session plan.
+    const spec = `# SpecLoom Workbench Catch-up — Unbreak, Close the Loop, Reconcile
+
+## 10. Session Plan
+${makeSession(1)}
+${makeSession(2)}
+${makeSession(3)}
+`;
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe(
+      "SpecLoom Workbench Catch-up — Unbreak, Close the Loop, Reconcile",
+    );
+    expect(result!.sessions).toHaveLength(3);
   });
 
   it("returns null for a single-session plan", () => {

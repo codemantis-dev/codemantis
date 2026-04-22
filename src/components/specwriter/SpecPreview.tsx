@@ -6,21 +6,41 @@ import { markdownLinkComponents } from "../../lib/external-links";
 
 const REMARK_PLUGINS = [remarkGfm];
 
+export type SpecPreviewTab = 'spec' | 'audit' | 'coverage';
+
 interface Props {
   content: string | null;
   auditContent?: string | null;
-  activeTab: 'spec' | 'audit';
-  onTabChange: (tab: 'spec' | 'audit') => void;
+  activeTab: SpecPreviewTab;
+  onTabChange: (tab: SpecPreviewTab) => void;
+  /** Stage 3: Show the Coverage tab and its content (rendered in `coverageSlot` when active). */
+  hasCoverage?: boolean;
+  /** Stage 3: Badge count shown next to the Coverage tab when failures are present. */
+  coverageFailureCount?: number;
+  /** Stage 3: Rendered when activeTab === 'coverage'. */
+  coverageSlot?: React.ReactNode;
   isEditing?: boolean;
   onContentChange?: (content: string) => void;
   onClose?: () => void;
 }
 
-export default function SpecPreview({ content, auditContent, activeTab, onTabChange, isEditing, onContentChange, onClose }: Props) {
+export default function SpecPreview({
+  content,
+  auditContent,
+  activeTab,
+  onTabChange,
+  hasCoverage = false,
+  coverageFailureCount = 0,
+  coverageSlot,
+  isEditing,
+  onContentChange,
+  onClose,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
 
   const hasBothDocuments = !!content && !!auditContent;
+  const showTabBar = hasBothDocuments || hasCoverage;
 
   const displayContent = activeTab === 'audit' && auditContent ? auditContent : content;
 
@@ -49,7 +69,7 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
   // Extract title from first # heading of the currently displayed content
   const title = displayContent?.match(/^#\s+(.+)$/m)?.[1] ?? null;
 
-  if (!content && !auditContent) {
+  if (!content && !auditContent && !hasCoverage) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">📝</div>
@@ -66,38 +86,73 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab bar — only when both documents exist */}
-      {hasBothDocuments && (
+      {/* Tab bar — when audit or coverage is available */}
+      {showTabBar && (
         <div
           className="flex shrink-0 border-b"
           style={{ borderColor: "var(--border)" }}
         >
-          <button
-            onClick={() => onTabChange('spec')}
-            className="px-4 py-2 text-ui font-medium transition-colors"
-            style={{
-              color: activeTab === 'spec' ? "var(--accent)" : "var(--text-secondary)",
-              borderBottom: activeTab === 'spec' ? "2px solid var(--accent)" : "2px solid transparent",
-              background: activeTab === 'spec' ? "var(--accent-bg)" : "transparent",
-            }}
-          >
-            Specification
-          </button>
-          <button
-            onClick={() => onTabChange('audit')}
-            className="px-4 py-2 text-ui font-medium transition-colors"
-            style={{
-              color: activeTab === 'audit' ? "var(--accent)" : "var(--text-secondary)",
-              borderBottom: activeTab === 'audit' ? "2px solid var(--accent)" : "2px solid transparent",
-              background: activeTab === 'audit' ? "var(--accent-bg)" : "transparent",
-            }}
-          >
-            Verification Audit
-          </button>
+          {(content || activeTab === 'spec') && (
+            <button
+              onClick={() => onTabChange('spec')}
+              className="px-4 py-2 text-ui font-medium transition-colors"
+              style={{
+                color: activeTab === 'spec' ? "var(--accent)" : "var(--text-secondary)",
+                borderBottom: activeTab === 'spec' ? "2px solid var(--accent)" : "2px solid transparent",
+                background: activeTab === 'spec' ? "var(--accent-bg)" : "transparent",
+              }}
+            >
+              Specification
+            </button>
+          )}
+          {auditContent && (
+            <button
+              onClick={() => onTabChange('audit')}
+              className="px-4 py-2 text-ui font-medium transition-colors"
+              style={{
+                color: activeTab === 'audit' ? "var(--accent)" : "var(--text-secondary)",
+                borderBottom: activeTab === 'audit' ? "2px solid var(--accent)" : "2px solid transparent",
+                background: activeTab === 'audit' ? "var(--accent-bg)" : "transparent",
+              }}
+            >
+              Verification Audit
+            </button>
+          )}
+          {hasCoverage && (
+            <button
+              onClick={() => onTabChange('coverage')}
+              className="px-4 py-2 text-ui font-medium transition-colors flex items-center gap-1.5"
+              style={{
+                color: activeTab === 'coverage' ? "var(--accent)" : "var(--text-secondary)",
+                borderBottom: activeTab === 'coverage' ? "2px solid var(--accent)" : "2px solid transparent",
+                background: activeTab === 'coverage' ? "var(--accent-bg)" : "transparent",
+              }}
+            >
+              Coverage
+              {coverageFailureCount > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[18px] px-1 rounded-full text-detail font-mono"
+                  style={{
+                    background: "var(--destructive, #ef4444)",
+                    color: "white",
+                  }}
+                >
+                  {coverageFailureCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       )}
 
-      {title && (
+      {/* Coverage tab body */}
+      {activeTab === 'coverage' && hasCoverage && (
+        <div className="flex-1 overflow-hidden">
+          {coverageSlot}
+        </div>
+      )}
+
+      {title && activeTab !== 'coverage' && (
         <div
           className="px-4 py-2 text-ui font-medium border-b shrink-0 flex items-center gap-2"
           style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
@@ -115,27 +170,29 @@ export default function SpecPreview({ content, auditContent, activeTab, onTabCha
           )}
         </div>
       )}
-      {isEditing && activeTab === 'spec' ? (
-        <textarea
-          className="flex-1 w-full resize-none font-mono text-chat px-4 py-3 outline-none"
-          style={{
-            background: "var(--bg-primary)",
-            color: "var(--text-primary)",
-            border: "none",
-          }}
-          value={displayContent ?? ""}
-          onChange={(e) => onContentChange?.(e.target.value)}
-        />
-      ) : (
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-4 py-3"
-        >
-          <div className="markdown-content text-chat" style={{ color: "var(--text-primary)" }}>
-            {renderedMarkdown}
+      {activeTab !== 'coverage' && (
+        isEditing && activeTab === 'spec' ? (
+          <textarea
+            className="flex-1 w-full resize-none font-mono text-chat px-4 py-3 outline-none"
+            style={{
+              background: "var(--bg-primary)",
+              color: "var(--text-primary)",
+              border: "none",
+            }}
+            value={displayContent ?? ""}
+            onChange={(e) => onContentChange?.(e.target.value)}
+          />
+        ) : (
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto px-4 py-3"
+          >
+            <div className="markdown-content text-chat" style={{ color: "var(--text-primary)" }}>
+              {renderedMarkdown}
+            </div>
           </div>
-        </div>
+        )
       )}
     </div>
   );

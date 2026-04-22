@@ -88,13 +88,17 @@ export interface ParsedSessionPlan {
  */
 export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null {
   // --- Step 1: Extract spec title from the # heading ---
-  // Accepts: "— Specification", "— Requirements Specification", "— Feature Specification",
-  //          "— Implementation Plan", "— Implementation Specification"
-  const titleMatch = specMarkdown.match(
-    /^#\s+(.+?)\s*(?:—|-)\s*(?:(?:Requirements |Feature |Implementation )?Specification|Implementation Plan)/m,
-  );
+  // The real validity gate is a well-formed Session Plan with ≥2 sessions
+  // (each with a Prompt for Claude Code block); the title is display metadata.
+  // Accept any H1. If it ends with a known kind suffix ("— Specification",
+  // "— Implementation Plan", etc.) strip that for a cleaner display string.
+  const titleMatch = specMarkdown.match(/^#\s+(.+?)\s*$/m);
   if (!titleMatch) return null;
-  const title = titleMatch[1].trim();
+  const rawTitle = titleMatch[1].trim();
+  const kindStrip = rawTitle.match(
+    /^(.+?)\s*(?:—|-)\s*(?:(?:Requirements |Feature |Implementation )?Specification|Implementation Plan)\s*$/,
+  );
+  const title = (kindStrip?.[1] ?? rawTitle).trim();
 
   // --- Step 2: Find the Session Plan section ---
   // Look for "## 10. Session Plan" or "## Session Plan" (flexible numbering)

@@ -19,6 +19,8 @@ export function useSpecConversationRouter(): {
   generateAudit: (projectPath: string) => void;
   loadContext: (projectPath: string) => Promise<void>;
   cancelStream: (projectPath: string) => void;
+  /** Stage 3: re-dispatch the latest audit recheck prompt. */
+  requestRecheck: (projectPath: string) => boolean;
 } {
   const api = useSpecConversation();
   const cli = useSpecConversationClaude();
@@ -88,11 +90,22 @@ export function useSpecConversationRouter(): {
     [api, cli, isClaudeCode]
   );
 
+  const requestRecheck = useCallback(
+    (projectPath: string): boolean => {
+      if (isClaudeCode(projectPath)) {
+        return cli.requestRecheck(projectPath);
+      }
+      return api.requestRecheck(projectPath);
+    },
+    [api, cli, isClaudeCode]
+  );
+
   return {
     sendMessage,
     writeSpec,
     generateAudit,
     loadContext,
     cancelStream,
+    requestRecheck,
   };
 }

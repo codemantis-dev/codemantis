@@ -28,6 +28,8 @@ describe("specWriterStore", () => {
       cliSessionIds: new Map(),
       draftText: new Map(),
       draftAttachments: new Map(),
+      coverageReports: new Map(),
+      inputAnalysisReports: new Map(),
     });
   });
 
@@ -554,5 +556,65 @@ describe("specWriterStore", () => {
     store.promoteMessageToSpec(PROJECT, "msg-user");
 
     expect(useSpecWriterStore.getState().currentSpecContent.has(PROJECT)).toBe(false);
+  });
+
+  // ─── Stage 3: coverage report + input analysis storage ─────────────
+
+  it("setCoverageReport stores and overwrites per project", () => {
+    const store = useSpecWriterStore.getState();
+    const report = {
+      status: "fail" as const,
+      inputDocs: [],
+      output: { sections: 1, bytes: 10 },
+      ratios: { byteRatio: 0.5, sectionRatio: 0.5 },
+      failures: [],
+      recheckPrompts: [],
+    };
+    store.setCoverageReport(PROJECT, report);
+    expect(useSpecWriterStore.getState().coverageReports.get(PROJECT)).toBe(report);
+
+    const next = { ...report, status: "pass" as const };
+    store.setCoverageReport(PROJECT, next);
+    expect(useSpecWriterStore.getState().coverageReports.get(PROJECT)).toBe(next);
+  });
+
+  it("setCoverageReport(null) deletes the entry", () => {
+    const store = useSpecWriterStore.getState();
+    store.setCoverageReport(PROJECT, {
+      status: "pass",
+      inputDocs: [],
+      output: { sections: 0, bytes: 0 },
+      ratios: { byteRatio: 1, sectionRatio: 1 },
+      failures: [],
+      recheckPrompts: [],
+    });
+    store.setCoverageReport(PROJECT, null);
+    expect(useSpecWriterStore.getState().coverageReports.has(PROJECT)).toBe(false);
+  });
+
+  it("setInputAnalysisReport stores and clears", () => {
+    const store = useSpecWriterStore.getState();
+    const analysis = { docs: [], findings: [], clarifications: [], report: "..." };
+    store.setInputAnalysisReport(PROJECT, analysis);
+    expect(useSpecWriterStore.getState().inputAnalysisReports.get(PROJECT)).toBe(analysis);
+    store.setInputAnalysisReport(PROJECT, null);
+    expect(useSpecWriterStore.getState().inputAnalysisReports.has(PROJECT)).toBe(false);
+  });
+
+  it("clearConversation also clears the coverage and analysis reports", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.setCoverageReport(PROJECT, {
+      status: "pass",
+      inputDocs: [],
+      output: { sections: 0, bytes: 0 },
+      ratios: { byteRatio: 1, sectionRatio: 1 },
+      failures: [],
+      recheckPrompts: [],
+    });
+    store.setInputAnalysisReport(PROJECT, { docs: [], findings: [], clarifications: [], report: "" });
+    store.clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().coverageReports.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().inputAnalysisReports.has(PROJECT)).toBe(false);
   });
 });

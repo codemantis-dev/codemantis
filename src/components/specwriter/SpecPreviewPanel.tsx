@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Pencil, Eye, ClipboardCheck, FileDown, BookOpen } from "lucide-react";
 import { showToast } from "../../stores/toastStore";
-import SpecPreview from "./SpecPreview";
+import SpecPreview, { type SpecPreviewTab } from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
+import CoveragePanel from "./CoveragePanel";
+import type { CoverageAuditReport, InputAnalysis } from "../../types/spec-writer";
 
 interface Props {
   activeProjectPath: string;
@@ -22,6 +24,12 @@ interface Props {
   onLoadSpec: (content: string, filename: string) => void;
   selectedSavedSpec: string | null;
   onLoadGuide: () => void;
+  /** Stage 3: latest coverage audit on the produced spec (if any). */
+  coverageReport?: CoverageAuditReport | null;
+  /** Stage 3: latest input analysis on the user-attached input docs (if any). */
+  inputAnalysis?: InputAnalysis | null;
+  /** Stage 3: re-dispatch the recheck prompt. */
+  onRecheck?: () => void;
 }
 
 export default function SpecPreviewPanel({
@@ -42,9 +50,18 @@ export default function SpecPreviewPanel({
   onLoadSpec,
   selectedSavedSpec,
   onLoadGuide,
+  coverageReport = null,
+  inputAnalysis = null,
+  onRecheck,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<'spec' | 'audit'>(currentAuditContent ? 'audit' : 'spec');
+  const [activeTab, setActiveTab] = useState<SpecPreviewTab>(currentAuditContent ? 'audit' : 'spec');
   const prevHadAuditRef = useRef(!!currentAuditContent);
+  const prevCoverageStatusRef = useRef<'pass' | 'fail' | null>(coverageReport?.status ?? null);
+
+  const hasCoverage = !!coverageReport || !!inputAnalysis;
+  const coverageFailureCount =
+    (coverageReport?.failures.length ?? 0) +
+    (inputAnalysis?.findings.filter((f) => f.severity === 'block').length ?? 0);
 
   const handleCopy = useCallback(() => {
     const content = activeTab === 'audit' ? currentAuditContent : currentSpecContent;
@@ -66,6 +83,16 @@ export default function SpecPreviewPanel({
     }
   }, [currentAuditContent]);
 
+  // Auto-switch to Coverage when a new audit fails (mirrors the audit auto-switch above).
+  useEffect(() => {
+    const prevStatus = prevCoverageStatusRef.current;
+    const currentStatus = coverageReport?.status ?? null;
+    prevCoverageStatusRef.current = currentStatus;
+    if (currentStatus === 'fail' && prevStatus !== 'fail') {
+      setActiveTab('coverage');
+    }
+  }, [coverageReport?.status]);
+
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       {/* Spec Preview */}
@@ -78,11 +105,21 @@ export default function SpecPreviewPanel({
           isEditing={isEditing}
           onContentChange={onSpecEdit}
           onClose={onCloseSpec}
+          hasCoverage={hasCoverage}
+          coverageFailureCount={coverageFailureCount}
+          coverageSlot={
+            <CoveragePanel
+              report={coverageReport}
+              analysis={inputAnalysis}
+              onRecheck={onRecheck ?? (() => {})}
+              recheckInFlight={isStreaming}
+            />
+          }
         />
       </div>
 
-      {/* Action buttons — Edit + Copy left, Audit/Save right */}
-      {(currentSpecContent || currentAuditContent) && (
+      {/* Action buttons — Edit + Copy left, Audit/Save right (hidden on Coverage tab) */}
+      {activeTab !== 'coverage' && (currentSpecContent || currentAuditContent) && (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2 shrink-0">
             {activeTab === 'spec' && (

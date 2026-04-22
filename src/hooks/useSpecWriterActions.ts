@@ -67,6 +67,8 @@ export interface SpecWriterActionsReturn {
   ) => Promise<void>;
   writeSpec: (projectPath: string) => void;
   cancelStream: (projectPath: string) => void;
+  /** Stage 3: Coverage panel "Run another recheck" button. */
+  requestRecheck: (projectPath: string) => boolean;
 }
 
 export function useSpecWriterActions(activeProjectPath: string | null): SpecWriterActionsReturn {
@@ -106,7 +108,7 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
   const selfDriveStatus = useSelfDriveStatusForActiveProject();
 
   const { sendMessage: sendChatMessage } = useClaudeSession();
-  const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream } =
+  const { sendMessage: sendSpecMessage, writeSpec, generateAudit, cancelStream, requestRecheck } =
     useSpecConversationRouter();
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
@@ -541,5 +543,6 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
     sendSpecMessage,
     writeSpec,
     cancelStream,
+    requestRecheck,
   };
 }

@@ -15,7 +15,7 @@ export default function SpecWriterSlideOver() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
 
   // Grouped data selectors — single subscription with shallow comparison
-  const { uiState, currentSpecContent, currentAuditContent, conversation, isStreaming } =
+  const { uiState, currentSpecContent, currentAuditContent, conversation, isStreaming, coverageReport, inputAnalysis } =
     useSpecWriterStore(
       useShallow((s) => ({
         uiState: activeProjectPath ? s.uiState.get(activeProjectPath) ?? null : null,
@@ -23,6 +23,8 @@ export default function SpecWriterSlideOver() {
         currentAuditContent: activeProjectPath ? s.currentAuditContent.get(activeProjectPath) ?? null : null,
         conversation: activeProjectPath ? s.conversations.get(activeProjectPath) : undefined,
         isStreaming: activeProjectPath ? s.planningStreaming.get(activeProjectPath) ?? false : false,
+        coverageReport: activeProjectPath ? s.coverageReports.get(activeProjectPath) ?? null : null,
+        inputAnalysis: activeProjectPath ? s.inputAnalysisReports.get(activeProjectPath) ?? null : null,
       }))
     );
 
@@ -191,6 +193,9 @@ export default function SpecWriterSlideOver() {
             onLoadSpec={actions.handleLoadSpec}
             selectedSavedSpec={selectedSavedSpec}
             onLoadGuide={actions.handleLoadGuideFromSavedSpec}
+            coverageReport={coverageReport}
+            inputAnalysis={inputAnalysis}
+            onRecheck={() => activeProjectPath && actions.requestRecheck(activeProjectPath)}
           />
         </div>
       </div>

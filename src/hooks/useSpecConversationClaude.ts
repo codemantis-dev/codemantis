@@ -45,6 +45,8 @@ export function useSpecConversationClaude(): {
   loadContext: (projectPath: string) => Promise<void>;
   cancelStream: (projectPath: string) => void;
   changeModel: (projectPath: string, newModel: string) => Promise<void>;
+  /** Stage 3: re-dispatch the latest audit recheck prompt. Returns true if dispatched. */
+  requestRecheck: (projectPath: string) => boolean;
 } {
   const unlistenRef = useRef<(() => void) | null>(null);
   const streamBufferRef = useRef("");
@@ -175,6 +177,8 @@ export function useSpecConversationClaude(): {
             const analysis = analyzeInput(newDocs);
             for (const d of newDocs) seen.add(d.name);
             analyzedDocsRef.current.set(projectPath, seen);
+            // Stage 3: persist the structured analysis for the Coverage panel.
+            store.setInputAnalysisReport(projectPath, analysis);
 
             if (analysis.findings.length > 0) {
               store.addMessage(projectPath, {
@@ -307,6 +311,8 @@ export function useSpecConversationClaude(): {
               const report = auditCoverage(inputDocs, finalContent, {
                 skipForNewApp: convNow.mode === 'new_application',
               });
+              // Stage 3: persist the structured report so the Coverage panel can render it.
+              currentStore.setCoverageReport(projectPath, report);
               const round = recheckRoundRef.current.get(projectPath) ?? 0;
               const summary = summarizeReport(report);
 
@@ -498,6 +504,19 @@ export function useSpecConversationClaude(): {
     store.updateConversationProvider(projectPath, "claude-code", newModel);
   }, []);
 
+  /**
+   * Manually re-dispatch the latest coverage-audit recheck prompt.
+   * See useSpecConversation for full docs.
+   */
+  const requestRecheck = useCallback((projectPath: string): boolean => {
+    const store = useSpecWriterStore.getState();
+    const report = store.coverageReports.get(projectPath);
+    if (!report || report.status !== 'fail' || report.recheckPrompts.length === 0) return false;
+    recheckRoundRef.current.set(projectPath, 0);
+    sendMessage(projectPath, report.recheckPrompts[0], undefined, { isAutoRecheck: true });
+    return true;
+  }, [sendMessage]);
+
   return {
     sendMessage,
     writeSpec,
@@ -505,5 +524,6 @@ export function useSpecConversationClaude(): {
     loadContext,
     cancelStream,
     changeModel,
+    requestRecheck,
   };
 }

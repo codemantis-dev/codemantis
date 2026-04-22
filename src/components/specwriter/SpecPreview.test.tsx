@@ -89,4 +89,69 @@ describe("SpecPreview", () => {
     // hasBothDocuments is false — no tab bar
     expect(screen.queryByText("Specification")).toBeNull();
   });
+
+  // ─── Stage 3: Coverage tab ─────────────────────────────────────────
+
+  it("shows the Coverage tab when hasCoverage is true (even without audit)", () => {
+    render(
+      <SpecPreview
+        content="# Spec"
+        activeTab="spec"
+        onTabChange={noop}
+        hasCoverage
+        coverageSlot={<div data-testid="coverage-slot">cov</div>}
+      />
+    );
+    expect(screen.getByText("Coverage")).toBeTruthy();
+  });
+
+  it("renders the coverageSlot when activeTab is 'coverage'", () => {
+    render(
+      <SpecPreview
+        content="# Spec"
+        activeTab="coverage"
+        onTabChange={noop}
+        hasCoverage
+        coverageSlot={<div data-testid="coverage-slot">coverage body</div>}
+      />
+    );
+    expect(screen.getByTestId("coverage-slot")).toBeInTheDocument();
+    // Spec markdown body should NOT render in coverage mode.
+    expect(screen.queryByText("Spec", { selector: "h1" })).toBeNull();
+  });
+
+  it("calls onTabChange('coverage') when the Coverage tab is clicked", () => {
+    const onTabChange = vi.fn();
+    render(
+      <SpecPreview
+        content="# Spec"
+        activeTab="spec"
+        onTabChange={onTabChange}
+        hasCoverage
+        coverageSlot={<div>cov</div>}
+      />
+    );
+    fireEvent.click(screen.getByText("Coverage"));
+    expect(onTabChange).toHaveBeenCalledWith("coverage");
+  });
+
+  it("shows a failure-count badge on the Coverage tab when there are failures", () => {
+    render(
+      <SpecPreview
+        content="# Spec"
+        activeTab="spec"
+        onTabChange={noop}
+        hasCoverage
+        coverageFailureCount={4}
+        coverageSlot={<div>cov</div>}
+      />
+    );
+    // Tab label and badge are siblings — find the badge by its number.
+    expect(screen.getByText("4")).toBeTruthy();
+  });
+
+  it("does NOT show the Coverage tab when hasCoverage is false", () => {
+    render(<SpecPreview content="# Spec" activeTab="spec" onTabChange={noop} />);
+    expect(screen.queryByText("Coverage")).toBeNull();
+  });
 });
