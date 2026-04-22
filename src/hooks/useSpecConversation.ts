@@ -16,10 +16,16 @@ import type { StreamStatus } from "../types/spec-writer";
 
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
 const MAX_RECHECK_ROUNDS = 2;
-/** Stage 4: how long without a delta chunk before we surface a "stream stalled" warning. */
-const STALL_THRESHOLD_MS = 30_000;
-/** Stage 4: how often the watchdog re-evaluates the last-chunk timestamp. */
-const WATCHDOG_INTERVAL_MS = 5_000;
+/**
+ * Stage 4: how long without ANY event from the model before we surface a soft
+ * "no activity" notice. Tool-call sequences (Claude Code orchestrator file
+ * reads, etc.) can legitimately go many minutes without a text delta but
+ * still emit other events — those count as "alive". This threshold catches
+ * the case where the connection is truly dead with no events at all.
+ */
+const STALL_THRESHOLD_MS = 300_000; // 5 minutes
+/** Stage 4: how often the watchdog re-evaluates the last-event timestamp. */
+const WATCHDOG_INTERVAL_MS = 30_000;
 
 export function useSpecConversation(): {
   sendMessage: (
@@ -49,8 +55,12 @@ export function useSpecConversation(): {
   const chunkCountRef = useRef(0);
   /** Wall-clock start time of the current stream (ms since epoch). */
   const streamStartMsRef = useRef(0);
-  /** Wall-clock time of the most recent delta (ms since epoch). 0 means no chunk yet. */
-  const lastChunkMsRef = useRef(0);
+  /**
+   * Wall-clock time of the most recent ANY event arrival (ms since epoch).
+   * 0 means nothing has arrived yet. Bumped on every listener invocation so
+   * tool-call activity counts as "alive" even when no text deltas are flowing.
+   */
+  const lastEventMsRef = useRef(0);
   /** Setinterval id for the stalled-stream watchdog. */
   const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** Whether the stalled-stream warning has already been posted for this stream. */
@@ -294,24 +304,25 @@ export function useSpecConversation(): {
       // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
       chunkCountRef.current = 0;
       streamStartMsRef.current = Date.now();
-      lastChunkMsRef.current = 0;
+      lastEventMsRef.current = 0;
       stalledNoticedRef.current = false;
       if (watchdogTimerRef.current !== null) {
         clearInterval(watchdogTimerRef.current);
       }
       watchdogTimerRef.current = setInterval(() => {
-        // Only act once a chunk has actually arrived; before that, the request may
-        // simply be slow to start and we don't want to nag the user.
-        const last = lastChunkMsRef.current;
+        // Only act once at least one event has arrived; before that, the
+        // request may simply be slow to start and we don't want to nag.
+        const last = lastEventMsRef.current;
         if (last === 0 || stalledNoticedRef.current) return;
         if (Date.now() - last < STALL_THRESHOLD_MS) return;
         stalledNoticedRef.current = true;
+        const minutes = Math.floor(STALL_THRESHOLD_MS / 60_000);
         useSpecWriterStore.getState().addMessage(projectPath, {
           id: `msg-stalled-${Date.now()}`,
           role: "system",
           content:
-            `Stream stalled — no chunks received for ${Math.floor(STALL_THRESHOLD_MS / 1000)}s. ` +
-            `The model may have stopped responding. The buffered content so far has been preserved.`,
+            `No activity from the AI for ${minutes} minute${minutes === 1 ? '' : 's'} — the model may still be processing (e.g. running tools). ` +
+            `Cancel from the toolbar if you want to stop. The buffered content so far is preserved.`,
           message_type: "conversation",
           timestamp: new Date().toISOString(),
         });
@@ -365,12 +376,15 @@ export function useSpecConversation(): {
 
       unlistenRef.current = await listenAssistantStream(assistantId, (event) => {
         const currentStore = useSpecWriterStore.getState();
+        // Stage 4: every event arrival counts as "alive" — keeps the stall
+        // watchdog quiet during legitimate non-text activity (tool calls etc).
+        lastEventMsRef.current = Date.now();
 
         if (event.type === "delta" && event.text) {
           streamBufferRef.current += event.text;
-          // Stage 4: track chunk count + last-chunk timestamp for the stalled watchdog and stats.
+          // Stage 4: chunk count tracks text deltas only, so the stats payload
+          // reflects actual content throughput (not heartbeat events).
           chunkCountRef.current += 1;
-          lastChunkMsRef.current = Date.now();
           // Batch store updates to one per animation frame (~16/sec instead of 50-100/sec)
           if (flushScheduledRef.current === null) {
             flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
