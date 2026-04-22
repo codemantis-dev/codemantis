@@ -10,6 +10,10 @@ import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, AUDIT_FIL
 import { parseSelectableOptions } from "../lib/spec-option-parser";
 import { handleFileRequests } from "../lib/spec-file-requests";
 import { fileToBase64, isTextMime } from "../lib/file-utils";
+import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
+
+/** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
+const MAX_RECHECK_ROUNDS = 2;
 
 export function useSpecConversation(): {
   sendMessage: (
@@ -28,6 +32,8 @@ export function useSpecConversation(): {
   const specDetectedRef = useRef(false);
   const auditDetectedRef = useRef(false);
   const preStreamSpecRef = useRef<string | null>(null);
+  /** Per-project auto-recheck round counter. Reset on a fresh user-initiated turn. */
+  const recheckRoundRef = useRef<Map<string, number>>(new Map());
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -89,8 +95,16 @@ export function useSpecConversation(): {
     async (
       projectPath: string,
       content: string,
-      attachments?: SpecAttachment[]
+      attachments?: SpecAttachment[],
+      meta?: { isAutoRecheck?: boolean }
     ) => {
+      // User-initiated turns reset the recheck-round counter so the next
+      // automatic recheck cycle starts fresh. Auto-recheck dispatches do NOT
+      // reset (otherwise the cap would never bite).
+      if (!meta?.isAutoRecheck) {
+        recheckRoundRef.current.set(projectPath, 0);
+      }
+
       const store = useSpecWriterStore.getState();
       const settings = useSettingsStore.getState().settings;
       let conv = store.getActiveConversation(projectPath);
@@ -273,10 +287,58 @@ export function useSpecConversation(): {
             isReadyToWrite,
           });
 
+          // ─── Stage 1: Coverage audit + auto-recheck loop ───
+          let auditTriggeredRecheck = false;
+          if (isSpec) {
+            const convNow = useSpecWriterStore.getState().getActiveConversation(projectPath);
+            if (convNow) {
+              const inputDocs = extractInputDocs(convNow.messages);
+              const report = auditCoverage(inputDocs, finalContent, {
+                skipForNewApp: convNow.mode === 'new_application',
+              });
+              const round = recheckRoundRef.current.get(projectPath) ?? 0;
+              const summary = summarizeReport(report);
+
+              if (report.status === 'fail' && round < MAX_RECHECK_ROUNDS && report.recheckPrompts.length > 0) {
+                currentStore.addMessage(projectPath, {
+                  id: `msg-audit-${Date.now()}`,
+                  role: "system",
+                  content: `${summary}\n\nAuto-recheck round ${round + 1} of ${MAX_RECHECK_ROUNDS} dispatched.`,
+                  message_type: "conversation",
+                  timestamp: new Date().toISOString(),
+                });
+                recheckRoundRef.current.set(projectPath, round + 1);
+                auditTriggeredRecheck = true;
+                const recheckPrompt = report.recheckPrompts[0];
+                void (async () => { await sendMessage(projectPath, recheckPrompt, undefined, { isAutoRecheck: true }); })();
+              } else if (report.status === 'fail') {
+                const detail = report.failures
+                  .slice(0, 12)
+                  .map((f) => `- ${describeFailure(f)}`)
+                  .join('\n');
+                currentStore.addMessage(projectPath, {
+                  id: `msg-audit-${Date.now()}`,
+                  role: "system",
+                  content: `${summary}\n\nAuto-recheck cap reached or no recheck path available. Findings:\n${detail}\n\nYou can address these manually or ask me to take another pass.`,
+                  message_type: "conversation",
+                  timestamp: new Date().toISOString(),
+                });
+              } else {
+                currentStore.addMessage(projectPath, {
+                  id: `msg-audit-${Date.now()}`,
+                  role: "system",
+                  content: summary,
+                  message_type: "conversation",
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }
+          }
+
           // Post-turn side effects (separate updates are fine — core state is already committed)
           if (isSpec) {
             const existingAudit = useSpecWriterStore.getState().currentAuditContent.get(projectPath);
-            if (!existingAudit) {
+            if (!existingAudit && !auditTriggeredRecheck) {
               currentStore.addMessage(projectPath, {
                 id: `msg-audit-offer-${Date.now()}`,
                 role: "system",

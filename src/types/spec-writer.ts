@@ -54,3 +54,78 @@ export interface SpecWriterUIState {
   current_spec_content: string | null;
   selected_saved_spec: string | null;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Coverage audit — Stage 1 of SpecWriter quality enhancement.
+// Detects when the produced spec drops, paraphrases, or silently rewrites
+// content that was supplied verbatim in the user's input documents.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Lightweight reference to one input document considered by the audit. */
+export interface InputDocSummary {
+  /** Display name (filename or `pasted-message-N`). */
+  name: string;
+  /** Total bytes of the input. */
+  bytes: number;
+  /** All H1/H2 headings parsed out of the input, in order. Empty string for unnumbered. */
+  sections: InputSectionRef[];
+}
+
+/** One H1 / H2 from an input document. */
+export interface InputSectionRef {
+  /** "§3.2", "§16", "Overview" — whatever shows in the heading. */
+  ref: string;
+  /** The full heading text (without leading `#`). */
+  title: string;
+  level: 1 | 2;
+  /** 0-based line index where the heading starts. */
+  line: number;
+}
+
+/** A specific verbatim block found in the input that the output should reproduce. */
+export interface FidelityZoneRef {
+  /** What kind of content this is — controls how strict the comparison is. */
+  kind:
+    | 'sql'
+    | 'code-block'
+    | 'cost-figure'
+    | 'model-name'
+    | 'enum-value'
+    | 'table-name'
+    | 'copy-string'
+    | 'numeric-bound';
+  /** Source doc name. */
+  source: string;
+  /** A short, machine-comparable signature (e.g. table name, full INSERT, $-figure). */
+  signature: string;
+  /** Optional human label for the report ("21-row model_configurations INSERT"). */
+  label?: string;
+}
+
+export type AuditFailure =
+  | { kind: 'missing-section'; inputRef: string; title: string; source: string }
+  | { kind: 'unmapped-section'; inputRef: string; title: string; source: string }
+  | { kind: 'fidelity-drift'; zone: FidelityZoneRef }
+  | { kind: 'schema-rename'; inputName: string; suspectedOutputName?: string }
+  | { kind: 'missing-numeric'; what: 'cost' | 'timeout' | 'rate' | 'retention'; sample: string }
+  | { kind: 'truncation'; lastHeading: string; tail: string }
+  | { kind: 'placeholder-leaked'; quote: string }
+  | { kind: 'byte-ratio-low'; ratio: number; floor: number };
+
+export interface CoverageAuditReport {
+  status: 'pass' | 'fail';
+  inputDocs: InputDocSummary[];
+  output: { sections: number; bytes: number };
+  ratios: { byteRatio: number; sectionRatio: number };
+  failures: AuditFailure[];
+  /** Ready-to-send recheck prompts (one per failure cluster) for the LLM follow-up pass. */
+  recheckPrompts: string[];
+}
+
+/** Mode-aware audit configuration. */
+export interface CoverageAuditOptions {
+  /** Floor for output_bytes / input_bytes. Default 0.6. Set 0 to disable. */
+  byteRatioFloor?: number;
+  /** Set true for new-application mode (no input doc to compare against). */
+  skipForNewApp?: boolean;
+}
