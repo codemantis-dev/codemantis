@@ -129,3 +129,77 @@ export interface CoverageAuditOptions {
   /** Set true for new-application mode (no input doc to compare against). */
   skipForNewApp?: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Input analyzer — Stage 2 of SpecWriter quality enhancement.
+// Pre-flight check on user-provided input docs. Detects structural
+// problems (doubled content, truncation, placeholders, dangling refs)
+// and surfaces them so the user (and the AI) can resolve them BEFORE
+// any spec is written. Compare to the coverage audit, which runs AFTER.
+// ─────────────────────────────────────────────────────────────────────
+
+export type AnalysisFinding =
+  | {
+      kind: 'doubled-input';
+      source: string;
+      duplicateHeading: string;
+      occurrences: number;
+      severity: 'block';
+    }
+  | {
+      kind: 'truncated-input';
+      source: string;
+      lastHeading: string;
+      tail: string;
+      severity: 'warn';
+    }
+  | {
+      kind: 'placeholder-in-input';
+      source: string;
+      quote: string;
+      severity: 'warn';
+    }
+  | {
+      kind: 'dangling-cross-ref';
+      source: string;
+      ref: string;
+      severity: 'warn';
+    }
+  | {
+      kind: 'thin-section';
+      source: string;
+      ref: string;
+      title: string;
+      bytes: number;
+      severity: 'warn';
+    }
+  | {
+      kind: 'fidelity-zone-summary';
+      source: string;
+      counts: { sql: number; cost: number; model: number; enum: number };
+      severity: 'info';
+    };
+
+/** A clarifying question the analyzer wants surfaced via ?> options. */
+export interface AnalyzerClarification {
+  id: string;
+  topic: string;
+  question: string;
+  options: string[];
+  /** Lines from the input the user can reference. */
+  excerpt?: string;
+}
+
+export interface InputAnalysis {
+  /** Per-doc heading parse used by the audit and the report renderer. */
+  docs: InputDocSummary[];
+  /** All structural findings, ordered by severity (block → warn → info). */
+  findings: AnalysisFinding[];
+  /** Questions the analyzer wants the user to answer before SpecWriter proceeds. */
+  clarifications: AnalyzerClarification[];
+  /**
+   * Markdown-ready report — embedded as a context_summary system message so
+   * BOTH the user and the AI can see what the analyzer found.
+   */
+  report: string;
+}

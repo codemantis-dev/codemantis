@@ -24,6 +24,7 @@ import {
 } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
+import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
 
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
 const MAX_RECHECK_ROUNDS = 2;
@@ -53,6 +54,8 @@ export function useSpecConversationClaude(): {
   const preStreamSpecRef = useRef<string | null>(null);
   /** Per-project auto-recheck round counter. Reset on a fresh user-initiated turn. */
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
+  /** Per-project set of input-doc names already structurally analyzed. */
+  const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -160,6 +163,45 @@ export function useSpecConversationClaude(): {
         timestamp: new Date().toISOString(),
       };
       store.addMessage(projectPath, userMessage);
+
+      // ─── Stage 2: Input analyzer (pre-flight, runs once per attached doc) ───
+      if (!meta?.isAutoRecheck) {
+        const convAfterUser = useSpecWriterStore.getState().getActiveConversation(projectPath);
+        if (convAfterUser) {
+          const docs = extractInputDocs(convAfterUser.messages);
+          const seen = analyzedDocsRef.current.get(projectPath) ?? new Set<string>();
+          const newDocs = docs.filter((d) => !seen.has(d.name));
+          if (newDocs.length > 0) {
+            const analysis = analyzeInput(newDocs);
+            for (const d of newDocs) seen.add(d.name);
+            analyzedDocsRef.current.set(projectPath, seen);
+
+            if (analysis.findings.length > 0) {
+              store.addMessage(projectPath, {
+                id: `msg-input-analysis-${Date.now()}`,
+                role: "system",
+                content: analysis.report,
+                message_type: "context_summary",
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            if (analysis.clarifications.length > 0) {
+              const clar = analysis.clarifications[0];
+              store.addMessage(projectPath, {
+                id: `msg-input-clar-${Date.now()}`,
+                role: "assistant",
+                content: renderClarificationMessage(clar),
+                message_type: "conversation",
+                timestamp: new Date().toISOString(),
+                parsedOptions: clar.options,
+              });
+              store.setPlanningStreaming(projectPath, false);
+              return;
+            }
+          }
+        }
+      }
 
       // Add assistant placeholder for streaming
       const assistantMsg: SpecMessage = {
