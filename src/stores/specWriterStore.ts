@@ -8,6 +8,7 @@ import type {
   SpecAttachment,
   SpecWriterUIState,
   SpecDocumentInfo,
+  StreamStats,
 } from "../types/spec-writer";
 
 /** Shape persisted to the database (reuses existing task_plans table) */
@@ -60,6 +61,11 @@ interface SpecWriterState {
   // Populated by useSpecConversation when input docs are first analyzed.
   inputAnalysisReports: Map<string, InputAnalysis>;
 
+  // Stage 4: Stream stats for the most recent SpecWriter turn (runtime-only).
+  // Populated on done/cancelled/errored/stalled so the Coverage panel can
+  // surface silent truncation.
+  streamStats: Map<string, StreamStats>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -110,6 +116,9 @@ interface SpecWriterState {
   setCoverageReport: (projectPath: string, report: CoverageAuditReport | null) => void;
   setInputAnalysisReport: (projectPath: string, report: InputAnalysis | null) => void;
 
+  // Actions - Stream stats (Stage 4)
+  setStreamStats: (projectPath: string, stats: StreamStats | null) => void;
+
   // Actions - Turn completion (batched update to avoid intermediate re-renders)
   completeTurn: (projectPath: string, updates: {
     finalContent: string;
@@ -153,6 +162,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   cliSessionIds: new Map(),
   coverageReports: new Map(),
   inputAnalysisReports: new Map(),
+  streamStats: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -291,6 +301,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const draftAttachments = new Map(state.draftAttachments);
       const coverageReports = new Map(state.coverageReports);
       const inputAnalysisReports = new Map(state.inputAnalysisReports);
+      const streamStats = new Map(state.streamStats);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
@@ -299,7 +310,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       draftAttachments.delete(projectPath);
       coverageReports.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports };
+      streamStats.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats };
     });
   },
 
@@ -492,6 +504,18 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { inputAnalysisReports };
     }),
 
+  // Stream stats (Stage 4)
+  setStreamStats: (projectPath, stats) =>
+    set((state) => {
+      const streamStats = new Map(state.streamStats);
+      if (stats === null) {
+        streamStats.delete(projectPath);
+      } else {
+        streamStats.set(projectPath, stats);
+      }
+      return { streamStats };
+    }),
+
   // Turn completion — single batched update to avoid intermediate re-renders from useShallow
   completeTurn: (projectPath, updates) =>
     set((state) => {
@@ -555,6 +579,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const draftAttachments = new Map(s.draftAttachments);
       const coverageReports = new Map(s.coverageReports);
       const inputAnalysisReports = new Map(s.inputAnalysisReports);
+      const streamStats = new Map(s.streamStats);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
@@ -563,7 +588,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       draftAttachments.delete(projectPath);
       coverageReports.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports };
+      streamStats.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats };
     });
   },
 

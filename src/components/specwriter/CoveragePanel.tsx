@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, ChevronDown, ChevronRight, Activity } from "lucide-react";
 import type {
   AnalysisFinding,
   AuditFailure,
   CoverageAuditReport,
   InputAnalysis,
+  StreamStats,
 } from "../../types/spec-writer";
 import { describeFailure } from "../../lib/spec-coverage-audit";
 import { describeFinding } from "../../lib/spec-input-analyzer";
@@ -14,6 +15,8 @@ interface Props {
   report: CoverageAuditReport | null;
   /** Latest input-analyzer report for the user-attached input docs. */
   analysis: InputAnalysis | null;
+  /** Stage 4: most recent stream metadata (chunks/bytes/duration/status). */
+  streamStats?: StreamStats | null;
   /**
    * Trigger another recheck pass against the model. The button only renders
    * when the latest report has a usable recheckPrompt.
@@ -28,8 +31,8 @@ const STATUS_LABEL: Record<CoverageAuditReport['status'], string> = {
   fail: 'FAIL',
 };
 
-export default function CoveragePanel({ report, analysis, onRecheck, recheckInFlight = false }: Props) {
-  if (!report && !analysis) {
+export default function CoveragePanel({ report, analysis, streamStats = null, onRecheck, recheckInFlight = false }: Props) {
+  if (!report && !analysis && !streamStats) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">🛡️</div>
@@ -50,6 +53,7 @@ export default function CoveragePanel({ report, analysis, onRecheck, recheckInFl
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {analysis && <InputAnalysisSection analysis={analysis} />}
         {report && <CoverageReportSection report={report} />}
+        {streamStats && <StreamStatsSection stats={streamStats} />}
       </div>
 
       {report && report.status === 'fail' && report.recheckPrompts.length > 0 && (
@@ -201,6 +205,57 @@ function FindingsList({ findings }: { findings: AnalysisFinding[] }) {
       )}
     </div>
   );
+}
+
+// ─── Stream stats section (Stage 4) ──────────────────────────────────
+
+function StreamStatsSection({ stats }: { stats: StreamStats }) {
+  const ok = stats.status === 'ok';
+  const icon = ok
+    ? <Activity size={14} style={{ color: "var(--text-secondary)" }} />
+    : stats.status === 'errored'
+      ? <XCircle size={14} style={{ color: "var(--destructive, #ef4444)" }} />
+      : <AlertTriangle size={14} style={{ color: "var(--warning, #f59e0b)" }} />;
+
+  return (
+    <section>
+      <SectionHeader
+        icon={icon}
+        title="Stream"
+        subtitle={`${formatStatus(stats.status)} · ${stats.chunks.toLocaleString()} chunk${stats.chunks === 1 ? '' : 's'} · ${stats.bytes.toLocaleString()} bytes · ${formatDuration(stats.durationMs)}`}
+      />
+      {stats.note && (
+        <div className="mt-2 text-ui" style={{ color: ok ? "var(--text-dim)" : "var(--warning, #f59e0b)" }}>
+          {stats.note}
+        </div>
+      )}
+      {!ok && (
+        <div className="mt-2 text-ui" style={{ color: "var(--text-dim)" }}>
+          {stats.status === 'stalled' && 'No deltas arrived for 30+ seconds before the stream ended. The model may have stopped responding mid-output.'}
+          {stats.status === 'cancelled' && 'The stream was cancelled before completion. Buffered content was preserved.'}
+          {stats.status === 'errored' && 'The stream errored before completion. Buffered content was preserved.'}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatStatus(status: StreamStats['status']): string {
+  switch (status) {
+    case 'ok': return 'OK';
+    case 'cancelled': return 'CANCELLED';
+    case 'errored': return 'ERRORED';
+    case 'stalled': return 'STALLED';
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 100) / 10;
+  if (s < 60) return `${s}s`;
+  const minutes = Math.floor(s / 60);
+  const remSeconds = Math.round(s - minutes * 60);
+  return `${minutes}m ${remSeconds}s`;
 }
 
 // ─── Shared bits ──────────────────────────────────────────────────────

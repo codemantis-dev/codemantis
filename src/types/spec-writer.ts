@@ -203,3 +203,28 @@ export interface InputAnalysis {
    */
   report: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Stream stats — Stage 4 of SpecWriter quality enhancement.
+// Per-project metadata about the most recent SpecWriter stream, so the
+// user (and Coverage panel) can SEE silent truncation: tiny byte counts,
+// stalled streams, server-side cuts.
+// ─────────────────────────────────────────────────────────────────────
+
+export type StreamStatus = 'ok' | 'cancelled' | 'errored' | 'stalled';
+
+export interface StreamStats {
+  /** Number of delta chunks received from the model/CLI. */
+  chunks: number;
+  /** Total bytes accumulated in the streamBuffer. */
+  bytes: number;
+  /** Wall-clock duration from first chunk to terminal event, ms. */
+  durationMs: number;
+  /** ISO timestamp of the first delta chunk. */
+  startedAt: string;
+  /** ISO timestamp of the terminal event (done/cancelled/error/stall watchdog). */
+  endedAt: string;
+  status: StreamStatus;
+  /** Optional context (e.g. cancel reason, error message, stall threshold). */
+  note?: string;
+}

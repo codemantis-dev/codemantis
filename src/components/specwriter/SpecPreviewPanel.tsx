@@ -4,7 +4,7 @@ import { showToast } from "../../stores/toastStore";
 import SpecPreview, { type SpecPreviewTab } from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 import CoveragePanel from "./CoveragePanel";
-import type { CoverageAuditReport, InputAnalysis } from "../../types/spec-writer";
+import type { CoverageAuditReport, InputAnalysis, StreamStats } from "../../types/spec-writer";
 
 interface Props {
   activeProjectPath: string;
@@ -30,6 +30,8 @@ interface Props {
   inputAnalysis?: InputAnalysis | null;
   /** Stage 3: re-dispatch the recheck prompt. */
   onRecheck?: () => void;
+  /** Stage 4: most recent stream metadata. */
+  streamStats?: StreamStats | null;
 }
 
 export default function SpecPreviewPanel({
@@ -53,15 +55,17 @@ export default function SpecPreviewPanel({
   coverageReport = null,
   inputAnalysis = null,
   onRecheck,
+  streamStats = null,
 }: Props) {
   const [activeTab, setActiveTab] = useState<SpecPreviewTab>(currentAuditContent ? 'audit' : 'spec');
   const prevHadAuditRef = useRef(!!currentAuditContent);
   const prevCoverageStatusRef = useRef<'pass' | 'fail' | null>(coverageReport?.status ?? null);
 
-  const hasCoverage = !!coverageReport || !!inputAnalysis;
+  const hasCoverage = !!coverageReport || !!inputAnalysis || !!streamStats;
   const coverageFailureCount =
     (coverageReport?.failures.length ?? 0) +
-    (inputAnalysis?.findings.filter((f) => f.severity === 'block').length ?? 0);
+    (inputAnalysis?.findings.filter((f) => f.severity === 'block').length ?? 0) +
+    (streamStats && streamStats.status !== 'ok' ? 1 : 0);
 
   const handleCopy = useCallback(() => {
     const content = activeTab === 'audit' ? currentAuditContent : currentSpecContent;
@@ -111,6 +115,7 @@ export default function SpecPreviewPanel({
             <CoveragePanel
               report={coverageReport}
               analysis={inputAnalysis}
+              streamStats={streamStats}
               onRecheck={onRecheck ?? (() => {})}
               recheckInFlight={isStreaming}
             />

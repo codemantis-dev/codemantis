@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import CoveragePanel from "./CoveragePanel";
-import type { CoverageAuditReport, InputAnalysis } from "../../types/spec-writer";
+import type { CoverageAuditReport, InputAnalysis, StreamStats } from "../../types/spec-writer";
 
 function makeReport(overrides: Partial<CoverageAuditReport> = {}): CoverageAuditReport {
   return {
@@ -116,5 +116,73 @@ describe("CoveragePanel", () => {
       />,
     );
     expect(screen.queryByText(/Run another recheck/)).not.toBeInTheDocument();
+  });
+
+  // ─── Stage 4: stream stats section ─────────────────────────────────
+
+  function makeStats(overrides: Partial<StreamStats> = {}): StreamStats {
+    return {
+      chunks: 1234,
+      bytes: 56_789,
+      durationMs: 12_345,
+      startedAt: new Date(0).toISOString(),
+      endedAt: new Date(12_345).toISOString(),
+      status: "ok",
+      ...overrides,
+    };
+  }
+
+  it("renders the stream-stats section with chunks/bytes/duration when status is ok", () => {
+    render(<CoveragePanel report={null} analysis={null} streamStats={makeStats()} onRecheck={() => {}} />);
+    expect(screen.getByText(/Stream/)).toBeInTheDocument();
+    expect(screen.getByText(/OK/)).toBeInTheDocument();
+    expect(screen.getByText(/1,234 chunks/)).toBeInTheDocument();
+    expect(screen.getByText(/56,789 bytes/)).toBeInTheDocument();
+  });
+
+  it("flags a stalled stream prominently", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        streamStats={makeStats({ status: "stalled" })}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.getByText(/STALLED/)).toBeInTheDocument();
+    expect(screen.getByText(/No deltas arrived for 30/)).toBeInTheDocument();
+  });
+
+  it("flags an errored stream with the note", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        streamStats={makeStats({ status: "errored", note: "model timeout" })}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.getByText(/ERRORED/)).toBeInTheDocument();
+    expect(screen.getByText(/model timeout/)).toBeInTheDocument();
+  });
+
+  it("flags a cancelled stream with explanation", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        streamStats={makeStats({ status: "cancelled" })}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.getByText(/CANCELLED/)).toBeInTheDocument();
+    expect(screen.getByText(/cancelled before completion/)).toBeInTheDocument();
+  });
+
+  it("renders the stream-stats section even when there is no audit or analysis", () => {
+    render(<CoveragePanel report={null} analysis={null} streamStats={makeStats()} onRecheck={() => {}} />);
+    // Empty state should NOT be shown.
+    expect(screen.queryByText(/Coverage panel/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Stream/)).toBeInTheDocument();
   });
 });

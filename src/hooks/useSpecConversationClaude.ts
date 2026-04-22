@@ -25,9 +25,14 @@ import {
 import { parseSelectableOptions } from "../lib/spec-option-parser";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
 import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
+import type { StreamStatus } from "../types/spec-writer";
 
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
 const MAX_RECHECK_ROUNDS = 2;
+/** Stage 4: how long without a delta before we surface a "stream stalled" warning. */
+const STALL_THRESHOLD_MS = 30_000;
+/** Stage 4: how often the watchdog re-evaluates the last-chunk timestamp. */
+const WATCHDOG_INTERVAL_MS = 5_000;
 
 /**
  * SpecWriter conversation hook for Claude Code CLI sessions.
@@ -58,6 +63,12 @@ export function useSpecConversationClaude(): {
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
   /** Per-project set of input-doc names already structurally analyzed. */
   const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
+  // Stage 4: stream observability state.
+  const chunkCountRef = useRef(0);
+  const streamStartMsRef = useRef(0);
+  const lastChunkMsRef = useRef(0);
+  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stalledNoticedRef = useRef(false);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -245,6 +256,49 @@ export function useSpecConversationClaude(): {
         unlistenRef.current = null;
       }
 
+      // Stage 4: reset stream observability state and arm the watchdog.
+      chunkCountRef.current = 0;
+      streamStartMsRef.current = Date.now();
+      lastChunkMsRef.current = 0;
+      stalledNoticedRef.current = false;
+      if (watchdogTimerRef.current !== null) {
+        clearInterval(watchdogTimerRef.current);
+      }
+      watchdogTimerRef.current = setInterval(() => {
+        const last = lastChunkMsRef.current;
+        if (last === 0 || stalledNoticedRef.current) return;
+        if (Date.now() - last < STALL_THRESHOLD_MS) return;
+        stalledNoticedRef.current = true;
+        useSpecWriterStore.getState().addMessage(projectPath, {
+          id: `msg-stalled-${Date.now()}`,
+          role: "system",
+          content:
+            `Stream stalled — no chunks received for ${Math.floor(STALL_THRESHOLD_MS / 1000)}s. ` +
+            `The model may have stopped responding. The buffered content so far has been preserved.`,
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        });
+      }, WATCHDOG_INTERVAL_MS);
+
+      const finalizeStreamStats = (status: StreamStatus, note?: string): void => {
+        if (watchdogTimerRef.current !== null) {
+          clearInterval(watchdogTimerRef.current);
+          watchdogTimerRef.current = null;
+        }
+        const startedMs = streamStartMsRef.current;
+        const endedMs = Date.now();
+        const effectiveStatus = status === 'ok' && stalledNoticedRef.current ? 'stalled' : status;
+        useSpecWriterStore.getState().setStreamStats(projectPath, {
+          chunks: chunkCountRef.current,
+          bytes: streamBufferRef.current.length,
+          durationMs: startedMs > 0 ? endedMs - startedMs : 0,
+          startedAt: new Date(startedMs || endedMs).toISOString(),
+          endedAt: new Date(endedMs).toISOString(),
+          status: effectiveStatus,
+          note,
+        });
+      };
+
       // Flush accumulated stream buffer to store (batched via RAF)
       // Audit detection takes priority — an audit document is never also a spec.
       const flushStreamBuffer = (): void => {
@@ -273,6 +327,9 @@ export function useSpecConversationClaude(): {
 
         if (event.type === "text_delta") {
           streamBufferRef.current += event.text;
+          // Stage 4: track chunk count + last-chunk timestamp.
+          chunkCountRef.current += 1;
+          lastChunkMsRef.current = Date.now();
           if (flushScheduledRef.current === null) {
             flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
           }
@@ -284,6 +341,8 @@ export function useSpecConversationClaude(): {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
+          // Stage 4: persist stream observability stats.
+          finalizeStreamStats('ok');
 
           const finalContent = streamBufferRef.current;
           const parsed = parseSelectableOptions(finalContent);
@@ -405,6 +464,12 @@ export function useSpecConversationClaude(): {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
+          // Stage 4: persist stream observability stats. Treat non-zero exits
+          // as errored; zero exits as cancelled (clean shutdown).
+          finalizeStreamStats(
+            event.exit_code === 0 ? 'cancelled' : 'errored',
+            event.exit_code !== 0 ? `process exited with code ${event.exit_code ?? 'unknown'}` : undefined,
+          );
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.setCliSessionId(projectPath, null);
 
@@ -424,6 +489,8 @@ export function useSpecConversationClaude(): {
         }
 
         if (event.type === "process_error") {
+          // Stage 4: persist stream observability stats with the error message.
+          finalizeStreamStats('errored', event.error);
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {
             id: `msg-err-${Date.now()}`,

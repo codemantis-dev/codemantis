@@ -12,9 +12,14 @@ import { handleFileRequests } from "../lib/spec-file-requests";
 import { fileToBase64, isTextMime } from "../lib/file-utils";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
 import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
+import type { StreamStatus } from "../types/spec-writer";
 
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
 const MAX_RECHECK_ROUNDS = 2;
+/** Stage 4: how long without a delta chunk before we surface a "stream stalled" warning. */
+const STALL_THRESHOLD_MS = 30_000;
+/** Stage 4: how often the watchdog re-evaluates the last-chunk timestamp. */
+const WATCHDOG_INTERVAL_MS = 5_000;
 
 export function useSpecConversation(): {
   sendMessage: (
@@ -39,6 +44,17 @@ export function useSpecConversation(): {
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
   /** Per-project set of input-doc names already structurally analyzed. */
   const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
+  // ─── Stage 4: stream observability ──────────────────────────────────
+  /** Number of delta chunks received in the current stream. */
+  const chunkCountRef = useRef(0);
+  /** Wall-clock start time of the current stream (ms since epoch). */
+  const streamStartMsRef = useRef(0);
+  /** Wall-clock time of the most recent delta (ms since epoch). 0 means no chunk yet. */
+  const lastChunkMsRef = useRef(0);
+  /** Setinterval id for the stalled-stream watchdog. */
+  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Whether the stalled-stream warning has already been posted for this stream. */
+  const stalledNoticedRef = useRef(false);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -275,6 +291,51 @@ export function useSpecConversation(): {
       specDetectedRef.current = false;
       auditDetectedRef.current = false;
       preStreamSpecRef.current = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
+      // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
+      chunkCountRef.current = 0;
+      streamStartMsRef.current = Date.now();
+      lastChunkMsRef.current = 0;
+      stalledNoticedRef.current = false;
+      if (watchdogTimerRef.current !== null) {
+        clearInterval(watchdogTimerRef.current);
+      }
+      watchdogTimerRef.current = setInterval(() => {
+        // Only act once a chunk has actually arrived; before that, the request may
+        // simply be slow to start and we don't want to nag the user.
+        const last = lastChunkMsRef.current;
+        if (last === 0 || stalledNoticedRef.current) return;
+        if (Date.now() - last < STALL_THRESHOLD_MS) return;
+        stalledNoticedRef.current = true;
+        useSpecWriterStore.getState().addMessage(projectPath, {
+          id: `msg-stalled-${Date.now()}`,
+          role: "system",
+          content:
+            `Stream stalled — no chunks received for ${Math.floor(STALL_THRESHOLD_MS / 1000)}s. ` +
+            `The model may have stopped responding. The buffered content so far has been preserved.`,
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        });
+      }, WATCHDOG_INTERVAL_MS);
+
+      // Stage 4: finalize stream-stats on terminal events. Called from done/cancelled/error.
+      const finalizeStreamStats = (status: StreamStatus, note?: string): void => {
+        if (watchdogTimerRef.current !== null) {
+          clearInterval(watchdogTimerRef.current);
+          watchdogTimerRef.current = null;
+        }
+        const startedMs = streamStartMsRef.current;
+        const endedMs = Date.now();
+        const effectiveStatus = status === 'ok' && stalledNoticedRef.current ? 'stalled' : status;
+        useSpecWriterStore.getState().setStreamStats(projectPath, {
+          chunks: chunkCountRef.current,
+          bytes: streamBufferRef.current.length,
+          durationMs: startedMs > 0 ? endedMs - startedMs : 0,
+          startedAt: new Date(startedMs || endedMs).toISOString(),
+          endedAt: new Date(endedMs).toISOString(),
+          status: effectiveStatus,
+          note,
+        });
+      };
 
       if (unlistenRef.current) {
         unlistenRef.current();
@@ -307,6 +368,9 @@ export function useSpecConversation(): {
 
         if (event.type === "delta" && event.text) {
           streamBufferRef.current += event.text;
+          // Stage 4: track chunk count + last-chunk timestamp for the stalled watchdog and stats.
+          chunkCountRef.current += 1;
+          lastChunkMsRef.current = Date.now();
           // Batch store updates to one per animation frame (~16/sec instead of 50-100/sec)
           if (flushScheduledRef.current === null) {
             flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
@@ -319,6 +383,8 @@ export function useSpecConversation(): {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
+          // Stage 4: persist stream observability stats.
+          finalizeStreamStats('ok');
 
           const finalContent = streamBufferRef.current;
           const parsed = parseSelectableOptions(finalContent);
@@ -449,6 +515,8 @@ export function useSpecConversation(): {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
+          // Stage 4: persist stream observability stats.
+          finalizeStreamStats('cancelled');
 
           currentStore.setPlanningStreaming(projectPath, false);
 
@@ -493,6 +561,8 @@ export function useSpecConversation(): {
             cancelAnimationFrame(flushScheduledRef.current);
             flushScheduledRef.current = null;
           }
+          // Stage 4: persist stream observability stats with the error message.
+          finalizeStreamStats('errored', event.message);
 
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {

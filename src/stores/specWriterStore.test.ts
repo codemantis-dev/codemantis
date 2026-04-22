@@ -30,6 +30,7 @@ describe("specWriterStore", () => {
       draftAttachments: new Map(),
       coverageReports: new Map(),
       inputAnalysisReports: new Map(),
+      streamStats: new Map(),
     });
   });
 
@@ -616,5 +617,54 @@ describe("specWriterStore", () => {
     store.clearConversation(PROJECT);
     expect(useSpecWriterStore.getState().coverageReports.has(PROJECT)).toBe(false);
     expect(useSpecWriterStore.getState().inputAnalysisReports.has(PROJECT)).toBe(false);
+  });
+
+  // ─── Stage 4: stream stats storage ─────────────────────────────────
+
+  it("setStreamStats stores and overwrites per project", () => {
+    const store = useSpecWriterStore.getState();
+    const stats = {
+      chunks: 100,
+      bytes: 1024,
+      durationMs: 5000,
+      startedAt: new Date(0).toISOString(),
+      endedAt: new Date(5000).toISOString(),
+      status: "ok" as const,
+    };
+    store.setStreamStats(PROJECT, stats);
+    expect(useSpecWriterStore.getState().streamStats.get(PROJECT)).toBe(stats);
+
+    const next = { ...stats, status: "stalled" as const, note: "no chunks for 30s" };
+    store.setStreamStats(PROJECT, next);
+    expect(useSpecWriterStore.getState().streamStats.get(PROJECT)).toBe(next);
+  });
+
+  it("setStreamStats(null) deletes the entry", () => {
+    const store = useSpecWriterStore.getState();
+    store.setStreamStats(PROJECT, {
+      chunks: 0,
+      bytes: 0,
+      durationMs: 0,
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      status: "errored",
+    });
+    store.setStreamStats(PROJECT, null);
+    expect(useSpecWriterStore.getState().streamStats.has(PROJECT)).toBe(false);
+  });
+
+  it("clearConversation also clears stream stats", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+    store.setStreamStats(PROJECT, {
+      chunks: 5,
+      bytes: 100,
+      durationMs: 1000,
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      status: "ok",
+    });
+    store.clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().streamStats.has(PROJECT)).toBe(false);
   });
 });
