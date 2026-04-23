@@ -7,7 +7,12 @@ import type { OrchestratorInput, OrchestratorDecision } from "../types/implement
 import { sendAssistantChat, listenAssistantStream, cancelAssistantChat } from "./tauri-commands";
 
 const ORCHESTRATOR_ASSISTANT_ID = "__self-drive-orchestrator__";
-const ORCHESTRATOR_TIMEOUT_MS = 30_000;
+// Stall timeout — resets on every streaming delta. Only fires when the
+// provider has gone silent (network hang / outage), not when the call
+// is merely long. Grading a full verification response can take several
+// minutes with large evidence payloads; we only want to bail on a true
+// stall, not on latency.
+const ORCHESTRATOR_STALL_TIMEOUT_MS = 300_000;
 
 /**
  * Max tokens for the orchestrator's structured JSON response.
@@ -281,19 +286,28 @@ export async function callOrchestrator(
   let resolved = false;
 
   const result = new Promise<OrchestratorDecision>((resolve, reject) => {
-    // Timeout guard
-    const timeout = setTimeout(() => {
+    // Stall guard — reset on every streaming delta so legitimate long
+    // calls (big evidence payloads, slow providers, deep reasoning)
+    // aren't killed. Fires only when the provider stops emitting tokens
+    // for ORCHESTRATOR_STALL_TIMEOUT_MS.
+    let stallTimer: ReturnType<typeof setTimeout>;
+    const fireStall = () => {
       if (!resolved) {
         resolved = true;
         cancelAssistantChat(ORCHESTRATOR_ASSISTANT_ID).catch(() => {});
         resolve({
           action: "pause",
-          pauseReason: "Orchestrator timed out after 30 seconds",
-          summary: "Orchestrator timeout — pausing",
+          pauseReason: `Orchestrator stalled — no tokens received for ${Math.round(ORCHESTRATOR_STALL_TIMEOUT_MS / 1000)}s (provider may be unreachable)`,
+          summary: "Orchestrator stalled — pausing",
           confidence: "low",
         });
       }
-    }, ORCHESTRATOR_TIMEOUT_MS);
+    };
+    const resetStall = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(fireStall, ORCHESTRATOR_STALL_TIMEOUT_MS);
+    };
+    resetStall();
 
     // Listen for streaming events
     listenAssistantStream(ORCHESTRATOR_ASSISTANT_ID, (event) => {
@@ -301,8 +315,9 @@ export async function callOrchestrator(
 
       if (event.type === "delta" && event.text) {
         fullContent += event.text;
+        resetStall();
       } else if (event.type === "done") {
-        clearTimeout(timeout);
+        clearTimeout(stallTimer);
         resolved = true;
         const content = event.content ?? fullContent;
         try {
@@ -317,11 +332,11 @@ export async function callOrchestrator(
           });
         }
       } else if (event.type === "error") {
-        clearTimeout(timeout);
+        clearTimeout(stallTimer);
         resolved = true;
         reject(new Error(event.message ?? "Orchestrator API error"));
       } else if (event.type === "cancelled") {
-        clearTimeout(timeout);
+        clearTimeout(stallTimer);
         resolved = true;
         resolve({
           action: "pause",
@@ -341,17 +356,12 @@ export async function callOrchestrator(
         messages: [{ role: "user", content: userMessage }],
         maxTokens: ORCHESTRATOR_MAX_TOKENS,
       }).catch((err) => {
-        clearTimeout(timeout);
+        clearTimeout(stallTimer);
         if (!resolved) {
           resolved = true;
           reject(new Error(`Failed to call orchestrator: ${err}`));
         }
       });
-
-      // Store unlisten for cleanup on timeout/cancel
-      setTimeout(() => {
-        if (resolved) unlisten();
-      }, ORCHESTRATOR_TIMEOUT_MS + 1000);
 
       // Clean up listener when done
       const checkDone = setInterval(() => {
@@ -361,7 +371,7 @@ export async function callOrchestrator(
         }
       }, 500);
     }).catch((err) => {
-      clearTimeout(timeout);
+      clearTimeout(stallTimer);
       if (!resolved) {
         resolved = true;
         reject(new Error(`Failed to set up orchestrator listener: ${err}`));

@@ -163,10 +163,24 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
   const pickBlockerOption = useSelfDriveStore((s) => s.pickBlockerOption);
   const status = useSelfDriveStore((s) => s.status);
 
-  // Is this card still the live one? We match by id so stale cards (from a
-  // previous paused run, or after resolution) show a resolved-looking state.
-  const isLive = activeBlocker?.id === blocker.id && status === "paused";
-  const cardStatus: typeof blocker.status = isLive ? blocker.status : "resolved";
+  // Is this card still the live one? Match by id so stale cards (from a
+  // previous paused run, or after resolution clears activeBlocker) show
+  // a resolved-looking state.
+  //
+  // We deliberately do NOT gate on status === "paused": during the
+  // recovery phase status flips to "running" + currentPhase "recovering",
+  // and we want the live blocker card to keep rendering its real state
+  // (e.g. "verifying") rather than falsely showing "resolved". Without
+  // this, when the orchestrator pauses again with a new blocker, the
+  // fresh card briefly shows "Status: resolved" and hides its option
+  // buttons — leaving the user with no clickable path forward.
+  const isLive = activeBlocker !== null && activeBlocker.id === blocker.id;
+  const cardStatus: typeof blocker.status =
+    isLive && activeBlocker ? activeBlocker.status : "resolved";
+  // Keep `status` subscribed so we re-render when the store transitions
+  // out of "paused" (e.g. the user stopped Self-Drive and this card
+  // should stop offering options).
+  void status;
 
   const pickOption = async (resolution: string): Promise<void> => {
     if (!isLive || submitting) return;
