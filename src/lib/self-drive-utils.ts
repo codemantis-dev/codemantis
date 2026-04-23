@@ -68,23 +68,6 @@ export function extractToolsFromTurn(messages: Message[], sessionId: string): st
 }
 
 /**
- * Smart truncation that keeps the beginning and end of a response.
- * This ensures the orchestrator sees both the initial context and the conclusion.
- */
-export function truncateResponse(content: string, maxChars: number = 6000): string {
-  if (content.length <= maxChars) return content;
-
-  const headSize = Math.floor(maxChars * 0.7);
-  const tailSize = maxChars - headSize - 20; // 20 chars for separator
-
-  const head = content.slice(0, headSize);
-  const tail = content.slice(-tailSize);
-
-  return `${head}\n\n[...truncated...]\n\n${tail}`;
-}
-
-
-/**
  * Detect the project's tech stack from CLAUDE.md content or common patterns.
  */
 export function getProjectTechStack(): string {

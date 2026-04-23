@@ -58,7 +58,6 @@ vi.mock("../../lib/guide-verify-prompt", () => ({
 
 vi.mock("../../lib/self-drive-utils", () => ({
   extractToolsFromTurn: vi.fn(() => []),
-  truncateResponse: vi.fn((s: string) => s),
   getCurrentSessionPlan: vi.fn(),
   getProjectTechStack: vi.fn(() => "React + TypeScript"),
   getBuildCommand: vi.fn(() => "pnpm tsc --noEmit"),

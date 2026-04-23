@@ -86,7 +86,6 @@ vi.mock("./toastStore", () => ({
 // Mock self-drive-utils with controllable return values
 vi.mock("../lib/self-drive-utils", () => ({
   extractToolsFromTurn: vi.fn(() => ["Read", "Write"]),
-  truncateResponse: vi.fn((s: string) => s),
   getCurrentSessionPlan: mockGetCurrentSessionPlan,
   getProjectTechStack: vi.fn(() => "React + TypeScript"),
   getBuildCommand: vi.fn(() => "pnpm tsc --noEmit"),

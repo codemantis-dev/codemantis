@@ -37,7 +37,6 @@ import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
 import { formatDuration } from "../lib/format-utils";
 import {
   extractToolsFromTurn,
-  truncateResponse,
   getCurrentSessionPlan,
   getProjectTechStack,
   getBuildCommand,
@@ -1179,7 +1178,7 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   // the full picture. If this turn completed while we were in
   // "rechecking", append the new response to recheckResponses[] and
   // prepend the original verifier text.
-  const currentResponse = truncateResponse(assistantSinceLastPrompt);
+  const currentResponse = assistantSinceLastPrompt;
   let assembledResponse = currentResponse;
   if (state.currentPhase === "rechecking") {
     const merged = [state.originalVerifierResponse ?? "", ...state.recheckResponses, currentResponse]

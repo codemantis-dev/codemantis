@@ -160,7 +160,7 @@ describe("buildUserMessage", () => {
     expect(userMessage).toContain("- Tests pass");
   });
 
-  it("truncates previous fix prompts at 200 chars", async () => {
+  it("includes previous fix prompts at full length", async () => {
     const { sendAssistantChat } = await import("./tauri-commands");
 
     const longPrompt = "A".repeat(300);
@@ -173,10 +173,7 @@ describe("buildUserMessage", () => {
 
     const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
 
-    // The fix prompt should be truncated — it must NOT contain the full 300-char string
-    expect(userMessage).not.toContain(longPrompt);
-    // But it should contain the first 200 characters
-    expect(userMessage).toContain("A".repeat(200));
+    expect(userMessage).toContain(longPrompt);
     expect(userMessage).toContain("PREVIOUS FIX PROMPTS ALREADY TRIED");
   });
 

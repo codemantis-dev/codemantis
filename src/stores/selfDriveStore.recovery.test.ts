@@ -84,7 +84,6 @@ vi.mock("./toastStore", () => ({
 
 vi.mock("../lib/self-drive-utils", () => ({
   extractToolsFromTurn: vi.fn(() => ["Bash"]),
-  truncateResponse: vi.fn((s: string) => s),
   getCurrentSessionPlan: mockGetCurrentSessionPlan,
   getProjectTechStack: vi.fn(() => "React + TypeScript"),
   getBuildCommand: vi.fn(() => "pnpm tsc --noEmit"),

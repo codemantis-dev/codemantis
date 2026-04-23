@@ -16,7 +16,6 @@ import { useGuideStore } from "../stores/guideStore";
 import { useActivityStore } from "../stores/activityStore";
 import {
   extractToolsFromTurn,
-  truncateResponse,
   getCurrentSessionPlan,
 } from "./self-drive-utils";
 
@@ -192,40 +191,6 @@ describe("extractToolsFromTurn", () => {
 
     const tools = extractToolsFromTurn(messages, SID);
     expect(tools.filter((t) => t === "Read")).toHaveLength(1);
-  });
-});
-
-// ── truncateResponse ──────────────────────────────────────────────
-
-describe("truncateResponse", () => {
-  it("returns short content unchanged", () => {
-    expect(truncateResponse("Hello", 100)).toBe("Hello");
-  });
-
-  it("truncates content exceeding maxChars", () => {
-    const long = "A".repeat(5000);
-    const result = truncateResponse(long, 100);
-    expect(result.length).toBeLessThan(5000);
-    expect(result).toContain("[...truncated...]");
-  });
-
-  it("keeps beginning and end of the response", () => {
-    const content = "START" + "X".repeat(5000) + "END";
-    const result = truncateResponse(content, 200);
-    expect(result.startsWith("START")).toBe(true);
-    expect(result.endsWith("END")).toBe(true);
-  });
-
-  it("defaults to 6000 char limit", () => {
-    const long = "A".repeat(7000);
-    const result = truncateResponse(long);
-    expect(result.length).toBeLessThan(7000);
-    expect(result).toContain("[...truncated...]");
-  });
-
-  it("returns unchanged when exactly at limit", () => {
-    const exact = "A".repeat(6000);
-    expect(truncateResponse(exact, 6000)).toBe(exact);
   });
 });
 

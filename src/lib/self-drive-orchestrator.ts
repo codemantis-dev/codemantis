@@ -223,7 +223,7 @@ function buildUserMessage(input: OrchestratorInput): string {
     : "(no verify checks for this session)";
 
   const previousFixes = input.previousFixPrompts.length > 0
-    ? `\n\nPREVIOUS FIX PROMPTS ALREADY TRIED:\n${input.previousFixPrompts.map((p, i) => `${i + 1}. ${p.slice(0, 200)}`).join("\n")}`
+    ? `\n\nPREVIOUS FIX PROMPTS ALREADY TRIED:\n${input.previousFixPrompts.map((p, i) => `${i + 1}. ${p}`).join("\n")}`
     : "";
 
   const blockerBlock = input.activeBlocker
