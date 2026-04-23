@@ -116,24 +116,38 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
     sectionContent = specMarkdown.slice(sectionStart, sectionEnd);
   } else {
     // Fallback: no "## Session Plan" wrapper — search the full document
-    // for ### Session N: blocks (common in Implementation Plan format)
+    // for ### Session N: / ### Phase N: blocks
     sectionContent = specMarkdown;
   }
 
   // --- Step 3: Split into individual sessions ---
-  // Each session starts with "### Session N:"
-  const sessionChunks = sectionContent.split(/^###\s+Session\s+\d+/m).slice(1);
-  if (sessionChunks.length === 0) return null;
+  // The LLM commonly emits the implementable units as ### Phase N: inside
+  // ## Implementation Checklist, leaving ## Session Plan as a reference
+  // table — accept either keyword so the parser sees the substance.
+  let entries = harvestEntries(sectionContent);
+  if (entries.length === 0 && sectionMatch) {
+    // Slice was just a summary table → scan the whole document.
+    entries = harvestEntries(specMarkdown);
+  }
+  if (entries.length === 0) return null;
 
-  // --- Step 4: Parse each session ---
+  // --- Step 4: Parse each entry, skipping gates and deferred phases ---
   const sessions: ParsedSession[] = [];
 
-  for (let i = 0; i < sessionChunks.length; i++) {
-    const chunk = sessionChunks[i];
-    const session = parseOneSession(chunk, i + 1);
+  for (const e of entries) {
+    const firstLine = e.body.split("\n", 1)[0];
+    // Phase 0 by convention is a pre-implementation gate (not a session);
+    // [DEFER] phases are explicitly out of scope for the current cycle.
+    if (/\[DEFER\]/i.test(firstLine)) continue;
+    if (e.keyword === "Phase" && e.num === 0) continue;
+
+    const session = parseOneSession(e.body, sessions.length + 1);
     if (!session) {
-      // If ANY session fails to parse, abort the entire guide
-      console.warn(`[parseSessionPlan] Failed to parse session ${i + 1}, aborting guide`);
+      // Phase blocks legitimately omit a Prompt for Claude Code when they
+      // are descriptive/gate phases — skip rather than abort. Session
+      // blocks remain strict: a missing prompt is a real authoring error.
+      if (e.keyword === "Phase") continue;
+      console.warn(`[parseSessionPlan] Failed to parse session ${e.num}, aborting guide`);
       return null;
     }
     sessions.push(session);
@@ -142,6 +156,81 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
   if (sessions.length < 2) return null; // A single-session plan doesn't need a guide
 
   return { title, sessions };
+}
+
+interface SessionEntry {
+  keyword: "Session" | "Phase";
+  num: number;
+  body: string;
+}
+
+const ENTRY_SPLIT_RE = /^###\s+(Session|Phase)\s+(\d+)/m;
+
+function harvestEntries(content: string): SessionEntry[] {
+  const tokens = content.split(ENTRY_SPLIT_RE);
+  // split with two capturing groups produces: [preamble, kw1, n1, body1, kw2, n2, body2, …]
+  const entries: SessionEntry[] = [];
+  for (let i = 1; i + 2 < tokens.length; i += 3) {
+    entries.push({
+      keyword: tokens[i] as "Session" | "Phase",
+      num: Number.parseInt(tokens[i + 1], 10),
+      body: tokens[i + 2],
+    });
+  }
+  return entries;
+}
+
+/**
+ * Returns a user-facing reason for why parseSessionPlan returned null, so the
+ * Recognize-Guide toast can name the actual failure mode instead of a generic
+ * "could not find" message. Intended only for the failure path — the caller
+ * should still call parseSessionPlan() first to decide success vs. failure.
+ */
+export function diagnoseSessionPlanFailure(specMarkdown: string): string {
+  if (!specMarkdown.match(/^#\s+.+/m)) {
+    return "Spec is missing a top-level `#` title heading";
+  }
+
+  let sliceContent = specMarkdown;
+  const sectionMatch = specMarkdown.match(
+    /^##\s+(?:\d+\.\s+)?Session Plan(?:\s*—.*)?$/m,
+  );
+  if (sectionMatch && sectionMatch.index !== undefined) {
+    const start = sectionMatch.index + sectionMatch[0].length;
+    const next = specMarkdown.slice(start).match(/^##\s+/m);
+    const end = next?.index ? start + next.index : specMarkdown.length;
+    sliceContent = specMarkdown.slice(start, end);
+  }
+
+  let entries = harvestEntries(sliceContent);
+  if (entries.length === 0 && sectionMatch) {
+    entries = harvestEntries(specMarkdown);
+  }
+  if (entries.length === 0) {
+    return "No `### Session N:` or `### Phase N:` blocks found in this spec";
+  }
+
+  const eligible = entries.filter((e) => {
+    const firstLine = e.body.split("\n", 1)[0];
+    if (/\[DEFER\]/i.test(firstLine)) return false;
+    if (e.keyword === "Phase" && e.num === 0) return false;
+    return true;
+  });
+  if (eligible.length === 0) {
+    return "All Phase/Session blocks were gates or `[DEFER]` — nothing to schedule";
+  }
+
+  const withPrompts = eligible.filter((e) =>
+    /\*\*Prompt\s+for\s+Claude\s+Code:\*\*\s*\n```/.test(e.body),
+  );
+  if (withPrompts.length === 0) {
+    return "Found Phase/Session blocks but none have a `**Prompt for Claude Code:**` fenced code block";
+  }
+  if (withPrompts.length < 2) {
+    return "Only one usable session found — a guide needs at least 2 sessions";
+  }
+
+  return "Could not parse the multi-session plan in this spec";
 }
 
 function parseOneSession(chunk: string, index: number): ParsedSession | null {

@@ -14,7 +14,7 @@ import {
   saveTaskBoardState,
   addVerificationWorkflowToClaudeMd,
 } from "../lib/tauri-commands";
-import { parseSessionPlan } from "../lib/parse-session-plan";
+import { parseSessionPlan, diagnoseSessionPlanFailure } from "../lib/parse-session-plan";
 import type { ParsedSessionPlan } from "../lib/parse-session-plan";
 import { isGuideStarted } from "../lib/guide-helpers";
 
@@ -284,7 +284,7 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
         showToast("Guide already exists for this spec", "info");
       }
     } else {
-      showToast("Could not find a multi-session plan in this spec", "error");
+      showToast(diagnoseSessionPlanFailure(currentSpecContent), "error");
     }
   }, [currentSpecContent, activeProjectPath, lastSavedFile]);
 
@@ -293,7 +293,7 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
 
     const parsed = parseSessionPlan(currentSpecContent);
     if (!parsed) {
-      showToast("No Session Plan found in this spec", "error");
+      showToast(diagnoseSessionPlanFailure(currentSpecContent), "error");
       return;
     }
 

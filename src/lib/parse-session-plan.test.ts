@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseSessionPlan } from "./parse-session-plan";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -684,6 +686,122 @@ Create CRUD routes for User.
 
     for (const session of result!.sessions) {
       expect(session.verificationPrompt).toBeNull();
+    }
+  });
+
+  // ── Phase-block tolerance (regression for "Could not find a multi-session
+  // plan" when the LLM puts substance under ### Phase N: in §9 and reduces
+  // ## 10 Session Plan to a Phase→Session reference table) ────────────────
+
+  it("parses ### Phase N: blocks when ## Session Plan is just a reference table", () => {
+    const phaseBody = (n: number) => `### Phase ${n}: Feature ${n} (~3 files)
+**Scope:** Implementation step ${n}
+**Files:**
+- \`src/feature${n}.ts\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Implement feature ${n}.
+\`\`\`
+
+**Verify before next session:**
+- [ ] feature ${n} works
+`;
+    const spec = `# Drift Test — Implementation Plan
+
+## 9. Implementation Checklist
+
+${phaseBody(1)}
+${phaseBody(2)}
+${phaseBody(3)}
+
+## 10. Session Plan
+
+| Session | Phase | ~Files | Key deliverable |
+|---|---|---|---|
+| 1 | Phase 1 — Feature 1 | 3 | feature 1 |
+| 2 | Phase 2 — Feature 2 | 3 | feature 2 |
+| 3 | Phase 3 — Feature 3 | 3 | feature 3 |
+
+## 11. Open Questions
+None.
+`;
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Drift Test");
+    expect(result!.sessions).toHaveLength(3);
+    expect(result!.sessions[0].name).toBe("Feature 1");
+    expect(result!.sessions[0].prompt).toBe("Implement feature 1.");
+    expect(result!.sessions[2].files).toEqual(["src/feature3.ts"]);
+  });
+
+  it("skips Phase 0 (gate) and [DEFER] phases when scanning ### Phase blocks", () => {
+    const spec = `# Defer Test — Implementation Plan
+
+## 9. Implementation Checklist
+
+### Phase 0: Pre-Implementation Verification (GATE — MANDATORY)
+
+Run every check below before starting Phase 1.
+
+- [ ] Confirm A
+- [ ] Confirm B
+
+### Phase 1: Foundation (~2 files)
+**Files:**
+- \`src/a.ts\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Implement A.
+\`\`\`
+
+### Phase 2: Build (~2 files)
+**Files:**
+- \`src/b.ts\` (create)
+
+**Prompt for Claude Code:**
+\`\`\`
+Implement B.
+\`\`\`
+
+### Phase 3: Polish \`[DEFER]\`
+
+**Scope:** Future polish work, not in current cycle.
+
+## 10. Session Plan
+
+| Session | Phase | Notes |
+|---|---|---|
+| 1 | Phase 1 | Foundation |
+| 2 | Phase 2 | Build |
+`;
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    // Phase 0 (gate) and Phase 3 [DEFER] are excluded; only 1, 2 kept.
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].name).toBe("Foundation");
+    expect(result!.sessions[1].name).toBe("Build");
+    // Indices renumber contiguously (no gaps shown to the user).
+    expect(result!.sessions[0].index).toBe(1);
+    expect(result!.sessions[1].index).toBe(2);
+  });
+
+  it("AFL v2 example regression — parses 6 sessions from Phase blocks (Phase 0 gate + Phase 7 DEFER excluded)", () => {
+    const aflPath = resolve(
+      __dirname,
+      "../../_examples/specloom-active-feedback-loop-afl-v2.md",
+    );
+    const aflMarkdown = readFileSync(aflPath, "utf8");
+    const result = parseSessionPlan(aflMarkdown);
+
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(6);
+    expect(result!.sessions[0].name).toBe("Identity Foundation");
+    expect(result!.sessions[5].name).toContain("Principles");
+    // Each kept phase must have a real Prompt for Claude Code.
+    for (const s of result!.sessions) {
+      expect(s.prompt.length).toBeGreaterThan(50);
     }
   });
 
