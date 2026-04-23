@@ -52,8 +52,9 @@ describe("SpecPreviewPanel", () => {
     onOpenSaveAuditDialog: vi.fn(),
     onOpenSaveSpecDialog: vi.fn(),
     onLoadSpec: vi.fn(),
-    selectedSavedSpec: null as string | null,
-    onLoadGuide: vi.fn(),
+    effectiveSpecFilename: null as string | null,
+    hasGuide: false,
+    onRecognizeGuide: vi.fn(),
   };
 
   beforeEach(() => {

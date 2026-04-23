@@ -30,10 +30,6 @@ export default function SpecWriterSlideOver() {
     );
 
   const setChatWidth = useSpecWriterStore((s) => s.setChatWidth);
-  const selectedSavedSpec = useSpecWriterStore((s) => {
-    if (!activeProjectPath) return null;
-    return s.uiState.get(activeProjectPath)?.selected_saved_spec ?? null;
-  });
 
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
@@ -192,8 +188,9 @@ export default function SpecWriterSlideOver() {
             onOpenSaveAuditDialog={actions.openSaveAuditDialog}
             onOpenSaveSpecDialog={actions.openSaveSpecDialog}
             onLoadSpec={actions.handleLoadSpec}
-            selectedSavedSpec={selectedSavedSpec}
-            onLoadGuide={actions.handleLoadGuideFromSavedSpec}
+            effectiveSpecFilename={actions.effectiveSpecFilename}
+            hasGuide={actions.hasGuide}
+            onRecognizeGuide={actions.handleRecognizeGuide}
             coverageReport={coverageReport}
             inputAnalysis={inputAnalysis}
             streamStats={streamStats}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Pencil, Eye, ClipboardCheck, FileDown, BookOpen } from "lucide-react";
+import { Pencil, Eye, ClipboardCheck, FileDown, ScanSearch } from "lucide-react";
 import { showToast } from "../../stores/toastStore";
 import SpecPreview, { type SpecPreviewTab } from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
@@ -22,8 +22,11 @@ interface Props {
   onOpenSaveAuditDialog: () => void;
   onOpenSaveSpecDialog: () => void;
   onLoadSpec: (content: string, filename: string) => void;
-  selectedSavedSpec: string | null;
-  onLoadGuide: () => void;
+  /** Filename the Recognize Guide button targets (selected saved spec, else last-saved). */
+  effectiveSpecFilename: string | null;
+  /** True when the spec already has an Implementation Guide — hide Recognize Guide. */
+  hasGuide: boolean;
+  onRecognizeGuide: () => void;
   /** Stage 3: latest coverage audit on the produced spec (if any). */
   coverageReport?: CoverageAuditReport | null;
   /** Stage 3: latest input analysis on the user-attached input docs (if any). */
@@ -50,8 +53,9 @@ export default function SpecPreviewPanel({
   onOpenSaveAuditDialog,
   onOpenSaveSpecDialog,
   onLoadSpec,
-  selectedSavedSpec,
-  onLoadGuide,
+  effectiveSpecFilename,
+  hasGuide,
+  onRecognizeGuide,
   coverageReport = null,
   inputAnalysis = null,
   onRecheck,
@@ -201,10 +205,10 @@ export default function SpecPreviewPanel({
                 Save Audit
               </button>
             )}
-            {activeTab === 'spec' && selectedSavedSpec && (
+            {activeTab === 'spec' && effectiveSpecFilename && !hasGuide && (
               <button
-                onClick={onLoadGuide}
-                title="Parse this spec for a Session Plan and load as Implementation Guide"
+                onClick={onRecognizeGuide}
+                title="Parse this spec for a Session Plan and create an Implementation Guide"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:brightness-95"
                 style={{
                   background: "var(--bg-elevated)",
@@ -212,8 +216,8 @@ export default function SpecPreviewPanel({
                   border: "1px solid var(--border)",
                 }}
               >
-                <BookOpen size={13} />
-                Load Guide
+                <ScanSearch size={13} />
+                Recognize Guide
               </button>
             )}
           </div>

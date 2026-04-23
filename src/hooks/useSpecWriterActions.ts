@@ -23,6 +23,8 @@ export interface SpecWriterActionsReturn {
   showSaveDialog: boolean;
   saveDialogType: "spec" | "audit";
   lastSavedFile: string | null;
+  /** Filename for guide actions: prefer the user-selected saved spec, then fall back to a just-saved file. */
+  effectiveSpecFilename: string | null;
   isEditing: boolean;
   pendingGuideLoad: { filename: string; parsed: ParsedSessionPlan } | null;
 
@@ -43,7 +45,6 @@ export interface SpecWriterActionsReturn {
   handleGenerateAudit: () => void;
   handleUseGuide: () => void;
   handleRecognizeGuide: () => Promise<void>;
-  handleLoadGuideFromSavedSpec: () => Promise<void>;
   handleConfirmGuideReplace: () => Promise<void>;
   handleSaved: (filename: string) => void;
   handleAddToClaudeMd: () => Promise<void>;
@@ -124,7 +125,11 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
   const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState<string | null>(null);
 
-  const hasGuide = !!lastSavedFile && guideSpecFilename === lastSavedFile;
+  // The "current spec filename" for guide-related actions: prefer the file
+  // the user just selected from Saved Specs over the file they just saved,
+  // so loading a saved spec re-points the toolbar/guide actions at it.
+  const effectiveSpecFilename = selectedSavedSpec ?? lastSavedFile;
+  const hasGuide = !!effectiveSpecFilename && guideSpecFilename === effectiveSpecFilename;
   const initCheckedRef = useRef<string | null>(null);
   const contextAbortRef = useRef(false);
   const prevStatusRef = useRef(conversation?.status);
@@ -265,31 +270,7 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
   }, [handleClose]);
 
   const handleRecognizeGuide = useCallback(async () => {
-    if (!currentSpecContent || !activeProjectPath || !lastSavedFile) return;
-    const parsed = parseSessionPlan(currentSpecContent);
-    if (parsed) {
-      const created = await useGuideStore.getState().createGuide(
-        activeProjectPath,
-        lastSavedFile,
-        null,
-        parsed
-      );
-      if (created) {
-        showToast(
-          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
-          "info"
-        );
-        useUiStore.getState().setRightTab("guide");
-      } else {
-        showToast("Guide already exists for this spec", "info");
-      }
-    } else {
-      showToast(diagnoseSessionPlanFailure(currentSpecContent), "error");
-    }
-  }, [currentSpecContent, activeProjectPath, lastSavedFile]);
-
-  const handleLoadGuideFromSavedSpec = useCallback(async () => {
-    if (!currentSpecContent || !activeProjectPath || !selectedSavedSpec) return;
+    if (!currentSpecContent || !activeProjectPath || !effectiveSpecFilename) return;
 
     const parsed = parseSessionPlan(currentSpecContent);
     if (!parsed) {
@@ -297,38 +278,44 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
       return;
     }
 
-    if (!currentGuide) {
-      const created = await useGuideStore.getState().createGuide(
-        activeProjectPath,
-        selectedSavedSpec,
-        null,
-        parsed
-      );
-      if (created) {
+    // If a guide already exists in the store, decide between safe-replace
+    // (route through the confirm modal) and block (in-progress guide).
+    if (currentGuide) {
+      const started =
+        isGuideStarted(currentGuide) ||
+        selfDriveStatus === "running" ||
+        selfDriveStatus === "paused";
+      if (started && currentGuide.status !== "completed") {
         showToast(
-          `Implementation Guide created \u2014 ${parsed.sessions.length} sessions`,
-          "info"
+          `Cannot replace \u2014 current guide for "${currentGuide.title}" is in progress`,
+          "error",
         );
-        useUiStore.getState().setRightTab("guide");
+        return;
       }
+      // Safe to replace \u2014 confirm before clobbering an existing guide.
+      setPendingGuideLoad({ filename: effectiveSpecFilename, parsed });
       return;
     }
 
-    const started =
-      isGuideStarted(currentGuide) ||
-      selfDriveStatus === "running" ||
-      selfDriveStatus === "paused";
-
-    if (started && currentGuide.status !== "completed") {
+    const created = await useGuideStore
+      .getState()
+      .createGuide(activeProjectPath, effectiveSpecFilename, null, parsed);
+    if (created) {
       showToast(
-        `Cannot load \u2014 current guide for "${currentGuide.title}" is in progress`,
-        "error"
+        `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
+        "info",
       );
-      return;
+      useUiStore.getState().setRightTab("guide");
+    } else {
+      showToast("Guide already exists for this spec", "info");
     }
-
-    setPendingGuideLoad({ filename: selectedSavedSpec, parsed });
-  }, [currentSpecContent, activeProjectPath, selectedSavedSpec, currentGuide, selfDriveStatus]);
+  }, [
+    currentSpecContent,
+    activeProjectPath,
+    effectiveSpecFilename,
+    currentGuide,
+    selfDriveStatus,
+  ]);
 
   const handleConfirmGuideReplace = useCallback(async () => {
     if (!activeProjectPath || !pendingGuideLoad) return;
@@ -510,6 +497,7 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
     showSaveDialog,
     saveDialogType,
     lastSavedFile,
+    effectiveSpecFilename,
     isEditing,
     pendingGuideLoad,
     contextLoading,
@@ -524,7 +512,6 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
     handleGenerateAudit,
     handleUseGuide,
     handleRecognizeGuide,
-    handleLoadGuideFromSavedSpec,
     handleConfirmGuideReplace,
     handleSaved,
     handleAddToClaudeMd,
