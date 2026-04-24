@@ -37,6 +37,9 @@ export interface SubAgentInfo {
   toolCount?: number;
   tokenCount?: number;
   currentActivity?: string;
+  // CLI v2.1.119+ task_notification surfaces these on completion
+  summary?: string;
+  outputFile?: string;
 }
 
 export function extractSubAgentInfo(

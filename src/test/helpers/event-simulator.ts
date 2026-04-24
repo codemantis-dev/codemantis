@@ -35,6 +35,8 @@ const ACTIVITY_EVENT_TYPES = new Set([
   "subagent_started",
   "subagent_progress",
   "subagent_complete",
+  "task_notification",
+  "task_updated",
 ]);
 
 /**

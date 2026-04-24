@@ -611,6 +611,37 @@ fn handle_system_task_lifecycle(
             };
             emit_or_warn(app_handle, activity_event, &fe, "sub-agent-complete");
         }
+        "task_notification" => {
+            let task_id = extra.get("task_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let status = extra.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let summary = extra.get("summary").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let output_file = extra.get("output_file").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let usage = extra
+                .get("usage")
+                .and_then(|v| {
+                    serde_json::from_value::<crate::claude::event_types::UsageInfo>(v.clone()).ok()
+                });
+            let fe = FrontendEvent::TaskNotification {
+                session_id: session_id.to_string(),
+                tool_use_id,
+                task_id,
+                status,
+                summary,
+                output_file,
+                usage,
+            };
+            emit_or_warn(app_handle, activity_event, &fe, "task-notification");
+        }
+        "task_updated" => {
+            let task_id = extra.get("task_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let patch = extra.get("patch").cloned().unwrap_or(serde_json::Value::Null);
+            let fe = FrontendEvent::TaskUpdated {
+                session_id: session_id.to_string(),
+                task_id,
+                patch,
+            };
+            emit_or_warn(app_handle, activity_event, &fe, "task-updated");
+        }
         _ => {}
     }
 }
@@ -878,7 +909,14 @@ pub async fn route_events(
                 subtype,
                 ref extra,
                 ..
-            } if matches!(subtype.as_deref(), Some("task_started") | Some("task_progress") | Some("task_complete")) => {
+            } if matches!(
+                subtype.as_deref(),
+                Some("task_started")
+                    | Some("task_progress")
+                    | Some("task_complete")
+                    | Some("task_notification")
+                    | Some("task_updated")
+            ) => {
                 let sub = subtype.as_deref().unwrap_or("");
                 handle_system_task_lifecycle(
                     &app_handle, &session_id, &activity_event, sub, extra,
@@ -1412,6 +1450,99 @@ mod tests {
             }
             other => panic!("Expected System, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn system_task_notification_event_parses_all_fields() {
+        let json = r#"{"type":"system","subtype":"task_notification","task_id":"task_42","tool_use_id":"toolu_agent_1","status":"completed","summary":"Found 3 matches","output_file":"/tmp/spool.txt","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":null,"cache_read_input_tokens":null},"uuid":"evt-uuid"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("task_notification"));
+                assert_eq!(extra.get("task_id").and_then(|v| v.as_str()), Some("task_42"));
+                assert_eq!(extra.get("tool_use_id").and_then(|v| v.as_str()), Some("toolu_agent_1"));
+                assert_eq!(extra.get("status").and_then(|v| v.as_str()), Some("completed"));
+                assert_eq!(extra.get("summary").and_then(|v| v.as_str()), Some("Found 3 matches"));
+                assert_eq!(extra.get("output_file").and_then(|v| v.as_str()), Some("/tmp/spool.txt"));
+                let usage = extra
+                    .get("usage")
+                    .and_then(|v| {
+                        serde_json::from_value::<crate::claude::event_types::UsageInfo>(v.clone()).ok()
+                    })
+                    .expect("usage should parse");
+                assert_eq!(usage.input_tokens, Some(100));
+                assert_eq!(usage.output_tokens, Some(50));
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_task_notification_event_tolerates_missing_optionals() {
+        // The more common shape in the log omits `usage`.
+        let json = r#"{"type":"system","subtype":"task_notification","task_id":"task_9","tool_use_id":"toolu_x","status":"completed","summary":"ok","output_file":"/tmp/o.txt","uuid":"u"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("task_notification"));
+                assert!(extra.get("usage").is_none());
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_task_updated_event_preserves_patch_verbatim() {
+        let json = r#"{"type":"system","subtype":"task_updated","task_id":"task_77","patch":[{"op":"replace","path":"/status","value":"running"}],"uuid":"evt-1"}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match &event {
+            RawStreamEvent::System { subtype, extra, .. } => {
+                assert_eq!(subtype.as_deref(), Some("task_updated"));
+                assert_eq!(extra.get("task_id").and_then(|v| v.as_str()), Some("task_77"));
+                let patch = extra.get("patch").expect("patch present");
+                assert!(patch.is_array(), "patch should be forwarded as-is");
+                assert_eq!(patch[0]["op"], "replace");
+                assert_eq!(patch[0]["path"], "/status");
+            }
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn task_notification_serializes_with_snake_case_tag() {
+        let fe = FrontendEvent::TaskNotification {
+            session_id: "s1".into(),
+            tool_use_id: "toolu_agent_1".into(),
+            task_id: "task_42".into(),
+            status: "completed".into(),
+            summary: Some("Done".into()),
+            output_file: Some("/tmp/o.txt".into()),
+            usage: None,
+        };
+        let v = serde_json::to_value(&fe).unwrap();
+        assert_eq!(v["type"], "task_notification");
+        assert_eq!(v["session_id"], "s1");
+        assert_eq!(v["task_id"], "task_42");
+        assert_eq!(v["tool_use_id"], "toolu_agent_1");
+        assert_eq!(v["status"], "completed");
+        assert_eq!(v["summary"], "Done");
+        assert_eq!(v["output_file"], "/tmp/o.txt");
+        // `usage: None` should be omitted per skip_serializing_if.
+        assert!(v.get("usage").is_none(), "usage should be omitted when None");
+    }
+
+    #[test]
+    fn task_updated_serializes_with_snake_case_tag() {
+        let patch = serde_json::json!([{"op":"add","path":"/todos/-","value":"x"}]);
+        let fe = FrontendEvent::TaskUpdated {
+            session_id: "s1".into(),
+            task_id: "task_77".into(),
+            patch: patch.clone(),
+        };
+        let v = serde_json::to_value(&fe).unwrap();
+        assert_eq!(v["type"], "task_updated");
+        assert_eq!(v["task_id"], "task_77");
+        assert_eq!(v["patch"], patch);
     }
 
     #[test]

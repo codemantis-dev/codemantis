@@ -42,6 +42,15 @@ Python errors:
   → "Claude is importing something that doesn't exist in that
      module. Check the name spelling."
 
+Biome errors (next-forge, Fumadocs):
+- "lint/correctness/..." or "lint/suspicious/..."
+  → "Biome caught a lint rule violation. Usually an unused import,
+     a missing dep in a hook, or a forbidden pattern. Ask Claude to
+     run `pnpm biome check --write` to auto-fix most of these."
+- "Formatter would have printed the following content"
+  → "Biome wants to reformat a file. Run `pnpm biome format --write`
+     (or `biome check --write`) to apply formatting and move on."
+
 General patterns:
 - "ENOENT: no such file or directory"
   → "A file path is wrong. Check that the file Claude referenced

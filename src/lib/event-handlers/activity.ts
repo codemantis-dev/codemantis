@@ -432,5 +432,41 @@ export function handleActivityEvent(sessionId: string, event: FrontendEvent): vo
       });
       break;
     }
+
+    case "task_notification": {
+      // CLI v2.1.119+ replacement for `task_complete`. Routes the background-task
+      // completion signal into the existing Sub-Agent UI when `tool_use_id` is
+      // set (which is the Agent tool's use-id on sub-agent tasks).
+      sessionStore.touchLastEvent(sessionId);
+      const tokenCount = event.usage?.output_tokens ?? undefined;
+      const agentStatus: "done" | "error" = event.status === "completed" ? "done" : "error";
+      if (event.tool_use_id) {
+        const agents = sessionStore.activeSubAgents.get(sessionId);
+        const linkedAgent = agents?.find((a) => a.toolUseId === event.tool_use_id);
+        if (linkedAgent) {
+          sessionStore.updateSubAgent(sessionId, event.tool_use_id, {
+            status: agentStatus,
+            tokenCount: tokenCount ?? linkedAgent.tokenCount,
+            summary: event.summary ?? undefined,
+            outputFile: event.output_file ?? undefined,
+          });
+        }
+        if (tokenCount != null && tokenCount > 0) {
+          activityStore.updateEntryExtra(sessionId, event.tool_use_id, {
+            agentFinalTokenCount: tokenCount,
+          });
+        }
+      }
+      break;
+    }
+
+    case "task_updated": {
+      // Low-volume incremental patch (observed 8 times vs 364 task_notification).
+      // Patch shape is not yet characterised — forwarded from Rust verbatim, but
+      // we don't interpret it here. Touching the session keeps UI indicators
+      // from going stale during long tasks.
+      sessionStore.touchLastEvent(sessionId);
+      break;
+    }
   }
 }

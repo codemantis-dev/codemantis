@@ -730,4 +730,186 @@ describe("activity event handler", () => {
       expect(useUiStore.getState().planCompleteFilePath).toBeNull();
     });
   });
+
+  // ─────────────────────────────────────────────────────
+  // CLI v2.1.119+ task_notification / task_updated
+  // ─────────────────────────────────────────────────────
+  describe("task_notification", () => {
+    const AGENT_TOOL_ID = "toolu_agent_xyz";
+
+    function seedRunningAgent(): void {
+      useSessionStore.getState().addSubAgent(SESSION_ID, {
+        toolUseId: AGENT_TOOL_ID,
+        description: "Search API docs",
+        subagentType: "Explore",
+        isBackground: false,
+        startedAt: "2026-01-01T00:00:00Z",
+        elapsed: 10,
+        status: "running",
+      });
+      useActivityStore.setState({
+        sessionEntries: new Map([
+          [
+            SESSION_ID,
+            [
+              {
+                id: "entry-1",
+                toolUseId: AGENT_TOOL_ID,
+                toolName: "Agent",
+                toolInput: { description: "Search API docs" },
+                status: "running",
+                timestamp: "2026-01-01T00:00:00Z",
+                messageId: "msg-1",
+                isError: false,
+              },
+            ],
+          ],
+        ]),
+      });
+    }
+
+    it("flips linked sub-agent to done and stamps summary/outputFile/token count", () => {
+      seedRunningAgent();
+
+      handleActivityEvent(SESSION_ID, {
+        type: "task_notification",
+        session_id: SESSION_ID,
+        tool_use_id: AGENT_TOOL_ID,
+        task_id: "task_42",
+        status: "completed",
+        summary: "Found 3 matching files",
+        output_file: "/tmp/agent-output.txt",
+        usage: {
+          input_tokens: 1200,
+          output_tokens: 450,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        },
+      });
+
+      const agent = useSessionStore.getState().activeSubAgents.get(SESSION_ID)?.[0];
+      expect(agent).toBeDefined();
+      expect(agent?.status).toBe("done");
+      expect(agent?.tokenCount).toBe(450);
+      expect(agent?.summary).toBe("Found 3 matching files");
+      expect(agent?.outputFile).toBe("/tmp/agent-output.txt");
+
+      const entry = useActivityStore.getState().sessionEntries.get(SESSION_ID)?.[0];
+      expect(entry?.agentFinalTokenCount).toBe(450);
+    });
+
+    it("marks linked sub-agent as error when status is not 'completed'", () => {
+      seedRunningAgent();
+
+      handleActivityEvent(SESSION_ID, {
+        type: "task_notification",
+        session_id: SESSION_ID,
+        tool_use_id: AGENT_TOOL_ID,
+        task_id: "task_42",
+        status: "failed",
+        summary: "Timed out",
+        output_file: null,
+        usage: null,
+      });
+
+      const agent = useSessionStore.getState().activeSubAgents.get(SESSION_ID)?.[0];
+      expect(agent?.status).toBe("error");
+      expect(agent?.summary).toBe("Timed out");
+    });
+
+    it("preserves existing tokenCount when usage is missing", () => {
+      seedRunningAgent();
+      useSessionStore.getState().updateSubAgent(SESSION_ID, AGENT_TOOL_ID, {
+        tokenCount: 999,
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "task_notification",
+        session_id: SESSION_ID,
+        tool_use_id: AGENT_TOOL_ID,
+        task_id: "task_42",
+        status: "completed",
+        summary: "ok",
+        output_file: null,
+        usage: null,
+      });
+
+      const agent = useSessionStore.getState().activeSubAgents.get(SESSION_ID)?.[0];
+      expect(agent?.status).toBe("done");
+      expect(agent?.tokenCount).toBe(999);
+    });
+
+    it("ignores notifications for unknown tool_use_ids without throwing", () => {
+      // No seeded sub-agent — the notification should be a no-op.
+      expect(() =>
+        handleActivityEvent(SESSION_ID, {
+          type: "task_notification",
+          session_id: SESSION_ID,
+          tool_use_id: "toolu_unknown",
+          task_id: "task_9",
+          status: "completed",
+          summary: "ok",
+          output_file: null,
+          usage: null,
+        })
+      ).not.toThrow();
+      expect(useSessionStore.getState().activeSubAgents.get(SESSION_ID)).toBeUndefined();
+    });
+
+    it("touches lastEventTimestamp so stale-session heuristics see fresh activity", () => {
+      seedRunningAgent();
+      const before = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID);
+
+      handleActivityEvent(SESSION_ID, {
+        type: "task_notification",
+        session_id: SESSION_ID,
+        tool_use_id: AGENT_TOOL_ID,
+        task_id: "task_42",
+        status: "completed",
+        summary: "ok",
+        output_file: null,
+        usage: null,
+      });
+
+      const after = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID);
+      expect(after).toBeDefined();
+      expect(after).not.toBe(before);
+    });
+  });
+
+  describe("task_updated", () => {
+    it("does not throw on arbitrary patch shapes and only bumps lastEventTimestamp", () => {
+      expect(() =>
+        handleActivityEvent(SESSION_ID, {
+          type: "task_updated",
+          session_id: SESSION_ID,
+          task_id: "task_77",
+          patch: [{ op: "replace", path: "/status", value: "running" }],
+        })
+      ).not.toThrow();
+
+      const ts = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID);
+      expect(ts).toBeDefined();
+    });
+
+    it("tolerates unknown patch payloads (null, string, object) without state changes", () => {
+      const before = JSON.stringify([
+        ...(useSessionStore.getState().activeSubAgents.entries() ?? []),
+      ]);
+
+      for (const patch of [null, "opaque-blob", { arbitrary: true }]) {
+        handleActivityEvent(SESSION_ID, {
+          type: "task_updated",
+          session_id: SESSION_ID,
+          task_id: "task_77",
+          patch,
+        });
+      }
+
+      const after = JSON.stringify([
+        ...(useSessionStore.getState().activeSubAgents.entries() ?? []),
+      ]);
+      expect(after).toBe(before);
+    });
+  });
 });

@@ -20,6 +20,8 @@ export type FrontendEvent =
   | SubAgentStartedEvent
   | SubAgentProgressEvent
   | SubAgentCompleteEvent
+  | TaskNotificationEvent
+  | TaskUpdatedEvent
   | ThinkingDeltaEvent
   | ThinkingCompleteEvent;
 
@@ -234,6 +236,33 @@ export interface SubAgentCompleteEvent {
   tool_use_id: string;
   tool_count: number | null;
   token_count: number | null;
+}
+
+/**
+ * Background-task completion from CLI v2.1.119+. Replaces `subagent_complete`
+ * against the CLI's first-class tasks registry. `tool_use_id` links back to
+ * the spawning Agent tool when available.
+ */
+export interface TaskNotificationEvent {
+  type: "task_notification";
+  session_id: string;
+  tool_use_id: string;
+  task_id: string;
+  status: string;
+  summary: string | null;
+  output_file: string | null;
+  usage: UsageInfo | null;
+}
+
+/**
+ * Incremental task-state patch from CLI v2.1.119+. Patch shape is not yet
+ * characterised; forwarded as opaque JSON for future interpretation.
+ */
+export interface TaskUpdatedEvent {
+  type: "task_updated";
+  session_id: string;
+  task_id: string;
+  patch: unknown;
 }
 
 export interface ThinkingDeltaEvent {

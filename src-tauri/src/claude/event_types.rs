@@ -407,6 +407,32 @@ pub enum FrontendEvent {
         token_count: Option<u32>,
     },
 
+    /// CLI v2.1.119+ background-task completion. Replaces `task_complete`
+    /// against the CLI's first-class tasks registry (cf. `stop_task(task_id)`).
+    /// `tool_use_id` links back to the spawning Agent tool when available.
+    #[serde(rename = "task_notification")]
+    TaskNotification {
+        session_id: String,
+        tool_use_id: String,
+        task_id: String,
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_file: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<UsageInfo>,
+    },
+
+    /// CLI v2.1.119+ incremental task state patch. Shape of `patch` not yet
+    /// characterised — forwarded verbatim for future interpretation.
+    #[serde(rename = "task_updated")]
+    TaskUpdated {
+        session_id: String,
+        task_id: String,
+        patch: serde_json::Value,
+    },
+
     #[serde(rename = "thinking_delta")]
     ThinkingDelta {
         session_id: String,
