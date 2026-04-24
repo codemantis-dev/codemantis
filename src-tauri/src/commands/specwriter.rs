@@ -308,8 +308,6 @@ pub async fn gather_spec_context(
 ) -> Result<String, String> {
     let project = Path::new(&project_path);
     let mut sections: Vec<String> = Vec::new();
-    let mut total_chars: usize = 0;
-    let char_budget: usize = 14000; // ~3,500 tokens (L1 budget)
 
     let project_name = project
         .file_name()
@@ -548,24 +546,7 @@ pub async fn gather_spec_context(
         }
     }
 
-    // Assemble with budget check
-    let mut result = String::new();
-    for section in &sections {
-        if total_chars + section.len() > char_budget {
-            warn!(
-                "gather_spec_context: exceeded {} char budget at {} chars, truncating",
-                char_budget, total_chars
-            );
-            break;
-        }
-        if !result.is_empty() {
-            result.push_str("\n\n");
-        }
-        result.push_str(section);
-        total_chars = result.len();
-    }
-
-    Ok(result)
+    Ok(sections.join("\n\n"))
 }
 
 fn detect_framework(project: &Path) -> String {
@@ -1226,6 +1207,50 @@ mod tests {
         let ctx = result.unwrap();
         assert!(ctx.contains("CLAUDE.md"));
         assert!(ctx.contains("Project Guide"));
+    }
+
+    #[tokio::test]
+    async fn gather_spec_context_does_not_truncate_large_contexts() {
+        // Regression: the old 14000-char budget silently dropped later sections
+        // (existing specs, recent commits) on any non-trivial project. SpecWriter
+        // must always receive the full structural summary — each section is
+        // already independently capped upstream.
+        let dir = temp_dir();
+        let project_path = dir.path().to_string_lossy().to_string();
+
+        // CLAUDE.md of 100 lines × ~160 chars ≈ 16000 chars — by itself over
+        // the old 14000 budget, guaranteeing later sections would have been
+        // dropped under the old logic.
+        let long_line = "x".repeat(160);
+        let mut claude_md_body = String::from("# Project Guide\n");
+        for i in 0..100 {
+            claude_md_body.push_str(&format!("line {} {}\n", i, long_line));
+        }
+        fs::write(dir.path().join("CLAUDE.md"), &claude_md_body).unwrap();
+
+        // Existing Specs is section #10 — one of the last pushed, and exactly
+        // the kind of content that was getting dropped.
+        let specs_dir = dir.path().join("docs").join("specs");
+        fs::create_dir_all(&specs_dir).unwrap();
+        fs::write(
+            specs_dir.join("existing.md"),
+            "# Prior Spec\n\nA spec that already exists.",
+        )
+        .unwrap();
+
+        let result = gather_spec_context(project_path).await;
+        assert!(result.is_ok());
+        let ctx = result.unwrap();
+
+        // Early section present.
+        assert!(ctx.contains("CLAUDE.md"));
+        // Late section present — would have been truncated under the old budget.
+        assert!(
+            ctx.contains("Prior Spec"),
+            "Existing Specs section was dropped — truncation has regressed"
+        );
+        // Sanity: actual length exceeds the old budget.
+        assert!(ctx.len() > 14000);
     }
 
     // ── add_verification_workflow_to_claude_md ────────────────────────────
