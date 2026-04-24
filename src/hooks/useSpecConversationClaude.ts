@@ -123,9 +123,11 @@ export function useSpecConversationClaude(): {
     ) => {
       // User-initiated turns reset the recheck-round counter so the next
       // automatic recheck cycle starts fresh. Auto-recheck dispatches do NOT
-      // reset (otherwise the cap would never bite).
+      // reset (otherwise the cap would never bite). Compaction info is also
+      // scoped to the current user-initiated run.
       if (!meta?.isAutoRecheck) {
         recheckRoundRef.current.set(projectPath, 0);
+        useSpecWriterStore.getState().setCompactionInfo(projectPath, null);
       }
 
       const store = useSpecWriterStore.getState();
@@ -343,6 +345,45 @@ export function useSpecConversationClaude(): {
           if (flushScheduledRef.current === null) {
             flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
           }
+        }
+
+        // Auto-compaction surfacing: the Claude Code CLI auto-compacts when
+        // Sonnet's context fills during a long spec run. Neither the main chat
+        // toast handler nor the Activity Feed sees SpecWriter-session events,
+        // so without this the user has no signal that compaction happened.
+        // After a compact, later output is generated from a summary, not the
+        // original earlier turns — so details from early phases may be lossy.
+        if (event.type === "compacting_status" && event.is_compacting) {
+          currentStore.addMessage(projectPath, {
+            id: `msg-compact-start-${Date.now()}`,
+            role: "system",
+            content:
+              "Claude Code is compacting this session's context (the conversation has grown large). " +
+              "The run will continue, but expect a brief pause.",
+            message_type: "conversation",
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        if (event.type === "compact_complete") {
+          const preTokensK = event.pre_tokens != null ? Math.round(event.pre_tokens / 1000) : null;
+          const preTokensLabel = preTokensK != null ? `~${preTokensK}K tokens` : "an unknown token count";
+          const triggerLabel = event.trigger === "manual" ? "manually compacted" : "auto-compacted";
+          currentStore.setCompactionInfo(projectPath, {
+            trigger: event.trigger || "auto",
+            preTokens: event.pre_tokens,
+            at: new Date().toISOString(),
+          });
+          currentStore.addMessage(projectPath, {
+            id: `msg-compact-complete-${Date.now()}`,
+            role: "system",
+            content:
+              `⚠️ Claude Code ${triggerLabel} this session's context (was ${preTokensLabel}). ` +
+              `Details from earlier in this run may now be summarized rather than preserved verbatim. ` +
+              `For critical specs, consider re-running with Opus 4.7 (1M context) or splitting the session plan into smaller phases.`,
+            message_type: "conversation",
+            timestamp: new Date().toISOString(),
+          });
         }
 
         if (event.type === "turn_complete") {

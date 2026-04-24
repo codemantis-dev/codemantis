@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { saveTaskBoardState, loadTaskBoardState, closeSpecwriterSession } from "../lib/tauri-commands";
 import type {
+  CompactionRunInfo,
   CoverageAuditReport,
   InputAnalysis,
   SpecConversation,
@@ -66,6 +67,11 @@ interface SpecWriterState {
   // surface silent truncation.
   streamStats: Map<string, StreamStats>;
 
+  // Compaction tracking: whether the Claude Code CLI auto-compacted this
+  // SpecWriter session during the current user-initiated run (runtime-only).
+  // Set on compact_complete events; cleared at the start of each new user turn.
+  compactionInfo: Map<string, CompactionRunInfo>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -119,6 +125,9 @@ interface SpecWriterState {
   // Actions - Stream stats (Stage 4)
   setStreamStats: (projectPath: string, stats: StreamStats | null) => void;
 
+  // Actions - Compaction tracking
+  setCompactionInfo: (projectPath: string, info: CompactionRunInfo | null) => void;
+
   // Actions - Turn completion (batched update to avoid intermediate re-renders)
   completeTurn: (projectPath: string, updates: {
     finalContent: string;
@@ -163,6 +172,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   coverageReports: new Map(),
   inputAnalysisReports: new Map(),
   streamStats: new Map(),
+  compactionInfo: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -302,6 +312,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const coverageReports = new Map(state.coverageReports);
       const inputAnalysisReports = new Map(state.inputAnalysisReports);
       const streamStats = new Map(state.streamStats);
+      const compactionInfo = new Map(state.compactionInfo);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
@@ -311,7 +322,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       coverageReports.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
       streamStats.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats };
+      compactionInfo.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats, compactionInfo };
     });
   },
 
@@ -516,6 +528,18 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { streamStats };
     }),
 
+  // Compaction tracking
+  setCompactionInfo: (projectPath, info) =>
+    set((state) => {
+      const compactionInfo = new Map(state.compactionInfo);
+      if (info === null) {
+        compactionInfo.delete(projectPath);
+      } else {
+        compactionInfo.set(projectPath, info);
+      }
+      return { compactionInfo };
+    }),
+
   // Turn completion — single batched update to avoid intermediate re-renders from useShallow
   completeTurn: (projectPath, updates) =>
     set((state) => {
@@ -580,6 +604,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const coverageReports = new Map(s.coverageReports);
       const inputAnalysisReports = new Map(s.inputAnalysisReports);
       const streamStats = new Map(s.streamStats);
+      const compactionInfo = new Map(s.compactionInfo);
       conversations.delete(projectPath);
       currentSpecContent.delete(projectPath);
       currentAuditContent.delete(projectPath);
@@ -589,7 +614,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       coverageReports.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
       streamStats.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats };
+      compactionInfo.delete(projectPath);
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats, compactionInfo };
     });
   },
 

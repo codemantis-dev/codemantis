@@ -228,3 +228,18 @@ export interface StreamStats {
   /** Optional context (e.g. cancel reason, error message, stall threshold). */
   note?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Compaction run info — tracks whether the Claude Code CLI auto-compacted
+// the SpecWriter session's context during the current run. Surfaced so the
+// user knows earlier details may be summarized in later output.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface CompactionRunInfo {
+  /** Trigger reported by the CLI ("auto" | "manual" | other). */
+  trigger: string;
+  /** Token count at compaction time, if the CLI reported it. */
+  preTokens: number | null;
+  /** ISO timestamp of the compact_complete event. */
+  at: string;
+}

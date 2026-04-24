@@ -60,6 +60,7 @@ function resetStores(): void {
     draftText: new Map(),
     draftAttachments: new Map(),
     cliSessionIds: new Map(),
+    compactionInfo: new Map(),
   });
   useSettingsStore.setState({
     settings: {
@@ -497,6 +498,163 @@ describe("useSpecConversationClaude", () => {
         expect.any(String),
         expect.stringContaining("do NOT save it to a file"),
       );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Claude Code auto-compaction surfacing
+  // -----------------------------------------------------------------------
+  describe("compaction surfacing", () => {
+    /** Capture the event callback handed to listenChatEvents by the hook. */
+    async function sendAndGetEventCallback(): Promise<(e: unknown) => void> {
+      const { result } = renderHook(() => useSpecConversationClaude());
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Design a feature");
+      });
+      const calls = mockListenChatEvents.mock.calls as unknown as Array<[string, (e: unknown) => void]>;
+      const call = calls[calls.length - 1];
+      return call[1];
+    }
+
+    it("records compactionInfo and appends a warning message on compact_complete", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({
+          type: "compact_complete",
+          session_id: "cli-session-123",
+          trigger: "auto",
+          pre_tokens: 186_000,
+        });
+      });
+
+      const info = useSpecWriterStore.getState().compactionInfo.get(PROJECT);
+      expect(info).toBeDefined();
+      expect(info!.trigger).toBe("auto");
+      expect(info!.preTokens).toBe(186_000);
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const warning = conv!.messages.find(
+        (m) => m.role === "system" && m.content.includes("auto-compacted"),
+      );
+      expect(warning).toBeDefined();
+      expect(warning!.content).toContain("~186K tokens");
+      expect(warning!.content).toContain("Opus 4.7");
+    });
+
+    it("handles null pre_tokens gracefully", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({
+          type: "compact_complete",
+          session_id: "cli-session-123",
+          trigger: "auto",
+          pre_tokens: null,
+        });
+      });
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const warning = conv!.messages.find(
+        (m) => m.role === "system" && m.content.includes("auto-compacted"),
+      );
+      expect(warning).toBeDefined();
+      expect(warning!.content).toContain("unknown token count");
+      expect(useSpecWriterStore.getState().compactionInfo.get(PROJECT)!.preTokens).toBeNull();
+    });
+
+    it("labels manual compactions distinctly", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({
+          type: "compact_complete",
+          session_id: "cli-session-123",
+          trigger: "manual",
+          pre_tokens: 120_000,
+        });
+      });
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const warning = conv!.messages.find(
+        (m) => m.role === "system" && m.content.includes("manually compacted"),
+      );
+      expect(warning).toBeDefined();
+    });
+
+    it("adds a notice when compacting_status fires with is_compacting=true", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({
+          type: "compacting_status",
+          session_id: "cli-session-123",
+          is_compacting: true,
+        });
+      });
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const notice = conv!.messages.find(
+        (m) => m.role === "system" && m.content.includes("compacting this session"),
+      );
+      expect(notice).toBeDefined();
+    });
+
+    it("ignores compacting_status with is_compacting=false", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({
+          type: "compacting_status",
+          session_id: "cli-session-123",
+          is_compacting: false,
+        });
+      });
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const notice = conv!.messages.find(
+        (m) => m.role === "system" && m.content.includes("compacting this session"),
+      );
+      expect(notice).toBeUndefined();
+    });
+
+    it("clears compactionInfo at the start of a new user-initiated turn", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+      // Seed stale compaction info from a previous run
+      useSpecWriterStore.getState().setCompactionInfo(PROJECT, {
+        trigger: "auto",
+        preTokens: 180_000,
+        at: new Date(0).toISOString(),
+      });
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "A new question");
+      });
+
+      expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
     });
   });
 });

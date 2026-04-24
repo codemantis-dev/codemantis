@@ -31,6 +31,7 @@ describe("specWriterStore", () => {
       coverageReports: new Map(),
       inputAnalysisReports: new Map(),
       streamStats: new Map(),
+      compactionInfo: new Map(),
     });
   });
 
@@ -666,5 +667,41 @@ describe("specWriterStore", () => {
     });
     store.clearConversation(PROJECT);
     expect(useSpecWriterStore.getState().streamStats.has(PROJECT)).toBe(false);
+  });
+
+  // ─── Compaction tracking ────────────────────────────────────────────
+
+  it("setCompactionInfo stores and overwrites per project", () => {
+    const store = useSpecWriterStore.getState();
+    const info = { trigger: "auto", preTokens: 180_000, at: new Date(0).toISOString() };
+    store.setCompactionInfo(PROJECT, info);
+    expect(useSpecWriterStore.getState().compactionInfo.get(PROJECT)).toBe(info);
+
+    const next = { trigger: "manual", preTokens: 150_000, at: new Date(1000).toISOString() };
+    store.setCompactionInfo(PROJECT, next);
+    expect(useSpecWriterStore.getState().compactionInfo.get(PROJECT)).toBe(next);
+  });
+
+  it("setCompactionInfo(null) deletes the entry", () => {
+    const store = useSpecWriterStore.getState();
+    store.setCompactionInfo(PROJECT, { trigger: "auto", preTokens: 100_000, at: new Date().toISOString() });
+    store.setCompactionInfo(PROJECT, null);
+    expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
+  });
+
+  it("clearConversation also clears compaction info", () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    store.setCompactionInfo(PROJECT, { trigger: "auto", preTokens: 190_000, at: new Date().toISOString() });
+    store.clearConversation(PROJECT);
+    expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
+  });
+
+  it("discardAndStartNew also clears compaction info", async () => {
+    const store = useSpecWriterStore.getState();
+    store.initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    store.setCompactionInfo(PROJECT, { trigger: "auto", preTokens: 190_000, at: new Date().toISOString() });
+    await store.discardAndStartNew(PROJECT);
+    expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
   });
 });
