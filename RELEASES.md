@@ -1,5 +1,43 @@
 # CodeMantis Releases
 
+## 1.1.2
+
+### Self-Drive
+- **Static cross-system action parity**: before a session can finish, the orchestrator verifies that backend handlers, frontend wiring, and integration evidence all agree on the same actions — catches half-implemented features that pass code review individually but don't connect end-to-end
+- **`request_recheck` loop**: orchestrator can now ask Claude Code to re-state evidence for specific verify items before pausing, up to 2 rounds per session (opt-out via `selfDriveEnableRecheckLoop`)
+- **Integration-evidence contracts**: typed contracts make verify items explicit about what evidence is required (file:line citations, test names, behavior descriptions)
+- **Handler-authoring carve-out**: parity gate is skipped during pure handler-authoring sessions where the frontend wiring intentionally lands later
+- **Orchestrator-authoritative evidence format**: orchestrator now owns the evidence schema instead of letting the verifier and prompts drift apart
+- **No verifier truncation**: the verifier no longer truncates Claude's evidence text mid-quote, fixing false PASSes from cut-off file references
+- **Token-reset stall handling**: stall timeout and live blocker UI now correctly handle the post-token-reset window where the model legitimately pauses
+- **Unknown-blocker recovery hardening**: orchestrator no longer loops indefinitely on unrecognized blocker kinds and stops spamming the compact-log channel
+- **Skipped-verify and parity-error fixes**: verify items marked SKIPPED no longer break parity, and the GuidePanel store now stays in sync with orchestrator state
+
+### SpecWriter
+- **Preflight input analyzer + clarification gate**: before generating a spec, SpecWriter analyzes the user's input for missing details and asks targeted clarification questions instead of guessing
+- **Input-fidelity coverage audit**: new audit pass compares the generated spec against the original input to surface dropped requirements, with auto-recheck on regeneration
+- **Coverage panel + report persistence**: dedicated UI surface for coverage findings; reports are saved alongside specs for later review
+- **Stream observability in coverage workflow**: live progress and tool activity are visible during coverage runs, not just the final result
+- **Phase-based session plans parsed correctly**: guides can now be recognized from specs that organize sessions by phase (`## Phase 1: …` → `### Session 1.1: …`) instead of flat `### Session N` lists
+- **Better guide-failure explanations**: surface concrete reasons when guide recognition fails (no plan section, malformed sessions, etc.) instead of a generic toast
+- **No project-context truncation**: `gather_spec_context` now uses tighter per-section caps instead of a cumulative budget that silently dropped late files
+- **Fewer false stall warnings**: tool-heavy streams (many small reads/edits) no longer trigger the inactivity stall heuristic
+- **Unified guide recognition + filename targeting**: single code path for recognize-guide regardless of entry point, with consistent filename matching
+- **Context-compaction surfacing**: Claude Code context compactions are now visible in CLI sessions so the user knows when history was rewritten
+
+### Activity Feed
+- **No cross-project/session bleed**: activity entries from other projects or sessions can no longer appear in the current feed or detail view (regression from session pinning)
+- **Claude settings carve-out failures explained**: when CodeMantis can't write the Claude settings carve-out (permissions, locked files), the activity feed now surfaces the actual reason instead of failing silently
+
+### Claude CLI
+- Handle `task_notification` and `task_updated` events from the CLI's background-task system so long-running shell tasks surface progress in the activity feed
+
+### Preview Window
+- Distinguish intentional dev-server shutdown from crashes — closing the preview no longer logs the dev server as crashed when the user simply stopped it
+
+### Documentation
+- User guide refreshed for the new toolbar layout, default spec models, and current MCP access shortcut (Cmd+Shift+M)
+
 ## 1.1.1
 
 ### Self-Drive
