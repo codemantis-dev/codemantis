@@ -1843,7 +1843,9 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // Optional: run tests between sessions (skip if coming from test/commit phase)
   if (liveConfig.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "testing" });
-    const testPrompt = `Run the test suite: ${getTestCommand()}. Report which tests pass and which fail.`;
+    const testPrompt =
+      `Run the test suite: \`${getTestCommand()}\` to completion in the foreground (do NOT use run_in_background — wait for the command to exit). ` +
+      `When it finishes, report the exit code and which tests passed or failed.`;
     addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`, undefined, testPrompt);
     await sendMessageToSession(testPrompt);
     return; // wait for turn_complete → orchestrator evaluates
@@ -2050,7 +2052,9 @@ async function handleTest(decision: OrchestratorDecision): Promise<void> {
   const state = useSelfDriveStore.getState();
   useSelfDriveStore.setState({ currentPhase: "testing" });
   const cmd = decision.testCommand || getTestCommand() || "pnpm test";
-  const testPrompt = `Run \`${cmd}\`. Report which tests pass and which fail.`;
+  const testPrompt =
+    `Run \`${cmd}\` to completion in the foreground (do NOT use run_in_background — wait for the command to exit). ` +
+    `When it finishes, report the exit code and which tests passed or failed.`;
   addLogEntry(state.currentSessionIndex!, "testing", `Running tests: ${cmd}`, undefined, testPrompt);
   await sendMessageToSession(testPrompt);
 }

@@ -619,6 +619,58 @@ describe("activity event handler", () => {
       });
     });
 
+    it("attaches helpHint when Write to .claude/settings.json hits the CLI carve-out", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-carveout",
+        tool_name: "Write",
+        tool_input: { file_path: "/tmp/test-project/.claude/settings.json" },
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-carveout",
+        content:
+          "Error: Claude requested permissions to write to /tmp/test-project/.claude/settings.json, but you haven't granted it yet.",
+        is_error: true,
+      });
+
+      const entry = useActivityStore
+        .getState()
+        .getActiveEntries(SESSION_ID)
+        .find((e) => e.toolUseId === "tu-carveout");
+      expect(entry).toBeDefined();
+      expect(entry!.helpHint).toBeDefined();
+      expect(entry!.helpHint).toMatch(/sandbox-escape guard/);
+    });
+
+    it("does not attach helpHint for unrelated Write errors", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-other-err",
+        tool_name: "Write",
+        tool_input: { file_path: "/tmp/test-project/src/foo.ts" },
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-other-err",
+        content: "Error: disk full",
+        is_error: true,
+      });
+
+      const entry = useActivityStore
+        .getState()
+        .getActiveEntries(SESSION_ID)
+        .find((e) => e.toolUseId === "tu-other-err");
+      expect(entry).toBeDefined();
+      expect(entry!.helpHint).toBeUndefined();
+    });
+
     it("cleans up preEditContentCache after completion", async () => {
       preEditContentCache.set("tu-cleanup", "old content");
 

@@ -14,6 +14,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAssistantStore } from "../../stores/assistantStore";
 import { toolActivityLabel, subAgentActivityLabel, parseAgentUsage } from "../event-classifier";
 import { assertActivitySessionScope } from "../session-integrity";
+import { detectSettingsCarveout } from "../carveout-detector";
 
 // Store state types (derived from Zustand store getState())
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
@@ -245,6 +246,30 @@ function handleToolResult(
     event.content ?? undefined,
     event.is_error
   );
+
+  // Surface a friendly hint when the CLI silently rejects writes to its own
+  // settings files (the 2.1.x privilege-escalation carve-out). The error
+  // string is otherwise opaque ("haven't granted it yet") and the
+  // PreToolUse hook is never called for these paths, so Auto-Accept can't
+  // suppress it.
+  if (event.is_error) {
+    const entry = activityStore
+      .getActiveEntries(sessionId)
+      .find((e) => e.toolUseId === event.tool_use_id);
+    if (entry) {
+      const carveout = detectSettingsCarveout({
+        toolName: entry.toolName,
+        toolInput: entry.toolInput,
+        errorContent: event.content,
+        isError: true,
+      });
+      if (carveout) {
+        activityStore.updateEntryExtra(sessionId, event.tool_use_id, {
+          helpHint: carveout.hint,
+        });
+      }
+    }
+  }
 
   // Refresh file tree after mutating tools complete
   if (!event.is_error) {

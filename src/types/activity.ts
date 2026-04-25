@@ -19,6 +19,9 @@ export interface ActivityEntry {
   agentFinalToolCount?: number;
   agentFinalTokenCount?: number;
   agentFinalDurationMs?: number;
+  // Friendly explanation surfaced under an opaque CLI error (e.g. the
+  // .claude/settings*.json carve-out). Not the raw error text.
+  helpHint?: string;
 }
 
 export type ActivityStatus = "pending" | "preparing" | "running" | "done" | "error";

@@ -374,6 +374,11 @@ export default function ActivityFeed() {
                   Error{entry.result ? `: ${entry.result}` : ""}
                 </p>
               )}
+              {entry.status === "error" && entry.helpHint && (
+                <p className="text-label text-yellow mt-1 break-words">
+                  {entry.helpHint}
+                </p>
+              )}
             </div>
           </div>
         );
