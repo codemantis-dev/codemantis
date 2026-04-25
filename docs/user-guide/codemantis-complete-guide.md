@@ -661,13 +661,13 @@ Left side buttons:
 | **+ File** | Plus | Opens the system file picker to attach files |
 | **@ Agent** | AtSign | Agent mention (placeholder for future feature) |
 | **/ Cmd** | Slash (/) | Opens the Command Palette (same as typing "/" in the text area) |
+| **Super-Bro toggle** | Shield | Enables or disables Super-Bro proactive guidance. Highlighted in accent color when active. See Chapter 21A. |
 
 Right side controls:
 
 - **Mode Selector** -- Shows the current mode icon and label (e.g., Shield "Normal"). See Chapter 6.
 - A vertical divider.
 - **Model Selector** -- Shows the current model name (e.g., "Sonnet") with a dropdown chevron. Click to open a dropdown of available models.
-- **Super-Bro toggle** -- A small shield icon button that enables or disables the Super-Bro proactive guidance feature. When active, the icon is highlighted in accent color. See Chapter 21A.
 - **Thinking Effort indicator** -- Three vertical bars showing thinking effort level (high = 3 bars lit, medium = 2, low = 1) with a text label ("High", "Medium", "Low"). Click to open Settings.
 - **Send/Stop button:**
   - When idle: An accent-colored **"Send"** button with a Send icon and the shortcut label (e.g., "Enter" or "Cmd+Enter"). Disabled (grayed out) when the text area is empty and no attachments are present.
@@ -1840,7 +1840,7 @@ Once you send your first message the mode selector locks.
 Before your first message, two dropdowns appear in the chat sub-header:
 
 - **Provider selector** -- choose between "Claude Code" (uses your existing Claude subscription, no API key needed), "Gemini", "OpenAI", "Anthropic", or "OpenRouter". Providers without a configured API key are shown as disabled with "(no key)".
-- **Model selector** -- lists the available models for the selected provider. For Claude Code, models include Claude Sonnet 4 and Claude Opus 4.
+- **Model selector** -- lists the available models for the selected provider. For Claude Code, the choices are Haiku 4.5 (fast, lower cost), Sonnet 4.6 (balanced — default), and Opus 4.7 (highest quality).
 
 After the first message, the provider and model are shown as read-only text.
 
@@ -2683,7 +2683,7 @@ Super-Bro stays silent (returns "NOTHING_TO_REPORT") when everything is going we
 
 | Method | Action |
 |--------|--------|
-| Input Area toolbar | Click the **shield icon** button in the action bar (next to the thinking effort indicator) to toggle Super-Bro on/off |
+| Input Area toolbar | Click the **shield icon** button in the action bar (left side, after the **/ Cmd** button) to toggle Super-Bro on/off |
 | Settings | Go to **Settings -> Super-Bro** to configure the feature, choose a provider, and select a model |
 
 ### When Super-Bro Speaks
@@ -3313,10 +3313,11 @@ A panel with the heading **"SpecWriter"** containing two configuration rows:
 
 The model dropdown lists all hardcoded spec-writing models plus up to 5 free OpenRouter models (if an OpenRouter key is configured). Models whose providers lack an API key are shown but disabled with "(no API key)" appended.
 
-Available hardcoded spec models (in priority order):
-- Gemini 3.1 Flash Lite
+Available hardcoded spec models (in priority order — auto-select picks the first whose provider has a configured key; default is Gemini 3.0 Flash):
+- Gemini 3.0 Flash
 - GPT-5.4 Mini
 - Claude Sonnet 4.6
+- Gemini 3.1 Flash Lite
 - Gemini 3.1 Pro
 - GPT-5.4
 - Claude Opus 4.7
@@ -4202,14 +4203,19 @@ OpenRouter models are fetched dynamically from the OpenRouter API when an API ke
 
 #### SpecWriter Models (Priority Order)
 
+Auto-select walks this list in order and picks the first model whose provider has a configured API key. The default is **Gemini 3.0 Flash** (`gemini-3-flash-preview`).
+
 | Model | Provider |
 |---|---|
-| Gemini 3.1 Flash Lite | Google Gemini |
+| Gemini 3.0 Flash | Google Gemini |
 | GPT-5.4 Mini | OpenAI |
 | Claude Sonnet 4.6 | Anthropic API |
+| Gemini 3.1 Flash Lite | Google Gemini |
 | Gemini 3.1 Pro | Google Gemini |
 | GPT-5.4 | OpenAI |
 | Claude Opus 4.7 | Anthropic API |
+
+Models flagged as too weak for complex spec sessions (a warning is shown, but they are not blocked): `gemini-2.5-flash-lite`, `gemini-3.1-flash-lite-preview`, `gpt-5.4-nano`.
 
 When using Claude Code as the SpecWriter provider, the available models are:
 
