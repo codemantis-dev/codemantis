@@ -2716,13 +2716,13 @@ When Super-Bro suggests a prompt, click it to populate the chat input. Review an
 
 ### States
 
-- **Enabled:** The shield icon in the action bar is highlighted in accent color. Super-Bro evaluates every Claude response and terminal event.
-- **Disabled (default):** The shield icon is dimmed. No Super-Bro guidance is generated.
+- **Enabled (default):** The shield icon in the action bar is highlighted in accent color. Super-Bro evaluates every Claude response and terminal event.
+- **Disabled:** The shield icon is dimmed. No Super-Bro guidance is generated.
 - **No API key:** If no API key is configured for any provider, Super-Bro cannot function. A warning appears in the Settings tab directing you to configure an API key in **Settings -> AI Providers**.
 
 ### Configuration
 
-- **Settings -> Super-Bro -> Enable Super-Bro:** Master toggle (on/off). Default: off (`superBroEnabled: false`).
+- **Settings -> Super-Bro -> Enable Super-Bro:** Master toggle (on/off). Default: on (`superBroEnabled: true`). Super-Bro stays quiet by default and only speaks when there is something actionable to say, so it is enabled out of the box.
 - **Settings -> Super-Bro -> Provider:** Choose between "Auto (cheapest available)", OpenRouter, Google Gemini, OpenAI, or Anthropic. Only providers with configured API keys are shown.
 - **Settings -> Super-Bro -> Model:** Select the specific model. "Auto" selects the cheapest available model automatically.
 
@@ -2814,8 +2814,8 @@ Go to **Settings -> Self-Drive** (Rocket icon) to configure:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| Provider | Dropdown | First available | AI provider for the orchestrator (Anthropic, Google Gemini, OpenAI, or OpenRouter). Only providers with configured API keys are shown. |
-| Model | Dropdown | Provider default | Specific model for the orchestrator. A fast, cheap model (Haiku-class) is recommended. |
+| Provider | Dropdown | Anthropic | AI provider for the orchestrator (Anthropic, Google Gemini, OpenAI, or OpenRouter). Only providers with configured API keys are shown. |
+| Model | Dropdown | Claude Haiku 4.5 (`claude-haiku-4-5`) | Specific model for the orchestrator. A fast, cheap model (Haiku-class) is recommended. |
 | Max fix attempts per session | Number (1--10) | 3 | How many times Self-Drive retries a failing session before pausing. |
 | Run build check after each session | Toggle | On | Run the project build after Claude completes each session. |
 | Run test suite after each session | Toggle | On | Run the test suite after each session to catch regressions. |
@@ -3986,19 +3986,19 @@ Complete reference of every configurable setting in CodeMantis.
 
 | Setting Name | Tab | Type | Default | Description |
 |---|---|---|---|---|
-| Theme | General | Choice (6 themes) | midnight | UI color theme: midnight, ocean, ember (dark); dawn, sand, arctic (light) |
+| Theme | General | Choice (6 themes) | sand | UI color theme: midnight, ocean, ember (dark); dawn, sand, arctic (light) |
 | Font Size | General | Number (10--20) | 13 | Base font size in pixels for the entire app |
 | Send Shortcut | General | Choice | "enter" | How to send messages: "enter" or "cmd-enter" |
 | Show trivia while waiting | General | Toggle | Off | Display fun facts while Claude is working |
 | Auto-open edited files | General | Toggle | Off | Open files in the viewer when Claude edits them |
 | Default context window | General | Choice | 1M (1,000,000) | Fallback context size: 200K or 1M tokens |
 | Show welcome screen on launch | General | Toggle | On (first launch) | Display the onboarding screen when the app opens |
-| Claude binary override | General | File path | null | Custom path to the `claude` binary |
-| Enable Super-Bro | Super-Bro | Toggle | Off | Enable proactive AI guidance during sessions |
+| Claude binary override | (Welcome Screen) | File path | null | Custom path to the `claude` binary; set via the "Locate Claude Code" link on the Welcome Screen when the binary is not auto-detected |
+| Enable Super-Bro | Super-Bro | Toggle | On | Enable proactive AI guidance during sessions |
 | Super-Bro provider | Super-Bro | Dropdown | Auto (cheapest) | AI provider for Super-Bro guidance |
 | Super-Bro model | Super-Bro | Dropdown | Auto | Specific model for Super-Bro |
-| Self-Drive provider | Self-Drive | Dropdown | First available | AI provider for the Self-Drive orchestrator |
-| Self-Drive model | Self-Drive | Dropdown | Provider default | Specific model for the orchestrator |
+| Self-Drive provider | Self-Drive | Dropdown | Anthropic | AI provider for the Self-Drive orchestrator. Only providers with configured API keys are shown. |
+| Self-Drive model | Self-Drive | Dropdown | claude-haiku-4-5 | Specific model for the orchestrator (defaults to Claude Haiku 4.5) |
 | Max fix attempts per session | Self-Drive | Number (1--10) | 3 | How many times Self-Drive retries before pausing |
 | Run build check after each session | Self-Drive | Toggle | On | Run project build after each session |
 | Run test suite after each session | Self-Drive | Toggle | On | Run test suite after each session |

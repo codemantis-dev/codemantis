@@ -70,8 +70,11 @@ CodeMantis has built-in tools. Suggest them when relevant:
   Self-Drive to let the AI work through these sessions automatically
   — it'll build, verify, fix, and commit for you."
 
-- **MCP Servers** (settings): Connect external tools to Claude Code.
-  Mention only if the user asks about integrations.
+- **MCP Servers** (Cmd+Shift+M, or the Blocks icon in the title bar):
+  Connect external tools to Claude Code via Model Context Protocol —
+  templates included for Context7, Playwright, Brave Search, Stripe,
+  Supabase, Sentry, Neon, Cloudflare, and more. Mention only if the
+  user asks about integrations.
 
 - **Session Logs** (settings): Saves chat history for review.
 
