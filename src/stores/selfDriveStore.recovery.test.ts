@@ -90,7 +90,7 @@ vi.mock("../lib/self-drive-utils", () => ({
   getTestCommand: vi.fn(() => "pnpm test"),
 }));
 
-import { useSelfDriveStore, validateRecoveryResolution } from "./selfDriveStore";
+import { useSelfDriveStore, validateRecoveryResolution, isAcceptAndProceedResolution } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -219,7 +219,7 @@ describe("validateRecoveryResolution", () => {
     expect(err).toContain("not advance_recovery");
   });
 
-  it("rejects when summary lacks an evidence citation (':')", () => {
+  it("rejects bare verdicts that lack any evidence", () => {
     const err = validateRecoveryResolution(makeBlocker(), {
       action: "advance_recovery",
       summary: "resolved",
@@ -228,22 +228,164 @@ describe("validateRecoveryResolution", () => {
     expect(err).toContain("lacks evidence citation");
   });
 
+  it("rejects short summaries even with structural punctuation", () => {
+    const err = validateRecoveryResolution(makeBlocker(), {
+      action: "advance_recovery",
+      summary: "ok: done",
+      confidence: "high",
+    });
+    expect(err).toContain("lacks evidence citation");
+  });
+
+  it("rejects long summaries without any structural marker", () => {
+    const err = validateRecoveryResolution(makeBlocker(), {
+      action: "advance_recovery",
+      summary: "looks fine to me probably should be okay now I think",
+      confidence: "high",
+    });
+    expect(err).toContain("lacks evidence citation");
+  });
+
   it("rejects low-confidence verdicts", () => {
     const err = validateRecoveryResolution(makeBlocker(), {
       action: "advance_recovery",
-      summary: "resolved: quoted output shows rows",
+      summary: "resolved: quoted output shows rows for 2026 migration",
       confidence: "low",
     });
     expect(err).toContain("low-confidence");
   });
 
-  it("accepts a well-formed verdict", () => {
+  it("accepts a colon-separated evidence summary", () => {
     const err = validateRecoveryResolution(makeBlocker(), {
       action: "advance_recovery",
       summary: "Blocker resolved: schema_migrations now contains 20260418120000",
       confidence: "high",
     });
     expect(err).toBeNull();
+  });
+
+  // Regression: real Sonnet output from a stuck recovery loop. Uses
+  // semicolons + digits + parentheses as evidence — must NOT be rejected
+  // by the punctuation gate.
+  it("accepts a semicolon-separated multi-clause evidence summary", () => {
+    const err = validateRecoveryResolution(makeBlocker(), {
+      action: "advance_recovery",
+      summary: "idb-keyval Promise mock fix applied; pnpm test exits 0 on two consecutive runs (2707 passed each), pnpm tsc clean.",
+      confidence: "high",
+    });
+    expect(err).toBeNull();
+  });
+});
+
+describe("isAcceptAndProceedResolution", () => {
+  it("matches the exact phrase from the stuck-loop incident", () => {
+    expect(
+      isAcceptAndProceedResolution("Accept the flake as pre-existing and proceed to verification phase"),
+    ).toBe(true);
+  });
+
+  it("matches common accept-pattern verbs", () => {
+    expect(isAcceptAndProceedResolution("Accept and continue")).toBe(true);
+    expect(isAcceptAndProceedResolution("Skip this for now")).toBe(true);
+    expect(isAcceptAndProceedResolution("Ignore the flake")).toBe(true);
+    expect(isAcceptAndProceedResolution("Proceed without the fix")).toBe(true);
+    expect(isAcceptAndProceedResolution("Override and continue")).toBe(true);
+    expect(isAcceptAndProceedResolution("  Move on  ")).toBe(true);
+  });
+
+  it("does NOT match resolutions that propose a real fix", () => {
+    expect(isAcceptAndProceedResolution("Run migration repair")).toBe(false);
+    expect(isAcceptAndProceedResolution("Two separate commits please")).toBe(false);
+    expect(isAcceptAndProceedResolution("Rename local timestamps")).toBe(false);
+    expect(isAcceptAndProceedResolution("Use approach B")).toBe(false);
+  });
+
+  it("rejects empty / null input", () => {
+    expect(isAcceptAndProceedResolution("")).toBe(false);
+    expect(isAcceptAndProceedResolution(null)).toBe(false);
+    expect(isAcceptAndProceedResolution(undefined)).toBe(false);
+  });
+});
+
+describe("resume() with accept-and-proceed override (kind: unknown)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAllStores();
+  });
+
+  it("short-circuits recovery: marks blocker resolved without sending a Claude turn", async () => {
+    setup();
+    seedPaused(
+      makeBlocker({
+        kind: "unknown",
+        status: "user-decided",
+        userResolution: "Accept the flake as pre-existing and proceed to verification phase",
+        // Pinned guide's session at index 1 has status active + verifyRequested true,
+        // so post-recovery should call handleVerify (which sends the verify prompt).
+      }),
+    );
+
+    await useSelfDriveStore.getState().resume();
+
+    const state = useSelfDriveStore.getState();
+    // Blocker is resolved without ever entering "recovering" phase.
+    expect(state.activeBlocker).toBeNull();
+    expect(state.currentPhase).not.toBe("recovering");
+    expect(state.blockerHistory).toHaveLength(1);
+    expect(state.blockerHistory[0].status).toBe("resolved");
+
+    // Activity feed records the override.
+    const phases = state.runLog.map((e) => e.phase);
+    expect(phases).toContain("blocker-resolved");
+    const overrideEntry = state.runLog.find((e) => e.phase === "blocker-resolved");
+    expect(overrideEntry?.summary).toContain("User override accepted");
+
+    // Critically: the recovery prompt was NOT sent to Claude Code.
+    // (handleVerify will send a verify prompt, but it must NOT contain
+    // "RECOVERY-PROMPT" — that's the marker our mock uses.)
+    const recoveryCalls = mockSendMessage.mock.calls.filter((c) =>
+      String((c as unknown[])[1]).includes("RECOVERY-PROMPT"),
+    );
+    expect(recoveryCalls).toHaveLength(0);
+  });
+
+  it("does NOT short-circuit when the user picked a real fix option", async () => {
+    setup();
+    seedPaused(
+      makeBlocker({
+        kind: "unknown",
+        status: "user-decided",
+        userResolution: "Run migration repair",
+      }),
+    );
+
+    await useSelfDriveStore.getState().resume();
+
+    const state = useSelfDriveStore.getState();
+    // Normal recovery path — phase is "recovering" and a recovery prompt was sent.
+    expect(state.currentPhase).toBe("recovering");
+    expect(state.activeBlocker?.status).toBe("verifying");
+    const firstArgs = mockSendMessage.mock.calls[0] as unknown as [string, string];
+    expect(firstArgs[1]).toContain("RECOVERY-PROMPT");
+  });
+
+  it("does NOT short-circuit when blocker.kind is structured (e.g. infra-state-drift)", async () => {
+    setup();
+    // Even with an "accept" resolution, structured kinds get the
+    // recovery round-trip — they need re-verification of live state.
+    seedPaused(
+      makeBlocker({
+        kind: "infra-state-drift",
+        status: "user-decided",
+        userResolution: "Accept the current migration state as the source of truth",
+      }),
+    );
+
+    await useSelfDriveStore.getState().resume();
+
+    const state = useSelfDriveStore.getState();
+    expect(state.currentPhase).toBe("recovering");
+    expect(state.activeBlocker?.status).toBe("verifying");
   });
 });
 

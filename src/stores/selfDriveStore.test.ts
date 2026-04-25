@@ -441,6 +441,34 @@ describe("selfDriveStore", () => {
       expect(compactEntry).toBeDefined();
     });
 
+    it("rate-limits repeated compacting_status events to one entry per window", async () => {
+      setupReadyState();
+      await useSelfDriveStore.getState().start();
+      const emit = captureListenCallback();
+
+      // Burst: 5 compacting_status events in quick succession.
+      for (let i = 0; i < 5; i++) {
+        emit({ type: "compacting_status", session_id: SESSION_ID, is_compacting: true });
+      }
+
+      const log = useSelfDriveStore.getState().runLog;
+      const compactEntries = log.filter((e) => e.summary.includes("compacting"));
+      // Only the FIRST burst event is logged; the rest are suppressed.
+      expect(compactEntries).toHaveLength(1);
+    });
+
+    it("ignores the trailing 'compaction complete' event", async () => {
+      setupReadyState();
+      await useSelfDriveStore.getState().start();
+      const emit = captureListenCallback();
+
+      emit({ type: "compacting_status", session_id: SESSION_ID, is_compacting: false });
+
+      const log = useSelfDriveStore.getState().runLog;
+      const compactEntries = log.filter((e) => e.summary.includes("compact"));
+      expect(compactEntries).toHaveLength(0);
+    });
+
     it("ignores unrelated event types", async () => {
       setupReadyState();
       await useSelfDriveStore.getState().start();

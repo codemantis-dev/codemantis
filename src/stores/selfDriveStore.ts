@@ -52,6 +52,14 @@ import {
 
 let chatEventUnlisten: UnlistenFn | null = null;
 
+// Compaction events fire from the Claude Code CLI whenever it auto-compacts
+// its context window. During a stuck recovery loop these can fire 15+ times
+// per minute, drowning the activity feed. We rate-limit to one logged entry
+// per COMPACTION_LOG_WINDOW_MS — start-of-burst is informative; the rest is
+// just noise.
+let lastCompactionLogAt = 0;
+const COMPACTION_LOG_WINDOW_MS = 30_000;
+
 /**
  * How many recheck rounds can fire per session before Self-Drive gives
  * up and pauses. 2 is the sweet spot: one to catch a first-round format
@@ -492,6 +500,22 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
         status: "user-decided",
         userResolution: combined,
       };
+
+      // Short-circuit: when the blocker is `kind: "unknown"` (typically a
+      // flaky test or one-off pause) AND the user explicitly told us to
+      // accept/proceed, skip the recovery round-trip. Re-running the
+      // original failing command on a flaky suite would just hit a
+      // different flake — see plan: self-drive-is-again-failing-cached-pnueli.
+      if (
+        blocker.kind === "unknown" &&
+        (isAcceptAndProceedResolution(blocker.userResolution) ||
+          isAcceptAndProceedResolution(chatSincePause[0]?.content))
+      ) {
+        useSelfDriveStore.setState({ activeBlocker: pending });
+        await acceptUserOverrideAsResolution(pending, combined);
+        return;
+      }
+
       await enterRecoveryPhase(pending);
       showToast("Self-Drive resumed — verifying blocker resolution", "info");
       return;
@@ -1092,6 +1116,9 @@ function isHandlerInSessionFiles(handlerPath: string, files: string[]): boolean 
 
 async function startListeners(sessionId: string): Promise<void> {
   stopListeners();
+  // Reset the rate-limit window — a freshly attached session should always
+  // log its first compaction event.
+  lastCompactionLogAt = 0;
 
   // Listen on the session-specific channel — the backend emits ALL events
   // (turn_complete, process_exited, compacting_status, etc.) on claude-chat-{id}
@@ -1105,11 +1132,19 @@ async function startListeners(sessionId: string): Promise<void> {
         handleProcessCrash(payload);
         break;
       case "compacting_status": {
+        // Skip the trailing "compaction complete" event entirely — the
+        // start-of-burst marker is enough to surface that compaction is
+        // happening. Rate-limit the start markers so a stuck loop doesn't
+        // flood the activity feed.
+        if (!payload.is_compacting) break;
+        const now = Date.now();
+        if (now - lastCompactionLogAt < COMPACTION_LOG_WINDOW_MS) break;
+        lastCompactionLogAt = now;
         const state = useSelfDriveStore.getState();
         addLogEntry(
           state.currentSessionIndex ?? 0,
           state.currentPhase ?? "building",
-          payload.is_compacting ? "Context compacting..." : "Compaction complete",
+          "Context compacting...",
         );
         break;
       }
@@ -2262,23 +2297,110 @@ async function enterRecoveryPhase(blocker: Blocker): Promise<void> {
  *
  * Rules (all must hold):
  *   1. There must be an active blocker to resolve.
- *   2. The decision.summary must contain at least one `:` — the orchestrator
- *      prompt asks for "Blocker {kind} resolved: {quoted evidence}". A
- *      colon is a cheap, strict proxy for "included evidence".
+ *   2. The decision.summary must look like evidence — long enough to be a
+ *      real claim AND containing at least one structural marker (digits,
+ *      quote/backtick characters, or punctuation that separates clauses).
+ *      Bare verdicts like "resolved" / "done" / "all clear" fail; prose
+ *      like "exits 0 on two consecutive runs (2707 passed each)" passes.
  *   3. Confidence must not be "low". (Low confidence on recovery is the
  *      worst place to trust the model — pause instead.)
  *
  * Exported for tests; not part of the store's public API.
  */
+const RECOVERY_SUMMARY_MIN_LENGTH = 20;
+const RECOVERY_SUMMARY_EVIDENCE_RE = /[\d`"']|[:;—–-]\s/u;
+
 export function validateRecoveryResolution(
   blocker: Blocker | null,
   decision: OrchestratorDecision,
 ): string | null {
   if (!blocker) return "no active blocker to resolve";
   if (decision.action !== "advance_recovery") return "decision is not advance_recovery";
-  if (!decision.summary.includes(":")) return "summary lacks evidence citation (':' required)";
+  const summary = decision.summary.trim();
+  if (summary.length < RECOVERY_SUMMARY_MIN_LENGTH || !RECOVERY_SUMMARY_EVIDENCE_RE.test(summary)) {
+    return "summary lacks evidence citation (need digits, quotes, or punctuated detail)";
+  }
   if (decision.confidence === "low") return "low-confidence recovery verdict";
   return null;
+}
+
+/**
+ * Detect a "user accepts this and wants to proceed" resolution. Used to
+ * short-circuit the recovery round-trip for `kind: "unknown"` blockers
+ * (typically flaky tests / one-off pause reasons) where re-running the
+ * original failing command would just hit the same flake again.
+ *
+ * Scoped to "unknown" kind on purpose: structured kinds (infra-state-drift,
+ * permissions, credentials, env-config, external-failure) genuinely benefit
+ * from re-running the diagnostic command to confirm the world changed.
+ *
+ * Exported for tests.
+ */
+const ACCEPT_AND_PROCEED_RE = /^\s*(accept|skip|ignore|proceed|continue|override|dismiss|allow|move on)\b/iu;
+
+export function isAcceptAndProceedResolution(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return ACCEPT_AND_PROCEED_RE.test(text.trim());
+}
+
+/**
+ * Post-recovery branching: pick up where the session was when the blocker
+ * fired. Shared by handleAdvanceRecovery (orchestrator-cleared blocker)
+ * and the user-override short-circuit path.
+ */
+async function continueAfterRecovery(sessionIndex: number): Promise<void> {
+  const guide = useSelfDriveStore.getState().guide;
+  const session = guide?.sessions.find((s) => s.index === sessionIndex);
+  if (!session) {
+    handlePause("Pinned guide no longer has the recovered session — cannot continue");
+    return;
+  }
+
+  if (session.status === "done") {
+    await startNextSession();
+  } else if (!session.promptSent) {
+    useSelfDriveStore.setState({ currentPhase: "building", fixAttempt: 0 });
+    addLogEntry(session.index, "building",
+      `Post-recovery: sending creation prompt for Session ${session.index}`,
+      undefined, session.prompt);
+    await sendMessageToSession(session.prompt);
+    markPromptSentForSession(session.index);
+  } else if (!session.verifyRequested) {
+    await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });
+  } else {
+    await handleVerify();
+  }
+}
+
+/**
+ * Short-circuit recovery: the user explicitly accepted the situation and
+ * wants Self-Drive to proceed. Mark the blocker resolved without sending
+ * a recovery-verify turn to Claude Code, then continue the session.
+ *
+ * Why this exists: a flaky-test blocker (`kind: "unknown"`) is "verified"
+ * by re-running the failing test, which on a flaky suite is structurally
+ * guaranteed to surface a *different* flake eventually — turning the
+ * accept-and-move-on click into an unbounded loop.
+ */
+async function acceptUserOverrideAsResolution(blocker: Blocker, resolution: string): Promise<void> {
+  const resolved: Blocker = { ...blocker, status: "resolved", userResolution: resolution };
+  const state = useSelfDriveStore.getState();
+  addLogEntry(
+    blocker.sessionIndex,
+    "blocker-resolved",
+    `User override accepted — proceeding without re-verification: ${resolution.slice(0, 200)}`,
+    undefined,
+    undefined,
+    resolved,
+  );
+  useSelfDriveStore.setState({
+    activeBlocker: null,
+    blockerHistory: [...state.blockerHistory, resolved],
+    status: "running",
+    pauseReason: null,
+  });
+  showToast("Override accepted — resuming session", "success");
+  await continueAfterRecovery(blocker.sessionIndex);
 }
 
 async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<void> {
@@ -2305,30 +2427,7 @@ async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<vo
   });
   showToast("Blocker resolved — resuming session", "success");
 
-  // Resume normal session flow. We re-use the same branching that
-  // resume() uses, but without re-entering the recovery branch.
-  // Read from the pinned guide — not useGuideStore (which follows UI nav).
-  const guide = useSelfDriveStore.getState().guide;
-  const session = guide?.sessions.find((s) => s.index === blocker.sessionIndex);
-  if (!session) {
-    handlePause("Pinned guide no longer has the recovered session — cannot continue");
-    return;
-  }
-
-  if (session.status === "done") {
-    await startNextSession();
-  } else if (!session.promptSent) {
-    useSelfDriveStore.setState({ currentPhase: "building", fixAttempt: 0 });
-    addLogEntry(session.index, "building",
-      `Post-recovery: sending creation prompt for Session ${session.index}`,
-      undefined, session.prompt);
-    await sendMessageToSession(session.prompt);
-    markPromptSentForSession(session.index);
-  } else if (!session.verifyRequested) {
-    await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });
-  } else {
-    await handleVerify();
-  }
+  await continueAfterRecovery(blocker.sessionIndex);
 }
 
 function handleAbort(reason: string): void {
