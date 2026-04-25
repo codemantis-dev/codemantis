@@ -7,6 +7,12 @@ use std::sync::Mutex;
 /// Serializes all PID file writes to prevent corruption from concurrent calls.
 static FILE_LOCK: Mutex<()> = Mutex::new(());
 
+/// Sentinel substring embedded in the argv of every dev-server shell we spawn,
+/// so `kill_stale_orphans` can verify a tracked PID is one of *ours* before
+/// sending SIGKILL.  Survives PID reuse: if the OS recycles a PID to an
+/// unrelated process after a crash, that process won't carry this tag.
+pub const DEVSERVER_TAG_PREFIX: &str = "cm-devserver-tag-";
+
 fn pid_file_path() -> Option<PathBuf> {
     crate::utils::paths::app_data_dir().map(|d| d.join("codemantis.pids"))
 }
@@ -62,9 +68,10 @@ pub fn kill_all_registered_sync() {
     }
 }
 
-/// On startup: read PIDs from a previous run, verify each is actually a
-/// `claude` or `node` process (guards against PID reuse), SIGKILL matches,
-/// then clear the file.
+/// On startup: read PIDs from a previous run, verify each is actually one of
+/// ours (a `claude` CLI process or a tagged dev-server shell), SIGKILL matches
+/// — using process-group kill so dev-server descendants (npm/node/vite/next)
+/// die too — then clear the file.
 pub fn kill_stale_orphans() {
     let pids = read_all_pids();
     if pids.is_empty() {
@@ -77,24 +84,45 @@ pub fn kill_stale_orphans() {
     );
 
     for pid in &pids {
-        if is_claude_or_node_process(*pid) {
-            warn!("[pid_tracker] Killing orphan claude/node process PID {}", pid);
-            unsafe {
-                libc::kill(*pid as libc::pid_t, libc::SIGKILL);
+        match classify_tracked_process(*pid) {
+            TrackedKind::DevServer => {
+                warn!(
+                    "[pid_tracker] Killing orphan dev-server process group PID {}",
+                    pid
+                );
+                kill_process_group(*pid, libc::SIGKILL);
             }
-        } else {
-            info!(
-                "[pid_tracker] PID {} is not a claude/node process, skipping",
-                pid
-            );
+            TrackedKind::Claude => {
+                warn!("[pid_tracker] Killing orphan claude process PID {}", pid);
+                unsafe {
+                    libc::kill(*pid as libc::pid_t, libc::SIGKILL);
+                }
+            }
+            TrackedKind::None => {
+                info!(
+                    "[pid_tracker] PID {} is not a tracked CodeMantis process, skipping",
+                    pid
+                );
+            }
         }
     }
 
     clear_pid_file();
 }
 
-/// Check if a PID belongs to a `claude` process using `ps -o args=`.
-fn is_claude_or_node_process(pid: u32) -> bool {
+/// What kind of CodeMantis-spawned process is this PID?
+#[derive(Debug, PartialEq, Eq)]
+enum TrackedKind {
+    Claude,
+    DevServer,
+    None,
+}
+
+/// Classify a PID by inspecting `ps -o args=`.  The dev-server shell carries
+/// a `cm-devserver-tag-…` sentinel that survives PID reuse; the Claude CLI is
+/// matched by command name (loose, but acceptable since claude is uncommon
+/// outside our spawn path).
+fn classify_tracked_process(pid: u32) -> TrackedKind {
     let output = std::process::Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "args="])
         .output();
@@ -102,17 +130,47 @@ fn is_claude_or_node_process(pid: u32) -> bool {
     match output {
         Ok(out) => {
             if !out.status.success() {
-                return false;
+                return TrackedKind::None;
             }
             let args = String::from_utf8_lossy(&out.stdout);
             let args = args.trim();
-            args.contains("claude")
+            if args.contains(DEVSERVER_TAG_PREFIX) {
+                TrackedKind::DevServer
+            } else if args.contains("claude") {
+                TrackedKind::Claude
+            } else {
+                TrackedKind::None
+            }
         }
         Err(e) => {
             warn!("[pid_tracker] Failed to check PID {}: {}", pid, e);
-            false
+            TrackedKind::None
         }
     }
+}
+
+/// Send `signal` to every process in the process group whose pgid == `pid`.
+/// On Unix, `kill(-pid, sig)` semantics — used so all descendants of a
+/// `setsid`-ed shell (npm, node, vite, next) die together.
+fn kill_process_group(pid: u32, signal: libc::c_int) {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return;
+    }
+    unsafe {
+        // Negative pid → "send to process group whose ID is |pid|"
+        libc::kill(-(pid as libc::pid_t), signal);
+    }
+}
+
+/// Public form of [`kill_process_group`] for callers that already have a PID
+/// known to be a setsid-leader.  Used by `pty_manager::close_terminal`.
+pub fn kill_devserver_tree(pid: u32) {
+    kill_process_group(pid, libc::SIGTERM);
+}
+
+/// SIGKILL the process group as a last resort (after a SIGTERM grace period).
+pub fn force_kill_devserver_tree(pid: u32) {
+    kill_process_group(pid, libc::SIGKILL);
 }
 
 // --- Internal helpers ---
@@ -350,19 +408,154 @@ mod tests {
         assert_eq!(result, vec![10, 30]);
     }
 
-    // --- is_claude_or_node_process ---
+    // --- classify_tracked_process ---
 
     #[test]
-    fn check_nonexistent_pid() {
+    fn classify_nonexistent_pid_is_none() {
         // PID 0 is kernel; a very high PID is unlikely to exist
-        assert!(!is_claude_or_node_process(4_000_000));
+        assert_eq!(classify_tracked_process(4_000_000), TrackedKind::None);
     }
 
     #[test]
-    fn check_current_process() {
-        // Our test process is not claude
+    fn classify_current_process_is_none() {
+        // Our test process is not a tracked CodeMantis process
         let pid = std::process::id();
-        assert!(!is_claude_or_node_process(pid));
+        assert_eq!(classify_tracked_process(pid), TrackedKind::None);
+    }
+
+    #[test]
+    fn classify_devserver_tagged_shell() {
+        // Spawn `sh -c ': cm-devserver-tag-test123; sleep 5'` and verify
+        // classify_tracked_process returns DevServer.
+        let tag_cmd = format!(": {}test123; sleep 5", DEVSERVER_TAG_PREFIX);
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", &tag_cmd])
+            .spawn()
+            .expect("failed to spawn tagged sh");
+        let pid = child.id();
+
+        // ps may take a moment to reflect the new process — small retry.
+        let mut classified = TrackedKind::None;
+        for _ in 0..10 {
+            classified = classify_tracked_process(pid);
+            if classified == TrackedKind::DevServer {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        // Cleanup before asserting so a failure doesn't leak the sleep
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert_eq!(classified, TrackedKind::DevServer);
+    }
+
+    #[test]
+    fn classify_untagged_shell_is_none() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 5"])
+            .spawn()
+            .expect("failed to spawn sh");
+        let pid = child.id();
+
+        // Allow ps to settle
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let classified = classify_tracked_process(pid);
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert_eq!(classified, TrackedKind::None);
+    }
+
+    #[test]
+    fn devserver_tag_prefix_is_unique_enough() {
+        // The prefix must be specific enough that random processes won't
+        // accidentally match it.  These shouldn't be substrings of common
+        // command lines.
+        assert!(DEVSERVER_TAG_PREFIX.starts_with("cm-"));
+        assert!(DEVSERVER_TAG_PREFIX.len() >= 10);
+    }
+
+    #[test]
+    fn kill_process_group_rejects_invalid_pid() {
+        // PID 0 means "this process group" in Unix kill semantics — we must
+        // refuse to send signals there to avoid killing CodeMantis itself.
+        kill_process_group(0, libc::SIGTERM);
+        // No assertion possible — the guard is a no-op return; reaching here
+        // without a crash means the guard worked.
+    }
+
+    /// End-to-end check that `kill_devserver_tree` actually terminates a
+    /// process group — the core invariant the "every 2nd time" preview bug
+    /// hinged on.  Spawns `sh -c "sleep 30 & sleep 30 & wait"` as a setsid
+    /// leader (mirroring how portable-pty sets up its PTY children), waits
+    /// for the children to exist, then SIGTERMs the group.  Any of the
+    /// `sleep` descendants surviving means the kill failed.
+    #[cfg(unix)]
+    #[test]
+    fn kill_devserver_tree_kills_setsid_group() {
+        use std::os::unix::process::CommandExt;
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        // Spawn the leader as its own session/process-group head.  setsid()
+        // is what portable-pty does for PTY slaves; replicating it here lets
+        // us exercise kill_devserver_tree without dragging in a full PTY.
+        let mut leader = unsafe {
+            Command::new("/bin/sh")
+                .args(["-c", "sleep 30 & sleep 30 & wait"])
+                .pre_exec(|| {
+                    if libc::setsid() == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                })
+                .spawn()
+                .expect("failed to spawn setsid leader")
+        };
+        let pgid = leader.id();
+
+        // Give the shell a moment to fork its two `sleep` children.
+        std::thread::sleep(Duration::from_millis(150));
+
+        // SIGTERM the entire group → leader and both sleeps should die.
+        kill_devserver_tree(pgid);
+
+        // Wait for the leader to be reaped (up to 2 s).  If SIGTERM was
+        // somehow ignored, escalate to SIGKILL so the test never wedges CI.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut exited = false;
+        while Instant::now() < deadline {
+            match leader.try_wait() {
+                Ok(Some(_)) => {
+                    exited = true;
+                    break;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(_) => break,
+            }
+        }
+        if !exited {
+            force_kill_devserver_tree(pgid);
+            let _ = leader.wait();
+            panic!("kill_devserver_tree did not terminate the leader within 2s");
+        }
+
+        // Cross-check that `sleep` processes spawned by the leader are
+        // gone too — that's the actual orphan-prevention guarantee.
+        std::thread::sleep(Duration::from_millis(100));
+        let lingering = Command::new("pgrep")
+            .args(["-g", &pgid.to_string(), "sleep"])
+            .output();
+        if let Ok(out) = lingering {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.trim().is_empty(),
+                "sleep descendants still alive after kill_devserver_tree: {}",
+                stdout
+            );
+        }
     }
 
     // --- clear_pid_file simulation ---

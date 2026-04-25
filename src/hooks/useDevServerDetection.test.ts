@@ -108,6 +108,7 @@ describe("useDevServerDetection", () => {
     const payload: DevServerClosedPayload = {
       terminalId: "term-1",
       sessionId: "session-1",
+      reason: "pty_eof",
     };
 
     act(() => {

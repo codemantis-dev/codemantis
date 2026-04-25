@@ -694,9 +694,24 @@ export interface DevServerDetectedPayload {
   url: string;
 }
 
+/**
+ * Why the dev-server PTY closed:
+ * - `"shutdown_requested"` — CodeMantis asked it to stop (Stop button, or
+ *   `start_dev_server` cleaning up stale state before re-spawning).  Not a
+ *   crash; UI should not surface a "process exited" error.
+ * - `"pty_eof"` — child process exited on its own; usually a real crash or
+ *   port conflict the user should see.
+ * - `"pty_error"` — read error on the PTY; rare, treat as a crash.
+ */
+export type DevServerCloseReason =
+  | "shutdown_requested"
+  | "pty_eof"
+  | "pty_error";
+
 export interface DevServerClosedPayload {
   terminalId: string;
   sessionId: string;
+  reason: DevServerCloseReason;
 }
 
 export function listenDevServerDetected(

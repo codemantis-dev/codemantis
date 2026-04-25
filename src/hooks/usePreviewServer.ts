@@ -87,8 +87,19 @@ export function usePreviewServer(): {
     // Listen for dev server terminal process exit — if the process dies
     // (e.g. port conflict, fumadocs-mdx detecting an existing instance),
     // close the preview window and show an error.
+    //
+    // BUT: ignore closures that we ourselves requested.  When
+    // `start_dev_server` cleans up stale state before re-spawning, it calls
+    // `close_all_for_session`, which fires this same event with
+    // `reason: "shutdown_requested"`.  Treating that as a crash here used
+    // to flip `devServer.status` to "error" and trigger the modal on the
+    // very next Globe click — the original cause of the "preview only
+    // opens every 2nd time" symptom.
     listenDevServerClosed((event: DevServerClosedPayload) => {
       if (cancelled) return;
+      if (event.reason === "shutdown_requested") {
+        return;
+      }
       const store = usePreviewStore.getState();
       // Find the project whose dev server matches this terminal
       for (const [projectPath, ds] of store.devServer.entries()) {

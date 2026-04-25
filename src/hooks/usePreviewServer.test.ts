@@ -230,7 +230,7 @@ describe("usePreviewServer", () => {
     expect(devServer!.status).toBe("error");
   });
 
-  it("dev-server-closed closes preview and sets error status", async () => {
+  it("dev-server-closed (pty_eof) closes preview and sets error status", async () => {
     // Set up a running dev server with preview open
     usePreviewStore.getState().setDevServer(PROJECT, {
       terminalId: "term-1",
@@ -242,9 +242,14 @@ describe("usePreviewServer", () => {
     usePreviewStore.getState().setPreviewOpen(PROJECT, true);
 
     // Capture the listenDevServerClosed callback
-    let closedHandler: ((event: { terminalId: string; sessionId: string }) => void) | null = null;
+    type ClosedEvent = {
+      terminalId: string;
+      sessionId: string;
+      reason: "shutdown_requested" | "pty_eof" | "pty_error";
+    };
+    let closedHandler: ((event: ClosedEvent) => void) | null = null;
     mockListenDevServerClosed.mockImplementation(
-      (cb: (event: { terminalId: string; sessionId: string }) => void) => {
+      (cb: (event: ClosedEvent) => void) => {
         closedHandler = cb;
         return Promise.resolve(() => {});
       },
@@ -258,9 +263,13 @@ describe("usePreviewServer", () => {
 
     expect(closedHandler).not.toBeNull();
 
-    // Simulate the dev server terminal closing
+    // Simulate a real crash: PTY hit EOF without a shutdown request.
     await act(async () => {
-      closedHandler!({ terminalId: "term-1", sessionId: "devserver-abc" });
+      closedHandler!({
+        terminalId: "term-1",
+        sessionId: "devserver-abc",
+        reason: "pty_eof",
+      });
       await new Promise((r) => setTimeout(r, 10));
     });
 
@@ -269,6 +278,60 @@ describe("usePreviewServer", () => {
     expect(devServer!.errorMessage).toContain("exited unexpectedly");
     expect(mockClosePreviewWindow).toHaveBeenCalled();
     expect(usePreviewStore.getState().previewOpen.get(PROJECT)).toBe(false);
+  });
+
+  it("dev-server-closed (shutdown_requested) is ignored — does NOT flip status to error", async () => {
+    // Regression for the "preview only opens every 2nd time" bug:
+    // `start_dev_server` calls `close_all_for_session` to clean up stale
+    // PTYs before re-spawning, which fires `dev-server-closed` with
+    // `reason: "shutdown_requested"`.  Treating that as a crash used to
+    // flip `devServer.status` to "error", which then forced the next
+    // Globe click to re-spawn — leaking the actual node child as an
+    // orphan that held the user's port.
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: 3000,
+      url: "http://localhost:3000",
+      status: "running",
+    });
+    usePreviewStore.getState().setPreviewOpen(PROJECT, true);
+
+    type ClosedEvent = {
+      terminalId: string;
+      sessionId: string;
+      reason: "shutdown_requested" | "pty_eof" | "pty_error";
+    };
+    let closedHandler: ((event: ClosedEvent) => void) | null = null;
+    mockListenDevServerClosed.mockImplementation(
+      (cb: (event: ClosedEvent) => void) => {
+        closedHandler = cb;
+        return Promise.resolve(() => {});
+      },
+    );
+
+    renderHook(() => usePreviewServer());
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(closedHandler).not.toBeNull();
+
+    await act(async () => {
+      closedHandler!({
+        terminalId: "term-1",
+        sessionId: "devserver-abc",
+        reason: "shutdown_requested",
+      });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Status must remain "running" — this was OUR teardown, not a crash.
+    const devServer = usePreviewStore.getState().devServer.get(PROJECT);
+    expect(devServer!.status).toBe("running");
+    expect(mockClosePreviewWindow).not.toHaveBeenCalled();
+    expect(usePreviewStore.getState().previewOpen.get(PROJECT)).toBe(true);
   });
 
   it("dev-server-error event sets previewUrlPrompt for fallback dialog", async () => {

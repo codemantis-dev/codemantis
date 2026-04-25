@@ -1050,24 +1050,28 @@ pub async fn start_dev_server(
             return;
         }
 
-        // Layer 3: Scan common dev server ports as last resort.
-        // Skip when the PTY has exited — the process crashed and scanning common
-        // ports would pick up unrelated servers (e.g. port 8080 from another app).
-        if pty_exited.load(Ordering::Relaxed) {
+        // Layer 3: Last-resort port scan.  Targets depend on whether the
+        // dev-server PTY is still alive — see `layer3_targets` for rationale.
+        let pty_dead = pty_exited.load(Ordering::Relaxed);
+        let layer3 = layer3_targets(pty_dead, &occupied_ports, expected_port);
+
+        if layer3.probe_set.is_empty() {
             info!(
-                "[preview] Skipping Layer 3 for {} — PTY exited (process likely crashed)",
-                pp
+                "[preview] Layer 3 skipped for {} — pty_exited={}, no candidate ports",
+                pp, pty_dead
             );
         } else {
             info!(
-                "[preview] Layer 3: scanning common ports for {} (excluding {:?})",
-                pp, occupied_ports
+                "[preview] Layer 3 ({}) for {}: probing {:?} (pty_exited={})",
+                layer3.label, pp, layer3.probe_set, pty_dead
             );
-            if let Some((port, url)) = port_detector::probe_port_range(
-                port_detector::DEFAULT_DEV_PORTS,
-                &occupied_ports,
-            ).await {
-                info!("Dev server found via port range scan on port {} for {}", port, pp);
+            if let Some((port, url)) =
+                port_detector::probe_port_range(&layer3.probe_set, &layer3.exclude).await
+            {
+                info!(
+                    "[preview] Layer 3 success: dev server on port {} for {} ({})",
+                    port, pp, layer3.label
+                );
                 let mut servers = dev_servers.lock().await;
                 if let Some(info) = servers.get_mut(&pp) {
                     info.port = Some(port);
@@ -1085,6 +1089,10 @@ pub async fn start_dev_server(
                 unlisten_ah.unlisten(close_listener_id);
                 return;
             }
+            info!(
+                "[preview] Layer 3 ({}) found nothing for {}",
+                layer3.label, pp
+            );
         }
 
         // Guard: one final check before emitting failure
@@ -1146,11 +1154,144 @@ pub async fn get_dev_server_status(
     Ok(servers.get(&project_path).cloned())
 }
 
+/// Decision returned by `layer3_targets` — which ports to probe and how to
+/// label the attempt in logs.
+struct Layer3Plan {
+    probe_set: Vec<u16>,
+    exclude: HashSet<u16>,
+    label: &'static str,
+}
+
+/// Choose the Layer 3 probe set based on PTY state.
+///
+/// **PTY still alive** → scan `DEFAULT_DEV_PORTS`, excluding anything the
+/// framework flagged "in use" (those belong to a different stale server).
+///
+/// **PTY exited** → scan only ports the framework called "in use" (plus
+/// `expected_port`).  When the user's own previous CodeMantis run left an
+/// orphan dev-server holding port 3000, the new spawn dies from the
+/// collision — but the orphan IS the server the user wants.  Probing those
+/// ports converts what was a hard failure ("Dev server failed" modal) into
+/// a transparent reconnect.  Without this, the only recovery was the user
+/// hand-typing `localhost:3000` into the modal — which is the symptom that
+/// motivated this whole fix.
+///
+/// Returns an empty `probe_set` when no candidates exist (e.g. PTY exited
+/// with zero "in use" messages and no expected port) — caller should skip
+/// Layer 3 in that case.
+fn layer3_targets(
+    pty_dead: bool,
+    occupied_ports: &HashSet<u16>,
+    expected_port: Option<u16>,
+) -> Layer3Plan {
+    if pty_dead {
+        let mut set: Vec<u16> = occupied_ports.iter().copied().collect();
+        // Sort for deterministic probe order (and deterministic log output)
+        set.sort_unstable();
+        if let Some(port) = expected_port {
+            if !set.contains(&port) {
+                set.push(port);
+            }
+        }
+        Layer3Plan {
+            probe_set: set,
+            exclude: HashSet::new(),
+            label: "occupied-port reconnect",
+        }
+    } else {
+        Layer3Plan {
+            probe_set: port_detector::DEFAULT_DEV_PORTS.to_vec(),
+            exclude: occupied_ports.clone(),
+            label: "common-port scan",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    // ── Layer 3 target selection ──────────────────────────────────────────────
+
+    #[test]
+    fn layer3_pty_alive_scans_defaults_and_excludes_occupied() {
+        let mut occupied = HashSet::new();
+        occupied.insert(5173);
+        let plan = layer3_targets(false, &occupied, None);
+
+        assert_eq!(plan.label, "common-port scan");
+        assert_eq!(plan.probe_set, port_detector::DEFAULT_DEV_PORTS.to_vec());
+        assert!(plan.exclude.contains(&5173));
+    }
+
+    #[test]
+    fn layer3_pty_dead_probes_occupied_ports_only() {
+        // Core "every 2nd time" recovery scenario: framework printed
+        // "Port 3000 is in use" and then died.  We must probe 3000 — that's
+        // where the user's previous (orphan) dev server is still running.
+        let mut occupied = HashSet::new();
+        occupied.insert(3000);
+        let plan = layer3_targets(true, &occupied, None);
+
+        assert_eq!(plan.label, "occupied-port reconnect");
+        assert_eq!(plan.probe_set, vec![3000]);
+        assert!(
+            plan.exclude.is_empty(),
+            "PTY-dead reconnect must NOT exclude the very ports it's trying to recover"
+        );
+    }
+
+    #[test]
+    fn layer3_pty_dead_includes_expected_port_alongside_occupied() {
+        let mut occupied = HashSet::new();
+        occupied.insert(3000);
+        let plan = layer3_targets(true, &occupied, Some(3001));
+
+        assert!(plan.probe_set.contains(&3000));
+        assert!(plan.probe_set.contains(&3001));
+    }
+
+    #[test]
+    fn layer3_pty_dead_dedupes_expected_port_when_already_occupied() {
+        let mut occupied = HashSet::new();
+        occupied.insert(3000);
+        let plan = layer3_targets(true, &occupied, Some(3000));
+
+        assert_eq!(plan.probe_set, vec![3000]);
+    }
+
+    #[test]
+    fn layer3_pty_dead_returns_empty_when_no_signal() {
+        // PTY exited but framework gave us nothing — caller should skip
+        // Layer 3 rather than scan random ports.
+        let plan = layer3_targets(true, &HashSet::new(), None);
+        assert!(plan.probe_set.is_empty());
+    }
+
+    #[test]
+    fn layer3_pty_dead_falls_back_to_expected_port_alone() {
+        // PTY exited with no "in use" messages but the user template
+        // pinned a port — probe just that.
+        let plan = layer3_targets(true, &HashSet::new(), Some(8080));
+        assert_eq!(plan.probe_set, vec![8080]);
+        assert_eq!(plan.label, "occupied-port reconnect");
+    }
+
+    #[test]
+    fn layer3_pty_dead_probe_order_is_deterministic() {
+        // Sorted probe order ensures consistent logs and predictable
+        // first-port-wins behavior.
+        let mut occupied = HashSet::new();
+        occupied.insert(5173);
+        occupied.insert(3000);
+        occupied.insert(8080);
+        let plan = layer3_targets(true, &occupied, None);
+
+        assert_eq!(plan.probe_set, vec![3000, 5173, 8080]);
+    }
+
 
     // ── ConsoleLogEntry ───────────────────────────────────────────────────────
 
