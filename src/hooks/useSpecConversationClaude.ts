@@ -40,6 +40,42 @@ const STALL_THRESHOLD_MS = 300_000; // 5 minutes
 const WATCHDOG_INTERVAL_MS = 30_000;
 
 /**
+ * Per-project streaming state. The hook is instantiated once per
+ * SpecWriterSlideOver mount but serves multiple projects, so all per-stream
+ * scratch state must be keyed by projectPath. See useSpecConversation.ts for
+ * the same pattern; the two hooks must keep this isolation in lockstep.
+ */
+interface PerProjectStreamState {
+  unlisten: (() => void) | null;
+  streamBuffer: string;
+  flushScheduled: number | null;
+  specDetected: boolean;
+  auditDetected: boolean;
+  preStreamSpec: string | null;
+  chunkCount: number;
+  streamStartMs: number;
+  lastEventMs: number;
+  watchdogTimer: ReturnType<typeof setInterval> | null;
+  stalledNoticed: boolean;
+}
+
+function makeStreamState(): PerProjectStreamState {
+  return {
+    unlisten: null,
+    streamBuffer: "",
+    flushScheduled: null,
+    specDetected: false,
+    auditDetected: false,
+    preStreamSpec: null,
+    chunkCount: 0,
+    streamStartMs: 0,
+    lastEventMs: 0,
+    watchdogTimer: null,
+    stalledNoticed: false,
+  };
+}
+
+/**
  * SpecWriter conversation hook for Claude Code CLI sessions.
  * Same interface as useSpecConversation but uses CLI processes
  * (via --append-system-prompt + --model) instead of API calls.
@@ -58,23 +94,19 @@ export function useSpecConversationClaude(): {
   /** Stage 3: re-dispatch the latest audit recheck prompt. Returns true if dispatched. */
   requestRecheck: (projectPath: string) => boolean;
 } {
-  const unlistenRef = useRef<(() => void) | null>(null);
-  const streamBufferRef = useRef("");
-  const flushScheduledRef = useRef<number | null>(null);
-  const specDetectedRef = useRef(false);
-  const auditDetectedRef = useRef(false);
-  const preStreamSpecRef = useRef<string | null>(null);
+  const streamStateMapRef = useRef<Map<string, PerProjectStreamState>>(new Map());
+  const getStreamState = (projectPath: string): PerProjectStreamState => {
+    let s = streamStateMapRef.current.get(projectPath);
+    if (!s) {
+      s = makeStreamState();
+      streamStateMapRef.current.set(projectPath, s);
+    }
+    return s;
+  };
   /** Per-project auto-recheck round counter. Reset on a fresh user-initiated turn. */
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
   /** Per-project set of input-doc names already structurally analyzed. */
   const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
-  // Stage 4: stream observability state.
-  const chunkCountRef = useRef(0);
-  const streamStartMsRef = useRef(0);
-  /** Wall-clock time of the most recent ANY event arrival. 0 = none yet. */
-  const lastEventMsRef = useRef(0);
-  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stalledNoticedRef = useRef(false);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -253,30 +285,31 @@ export function useSpecConversationClaude(): {
         return;
       }
 
-      // Setup streaming state
-      streamBufferRef.current = "";
-      specDetectedRef.current = false;
-      auditDetectedRef.current = false;
-      preStreamSpecRef.current = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
+      // Setup streaming state — keyed per-project so concurrent streams across
+      // projects don't corrupt each other's content slots.
+      const state = getStreamState(projectPath);
+      state.streamBuffer = "";
+      state.specDetected = false;
+      state.auditDetected = false;
+      state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
 
-      if (unlistenRef.current) {
-        unlistenRef.current();
-        unlistenRef.current = null;
+      if (state.unlisten) {
+        state.unlisten();
+        state.unlisten = null;
       }
 
       // Stage 4: reset stream observability state and arm the watchdog.
-      chunkCountRef.current = 0;
-      streamStartMsRef.current = Date.now();
-      lastEventMsRef.current = 0;
-      stalledNoticedRef.current = false;
-      if (watchdogTimerRef.current !== null) {
-        clearInterval(watchdogTimerRef.current);
+      state.chunkCount = 0;
+      state.streamStartMs = Date.now();
+      state.lastEventMs = 0;
+      state.stalledNoticed = false;
+      if (state.watchdogTimer !== null) {
+        clearInterval(state.watchdogTimer);
       }
-      watchdogTimerRef.current = setInterval(() => {
-        const last = lastEventMsRef.current;
-        if (last === 0 || stalledNoticedRef.current) return;
-        if (Date.now() - last < STALL_THRESHOLD_MS) return;
-        stalledNoticedRef.current = true;
+      state.watchdogTimer = setInterval(() => {
+        if (state.lastEventMs === 0 || state.stalledNoticed) return;
+        if (Date.now() - state.lastEventMs < STALL_THRESHOLD_MS) return;
+        state.stalledNoticed = true;
         const minutes = Math.floor(STALL_THRESHOLD_MS / 60_000);
         useSpecWriterStore.getState().addMessage(projectPath, {
           id: `msg-stalled-${Date.now()}`,
@@ -290,16 +323,16 @@ export function useSpecConversationClaude(): {
       }, WATCHDOG_INTERVAL_MS);
 
       const finalizeStreamStats = (status: StreamStatus, note?: string): void => {
-        if (watchdogTimerRef.current !== null) {
-          clearInterval(watchdogTimerRef.current);
-          watchdogTimerRef.current = null;
+        if (state.watchdogTimer !== null) {
+          clearInterval(state.watchdogTimer);
+          state.watchdogTimer = null;
         }
-        const startedMs = streamStartMsRef.current;
+        const startedMs = state.streamStartMs;
         const endedMs = Date.now();
-        const effectiveStatus = status === 'ok' && stalledNoticedRef.current ? 'stalled' : status;
+        const effectiveStatus = status === 'ok' && state.stalledNoticed ? 'stalled' : status;
         useSpecWriterStore.getState().setStreamStats(projectPath, {
-          chunks: chunkCountRef.current,
-          bytes: streamBufferRef.current.length,
+          chunks: state.chunkCount,
+          bytes: state.streamBuffer.length,
           durationMs: startedMs > 0 ? endedMs - startedMs : 0,
           startedAt: new Date(startedMs || endedMs).toISOString(),
           endedAt: new Date(endedMs).toISOString(),
@@ -311,21 +344,21 @@ export function useSpecConversationClaude(): {
       // Flush accumulated stream buffer to store (batched via RAF)
       // Audit detection takes priority — an audit document is never also a spec.
       const flushStreamBuffer = (): void => {
-        flushScheduledRef.current = null;
-        const buf = streamBufferRef.current;
+        state.flushScheduled = null;
+        const buf = state.streamBuffer;
         if (!buf) return;
         const currentStore = useSpecWriterStore.getState();
         currentStore.updateLastAssistantMessage(projectPath, buf);
-        if (auditDetectedRef.current || AUDIT_START_PATTERN.test(buf)) {
+        if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
-          if (!auditDetectedRef.current && specDetectedRef.current) {
-            specDetectedRef.current = false;
-            currentStore.setCurrentSpecContent(projectPath, preStreamSpecRef.current);
+          if (!state.auditDetected && state.specDetected) {
+            state.specDetected = false;
+            currentStore.setCurrentSpecContent(projectPath, state.preStreamSpec);
           }
-          auditDetectedRef.current = true;
+          state.auditDetected = true;
           currentStore.setCurrentAuditContent(projectPath, buf);
-        } else if (specDetectedRef.current || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
-          specDetectedRef.current = true;
+        } else if (state.specDetected || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
+          state.specDetected = true;
           currentStore.setCurrentSpecContent(projectPath, buf);
         }
       };
@@ -336,14 +369,14 @@ export function useSpecConversationClaude(): {
         // Stage 4: every event arrival counts as "alive" — tool-call sequences
         // can run for many minutes without text deltas; those events still
         // arrive here and should keep the watchdog quiet.
-        lastEventMsRef.current = Date.now();
+        state.lastEventMs = Date.now();
 
         if (event.type === "text_delta") {
-          streamBufferRef.current += event.text;
+          state.streamBuffer += event.text;
           // chunk count tracks text deltas only — accurate content throughput.
-          chunkCountRef.current += 1;
-          if (flushScheduledRef.current === null) {
-            flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
+          state.chunkCount += 1;
+          if (state.flushScheduled === null) {
+            state.flushScheduled = requestAnimationFrame(flushStreamBuffer);
           }
         }
 
@@ -388,14 +421,16 @@ export function useSpecConversationClaude(): {
 
         if (event.type === "turn_complete") {
           // Cancel pending RAF — completeTurn will write the final content
-          if (flushScheduledRef.current !== null) {
-            cancelAnimationFrame(flushScheduledRef.current);
-            flushScheduledRef.current = null;
+          if (state.flushScheduled !== null) {
+            cancelAnimationFrame(state.flushScheduled);
+            state.flushScheduled = null;
           }
           // Stage 4: persist stream observability stats.
           finalizeStreamStats('ok');
+          // Audit generation (if any) is over — the tab can lose its ellipsis.
+          currentStore.setAuditPending(projectPath, false);
 
-          const finalContent = streamBufferRef.current;
+          const finalContent = state.streamBuffer;
           const parsed = parseSelectableOptions(finalContent);
           // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
@@ -501,19 +536,19 @@ export function useSpecConversationClaude(): {
           }
 
           // Cleanup
-          streamBufferRef.current = "";
+          state.streamBuffer = "";
           currentStore.persistState(projectPath);
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
         }
 
         if (event.type === "process_exited") {
           // Process died — clean up
-          if (flushScheduledRef.current !== null) {
-            cancelAnimationFrame(flushScheduledRef.current);
-            flushScheduledRef.current = null;
+          if (state.flushScheduled !== null) {
+            cancelAnimationFrame(state.flushScheduled);
+            state.flushScheduled = null;
           }
           // Stage 4: persist stream observability stats. Treat non-zero exits
           // as errored; zero exits as cancelled (clean shutdown).
@@ -521,6 +556,7 @@ export function useSpecConversationClaude(): {
             event.exit_code === 0 ? 'cancelled' : 'errored',
             event.exit_code !== 0 ? `process exited with code ${event.exit_code ?? 'unknown'}` : undefined,
           );
+          currentStore.setAuditPending(projectPath, false);
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.setCliSessionId(projectPath, null);
 
@@ -533,15 +569,16 @@ export function useSpecConversationClaude(): {
               timestamp: new Date().toISOString(),
             });
           }
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
         }
 
         if (event.type === "process_error") {
           // Stage 4: persist stream observability stats with the error message.
           finalizeStreamStats('errored', event.error);
+          currentStore.setAuditPending(projectPath, false);
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {
             id: `msg-err-${Date.now()}`,
@@ -550,14 +587,14 @@ export function useSpecConversationClaude(): {
             message_type: "conversation",
             timestamp: new Date().toISOString(),
           });
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
         }
       });
 
-      unlistenRef.current = unlisten;
+      state.unlisten = unlisten;
 
       // Send the actual message to the CLI
       try {
@@ -587,6 +624,10 @@ export function useSpecConversationClaude(): {
 
   const generateAudit = useCallback(
     (projectPath: string) => {
+      // Mark audit as pending immediately so the SpecPreview can render the
+      // Verification… tab before any content has streamed in. Cleared on the
+      // terminal stream event (turn_complete/process_exited/process_error).
+      useSpecWriterStore.getState().setAuditPending(projectPath, true);
       sendMessage(
         projectPath,
         "Generate the Verification Audit document for the spec you just wrote. " +

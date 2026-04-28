@@ -32,6 +32,8 @@ describe("specWriterStore", () => {
       inputAnalysisReports: new Map(),
       streamStats: new Map(),
       compactionInfo: new Map(),
+      specPreviewTab: new Map(),
+      auditPending: new Map(),
     });
   });
 
@@ -703,5 +705,44 @@ describe("specWriterStore", () => {
     store.setCompactionInfo(PROJECT, { trigger: "auto", preTokens: 190_000, at: new Date().toISOString() });
     await store.discardAndStartNew(PROJECT);
     expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
+  });
+
+  describe("specPreviewTab", () => {
+    it("stores the active tab per project", () => {
+      const store = useSpecWriterStore.getState();
+      store.setSpecPreviewTab(PROJECT, "audit");
+      expect(useSpecWriterStore.getState().specPreviewTab.get(PROJECT)).toBe("audit");
+    });
+
+    it("keeps tab choices isolated between projects", () => {
+      const store = useSpecWriterStore.getState();
+      store.setSpecPreviewTab("/project-a", "audit");
+      store.setSpecPreviewTab("/project-b", "spec");
+      const state = useSpecWriterStore.getState();
+      expect(state.specPreviewTab.get("/project-a")).toBe("audit");
+      expect(state.specPreviewTab.get("/project-b")).toBe("spec");
+    });
+  });
+
+  describe("auditPending", () => {
+    it("becomes true when set true", () => {
+      useSpecWriterStore.getState().setAuditPending(PROJECT, true);
+      expect(useSpecWriterStore.getState().auditPending.get(PROJECT)).toBe(true);
+    });
+
+    it("clears the entry when set false", () => {
+      const store = useSpecWriterStore.getState();
+      store.setAuditPending(PROJECT, true);
+      store.setAuditPending(PROJECT, false);
+      expect(useSpecWriterStore.getState().auditPending.has(PROJECT)).toBe(false);
+    });
+
+    it("keeps pending flags isolated between projects", () => {
+      const store = useSpecWriterStore.getState();
+      store.setAuditPending("/project-a", true);
+      const state = useSpecWriterStore.getState();
+      expect(state.auditPending.get("/project-a")).toBe(true);
+      expect(state.auditPending.get("/project-b")).toBeUndefined();
+    });
   });
 });

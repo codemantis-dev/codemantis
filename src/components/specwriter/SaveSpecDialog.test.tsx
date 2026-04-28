@@ -12,6 +12,7 @@ vi.mock("../../stores/toastStore", () => ({
 }));
 
 import SaveSpecDialog from "./SaveSpecDialog";
+import { normalizeAuditCompanion } from "../../lib/audit-companion";
 
 const PROJECT = "/tmp/test";
 
@@ -132,6 +133,105 @@ describe("SaveSpecDialog", () => {
     fireEvent.click(screen.getByText("Save"));
     await waitFor(() => {
       expect(baseProps.onSaved).toHaveBeenCalled();
+    });
+  });
+
+  describe("normalizeAuditCompanion", () => {
+    it("substitutes the <SPEC_FILENAME> token", () => {
+      const input = `# Foo Bar — Verification Audit\n\n**Companion to:** \`docs/specs/<SPEC_FILENAME>\`\n`;
+      const out = normalizeAuditCompanion(input, "foo-bar.md");
+      expect(out).toContain("docs/specs/foo-bar.md");
+      expect(out).not.toContain("<SPEC_FILENAME>");
+    });
+
+    it("rewrites a hallucinated Companion to: path to the saved filename", () => {
+      const input = `# Site Migration — Verification Audit\n\n**Companion to:** \`docs/specs/site-nextjs.md\`\n`;
+      const out = normalizeAuditCompanion(input, "gradum-public-site.md");
+      expect(out).toContain("docs/specs/gradum-public-site.md");
+      expect(out).not.toContain("site-nextjs.md");
+    });
+
+    it("leaves an already-correct Companion to: line untouched", () => {
+      const input = `**Companion to:** \`docs/specs/foo-bar.md\``;
+      expect(normalizeAuditCompanion(input, "foo-bar.md")).toBe(input);
+    });
+  });
+
+  describe("filename soft warning", () => {
+    it("renders a generic-name warning for one-token slugs", () => {
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent="# Gradum — Requirements Specification\n"
+          documentType="spec"
+        />,
+      );
+      expect(screen.getByDisplayValue("gradum.md")).toBeTruthy();
+      expect(screen.getByText(/Filename looks generic/)).toBeTruthy();
+    });
+
+    it("does not render the warning for descriptive multi-word slugs", () => {
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent="# Gradum Public Site Migration — Requirements Specification\n"
+          documentType="spec"
+        />,
+      );
+      expect(screen.getByDisplayValue("gradum-public-site-migration.md")).toBeTruthy();
+      expect(screen.queryByText(/Filename looks generic/)).toBeNull();
+    });
+  });
+
+  describe("audit save substitution wiring", () => {
+    it("normalizes <SPEC_FILENAME> in the saved audit body", async () => {
+      useSpecWriterStore.setState({
+        savedSpecs: new Map([[PROJECT, [
+          { filename: "my-feature.md", title: "My Feature", modified_at: "", size_bytes: 100, path: "" },
+        ]]]),
+      });
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent={
+            "# My Feature — Verification Audit\n\n" +
+            "**Companion to:** `docs/specs/<SPEC_FILENAME>`\n\nBody."
+          }
+          documentType="audit"
+        />,
+      );
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => {
+        expect(mockSaveSpecDocument).toHaveBeenCalled();
+      });
+      const savedContent = mockSaveSpecDocument.mock.calls[0][2] as string;
+      expect(savedContent).toContain("docs/specs/my-feature.md");
+      expect(savedContent).not.toContain("<SPEC_FILENAME>");
+    });
+
+    it("rewrites a hallucinated audit Companion path on save", async () => {
+      useSpecWriterStore.setState({
+        savedSpecs: new Map([[PROJECT, [
+          { filename: "gradum-public-site.md", title: "Gradum Public Site", modified_at: "", size_bytes: 100, path: "" },
+        ]]]),
+      });
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent={
+            "# Gradum Public Site — Verification Audit\n\n" +
+            "**Companion to:** `docs/specs/gradum-public-nextjs.md`\n\nBody."
+          }
+          documentType="audit"
+        />,
+      );
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => {
+        expect(mockSaveSpecDocument).toHaveBeenCalled();
+      });
+      const savedContent = mockSaveSpecDocument.mock.calls[0][2] as string;
+      expect(savedContent).toContain("docs/specs/gradum-public-site.md");
+      expect(savedContent).not.toContain("gradum-public-nextjs.md");
     });
   });
 });

@@ -59,6 +59,8 @@ export function resetAllStores(): void {
     draftText: new Map(),
     draftAttachments: new Map(),
     cliSessionIds: new Map(),
+    specPreviewTab: new Map(),
+    auditPending: new Map(),
   });
 
   useAssistantStore.setState({

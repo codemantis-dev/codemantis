@@ -47,6 +47,13 @@ interface GuideState {
   unloadGuide: () => void;
   dismissGuide: () => Promise<void>;
   persist: () => Promise<void>;
+  /**
+   * Update the guide's auditFilename for the given project. No-op if no guide
+   * is currently loaded for that project. Used by SaveSpecDialog after the
+   * audit is saved so the verification companion path stays in sync with what
+   * the user actually saved on disk.
+   */
+  setAuditFilename: (projectPath: string, auditFilename: string) => Promise<void>;
 }
 
 export const useGuideStore = create<GuideState>((set, get) => ({
@@ -223,6 +230,20 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       await updateGuideData(guide.id, JSON.stringify(guide));
     } catch (e) {
       console.warn("[guideStore] Failed to persist guide:", e);
+    }
+  },
+
+  setAuditFilename: async (projectPath, auditFilename) => {
+    const { guide } = get();
+    // Only update if the loaded guide belongs to this project.
+    if (!guide || guide.projectPath !== projectPath) return;
+    if (guide.auditFilename === auditFilename) return;
+    const updated: ImplementationGuide = { ...guide, auditFilename };
+    set({ guide: updated });
+    try {
+      await updateGuideData(updated.id, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("[guideStore] Failed to persist auditFilename:", e);
     }
   },
 }));

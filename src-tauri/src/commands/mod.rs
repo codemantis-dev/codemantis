@@ -8,6 +8,7 @@ pub mod files;
 pub mod git;
 pub mod guide;
 pub mod help;
+pub mod lifecycle;
 pub mod mcp;
 pub mod menu;
 pub mod openrouter;

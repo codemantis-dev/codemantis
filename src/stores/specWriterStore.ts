@@ -7,6 +7,7 @@ import type {
   SpecConversation,
   SpecMessage,
   SpecAttachment,
+  SpecPreviewTab,
   SpecWriterUIState,
   SpecDocumentInfo,
   StreamStats,
@@ -72,6 +73,18 @@ interface SpecWriterState {
   // Set on compact_complete events; cleared at the start of each new user turn.
   compactionInfo: Map<string, CompactionRunInfo>;
 
+  // Active preview tab per project (runtime-only). Lives in the store rather
+  // than component state so it survives project switches without losing the
+  // user's view (or stranding the user on a tab whose content has just been
+  // swapped for a different project's content).
+  specPreviewTab: Map<string, SpecPreviewTab>;
+
+  // Whether a Verification Audit generation is in flight per project
+  // (runtime-only). Becomes true the instant the user clicks Generate Audit
+  // so the Verification… tab can render before any content has streamed in;
+  // cleared on done/cancel/error.
+  auditPending: Map<string, boolean>;
+
   // Actions - Conversation
   initConversation: (projectPath: string, provider: string, model: string, mode: SpecConversation['mode'], templateCatalog?: string) => void;
   addMessage: (projectPath: string, message: SpecMessage) => void;
@@ -128,6 +141,12 @@ interface SpecWriterState {
   // Actions - Compaction tracking
   setCompactionInfo: (projectPath: string, info: CompactionRunInfo | null) => void;
 
+  // Actions - Spec preview tab
+  setSpecPreviewTab: (projectPath: string, tab: SpecPreviewTab) => void;
+
+  // Actions - Audit pending
+  setAuditPending: (projectPath: string, pending: boolean) => void;
+
   // Actions - Turn completion (batched update to avoid intermediate re-renders)
   completeTurn: (projectPath: string, updates: {
     finalContent: string;
@@ -173,6 +192,8 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   inputAnalysisReports: new Map(),
   streamStats: new Map(),
   compactionInfo: new Map(),
+  specPreviewTab: new Map(),
+  auditPending: new Map(),
 
   // Conversation
   initConversation: (projectPath, provider, model, mode, templateCatalog) =>
@@ -538,6 +559,27 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         compactionInfo.set(projectPath, info);
       }
       return { compactionInfo };
+    }),
+
+  // Spec preview tab — survives project switches because it's stored here
+  // rather than in component state.
+  setSpecPreviewTab: (projectPath, tab) =>
+    set((state) => {
+      const specPreviewTab = new Map(state.specPreviewTab);
+      specPreviewTab.set(projectPath, tab);
+      return { specPreviewTab };
+    }),
+
+  // Audit pending — true between Generate Audit click and stream terminal event.
+  setAuditPending: (projectPath, pending) =>
+    set((state) => {
+      const auditPending = new Map(state.auditPending);
+      if (pending) {
+        auditPending.set(projectPath, true);
+      } else {
+        auditPending.delete(projectPath);
+      }
+      return { auditPending };
     }),
 
   // Turn completion — single batched update to avoid intermediate re-renders from useShallow

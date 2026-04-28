@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { Pencil, Eye, ClipboardCheck, FileDown, ScanSearch } from "lucide-react";
+import { useShallow } from "zustand/shallow";
 import { showToast } from "../../stores/toastStore";
-import SpecPreview, { type SpecPreviewTab } from "./SpecPreview";
+import { useSpecWriterStore } from "../../stores/specWriterStore";
+import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 import CoveragePanel from "./CoveragePanel";
 import type { CoverageAuditReport, InputAnalysis, StreamStats } from "../../types/spec-writer";
@@ -61,9 +63,22 @@ export default function SpecPreviewPanel({
   onRecheck,
   streamStats = null,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<SpecPreviewTab>(currentAuditContent ? 'audit' : 'spec');
-  const prevHadAuditRef = useRef(!!currentAuditContent);
-  const prevCoverageStatusRef = useRef<'pass' | 'fail' | null>(coverageReport?.status ?? null);
+  // Tab state lives in the store keyed by projectPath so it survives project
+  // switches (the slide-over stays mounted-but-hidden, so component-local
+  // state would otherwise leak across projects).
+  const { activeTab, auditPending, setActiveTab } = useSpecWriterStore(
+    useShallow((s) => ({
+      activeTab: s.specPreviewTab.get(activeProjectPath) ?? 'spec',
+      auditPending: s.auditPending.get(activeProjectPath) ?? false,
+      setActiveTab: s.setSpecPreviewTab,
+    }))
+  );
+
+  // Per-project transition trackers: lets the auto-switch logic know whether
+  // an audit (or coverage failure) has appeared since the last render *for this
+  // project*, instead of being confused by a project switch.
+  const prevHadAuditByProject = useRef<Map<string, boolean>>(new Map());
+  const prevCoverageStatusByProject = useRef<Map<string, 'pass' | 'fail' | null>>(new Map());
 
   const hasCoverage = !!coverageReport || !!inputAnalysis || !!streamStats;
   const coverageFailureCount =
@@ -79,27 +94,37 @@ export default function SpecPreviewPanel({
     }
   }, [activeTab, currentAuditContent, currentSpecContent]);
 
-  // Auto-switch tab only on transitions: show audit when it first appears, revert when cleared
+  // Auto-switch tab only on transitions: show audit when it first appears (or
+  // is pending), revert when cleared. The check uses a per-project memo so
+  // switching to a different project mid-stream doesn't fire spurious switches.
   useEffect(() => {
-    const hadAudit = prevHadAuditRef.current;
-    prevHadAuditRef.current = !!currentAuditContent;
+    const auditVisible = !!currentAuditContent || auditPending;
+    const hadAudit = prevHadAuditByProject.current.get(activeProjectPath) ?? false;
+    prevHadAuditByProject.current.set(activeProjectPath, auditVisible);
 
-    if (currentAuditContent && !hadAudit) {
-      setActiveTab('audit');
-    } else if (!currentAuditContent && hadAudit) {
-      setActiveTab('spec');
+    if (auditVisible && !hadAudit) {
+      setActiveTab(activeProjectPath, 'audit');
+    } else if (!auditVisible && hadAudit) {
+      setActiveTab(activeProjectPath, 'spec');
     }
-  }, [currentAuditContent]);
+  }, [activeProjectPath, currentAuditContent, auditPending, setActiveTab]);
 
   // Auto-switch to Coverage when a new audit fails (mirrors the audit auto-switch above).
   useEffect(() => {
-    const prevStatus = prevCoverageStatusRef.current;
     const currentStatus = coverageReport?.status ?? null;
-    prevCoverageStatusRef.current = currentStatus;
+    const prevStatus = prevCoverageStatusByProject.current.get(activeProjectPath) ?? null;
+    prevCoverageStatusByProject.current.set(activeProjectPath, currentStatus);
     if (currentStatus === 'fail' && prevStatus !== 'fail') {
-      setActiveTab('coverage');
+      setActiveTab(activeProjectPath, 'coverage');
     }
-  }, [coverageReport?.status]);
+  }, [activeProjectPath, coverageReport?.status, setActiveTab]);
+
+  const handleTabChange = useCallback(
+    (tab: 'spec' | 'audit' | 'coverage') => {
+      setActiveTab(activeProjectPath, tab);
+    },
+    [activeProjectPath, setActiveTab]
+  );
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
@@ -108,8 +133,9 @@ export default function SpecPreviewPanel({
         <SpecPreview
           content={currentSpecContent}
           auditContent={currentAuditContent}
+          auditPending={auditPending}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           isEditing={isEditing}
           onContentChange={onSpecEdit}
           onClose={onCloseSpec}

@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import SpecPreviewPanel from "./SpecPreviewPanel";
+import { resetAllStores } from "../../test/helpers/store-reset";
 
 // Mock child components to isolate SpecPreviewPanel
 vi.mock("./SpecPreview", () => ({
-  default: ({ content, auditContent, activeTab, onTabChange, isEditing }: {
+  default: ({ content, auditContent, auditPending, activeTab, onTabChange, isEditing }: {
     content: string | null;
     auditContent: string | null;
+    auditPending?: boolean;
     activeTab: string;
     onTabChange: (tab: string) => void;
     isEditing: boolean;
@@ -14,12 +16,17 @@ vi.mock("./SpecPreview", () => ({
     <div data-testid="spec-preview">
       {activeTab === "spec" && content && <div data-testid="spec-content">{content}</div>}
       {activeTab === "audit" && auditContent && <div data-testid="audit-content">{auditContent}</div>}
-      {!content && !auditContent && <div data-testid="empty-state">No content</div>}
+      {activeTab === "audit" && !auditContent && auditPending && (
+        <div data-testid="audit-pending">Generating Verification Audit…</div>
+      )}
+      {!content && !auditContent && !auditPending && <div data-testid="empty-state">No content</div>}
       {isEditing && <div data-testid="editing-indicator">Editing</div>}
-      {content && auditContent && (
+      {(content || auditContent || auditPending) && (
         <>
           <button data-testid="tab-spec" onClick={() => onTabChange("spec")}>Specification</button>
-          <button data-testid="tab-audit" onClick={() => onTabChange("audit")}>Verification Audit</button>
+          <button data-testid="tab-audit" onClick={() => onTabChange("audit")}>
+            {auditContent ? "Verification Audit" : "Verification…"}
+          </button>
         </>
       )}
     </div>
@@ -31,9 +38,13 @@ vi.mock("./SavedSpecsList", () => ({
 }));
 
 const mockShowToast = vi.fn();
-vi.mock("../../stores/toastStore", () => ({
-  showToast: (...args: unknown[]) => mockShowToast(...args),
-}));
+vi.mock("../../stores/toastStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../stores/toastStore")>();
+  return {
+    ...actual,
+    showToast: (...args: unknown[]) => mockShowToast(...args),
+  };
+});
 
 describe("SpecPreviewPanel", () => {
   const defaultProps = {
@@ -59,6 +70,7 @@ describe("SpecPreviewPanel", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAllStores();
   });
 
   it("renders spec content", () => {

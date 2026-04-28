@@ -483,4 +483,38 @@ describe("guideStore", () => {
       { action: "emit_audit_log", handler: "services/audit/sink.ts" },
     ]);
   });
+
+  describe("setAuditFilename", () => {
+    it("updates auditFilename on the loaded guide", async () => {
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().setAuditFilename(PROJECT, "test.audit.md");
+      expect(useGuideStore.getState().guide!.auditFilename).toBe("test.audit.md");
+    });
+
+    it("persists the updated guide", async () => {
+      const { updateGuideData } = await import("../lib/tauri-commands");
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().setAuditFilename(PROJECT, "feature.audit.md");
+      const calls = (updateGuideData as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall[0]).toBe("guide-123");
+      const persisted = JSON.parse(lastCall[1]) as ImplementationGuide;
+      expect(persisted.auditFilename).toBe("feature.audit.md");
+    });
+
+    it("is a no-op when no guide is loaded", async () => {
+      useGuideStore.setState({ guide: null });
+      await useGuideStore.getState().setAuditFilename(PROJECT, "anything.audit.md");
+      expect(useGuideStore.getState().guide).toBeNull();
+    });
+
+    it("is a no-op when the loaded guide is for a different project", async () => {
+      const guide = makeGuide();
+      useGuideStore.setState({ guide });
+      await useGuideStore
+        .getState()
+        .setAuditFilename("/different/project", "wrong.audit.md");
+      expect(useGuideStore.getState().guide!.auditFilename).toBeNull();
+    });
+  });
 });

@@ -14,10 +14,13 @@ import { useSettingsStore } from "../../stores/settingsStore";
 
 vi.mock("../../lib/tauri-commands", () => ({
   sendAssistantChat: vi.fn().mockResolvedValue(undefined),
-  listenAssistantStream: vi.fn(async (_id: string, handler: (event: { type: string; text?: string; content?: string; message?: string }) => void) => {
-    // Store handler so tests can simulate stream events
+  listenAssistantStream: vi.fn(async (id: string, handler: (event: { type: string; text?: string; content?: string; message?: string }) => void) => {
+    // Track per-assistantId handlers so tests can drive concurrent streams.
+    _streamHandlersById.set(id, handler);
     _streamHandler = handler;
-    return () => {};
+    return () => {
+      _streamHandlersById.delete(id);
+    };
   }),
   cancelAssistantChat: vi.fn().mockResolvedValue(undefined),
   listTemplates: vi.fn().mockResolvedValue([]),
@@ -64,6 +67,8 @@ import { useSpecConversation } from "../../hooks/useSpecConversation";
 // Stream handler reference for simulating events (assigned by mock, read by tests)
 // @ts-expect-error — write-only in this file but needed for mock capture
 let _streamHandler: ((event: { type: string; text?: string; content?: string; message?: string }) => void) | null = null;
+const _streamHandlersById: Map<string, (event: { type: string; text?: string; content?: string; message?: string }) => void> = new Map();
+const assistantIdFor = (projectPath: string): string => `spec-${projectPath.replace(/[^a-zA-Z0-9]/g, "_")}`;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -132,6 +137,7 @@ describe("useSpecConversation (Integration)", () => {
     resetAllStores();
     setupSettings();
     _streamHandler = null;
+    _streamHandlersById.clear();
   });
 
   // ─── sendMessage ──────────────────────────────────────────────────────
@@ -274,5 +280,109 @@ describe("useSpecConversation (Integration)", () => {
     });
 
     expect(useSpecWriterStore.getState().getActiveConversation(PROJECT_PATH)).toBeUndefined();
+  });
+
+  // ─── Cross-project ref isolation (regression for the "audit replaces spec" bug) ───
+
+  it("interleaved streams across two projects do not corrupt each other's content slots", async () => {
+    const PROJECT_A = "/tmp/project-a";
+    const PROJECT_B = "/tmp/project-b";
+    const { result } = renderHook(() => useSpecConversation());
+
+    // Project A starts a stream first.
+    await act(async () => {
+      await result.current.sendMessage(PROJECT_A, "Spec for A");
+    });
+    const handlerA = _streamHandlersById.get(assistantIdFor(PROJECT_A));
+    expect(handlerA).toBeDefined();
+
+    // Project B starts its own stream while A is still in flight.
+    await act(async () => {
+      await result.current.sendMessage(PROJECT_B, "Spec for B");
+    });
+    const handlerB = _streamHandlersById.get(assistantIdFor(PROJECT_B));
+    expect(handlerB).toBeDefined();
+
+    // Project A's stream produces an audit document; project B's stream
+    // produces a spec document. With the pre-fix shared refs, A's "preStream
+    // spec" would land in project B's slot. With per-project state, each
+    // project's content lives in its own slot.
+    act(() => {
+      handlerA!({ type: "delta", text: "# Verification Audit\n\nA contents" });
+      handlerB!({ type: "delta", text: "# Specification\n\nB contents" });
+    });
+
+    // Wait for the requestAnimationFrame-batched flush.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    });
+
+    const stateMid = useSpecWriterStore.getState();
+    expect(stateMid.currentAuditContent.get(PROJECT_A)).toContain("Verification Audit");
+    expect(stateMid.currentSpecContent.get(PROJECT_B)).toContain("Specification");
+    // Project A must NOT have a spec (it's an audit stream).
+    expect(stateMid.currentSpecContent.get(PROJECT_A)).toBeUndefined();
+    // Project B must NOT have an audit.
+    expect(stateMid.currentAuditContent.get(PROJECT_B)).toBeUndefined();
+
+    // Both streams end.
+    act(() => {
+      handlerA!({ type: "done" });
+      handlerB!({ type: "done" });
+    });
+
+    const stateEnd = useSpecWriterStore.getState();
+    expect(stateEnd.currentAuditContent.get(PROJECT_A)).toContain("Verification Audit");
+    expect(stateEnd.currentSpecContent.get(PROJECT_B)).toContain("Specification");
+    // No cross-pollination.
+    expect(stateEnd.currentSpecContent.get(PROJECT_A)).toBeUndefined();
+    expect(stateEnd.currentAuditContent.get(PROJECT_B)).toBeUndefined();
+  });
+
+  // ─── auditPending lifecycle ───────────────────────────────────────────
+
+  it("generateAudit sets auditPending=true and clears it on done", async () => {
+    const { result } = renderHook(() => useSpecConversation());
+
+    // Initialize a conversation so the audit-generation message has somewhere to go.
+    await act(async () => {
+      await result.current.sendMessage(PROJECT_PATH, "Initial message");
+    });
+
+    // Click Generate Audit.
+    act(() => {
+      result.current.generateAudit(PROJECT_PATH);
+    });
+
+    expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBe(true);
+
+    // Stream finishes for the audit request — auditPending must clear.
+    const handler = _streamHandlersById.get(assistantIdFor(PROJECT_PATH));
+    expect(handler).toBeDefined();
+    act(() => {
+      handler!({ type: "done" });
+    });
+
+    expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBeUndefined();
+  });
+
+  it("auditPending clears when the stream is cancelled", async () => {
+    const { result } = renderHook(() => useSpecConversation());
+
+    await act(async () => {
+      await result.current.sendMessage(PROJECT_PATH, "Initial message");
+    });
+
+    act(() => {
+      result.current.generateAudit(PROJECT_PATH);
+    });
+    expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBe(true);
+
+    const handler = _streamHandlersById.get(assistantIdFor(PROJECT_PATH));
+    act(() => {
+      handler!({ type: "cancelled" });
+    });
+
+    expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBeUndefined();
   });
 });

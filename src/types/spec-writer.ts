@@ -55,6 +55,12 @@ export interface SpecWriterUIState {
   selected_saved_spec: string | null;
 }
 
+/**
+ * Active tab in the SpecWriter preview pane. Stored per-project in the
+ * SpecWriter store so it survives project switches.
+ */
+export type SpecPreviewTab = 'spec' | 'audit' | 'coverage';
+
 // ─────────────────────────────────────────────────────────────────────
 // Coverage audit — Stage 1 of SpecWriter quality enhancement.
 // Detects when the produced spec drops, paraphrases, or silently rewrites

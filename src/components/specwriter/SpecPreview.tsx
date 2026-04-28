@@ -3,14 +3,21 @@ import { X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownLinkComponents } from "../../lib/external-links";
+import type { SpecPreviewTab } from "../../types/spec-writer";
 
 const REMARK_PLUGINS = [remarkGfm];
 
-export type SpecPreviewTab = 'spec' | 'audit' | 'coverage';
+export type { SpecPreviewTab };
 
 interface Props {
   content: string | null;
   auditContent?: string | null;
+  /**
+   * True between Generate Audit click and the stream's terminal event.
+   * Used to render a placeholder Verification… tab so the user can see the
+   * audit slot exists even before content has streamed in.
+   */
+  auditPending?: boolean;
   activeTab: SpecPreviewTab;
   onTabChange: (tab: SpecPreviewTab) => void;
   /** Stage 3: Show the Coverage tab and its content (rendered in `coverageSlot` when active). */
@@ -27,6 +34,7 @@ interface Props {
 export default function SpecPreview({
   content,
   auditContent,
+  auditPending = false,
   activeTab,
   onTabChange,
   hasCoverage = false,
@@ -39,10 +47,18 @@ export default function SpecPreview({
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottomRef = useRef(true);
 
-  const hasBothDocuments = !!content && !!auditContent;
-  const showTabBar = hasBothDocuments || hasCoverage;
+  // Show the audit tab whenever we have content for it OR a generation is in
+  // flight; this lets the tab persist across project switches during streaming.
+  const auditTabVisible = !!auditContent || auditPending;
+  const showTabBar = (!!content && auditTabVisible) || hasCoverage || auditPending;
+  const auditAwaitingFirstChunk = activeTab === 'audit' && auditPending && !auditContent;
 
-  const displayContent = activeTab === 'audit' && auditContent ? auditContent : content;
+  // When the audit tab is selected but no content has streamed in yet, show
+  // a small placeholder rather than falling back to the spec content (which
+  // would be confusing — same content, different tab).
+  const displayContent = activeTab === 'audit'
+    ? (auditContent ?? null)
+    : content;
 
   // Memoize markdown rendering — only re-parse when content changes
   const renderedMarkdown = useMemo(
@@ -69,7 +85,7 @@ export default function SpecPreview({
   // Extract title from first # heading of the currently displayed content
   const title = displayContent?.match(/^#\s+(.+)$/m)?.[1] ?? null;
 
-  if (!content && !auditContent && !hasCoverage) {
+  if (!content && !auditContent && !hasCoverage && !auditPending) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">📝</div>
@@ -105,7 +121,7 @@ export default function SpecPreview({
               Specification
             </button>
           )}
-          {auditContent && (
+          {auditTabVisible && (
             <button
               onClick={() => onTabChange('audit')}
               className="px-4 py-2 text-ui font-medium transition-colors"
@@ -115,7 +131,7 @@ export default function SpecPreview({
                 background: activeTab === 'audit' ? "var(--accent-bg)" : "transparent",
               }}
             >
-              Verification Audit
+              {auditContent ? "Verification Audit" : "Verification…"}
             </button>
           )}
           {hasCoverage && (
@@ -171,7 +187,24 @@ export default function SpecPreview({
         </div>
       )}
       {activeTab !== 'coverage' && (
-        isEditing && activeTab === 'spec' ? (
+        auditAwaitingFirstChunk ? (
+          <div className="flex-1 overflow-y-auto flex items-center justify-center px-6">
+            <div className="flex flex-col items-center gap-3 text-center max-w-sm">
+              <div className="relative w-8 h-8">
+                <div
+                  className="absolute inset-0 rounded-full border-2 border-t-transparent animate-spin"
+                  style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
+                />
+              </div>
+              <div className="text-chat font-medium" style={{ color: "var(--text-secondary)" }}>
+                Generating Verification Audit…
+              </div>
+              <div className="text-ui leading-relaxed" style={{ color: "var(--text-dim)" }}>
+                The audit document will appear here as it streams in. The Specification tab still has your spec.
+              </div>
+            </div>
+          </div>
+        ) : isEditing && activeTab === 'spec' ? (
           <textarea
             className="flex-1 w-full resize-none font-mono text-chat px-4 py-3 outline-none"
             style={{

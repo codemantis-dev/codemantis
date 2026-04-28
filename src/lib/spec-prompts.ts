@@ -148,11 +148,27 @@ Do NOT include ANY text before the --- separator. No preamble, no
 "Let me...", no "I have enough to...", no thinking text, no
 commentary. The first characters of your response must be "---".
 
+NAMING THE H1 (this is what the user's filename gets derived from):
+- The H1 title MUST be a descriptive multi-word name — at least 3
+  words capturing what the spec is about. One-word names are NOT
+  acceptable. The slugified title becomes the saved filename, and a
+  generic name like "gradum.md" makes specs hard to find later.
+- For features inside an existing app, include both the app name AND
+  the specific feature/area. Examples:
+    GOOD: "Gradum Public Site Next.js Migration"
+    GOOD: "Acme Dashboard Real-Time Notifications"
+    GOOD: "Inventory App Barcode Scanner Workflow"
+    BAD:  "Gradum"           (one word — too generic)
+    BAD:  "Migration Spec"   (no app name)
+    BAD:  "New Feature"      (says nothing)
+
 Similarly, when writing the Verification Audit, start directly with:
 
-# {Application Name} — Verification Audit
+# {Application Name} {Feature/Area} — Verification Audit
 
-No preamble before the heading.
+Use the SAME multi-word descriptive title pattern as the spec. The
+audit's H1 should clearly identify which spec it verifies. No
+preamble before the heading.
 
 Write a COMPLETE Markdown document following this EXACT structure.
 Every section is MANDATORY. Do not skip or merge sections.
@@ -1076,7 +1092,7 @@ audit is a guided code review for AFTER building.
 When asked to generate the audit, output the COMPLETE document directly in your response (do NOT save it to a file). Start with:
 # {Feature/App Name} — Verification Audit
 
-**Companion to:** \`docs/specs/{filename}.md\`
+**Companion to:** \`docs/specs/<SPEC_FILENAME>\`
 **When to run:** AFTER implementation is complete. Do NOT use during building.
 
 ## Contract for the Verifier
@@ -1668,17 +1684,33 @@ DIRECTLY with the markdown separator and heading:
 
 ---
 
-# {Feature Name} — Feature Specification
+# {App Name} {Feature Name} — Feature Specification
 
 Do NOT include ANY text before the --- separator. No preamble, no
 "Let me...", no "I have enough to...", no thinking text, no
 commentary. The first characters of your response must be "---".
 
+NAMING THE H1 (this is what the user's filename gets derived from):
+- The H1 title MUST be a descriptive multi-word name — at least 3
+  words capturing what the spec is about. One-word names are NOT
+  acceptable. The slugified title becomes the saved filename, and a
+  generic name like "feature.md" makes specs hard to find later.
+- Include both the surrounding application name AND the specific
+  feature/area being added. Examples:
+    GOOD: "Acme Dashboard Real-Time Notifications"
+    GOOD: "Inventory App Barcode Scanner Workflow"
+    GOOD: "Gradum Public Site Next.js Migration"
+    BAD:  "Notifications"     (no app name, no specifics)
+    BAD:  "New Feature"       (says nothing)
+    BAD:  "Migration"         (one word — too generic)
+
 Similarly, when writing the Verification Audit, start directly with:
 
-# {Feature Name} — Verification Audit
+# {App Name} {Feature Name} — Verification Audit
 
-No preamble before the heading.
+Use the SAME multi-word descriptive title pattern as the spec. The
+audit's H1 should clearly identify which spec it verifies. No
+preamble before the heading.
 
 Write a COMPLETE Markdown document following this EXACT structure.
 Every section is MANDATORY. Do not skip or merge sections.
@@ -2461,7 +2493,7 @@ audit is a guided code review for AFTER building.
 When asked to generate the audit, output the COMPLETE document directly in your response (do NOT save it to a file). Start with:
 # {Feature/App Name} — Verification Audit
 
-**Companion to:** \`docs/specs/{filename}.md\`
+**Companion to:** \`docs/specs/<SPEC_FILENAME>\`
 **When to run:** AFTER implementation is complete. Do NOT use during building.
 
 ## Contract for the Verifier
@@ -2930,18 +2962,28 @@ DIRECTLY with the markdown separator and heading:
 
 ---
 
-# {Name} — Feature Specification
+# {App Name} {Feature Name} — Feature Specification
 
 Do NOT include ANY text before the --- separator. No "Let me...",
 no "I have enough to...", no thinking text, no file reading
 narration, no commentary. The first characters of your spec
 response must be "---".
 
+NAMING THE H1 (this is what the user's filename gets derived from):
+- The H1 title MUST be a descriptive multi-word name — at least 3
+  words capturing what the spec is about. One-word names are NOT
+  acceptable. The slugified title becomes the saved filename.
+- Include both the app name AND the specific feature/area. Examples:
+    GOOD: "Acme Dashboard Real-Time Notifications"
+    GOOD: "Inventory App Barcode Scanner Workflow"
+    BAD:  "Notifications"  /  "Migration"  /  "New Feature"
+
 Similarly, when writing the Verification Audit, start directly with:
 
-# {Name} — Verification Audit
+# {App Name} {Feature Name} — Verification Audit
 
-No preamble before the heading.
+Use the SAME multi-word descriptive title pattern as the spec. No
+preamble before the heading.
 
 This rule applies even though you are in Claude Code mode and may
 have been reading files and narrating your analysis in previous

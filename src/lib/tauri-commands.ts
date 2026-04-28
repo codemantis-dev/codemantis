@@ -28,6 +28,16 @@ export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatu
   return invoke<ClaudeStatus>("set_claude_binary_override", { path });
 }
 
+// --- Lifecycle ---
+
+/**
+ * Replies to the Rust wake-observer's periodic health-check. Returns the
+ * post-increment counter value. See `src-tauri/src/lifecycle/wake_observer.rs`.
+ */
+export async function wakePong(): Promise<number> {
+  return invoke<number>("wake_pong");
+}
+
 // --- Session ---
 
 export async function createSession(

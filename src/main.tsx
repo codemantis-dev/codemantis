@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installWakeRecovery } from "./lib/wake-recovery";
 import "./index.css";
+
+installWakeRecovery();
 
 // Show visible error if React fails to mount
 window.addEventListener("error", (e) => {

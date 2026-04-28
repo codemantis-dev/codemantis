@@ -27,6 +27,43 @@ const STALL_THRESHOLD_MS = 300_000; // 5 minutes
 /** Stage 4: how often the watchdog re-evaluates the last-event timestamp. */
 const WATCHDOG_INTERVAL_MS = 30_000;
 
+/**
+ * Per-project streaming state. The hook is instantiated once per
+ * SpecWriterSlideOver mount but serves multiple projects, so all per-stream
+ * scratch state must be keyed by projectPath. Using one map of objects (rather
+ * than many maps of scalars) keeps the call sites readable.
+ */
+interface PerProjectStreamState {
+  unlisten: (() => void) | null;
+  streamBuffer: string;
+  flushScheduled: number | null;
+  specDetected: boolean;
+  auditDetected: boolean;
+  preStreamSpec: string | null;
+  chunkCount: number;
+  streamStartMs: number;
+  /** 0 means nothing has arrived yet. Bumped on every listener invocation. */
+  lastEventMs: number;
+  watchdogTimer: ReturnType<typeof setInterval> | null;
+  stalledNoticed: boolean;
+}
+
+function makeStreamState(): PerProjectStreamState {
+  return {
+    unlisten: null,
+    streamBuffer: "",
+    flushScheduled: null,
+    specDetected: false,
+    auditDetected: false,
+    preStreamSpec: null,
+    chunkCount: 0,
+    streamStartMs: 0,
+    lastEventMs: 0,
+    watchdogTimer: null,
+    stalledNoticed: false,
+  };
+}
+
 export function useSpecConversation(): {
   sendMessage: (
     projectPath: string,
@@ -40,31 +77,19 @@ export function useSpecConversation(): {
   /** Stage 3: re-dispatch the latest audit recheck prompt. Returns true if dispatched. */
   requestRecheck: (projectPath: string) => boolean;
 } {
-  const unlistenRef = useRef<(() => void) | null>(null);
-  const streamBufferRef = useRef("");
-  const flushScheduledRef = useRef<number | null>(null);
-  const specDetectedRef = useRef(false);
-  const auditDetectedRef = useRef(false);
-  const preStreamSpecRef = useRef<string | null>(null);
+  const streamStateMapRef = useRef<Map<string, PerProjectStreamState>>(new Map());
+  const getStreamState = (projectPath: string): PerProjectStreamState => {
+    let s = streamStateMapRef.current.get(projectPath);
+    if (!s) {
+      s = makeStreamState();
+      streamStateMapRef.current.set(projectPath, s);
+    }
+    return s;
+  };
   /** Per-project auto-recheck round counter. Reset on a fresh user-initiated turn. */
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
   /** Per-project set of input-doc names already structurally analyzed. */
   const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
-  // ─── Stage 4: stream observability ──────────────────────────────────
-  /** Number of delta chunks received in the current stream. */
-  const chunkCountRef = useRef(0);
-  /** Wall-clock start time of the current stream (ms since epoch). */
-  const streamStartMsRef = useRef(0);
-  /**
-   * Wall-clock time of the most recent ANY event arrival (ms since epoch).
-   * 0 means nothing has arrived yet. Bumped on every listener invocation so
-   * tool-call activity counts as "alive" even when no text deltas are flowing.
-   */
-  const lastEventMsRef = useRef(0);
-  /** Setinterval id for the stalled-stream watchdog. */
-  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** Whether the stalled-stream warning has already been posted for this stream. */
-  const stalledNoticedRef = useRef(false);
 
   const loadContext = useCallback(async (projectPath: string) => {
     try {
@@ -295,27 +320,29 @@ export function useSpecConversation(): {
       store.addMessage(projectPath, assistantMsg);
       store.setPlanningStreaming(projectPath, true);
 
-      // Setup stream listener
+      // Setup stream listener — all scratch state is keyed per-project so that
+      // a stream still arriving for project A while the user has switched to B
+      // cannot corrupt B's content slots.
       const assistantId = `spec-${projectPath.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      streamBufferRef.current = "";
-      specDetectedRef.current = false;
-      auditDetectedRef.current = false;
-      preStreamSpecRef.current = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
+      const state = getStreamState(projectPath);
+      state.streamBuffer = "";
+      state.specDetected = false;
+      state.auditDetected = false;
+      state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
       // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
-      chunkCountRef.current = 0;
-      streamStartMsRef.current = Date.now();
-      lastEventMsRef.current = 0;
-      stalledNoticedRef.current = false;
-      if (watchdogTimerRef.current !== null) {
-        clearInterval(watchdogTimerRef.current);
+      state.chunkCount = 0;
+      state.streamStartMs = Date.now();
+      state.lastEventMs = 0;
+      state.stalledNoticed = false;
+      if (state.watchdogTimer !== null) {
+        clearInterval(state.watchdogTimer);
       }
-      watchdogTimerRef.current = setInterval(() => {
+      state.watchdogTimer = setInterval(() => {
         // Only act once at least one event has arrived; before that, the
         // request may simply be slow to start and we don't want to nag.
-        const last = lastEventMsRef.current;
-        if (last === 0 || stalledNoticedRef.current) return;
-        if (Date.now() - last < STALL_THRESHOLD_MS) return;
-        stalledNoticedRef.current = true;
+        if (state.lastEventMs === 0 || state.stalledNoticed) return;
+        if (Date.now() - state.lastEventMs < STALL_THRESHOLD_MS) return;
+        state.stalledNoticed = true;
         const minutes = Math.floor(STALL_THRESHOLD_MS / 60_000);
         useSpecWriterStore.getState().addMessage(projectPath, {
           id: `msg-stalled-${Date.now()}`,
@@ -330,16 +357,16 @@ export function useSpecConversation(): {
 
       // Stage 4: finalize stream-stats on terminal events. Called from done/cancelled/error.
       const finalizeStreamStats = (status: StreamStatus, note?: string): void => {
-        if (watchdogTimerRef.current !== null) {
-          clearInterval(watchdogTimerRef.current);
-          watchdogTimerRef.current = null;
+        if (state.watchdogTimer !== null) {
+          clearInterval(state.watchdogTimer);
+          state.watchdogTimer = null;
         }
-        const startedMs = streamStartMsRef.current;
+        const startedMs = state.streamStartMs;
         const endedMs = Date.now();
-        const effectiveStatus = status === 'ok' && stalledNoticedRef.current ? 'stalled' : status;
+        const effectiveStatus = status === 'ok' && state.stalledNoticed ? 'stalled' : status;
         useSpecWriterStore.getState().setStreamStats(projectPath, {
-          chunks: chunkCountRef.current,
-          bytes: streamBufferRef.current.length,
+          chunks: state.chunkCount,
+          bytes: state.streamBuffer.length,
           durationMs: startedMs > 0 ? endedMs - startedMs : 0,
           startedAt: new Date(startedMs || endedMs).toISOString(),
           endedAt: new Date(endedMs).toISOString(),
@@ -348,59 +375,62 @@ export function useSpecConversation(): {
         });
       };
 
-      if (unlistenRef.current) {
-        unlistenRef.current();
+      if (state.unlisten) {
+        state.unlisten();
+        state.unlisten = null;
       }
 
       // Flush accumulated stream buffer to store (batched via RAF)
       // Audit detection takes priority — an audit document is never also a spec.
       const flushStreamBuffer = (): void => {
-        flushScheduledRef.current = null;
-        const buf = streamBufferRef.current;
+        state.flushScheduled = null;
+        const buf = state.streamBuffer;
         if (!buf) return;
         const store = useSpecWriterStore.getState();
         store.updateLastAssistantMessage(projectPath, buf);
-        if (auditDetectedRef.current || AUDIT_START_PATTERN.test(buf)) {
+        if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
-          if (!auditDetectedRef.current && specDetectedRef.current) {
-            specDetectedRef.current = false;
-            store.setCurrentSpecContent(projectPath, preStreamSpecRef.current);
+          if (!state.auditDetected && state.specDetected) {
+            state.specDetected = false;
+            store.setCurrentSpecContent(projectPath, state.preStreamSpec);
           }
-          auditDetectedRef.current = true;
+          state.auditDetected = true;
           store.setCurrentAuditContent(projectPath, buf);
-        } else if (specDetectedRef.current || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
-          specDetectedRef.current = true;
+        } else if (state.specDetected || SPEC_START_PATTERN.test(buf) || isLikelySpecDocument(buf)) {
+          state.specDetected = true;
           store.setCurrentSpecContent(projectPath, buf);
         }
       };
 
-      unlistenRef.current = await listenAssistantStream(assistantId, (event) => {
+      state.unlisten = await listenAssistantStream(assistantId, (event) => {
         const currentStore = useSpecWriterStore.getState();
         // Stage 4: every event arrival counts as "alive" — keeps the stall
         // watchdog quiet during legitimate non-text activity (tool calls etc).
-        lastEventMsRef.current = Date.now();
+        state.lastEventMs = Date.now();
 
         if (event.type === "delta" && event.text) {
-          streamBufferRef.current += event.text;
+          state.streamBuffer += event.text;
           // Stage 4: chunk count tracks text deltas only, so the stats payload
           // reflects actual content throughput (not heartbeat events).
-          chunkCountRef.current += 1;
+          state.chunkCount += 1;
           // Batch store updates to one per animation frame (~16/sec instead of 50-100/sec)
-          if (flushScheduledRef.current === null) {
-            flushScheduledRef.current = requestAnimationFrame(flushStreamBuffer);
+          if (state.flushScheduled === null) {
+            state.flushScheduled = requestAnimationFrame(flushStreamBuffer);
           }
         }
 
         if (event.type === "done") {
           // Cancel pending RAF — completeTurn will write the final content
-          if (flushScheduledRef.current !== null) {
-            cancelAnimationFrame(flushScheduledRef.current);
-            flushScheduledRef.current = null;
+          if (state.flushScheduled !== null) {
+            cancelAnimationFrame(state.flushScheduled);
+            state.flushScheduled = null;
           }
           // Stage 4: persist stream observability stats.
           finalizeStreamStats('ok');
+          // Audit generation (if any) is over — the tab can lose its ellipsis.
+          currentStore.setAuditPending(projectPath, false);
 
-          const finalContent = streamBufferRef.current;
+          const finalContent = state.streamBuffer;
           const parsed = parseSelectableOptions(finalContent);
           // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
@@ -502,11 +532,11 @@ export function useSpecConversation(): {
           }
 
           // Cleanup FIRST (synchronous) — clear buffer, persist, unlisten
-          streamBufferRef.current = "";
+          state.streamBuffer = "";
           currentStore.persistState(projectPath);
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
 
           // THEN handle file requests + auto-continue (async, fire-and-forget)
@@ -525,12 +555,13 @@ export function useSpecConversation(): {
 
         if (event.type === "cancelled") {
           // Cancel pending RAF
-          if (flushScheduledRef.current !== null) {
-            cancelAnimationFrame(flushScheduledRef.current);
-            flushScheduledRef.current = null;
+          if (state.flushScheduled !== null) {
+            cancelAnimationFrame(state.flushScheduled);
+            state.flushScheduled = null;
           }
           // Stage 4: persist stream observability stats.
           finalizeStreamStats('cancelled');
+          currentStore.setAuditPending(projectPath, false);
 
           currentStore.setPlanningStreaming(projectPath, false);
 
@@ -562,21 +593,22 @@ export function useSpecConversation(): {
             timestamp: new Date().toISOString(),
           });
 
-          streamBufferRef.current = "";
+          state.streamBuffer = "";
           currentStore.persistState(projectPath);
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
         }
 
         if (event.type === "error") {
-          if (flushScheduledRef.current !== null) {
-            cancelAnimationFrame(flushScheduledRef.current);
-            flushScheduledRef.current = null;
+          if (state.flushScheduled !== null) {
+            cancelAnimationFrame(state.flushScheduled);
+            state.flushScheduled = null;
           }
           // Stage 4: persist stream observability stats with the error message.
           finalizeStreamStats('errored', event.message);
+          currentStore.setAuditPending(projectPath, false);
 
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.addMessage(projectPath, {
@@ -586,9 +618,9 @@ export function useSpecConversation(): {
             message_type: "conversation",
             timestamp: new Date().toISOString(),
           });
-          if (unlistenRef.current) {
-            unlistenRef.current();
-            unlistenRef.current = null;
+          if (state.unlisten) {
+            state.unlisten();
+            state.unlisten = null;
           }
         }
       });
@@ -637,6 +669,10 @@ export function useSpecConversation(): {
 
   const generateAudit = useCallback(
     (projectPath: string) => {
+      // Mark audit as pending immediately so the SpecPreview can render the
+      // Verification… tab before any content has streamed in. Cleared on the
+      // terminal stream event (done/cancelled/error).
+      useSpecWriterStore.getState().setAuditPending(projectPath, true);
       sendMessage(
         projectPath,
         "Generate the Verification Audit document for the spec you just wrote. " +

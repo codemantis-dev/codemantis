@@ -4,6 +4,7 @@ use crate::storage::Database;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -81,6 +82,10 @@ pub struct AppState {
     pub assistant_cancellation: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     /// Cached OpenRouter model list with TTL.
     pub openrouter_model_cache: Mutex<Option<(std::time::Instant, Vec<crate::commands::openrouter::OpenRouterModelResult>)>>,
+    /// Monotonic counter bumped by the frontend `wake_pong` IPC. The wake
+    /// observer reads this before/after emitting `wake-from-sleep` to detect
+    /// a dead WKWebView content process — see `crate::lifecycle::wake_observer`.
+    pub last_wake_pong: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -97,6 +102,7 @@ impl AppState {
             pending_control_requests: Mutex::new(HashMap::new()),
             assistant_cancellation: Mutex::new(HashMap::new()),
             openrouter_model_cache: Mutex::new(None),
+            last_wake_pong: Arc::new(AtomicU64::new(0)),
         }
     }
 }

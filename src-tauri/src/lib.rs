@@ -2,6 +2,7 @@ mod changelog;
 mod claude;
 mod commands;
 pub mod errors;
+mod lifecycle;
 mod preview;
 pub mod storage;
 mod terminal;
@@ -284,6 +285,11 @@ pub fn run() {
                 }
             });
 
+            // Periodic WKWebView health-check. Recovers from blank/unmovable
+            // window when the content process is killed during long sleep
+            // or under memory pressure. See `lifecycle::wake_observer`.
+            lifecycle::wake_observer::spawn(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -402,6 +408,7 @@ pub fn run() {
             commands::super_bro::read_super_bro_module,
             commands::menu::enable_update_menu_item,
             commands::menu::disable_update_menu_item,
+            commands::lifecycle::wake_pong,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
