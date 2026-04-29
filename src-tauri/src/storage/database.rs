@@ -496,6 +496,50 @@ impl Database {
         Ok(sessions)
     }
 
+    /// Like `list_closed_sessions_for_project` but across all projects, ordered by
+    /// `closed_at` DESC. Used by the Open Project modal's "Resume Session" tab.
+    pub fn list_recent_closed_sessions(
+        &self,
+        limit: i32,
+    ) -> Result<Vec<PersistedSession>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 FROM sessions s WHERE s.status = 'closed' AND s.cli_session_id IS NOT NULL \
+                 ORDER BY s.closed_at DESC LIMIT ?1"
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![limit], |row| {
+                Ok(PersistedSession {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    project_path: row.get(2)?,
+                    status: row.get(3)?,
+                    created_at: row.get(4)?,
+                    model: row.get(5)?,
+                    icon_index: row.get(6)?,
+                    cli_session_id: row.get(7)?,
+                    closed_at: row.get(8)?,
+                    has_stored_messages: row.get::<_, i32>(9)? != 0,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(sessions)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn insert_api_log(
         &self,
@@ -1462,6 +1506,83 @@ mod tests {
         let sessions = db.list_closed_sessions_for_project("/project", 20).unwrap();
         let s1 = sessions.iter().find(|s| s.id == "s1").unwrap();
         let s2 = sessions.iter().find(|s| s.id == "s2").unwrap();
+        assert!(s1.has_stored_messages);
+        assert!(!s2.has_stored_messages);
+    }
+
+    #[test]
+    fn test_list_recent_closed_sessions_across_projects_orders_and_limits() {
+        let db = Database::new(":memory:").unwrap();
+        // 25 closed sessions across 3 projects. closed_at lexicographically increases with i.
+        for i in 0..25 {
+            let id = format!("s{:02}", i);
+            let project = format!("/p{}", i % 3);
+            let closed_at = format!("2026-01-01T00:00:{:02}Z", i);
+            db.insert_session(&id, &id, &project, "closed", &closed_at, None, 0).unwrap();
+            db.close_session_with_details(&id, Some(&format!("cli-{:02}", i)), None, &closed_at).unwrap();
+        }
+        // Also seed an active and a closed-without-cli row that must be excluded.
+        db.insert_session("active", "Active", "/p0", "connected", "2026-02-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("nocli", "NoCli", "/p0", "closed", "2026-02-02T00:00:00Z", None, 0).unwrap();
+        // close_session_with_details with cli=None leaves cli_session_id NULL
+        db.close_session_with_details("nocli", None, None, "2026-02-02T01:00:00Z").unwrap();
+
+        let recent = db.list_recent_closed_sessions(20).unwrap();
+        assert_eq!(recent.len(), 20, "must respect limit of 20");
+
+        // DESC ordering: first row is the most-recent closed_at (s24), last is s05.
+        assert_eq!(recent.first().unwrap().id, "s24");
+        assert_eq!(recent.last().unwrap().id, "s05");
+
+        // None must be excluded rows
+        for row in &recent {
+            assert!(row.cli_session_id.is_some(), "cli_session_id must not be NULL");
+            assert_eq!(row.status, "closed");
+            assert_ne!(row.id, "active");
+            assert_ne!(row.id, "nocli");
+        }
+
+        // Projects span all three
+        let projects: std::collections::HashSet<_> = recent.iter().map(|r| r.project_path.clone()).collect();
+        assert_eq!(projects.len(), 3, "should span all projects");
+    }
+
+    #[test]
+    fn test_list_recent_closed_sessions_smaller_limit_than_rows() {
+        let db = Database::new(":memory:").unwrap();
+        for i in 0..5 {
+            let id = format!("s{}", i);
+            let closed_at = format!("2026-01-01T00:00:0{}Z", i);
+            db.insert_session(&id, &id, "/p", "closed", &closed_at, None, 0).unwrap();
+            db.close_session_with_details(&id, Some(&format!("cli-{}", i)), None, &closed_at).unwrap();
+        }
+        let recent = db.list_recent_closed_sessions(3).unwrap();
+        assert_eq!(recent.len(), 3);
+        // Most recent first
+        assert_eq!(recent[0].id, "s4");
+        assert_eq!(recent[1].id, "s3");
+        assert_eq!(recent[2].id, "s2");
+    }
+
+    #[test]
+    fn test_list_recent_closed_sessions_empty_db() {
+        let db = Database::new(":memory:").unwrap();
+        let recent = db.list_recent_closed_sessions(20).unwrap();
+        assert!(recent.is_empty());
+    }
+
+    #[test]
+    fn test_list_recent_closed_sessions_reflects_has_stored_messages() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "With msgs", "/pa", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.insert_session("s2", "Without msgs", "/pb", "closed", "2026-01-02T00:00:00Z", None, 0).unwrap();
+        db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+        db.save_session_messages("s1", &make_test_messages("s1", 1)).unwrap();
+
+        let recent = db.list_recent_closed_sessions(20).unwrap();
+        let s1 = recent.iter().find(|s| s.id == "s1").unwrap();
+        let s2 = recent.iter().find(|s| s.id == "s2").unwrap();
         assert!(s1.has_stored_messages);
         assert!(!s2.has_stored_messages);
     }

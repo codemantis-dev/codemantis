@@ -4,7 +4,7 @@ import type { SettingsTab } from "../components/modals/settings/constants";
 import { useSessionStore } from "./sessionStore";
 
 export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant" | "guide";
-export type ProjectPickerTab = "templates" | "open" | "recent" | "clone";
+export type ProjectPickerTab = "templates" | "open" | "recent" | "clone" | "resume";
 export type ActivityFeedScope = "session" | "project";
 
 export interface ImagePreview {

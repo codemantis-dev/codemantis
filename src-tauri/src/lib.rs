@@ -310,6 +310,7 @@ pub fn run() {
             commands::session::list_persisted_sessions,
             commands::session::delete_persisted_session,
             commands::session::list_session_history,
+            commands::session::list_recent_sessions,
             commands::session::interrupt_session,
             commands::session::set_session_model,
             commands::session::initialize_session,

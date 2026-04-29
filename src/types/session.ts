@@ -94,6 +94,7 @@ export interface PersistedSession {
 export interface SessionHistoryEntry {
   session_id: string;
   name: string;
+  project_path: string;
   model: string | null;
   closed_at: string;
   cli_session_id: string;

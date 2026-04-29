@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { LayoutGrid, FolderOpen, Clock, GitBranch, X } from "lucide-react";
+import { LayoutGrid, FolderOpen, Clock, GitBranch, History, Loader2, Play, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useUiStore, type ProjectPickerTab } from "../../stores/uiStore";
 import { showToast } from "../../stores/toastStore";
@@ -9,19 +9,29 @@ import ErrorCard from "../shared/ErrorCard";
 import TemplatePicker from "./TemplatePicker";
 import CloneForm from "./CloneForm";
 import { getRecentProjects, addRecentProject, removeRecentProject } from "../../lib/recent-projects";
+import { listRecentSessions } from "../../lib/tauri-commands";
+import { sessionIconFor, formatRelativeTime, projectBasename } from "../../lib/session-display";
+import type { SessionHistoryEntry } from "../../types/session";
 
 const TAB_ITEMS: { id: ProjectPickerTab; label: string; icon: typeof LayoutGrid }[] = [
   { id: "templates", label: "Templates", icon: LayoutGrid },
   { id: "open", label: "Open Folder", icon: FolderOpen },
   { id: "clone", label: "Clone", icon: GitBranch },
   { id: "recent", label: "Recent", icon: Clock },
+  { id: "resume", label: "Resume Session", icon: History },
 ];
 
 interface ProjectPickerProps {
   onSelectProject: (path: string) => void;
+  onResumeSession: (
+    projectPath: string,
+    cliSessionId: string,
+    name: string,
+    sessionId: string,
+  ) => Promise<void> | void;
 }
 
-export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
+export default function ProjectPicker({ onSelectProject, onResumeSession }: ProjectPickerProps) {
   const showProjectPicker = useUiStore((s) => s.showProjectPicker);
   const setShowProjectPicker = useUiStore((s) => s.setShowProjectPicker);
   const activeTab = useUiStore((s) => s.projectPickerTab);
@@ -33,14 +43,66 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [recentSessions, setRecentSessions] = useState<SessionHistoryEntry[] | null>(null);
+  const [recentSessionsLoading, setRecentSessionsLoading] = useState(false);
+  const [recentSessionsError, setRecentSessionsError] = useState<string | null>(null);
+  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
+
   useEffect(() => {
     if (showProjectPicker) {
       setRecentProjects(getRecentProjects());
       setProjectPath("");
       setError(null);
       setStarting(false);
+      setRecentSessions(null);
+      setRecentSessionsError(null);
+      setResumingSessionId(null);
     }
   }, [showProjectPicker]);
+
+  useEffect(() => {
+    if (!showProjectPicker || activeTab !== "resume") return;
+    if (recentSessions !== null) return; // already loaded for this opening
+    let cancelled = false;
+    setRecentSessionsLoading(true);
+    setRecentSessionsError(null);
+    listRecentSessions(20)
+      .then((entries) => {
+        if (!cancelled) setRecentSessions(entries);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          const detail = e instanceof Error ? e.message : String(e);
+          setRecentSessionsError(detail);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRecentSessionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showProjectPicker, activeTab, recentSessions]);
+
+  const handleResume = async (entry: SessionHistoryEntry): Promise<void> => {
+    if (resumingSessionId) return;
+    setResumingSessionId(entry.session_id);
+    try {
+      await onResumeSession(
+        entry.project_path,
+        entry.cli_session_id,
+        entry.name,
+        entry.session_id,
+      );
+      setShowProjectPicker(false);
+    } catch (e) {
+      console.error("Failed to resume session:", e);
+      const detail = e instanceof Error ? e.message : String(e);
+      showToast(`Failed to resume session: ${detail}`, "error");
+    } finally {
+      setResumingSessionId(null);
+    }
+  };
 
   const handlePickFolder = async () => {
     const selected = await open({
@@ -120,7 +182,15 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
           {/* Header with tabs */}
           <div className="flex items-center justify-between px-5 pt-5 pb-0">
             <Dialog.Title className="text-lg text-text-primary font-medium">
-              {activeTab === "templates" ? "New Project" : activeTab === "open" ? "Open Project" : activeTab === "clone" ? "Clone from Git" : "Recent Projects"}
+              {activeTab === "templates"
+                ? "New Project"
+                : activeTab === "open"
+                ? "Open Project"
+                : activeTab === "clone"
+                ? "Clone from Git"
+                : activeTab === "resume"
+                ? "Resume Session"
+                : "Recent Projects"}
             </Dialog.Title>
             {!busy && (
               <Dialog.Close asChild>
@@ -223,6 +293,112 @@ export default function ProjectPicker({ onSelectProject }: ProjectPickerProps) {
                   onCloned={handleCloneComplete}
                   onBusyChange={setBusy}
                 />
+              </div>
+            )}
+
+            {activeTab === "resume" && (
+              <div data-testid="resume-tab">
+                {recentSessionsLoading ? (
+                  <div className="flex items-center justify-center h-32 gap-2 text-text-dim text-label">
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Loading recent sessions...</span>
+                  </div>
+                ) : recentSessionsError ? (
+                  <ErrorCard
+                    {...translateError(recentSessionsError)}
+                    rawError={recentSessionsError}
+                    compact
+                    onDismiss={() => setRecentSessionsError(null)}
+                  />
+                ) : !recentSessions || recentSessions.length === 0 ? (
+                  <div className="flex items-center justify-center h-32">
+                    <p className="text-text-dim text-label">No closed sessions yet</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border-light">
+                    {recentSessions.map((entry) => {
+                      const icon = sessionIconFor(entry.icon_index);
+                      const projectName = projectBasename(entry.project_path);
+                      const modelLabel = entry.model
+                        ? entry.model.replace(/^claude-/, "").split("-")[0]
+                        : null;
+                      const capitalizedModel = modelLabel
+                        ? modelLabel.charAt(0).toUpperCase() + modelLabel.slice(1)
+                        : null;
+                      const isResuming = resumingSessionId === entry.session_id;
+                      return (
+                        <div
+                          key={entry.session_id}
+                          data-testid={`resume-row-${entry.session_id}`}
+                          className="px-2 py-3 hover:bg-bg-subtle transition-colors"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <span className="text-text-dim text-base mt-0.5 shrink-0">{icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="text-ui font-medium text-text-primary truncate">
+                                  {entry.name}
+                                </span>
+                                {capitalizedModel && (
+                                  <span className="text-detail font-medium text-accent bg-accent-dim rounded px-1 py-px shrink-0">
+                                    {capitalizedModel}
+                                  </span>
+                                )}
+                                {entry.has_stored_messages && (
+                                  <span
+                                    className="text-fine font-medium rounded px-1 py-px shrink-0"
+                                    style={{
+                                      color: "var(--green, #22c55e)",
+                                      background: "color-mix(in srgb, var(--green, #22c55e) 12%, transparent)",
+                                    }}
+                                  >
+                                    Saved
+                                  </span>
+                                )}
+                                <span className="text-detail text-text-ghost ml-auto shrink-0">
+                                  {formatRelativeTime(entry.closed_at)}
+                                </span>
+                              </div>
+                              <div
+                                className="text-label text-text-dim truncate"
+                                title={entry.project_path}
+                              >
+                                <span className="text-text-ghost">in </span>
+                                <span className="text-text-secondary">{projectName}</span>
+                              </div>
+                              {entry.recent_headlines.length > 0 && (
+                                <ul className="mt-1 space-y-0.5">
+                                  {entry.recent_headlines.slice(0, 2).map((headline, i) => (
+                                    <li
+                                      key={`${headline}-${i}`}
+                                      className="text-label text-text-dim leading-snug flex items-start gap-1.5"
+                                    >
+                                      <span className="text-text-ghost mt-[3px] shrink-0">&#x2022;</span>
+                                      <span className="truncate">{headline}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleResume(entry)}
+                              disabled={isResuming || resumingSessionId !== null}
+                              data-testid={`resume-button-${entry.session_id}`}
+                              className="mt-0.5 flex items-center gap-1 px-2 py-1 rounded text-label font-medium bg-accent-dim text-accent hover:bg-accent hover:text-white transition-colors shrink-0 disabled:opacity-50"
+                            >
+                              {isResuming ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Play size={12} />
+                              )}
+                              <span>Resume</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseSessionPlan } from "./parse-session-plan";
+import {
+  parseSessionPlan,
+  diagnoseSessionPlanFailure,
+} from "./parse-session-plan";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -800,6 +803,98 @@ Implement B.
     expect(result!.sessions[0].name).toBe("Identity Foundation");
     expect(result!.sessions[5].name).toContain("Principles");
     // Each kept phase must have a real Prompt for Claude Code.
+    for (const s of result!.sessions) {
+      expect(s.prompt.length).toBeGreaterThan(50);
+    }
+  });
+
+  // ── Audit wrap-up tolerance (regression: parser used to abort the entire
+  // guide if any single Session lacked a Prompt for Claude Code, even when
+  // it was clearly an audit-style wrap-up like Session 9 in
+  // _examples/specloom-saas-multi.md) ────────────────────────────────────
+
+  it("skips a final Session that has only a **Verify (full audit):** block (no implementation prompt)", () => {
+    const s1 = makeSession(1);
+    const s2 = makeSession(2);
+    const wrapUp = `### Session 3: Polish + Full Audit (~0 new files)
+**Scope:** Full regression sweep, then run the full verification audit.
+
+**Verify (full audit):**
+\`\`\`
+Read docs/specs/foo.audit.md and run the full audit.
+\`\`\`
+`;
+    const spec = makeSpec(s1 + s2 + wrapUp);
+    const result = parseSessionPlan(spec);
+
+    expect(result).not.toBeNull();
+    // Sessions 1 & 2 kept; the audit wrap-up is skipped, NOT an abort.
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions.map((s) => s.name)).toEqual([
+      "Session 1 Feature",
+      "Session 2 Feature",
+    ]);
+  });
+
+  it("still aborts when a middle Session has neither Prompt nor Verify block", () => {
+    const s1 = makeSession(1);
+    // Session 2 is genuinely broken: no prompt, no verify.
+    const s2 = `### Session 2: Broken Session
+**Scope:** Phase 2
+`;
+    const s3 = makeSession(3);
+    const spec = makeSpec(s1 + s2 + s3);
+    const result = parseSessionPlan(spec);
+    expect(result).toBeNull();
+  });
+
+  it("diagnoseSessionPlanFailure names the offending session number", () => {
+    const s1 = makeSession(1);
+    const s2 = `### Session 2: Broken Session
+**Scope:** Phase 2
+`;
+    const s3 = makeSession(3);
+    const spec = makeSpec(s1 + s2 + s3);
+    const reason = diagnoseSessionPlanFailure(spec);
+    expect(reason).toMatch(/Session 2/);
+    expect(reason).toMatch(/Prompt for Claude Code/);
+  });
+
+  it("recognizes the exact `## 10. Session Plan — Multi-Session Implementation Breakdown` heading", () => {
+    const spec = `# SaaS Multi-Tenancy — Feature Specification
+
+## 1. Overview
+Stuff.
+
+## 10. Session Plan — Multi-Session Implementation Breakdown
+${makeSession(1)}
+${makeSession(2)}
+
+## 11. Open Questions
+None.
+`;
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("SaaS Multi-Tenancy");
+    expect(result!.sessions).toHaveLength(2);
+  });
+
+  it("recognizes the specloom-saas-multi.md fixture (8 sessions, audit wrap-up skipped)", () => {
+    const fixturePath = resolve(
+      __dirname,
+      "../../_examples/specloom-saas-multi.md",
+    );
+    const markdown = readFileSync(fixturePath, "utf8");
+    const result = parseSessionPlan(markdown);
+
+    expect(result).not.toBeNull();
+    // Section 10 has 9 ### Session blocks; Session 9 is an audit-style
+    // wrap-up with no Prompt for Claude Code, so it's skipped.
+    expect(result!.sessions).toHaveLength(8);
+    expect(result!.sessions[0].name).toBe(
+      "Database Foundation",
+    );
+    // Each kept session has a real implementation prompt.
     for (const s of result!.sessions) {
       expect(s.prompt.length).toBeGreaterThan(50);
     }

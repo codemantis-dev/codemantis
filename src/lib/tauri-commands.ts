@@ -161,6 +161,12 @@ export async function listSessionHistory(
   return invoke<SessionHistoryEntry[]>("list_session_history", { projectPath });
 }
 
+export async function listRecentSessions(
+  limit: number
+): Promise<SessionHistoryEntry[]> {
+  return invoke<SessionHistoryEntry[]>("list_recent_sessions", { limit });
+}
+
 export async function saveSessionMessages(
   sessionId: string,
   messages: SessionMessagePayload[]

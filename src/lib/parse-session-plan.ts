@@ -144,10 +144,16 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
     const session = parseOneSession(e.body, sessions.length + 1);
     if (!session) {
       // Phase blocks legitimately omit a Prompt for Claude Code when they
-      // are descriptive/gate phases — skip rather than abort. Session
-      // blocks remain strict: a missing prompt is a real authoring error.
+      // are descriptive/gate phases — skip rather than abort.
       if (e.keyword === "Phase") continue;
-      console.warn(`[parseSessionPlan] Failed to parse session ${e.num}, aborting guide`);
+      // SpecWriter routinely emits a final Session whose only block is
+      // **Verify (full audit):** — an audit wrap-up with no implementation
+      // prompt. Treat that as a Phase-style skip rather than a parse abort,
+      // so the rest of the guide still recognizes.
+      if (hasAuditWrapUp(e.body)) continue;
+      console.warn(
+        `[parseSessionPlan] Session ${e.num} has no Prompt for Claude Code block — aborting guide`,
+      );
       return null;
     }
     sessions.push(session);
@@ -156,6 +162,17 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
   if (sessions.length < 2) return null; // A single-session plan doesn't need a guide
 
   return { title, sessions };
+}
+
+/**
+ * True if a session body looks like a final audit-style wrap-up. The marker
+ * SpecWriter uses for an implementation-prompt-free wrap-up is specifically
+ * `**Verify (full audit):**` (with a fenced code block). A session with only
+ * a regular `**Verify before next session:**` checklist is a broken session
+ * (missing its prompt), NOT an audit wrap-up — that case still aborts.
+ */
+function hasAuditWrapUp(body: string): boolean {
+  return /\*\*Verify\s*\(full\s+audit\)/i.test(body);
 }
 
 interface SessionEntry {
@@ -228,6 +245,19 @@ export function diagnoseSessionPlanFailure(specMarkdown: string): string {
   }
   if (withPrompts.length < 2) {
     return "Only one usable session found — a guide needs at least 2 sessions";
+  }
+
+  // Surface the specific offending Session: a Session block (not a Phase,
+  // not an audit wrap-up) that is missing its prompt is the recurring
+  // failure mode we want to name explicitly instead of a catch-all.
+  const offending = eligible.find(
+    (e) =>
+      e.keyword === "Session" &&
+      !/\*\*Prompt\s+for\s+Claude\s+Code:\*\*\s*\n```/.test(e.body) &&
+      !/\*\*Verify\s*\(full\s+audit\)/i.test(e.body),
+  );
+  if (offending) {
+    return `Session ${offending.num} has no \`**Prompt for Claude Code:**\` fenced code block — add one, or mark it as a final wrap-up with \`**Verify (full audit):**\``;
   }
 
   return "Could not parse the multi-session plan in this spec";

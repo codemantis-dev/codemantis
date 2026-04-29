@@ -32,6 +32,7 @@ function makeHistoryEntry(overrides: Partial<SessionHistoryEntry> = {}): Session
   return {
     session_id: "s1",
     name: "Test Session",
+    project_path: "/tmp/test-project",
     model: "claude-sonnet-4-6",
     closed_at: new Date().toISOString(),
     cli_session_id: "cli-123",

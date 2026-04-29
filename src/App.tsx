@@ -78,7 +78,7 @@ export default function App() {
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const openSettingsToTab = useUiStore((s) => s.openSettingsToTab);
-  const { startSession } = useClaudeSession();
+  const { startSession, resumeFromHistory } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const onboardingCompleted = useSettingsStore((s) => s.settings.onboardingCompleted);
@@ -167,6 +167,19 @@ export default function App() {
       setError(msg);
       showToast(translateErrorForToast(msg), "error");
     }
+  };
+
+  const handleResumeSession = async (
+    projectPath: string,
+    cliSessionId: string,
+    name: string,
+    sessionId: string,
+  ): Promise<void> => {
+    setError(null);
+    addRecentProject(projectPath);
+    useSessionStore.getState().setActiveProject(projectPath);
+    cleanupOldAttachments(projectPath, 7).catch(() => {});
+    await resumeFromHistory(projectPath, cliSessionId, name, sessionId);
   };
 
   if (checking || !settingsLoaded) {
@@ -324,7 +337,7 @@ export default function App() {
           </div>
         </div>
 
-        <ProjectPicker onSelectProject={handleSelectProject} />
+        <ProjectPicker onSelectProject={handleSelectProject} onResumeSession={handleResumeSession} />
         <SettingsModal />
         <McpModal />
         <UpdateModal />
@@ -341,7 +354,7 @@ export default function App() {
       <QuestionModal />
       <PlanCompleteModal />
       <CliOverlay />
-      <ProjectPicker onSelectProject={handleSelectProject} />
+      <ProjectPicker onSelectProject={handleSelectProject} onResumeSession={handleResumeSession} />
       <SettingsModal />
       <McpModal />
       <UpdateModal />

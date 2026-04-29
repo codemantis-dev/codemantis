@@ -15,6 +15,7 @@ use uuid::Uuid;
 pub struct SessionHistoryEntry {
     pub session_id: String,
     pub name: String,
+    pub project_path: String,
     pub model: Option<String>,
     pub closed_at: String,
     pub cli_session_id: String,
@@ -502,6 +503,48 @@ pub async fn list_session_history(
             entries.push(SessionHistoryEntry {
                 session_id: session.id,
                 name: session.name,
+                project_path: session.project_path,
+                model: session.model,
+                closed_at,
+                cli_session_id: cli_sid,
+                icon_index: session.icon_index,
+                recent_headlines: headlines,
+                has_stored_messages: session.has_stored_messages,
+            });
+        }
+    }
+
+    Ok(entries)
+}
+
+/// Returns the N most recently closed sessions across **all** projects.
+/// Backs the "Resume Session" tab of the Open Project modal.
+#[tauri::command]
+pub async fn list_recent_sessions(
+    state: State<'_, AppState>,
+    limit: i32,
+) -> Result<Vec<SessionHistoryEntry>, String> {
+    let closed = state
+        .database
+        .list_recent_closed_sessions(limit)
+        .map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for session in closed {
+        let headlines: Vec<String> = state
+            .database
+            .list_changelog_entries(&session.id)
+            .unwrap_or_default()
+            .into_iter()
+            .take(3)
+            .map(|e| e.headline)
+            .collect();
+
+        if let (Some(cli_sid), Some(closed_at)) = (session.cli_session_id, session.closed_at) {
+            entries.push(SessionHistoryEntry {
+                session_id: session.id,
+                name: session.name,
+                project_path: session.project_path,
                 model: session.model,
                 closed_at,
                 cli_session_id: cli_sid,
@@ -922,6 +965,7 @@ mod tests {
         let entry = SessionHistoryEntry {
             session_id: "abc-123".to_string(),
             name: "Test Session".to_string(),
+            project_path: "/Users/hr/proj".to_string(),
             model: Some("claude-sonnet-4-6".to_string()),
             closed_at: "2026-03-20T10:00:00Z".to_string(),
             cli_session_id: "cli-456".to_string(),
@@ -932,6 +976,7 @@ mod tests {
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["session_id"], "abc-123");
         assert_eq!(json["name"], "Test Session");
+        assert_eq!(json["project_path"], "/Users/hr/proj");
         assert_eq!(json["model"], "claude-sonnet-4-6");
         assert_eq!(json["icon_index"], 3);
         assert_eq!(json["recent_headlines"].as_array().unwrap().len(), 2);
@@ -943,6 +988,7 @@ mod tests {
         let entry = SessionHistoryEntry {
             session_id: "abc".to_string(),
             name: "S".to_string(),
+            project_path: "/p".to_string(),
             model: None,
             closed_at: "2026-01-01T00:00:00Z".to_string(),
             cli_session_id: "cli".to_string(),
