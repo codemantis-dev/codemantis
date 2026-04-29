@@ -288,6 +288,22 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       handleProcessExited(sessionId, event, store, now);
       break;
 
+    case "protected_path_deny": {
+      // CLI 2.1.78+ silently blocks writes to .claude/, .git/, .vscode/ even
+      // with --dangerously-skip-permissions, with no inbound control_request.
+      // Surface a clear explanation so the agent doesn't appear stalled.
+      const paths = event.denials
+        .map((d) => {
+          const fp = d.tool_input?.file_path;
+          return typeof fp === "string" ? fp : d.tool_name;
+        })
+        .slice(0, 3);
+      const more = event.denials.length > 3 ? ` (+${event.denials.length - 3} more)` : "";
+      const summary = `${event.denials.length === 1 ? "Write blocked" : `${event.denials.length} writes blocked`} by Claude CLI's protected-path guardrail: ${paths.join(", ")}${more}. Ask the agent to use Bash heredoc instead.`;
+      showToast(summary, "error", 12000);
+      break;
+    }
+
     case "compacting_status": {
       store.touchLastEvent(sessionId);
       store.setSessionCompacting(sessionId, event.is_compacting);

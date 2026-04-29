@@ -66,6 +66,10 @@ pub enum RawStreamEvent {
         terminal_reason: Option<String>,
         #[serde(rename = "modelUsage")]
         model_usage: Option<serde_json::Value>,
+        /// Tool calls the CLI denied internally (e.g. writes to `.claude/`,
+        /// `.git/`, `.vscode/` even with `--dangerously-skip-permissions`).
+        /// Populated by Claude Code 2.1.78+. Each entry: `{tool_name, tool_use_id, tool_input}`.
+        permission_denials: Option<Vec<PermissionDenial>>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
@@ -186,6 +190,19 @@ pub enum StreamDelta {
 
     #[serde(other)]
     Unknown,
+}
+
+/// A tool call the CLI denied internally — bypasses both the
+/// PreToolUse hook and `--dangerously-skip-permissions`. Currently fires
+/// on writes to hardcoded protected directories (`.claude/`, `.git/`,
+/// `.vscode/`) per CLI 2.1.78+. The CLI surfaces these only in the
+/// final `result` event's `permission_denials` array, with no inbound
+/// `control_request` to ask the host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionDenial {
+    pub tool_name: String,
+    pub tool_use_id: String,
+    pub tool_input: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +328,15 @@ pub enum FrontendEvent {
         exit_code: Option<i32>,
         stderr_tail: Option<String>,
         elapsed_ms: u64,
+    },
+
+    /// One or more tool calls were silently denied by the CLI's hardcoded
+    /// protected-path guardrail. Surfaces a user-facing message so the agent
+    /// doesn't appear stalled. See `PermissionDenial` for the trigger.
+    #[serde(rename = "protected_path_deny")]
+    ProtectedPathDeny {
+        session_id: String,
+        denials: Vec<PermissionDenial>,
     },
 
     #[serde(rename = "compacting_status")]
@@ -1643,6 +1669,70 @@ mod tests {
         let val = serde_json::to_value(&fe).unwrap();
         assert_eq!(val["type"], "process_error");
         assert_eq!(val["error"], "Segfault in CLI");
+    }
+
+    #[test]
+    fn ser_frontend_protected_path_deny() {
+        let fe = FrontendEvent::ProtectedPathDeny {
+            session_id: "s1".into(),
+            denials: vec![PermissionDenial {
+                tool_name: "Write".into(),
+                tool_use_id: "toolu_x".into(),
+                tool_input: json!({"file_path": "/tmp/p/.claude/skills/foo/SKILL.md", "content": "x"}),
+            }],
+        };
+        let val = serde_json::to_value(&fe).unwrap();
+        assert_eq!(val["type"], "protected_path_deny");
+        assert_eq!(val["session_id"], "s1");
+        assert_eq!(val["denials"][0]["tool_name"], "Write");
+        assert_eq!(val["denials"][0]["tool_use_id"], "toolu_x");
+        assert_eq!(val["denials"][0]["tool_input"]["file_path"], "/tmp/p/.claude/skills/foo/SKILL.md");
+    }
+
+    #[test]
+    fn deser_result_with_permission_denials() {
+        // Real shape captured from CLI v2.1.123 when writing to .claude/skills/.
+        let json = r##"{
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "duration_ms": 5278,
+            "num_turns": 2,
+            "session_id": "sess",
+            "result": "denied",
+            "permission_denials": [{
+                "tool_name": "Write",
+                "tool_use_id": "toolu_01XMhHmCDmSzYQb4ecuccbVk",
+                "tool_input": {"file_path": "/tmp/x/.claude/skills/diag/SKILL.md", "content": "# diag"}
+            }]
+        }"##;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Result { permission_denials, .. } => {
+                let denials = permission_denials.expect("permission_denials should parse");
+                assert_eq!(denials.len(), 1);
+                assert_eq!(denials[0].tool_name, "Write");
+                assert_eq!(denials[0].tool_use_id, "toolu_01XMhHmCDmSzYQb4ecuccbVk");
+                assert_eq!(
+                    denials[0].tool_input["file_path"].as_str().unwrap(),
+                    "/tmp/x/.claude/skills/diag/SKILL.md"
+                );
+            }
+            other => panic!("expected Result, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deser_result_without_permission_denials() {
+        // Most result events don't have the field; ensure that's tolerated.
+        let json = r#"{"type":"result","subtype":"success","is_error":false}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        match event {
+            RawStreamEvent::Result { permission_denials, .. } => {
+                assert!(permission_denials.is_none());
+            }
+            other => panic!("expected Result, got {:?}", other),
+        }
     }
 
     #[test]

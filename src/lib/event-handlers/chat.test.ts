@@ -502,3 +502,66 @@ describe("streaming buffer utilities", () => {
     expect(thinkingBuffers.get("s1")).toBeUndefined();
   });
 });
+
+describe("chat event handler — protected_path_deny", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    vi.mocked(showToast).mockClear();
+  });
+
+  it("emits a toast naming the denied file path", () => {
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        {
+          tool_name: "Write",
+          tool_use_id: "toolu_01",
+          tool_input: { file_path: "/tmp/x/.claude/skills/foo/SKILL.md", content: "x" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg, level] = vi.mocked(showToast).mock.calls[0];
+    expect(level).toBe("error");
+    expect(msg).toContain("Write blocked");
+    expect(msg).toContain("/tmp/x/.claude/skills/foo/SKILL.md");
+    expect(msg).toContain("Bash heredoc");
+  });
+
+  it("summarizes multiple denials with truncation", () => {
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        { tool_name: "Write", tool_use_id: "t1", tool_input: { file_path: "/p/.claude/a" } },
+        { tool_name: "Edit",  tool_use_id: "t2", tool_input: { file_path: "/p/.claude/b" } },
+        { tool_name: "Write", tool_use_id: "t3", tool_input: { file_path: "/p/.claude/c" } },
+        { tool_name: "Edit",  tool_use_id: "t4", tool_input: { file_path: "/p/.claude/d" } },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("4 writes blocked");
+    expect(msg).toContain("/p/.claude/a");
+    expect(msg).toContain("/p/.claude/c");
+    expect(msg).toContain("(+1 more)");
+    expect(msg).not.toContain("/p/.claude/d");
+  });
+
+  it("falls back to tool_name when file_path is missing", () => {
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        { tool_name: "WeirdTool", tool_use_id: "t1", tool_input: {} },
+      ],
+    };
+    handleChatEvent("s1", event);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("WeirdTool");
+  });
+});

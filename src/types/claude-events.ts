@@ -7,6 +7,7 @@ export type FrontendEvent =
   | TurnCompleteEvent
   | ProcessErrorEvent
   | ProcessExitedEvent
+  | ProtectedPathDenyEvent
   | CliSessionIdEvent
   | CompactingStatusEvent
   | CompactCompleteEvent
@@ -88,6 +89,23 @@ export interface ProcessExitedEvent {
   exit_code: number | null;
   stderr_tail: string | null;
   elapsed_ms: number;
+}
+
+/** A tool call the CLI denied internally via its protected-path guardrail
+ * (writes to `.claude/`, `.git/`, `.vscode/` even with `--dangerously-skip-permissions`,
+ * per CLI 2.1.78+). The CLI does not emit a `control_request`, so the host
+ * cannot ask the user first; this event lets the frontend surface a clear
+ * explanation instead of letting the agent stall. */
+export interface ProtectedPathDenyEvent {
+  type: "protected_path_deny";
+  session_id: string;
+  denials: ProtectedPathDenial[];
+}
+
+export interface ProtectedPathDenial {
+  tool_name: string;
+  tool_use_id: string;
+  tool_input: Record<string, unknown>;
 }
 
 export interface CliSessionIdEvent {

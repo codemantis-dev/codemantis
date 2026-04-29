@@ -408,10 +408,32 @@ async fn handle_result(
     stop_reason: Option<String>,
     terminal_reason: Option<String>,
     model_usage: &Option<serde_json::Value>,
+    permission_denials: Option<Vec<crate::claude::event_types::PermissionDenial>>,
     state: &mut RouterState,
 ) {
     if let Some(sid) = cli_sid {
         maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
+    }
+
+    // Surface CLI-internal protected-path denials (e.g. `.claude/` writes that
+    // are blocked even with `--dangerously-skip-permissions` per CLI 2.1.78+).
+    // The CLI reports these only here, with no inbound `control_request` to
+    // ask the host first — so the user sees the agent stall and complain
+    // about "permissions" without a UI prompt. This emits a frontend event
+    // the chat layer turns into an explanatory toast.
+    if let Some(denials) = permission_denials {
+        if !denials.is_empty() {
+            info!(
+                "[message_router] CLI denied {} tool call(s) via protected-path guardrail (session: {})",
+                denials.len(),
+                session_id
+            );
+            let fe = FrontendEvent::ProtectedPathDeny {
+                session_id: session_id.to_string(),
+                denials,
+            };
+            emit_or_warn(app_handle, chat_event, &fe, "protected-path-deny");
+        }
     }
 
     // CLI v2.1.101+ sets is_error=true for user-initiated interrupts
@@ -863,13 +885,14 @@ pub async fn route_events(
                 stop_reason,
                 terminal_reason,
                 model_usage,
+                permission_denials,
                 ..
             } => {
                 handle_result(
                     &app_handle, &session_id, &chat_event,
                     &cli_sid, is_error, result, duration_ms, usage, cost_usd,
                     duration_api_ms, num_turns, stop_reason, terminal_reason,
-                    &model_usage, &mut state,
+                    &model_usage, permission_denials, &mut state,
                 ).await;
             }
 
