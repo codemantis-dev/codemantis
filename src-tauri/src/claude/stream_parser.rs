@@ -1,6 +1,7 @@
 use crate::claude::event_types::RawStreamEvent;
 use log::{debug, trace, warn};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdout;
 use tokio::sync::mpsc;
 
@@ -23,9 +24,13 @@ fn try_unwrap_stream_event(value: serde_json::Value) -> Result<RawStreamEvent, s
     }
 }
 
+/// Read NDJSON events from the CLI's stdout and forward parsed events.
+/// When `raw_log` is `Some`, every raw line is also tee'd to that file
+/// (used for protocol-level diagnostics gated by `CODEMANTIS_RAW_STREAM_LOG`).
 pub async fn parse_stream(
     stdout: ChildStdout,
     sender: mpsc::Sender<RawStreamEvent>,
+    mut raw_log: Option<File>,
 ) {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
@@ -36,6 +41,12 @@ pub async fn parse_stream(
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;
+                }
+
+                if let Some(f) = raw_log.as_mut() {
+                    let _ = f.write_all(trimmed.as_bytes()).await;
+                    let _ = f.write_all(b"\n").await;
+                    let _ = f.flush().await;
                 }
 
                 trace!("Raw NDJSON: {}", trimmed);
@@ -101,7 +112,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx).await;
+            parse_stream(stdout, tx, None).await;
         });
 
         let mut events = vec![];
@@ -323,7 +334,7 @@ mod tests {
 
         // This should complete without hanging — the send fails and the parser breaks
         let handle = tokio::spawn(async move {
-            parse_stream(stdout, tx).await;
+            parse_stream(stdout, tx, None).await;
         });
 
         // Should complete within a reasonable time

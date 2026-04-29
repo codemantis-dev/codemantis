@@ -3,6 +3,7 @@ import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionSta
 import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
 import type { SubAgentInfo } from "../types/activity";
 import { useSettingsStore } from "./settingsStore";
+import { useFileViewerStore } from "./fileViewerStore";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -205,7 +206,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
 
-  removeSession: (sessionId) =>
+  removeSession: (sessionId) => {
+    // Free the session's file-viewer state (open files, dirty buffers, etc.)
+    useFileViewerStore.getState().clearSession(sessionId);
     set((state) => {
       const sessions = new Map(state.sessions);
       const removedSession = sessions.get(sessionId);
@@ -308,7 +311,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         projectOrder,
         projectActiveSession,
       };
-    }),
+    });
+  },
 
   setActiveSession: (sessionId) =>
     set((state) => {

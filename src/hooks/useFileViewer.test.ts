@@ -59,7 +59,7 @@ describe("useFileViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useSessionStore.getState).mockReturnValue({
-      activeProjectPath: "/test/project",
+      activeSessionId: "session-1",
     } as ReturnType<typeof useSessionStore.getState>);
   });
 
@@ -73,7 +73,7 @@ describe("useFileViewer", () => {
     });
 
     expect(mockReadFileContent).toHaveBeenCalledWith("/test/project/src/index.ts");
-    expect(mockOpenFile).toHaveBeenCalledWith("/test/project", {
+    expect(mockOpenFile).toHaveBeenCalledWith("session-1", {
       filePath: "/test/project/src/index.ts",
       fileName: "index.ts",
       language: "typescript",
@@ -109,9 +109,9 @@ describe("useFileViewer", () => {
     expect(mockOpenFile).not.toHaveBeenCalled();
   });
 
-  it("openFile does nothing if no activeProjectPath", async () => {
+  it("openFile does nothing if no activeSessionId", async () => {
     vi.mocked(useSessionStore.getState).mockReturnValue({
-      activeProjectPath: null,
+      activeSessionId: null,
     } as ReturnType<typeof useSessionStore.getState>);
 
     const { result } = renderHook(() => useFileViewer());
@@ -131,7 +131,7 @@ describe("useFileViewer", () => {
       result.current.openDiff("/test/project/src/app.ts", "old code", "new code");
     });
 
-    expect(mockOpenFile).toHaveBeenCalledWith("/test/project", {
+    expect(mockOpenFile).toHaveBeenCalledWith("session-1", {
       filePath: "/test/project/src/app.ts",
       fileName: "app.ts",
       language: "typescript",

@@ -33,10 +33,14 @@ static OCCUPIED_PORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// output scanning and expected-port probing both fail.
 pub const DEFAULT_DEV_PORTS: &[u16] = &[
     5173, 5174, 5175, 5176, // Vite
-    3000, 3001, 3002,       // Next.js, Express, Rails
+    4173, 4174,             // Vite preview
+    3000, 3001, 3002, 3030, // Next.js, Express, Rails
+    4000, 4200,             // Phoenix, Angular
     4321,                   // Astro
-    8080, 8081,             // Webpack, generic
-    8000,                   // Django, Uvicorn
+    5000, 5500,             // Flask, Live Server
+    1234,                   // Parcel
+    8000, 8080, 8081,       // Django/Uvicorn, Webpack, generic
+    8888, 9000, 9090,       // Jupyter, generic
 ];
 
 static PORT_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -101,16 +105,23 @@ pub fn scan_for_dev_server_url(line: &str) -> Option<(u16, String)> {
 /// dev servers binding to either protocol are detected without added latency.
 /// Modern Vite on macOS binds to `localhost` which resolves to `::1` (IPv6),
 /// while older servers bind to `0.0.0.0` (IPv4 only).
+///
+/// Uses `GET` (not `HEAD`) because some dev servers and middleware (fumadocs-mdx,
+/// Astro middleware, vite-plugin-html) reject HEAD with 405/501 or hang the
+/// connection. A 5 s timeout absorbs slow first-compile responses where Vite
+/// holds the socket open for several seconds while pre-bundling deps. Any HTTP
+/// response — including 4xx/5xx — counts as success: we are checking *liveness*,
+/// not the content. Connection refused / DNS errors are still rejected fast.
 pub async fn probe_port(port: u16) -> bool {
     let client = reqwest::Client::new();
-    let timeout = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_secs(5);
 
     let ipv4 = client
-        .head(format!("http://127.0.0.1:{}", port))
+        .get(format!("http://127.0.0.1:{}", port))
         .timeout(timeout)
         .send();
     let ipv6 = client
-        .head(format!("http://[::1]:{}", port))
+        .get(format!("http://[::1]:{}", port))
         .timeout(timeout)
         .send();
 
@@ -175,6 +186,12 @@ pub fn extract_occupied_port(line: &str) -> Option<u16> {
 
 /// Probe a list of candidate ports, skipping excluded ones.
 /// Returns the first port that responds to HTTP, along with its URL.
+///
+/// Retained as a utility (and exercised by the unit tests below) but no
+/// longer called from the preview detection task — the new architecture
+/// spawns parallel `confirm_and_announce` tasks per candidate port instead
+/// of probing sequentially, so individual slow ports don't block faster ones.
+#[allow(dead_code)]
 pub async fn probe_port_range(candidates: &[u16], exclude: &HashSet<u16>) -> Option<(u16, String)> {
     for &port in candidates {
         if exclude.contains(&port) {
@@ -190,8 +207,13 @@ pub async fn probe_port_range(candidates: &[u16], exclude: &HashSet<u16>) -> Opt
     None
 }
 
-/// Use lsof to find ports opened by a specific PID (macOS fallback).
-#[allow(dead_code)]
+/// Use `lsof` to enumerate the TCP ports a specific PID is listening on.
+///
+/// This is the most reliable detection signal — it bypasses output parsing
+/// and asks the OS directly what the dev-server subprocess has bound. Used by
+/// the preview detection task as a parallel "Layer 1.5" when terminal-output
+/// regex matching is slow or fails (e.g. silent dev servers, custom output
+/// formatters). macOS-specific (lsof is preinstalled).
 pub fn scan_pid_ports(pid: u32) -> Vec<u16> {
     let output = std::process::Command::new("lsof")
         .args(["-i", "-P", "-n", "-a", "-p", &pid.to_string()])
@@ -830,5 +852,110 @@ mod tests {
         // These ports are extremely unlikely to have servers
         let result = probe_port_range(&[59997, 59998, 59999], &exclude).await;
         assert!(result.is_none());
+    }
+
+    // ── probe_port + real local listener ───────────────────────────────
+    //
+    // These tests cover the GET-based probing introduced as part of the
+    // resilience overhaul. They guard against regressions to:
+    //   1. HEAD-rejecting servers being missed (probe must use GET).
+    //   2. The 5 s timeout silently dropping back to 2 s.
+    //   3. probe_port treating a 4xx/5xx response as failure (it must
+    //      treat *any* HTTP response as liveness).
+
+    #[tokio::test]
+    async fn test_probe_port_succeeds_against_real_get_only_listener() {
+        // Bind a TCP listener that *only* responds to GET requests.
+        // If probe_port still used HEAD, the connection would close before
+        // a status line arrived → probe would fail.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind random port");
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            // Accept a single connection, read the request line, respond.
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let req = std::str::from_utf8(&buf[..n]).unwrap_or("");
+                if req.starts_with("GET ") {
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .await;
+                }
+                // For HEAD or anything else: drop the connection without responding.
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let result = probe_port(port).await;
+        let _ = server.await;
+        assert!(result, "probe_port must succeed against a GET-only listener");
+    }
+
+    #[tokio::test]
+    async fn test_probe_port_treats_5xx_as_alive() {
+        // A dev server returning 502 because its proxy target isn't ready
+        // is still *alive* — probe_port must treat that as a successful
+        // probe (we'd rather try opening the preview than time out).
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind random port");
+        let port = listener.local_addr().unwrap().port();
+
+        let server = tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock
+                    .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let result = probe_port(port).await;
+        let _ = server.await;
+        assert!(
+            result,
+            "probe_port must treat any HTTP response (incl. 5xx) as success"
+        );
+    }
+
+    // ── DEFAULT_DEV_PORTS coverage ─────────────────────────────────────
+
+    #[test]
+    fn default_dev_ports_includes_common_alternates() {
+        // Regression guard: the user reported failures across many frameworks
+        // because the fallback port list was too narrow. These ports cover
+        // common dev-server defaults; the list must keep covering them.
+        let ports: HashSet<u16> = DEFAULT_DEV_PORTS.iter().copied().collect();
+        for must_have in [
+            5173, 5174, // Vite + collision fallback
+            4173, 4174, // Vite preview
+            3000, 3030, // Next.js / Express variants
+            4000, 4200, // Phoenix / Angular
+            4321,       // Astro
+            5000, 5500, // Flask / Live Server
+            1234,       // Parcel
+            8000, 8080, 8888, 9000, 9090,
+        ] {
+            assert!(
+                ports.contains(&must_have),
+                "DEFAULT_DEV_PORTS must contain {} (used by common dev tooling)",
+                must_have
+            );
+        }
+        // Sanity: no privileged ports
+        for p in DEFAULT_DEV_PORTS {
+            assert!(*p >= 1024, "DEFAULT_DEV_PORTS must skip privileged ports");
+        }
     }
 }

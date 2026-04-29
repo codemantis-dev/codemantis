@@ -4,7 +4,7 @@ import FileViewer from "./FileViewer";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { useSessionStore } from "../../stores/sessionStore";
 
-const PROJECT = "/tmp/project";
+const SESSION = "session-1";
 
 // Mock Monaco Editor — it requires a browser canvas context
 vi.mock("@monaco-editor/react", () => {
@@ -40,14 +40,14 @@ vi.mock("@monaco-editor/react", () => {
 
 function resetStore(): void {
   useFileViewerStore.setState({
-    projectOpenFiles: new Map(),
-    projectActiveFile: new Map(),
-    projectEditedContents: new Map(),
-    projectDirtyFiles: new Map(),
+    sessionOpenFiles: new Map(),
+    sessionActiveFile: new Map(),
+    sessionEditedContents: new Map(),
+    sessionDirtyFiles: new Map(),
   });
-  // Set an active project path so FileViewer can read per-project state
+  // Set an active session id so FileViewer can read per-session state
   useSessionStore.setState({
-    activeProjectPath: PROJECT,
+    activeSessionId: SESSION,
   });
 }
 
@@ -63,7 +63,7 @@ describe("FileViewer", () => {
   });
 
   it("renders file name in header and tab", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/src/main.rs",
       fileName: "main.rs",
       language: "rust",
@@ -79,7 +79,7 @@ describe("FileViewer", () => {
   });
 
   it("renders extension badge", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/src/app.tsx",
       fileName: "app.tsx",
       language: "typescript",
@@ -93,7 +93,7 @@ describe("FileViewer", () => {
   });
 
   it("renders file size for normal files", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/data.json",
       fileName: "data.json",
       language: "json",
@@ -107,7 +107,7 @@ describe("FileViewer", () => {
   });
 
   it("renders Monaco editor with file content", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/test.py",
       fileName: "test.py",
       language: "python",
@@ -124,7 +124,7 @@ describe("FileViewer", () => {
   });
 
   it("renders DiffEditor for diff mode", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -147,7 +147,7 @@ describe("FileViewer", () => {
   });
 
   it("shows diff summary (+N -M) for diff files", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -165,7 +165,7 @@ describe("FileViewer", () => {
   });
 
   it("renders multiple tabs when multiple files are open", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -174,7 +174,7 @@ describe("FileViewer", () => {
       content: "a",
       isDiff: false,
     });
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/b.rs",
       fileName: "b.rs",
       language: "rust",
@@ -192,7 +192,7 @@ describe("FileViewer", () => {
   });
 
   it("renders word wrap toggle button", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -208,7 +208,7 @@ describe("FileViewer", () => {
 
   it("renders side-by-side toggle only in diff mode", () => {
     // Normal mode — no side-by-side button
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -224,7 +224,7 @@ describe("FileViewer", () => {
     resetStore();
 
     // Diff mode — has side-by-side button
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",
@@ -242,7 +242,7 @@ describe("FileViewer", () => {
   });
 
   it("does not show file size for diff files", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/a.ts",
       fileName: "a.ts",
       language: "typescript",

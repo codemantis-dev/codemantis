@@ -160,10 +160,10 @@ export function resetAllStores(): void {
   });
 
   useFileViewerStore.setState({
-    projectOpenFiles: new Map(),
-    projectActiveFile: new Map(),
-    projectEditedContents: new Map(),
-    projectDirtyFiles: new Map(),
+    sessionOpenFiles: new Map(),
+    sessionActiveFile: new Map(),
+    sessionEditedContents: new Map(),
+    sessionDirtyFiles: new Map(),
   });
 
   useSettingsStore.setState({

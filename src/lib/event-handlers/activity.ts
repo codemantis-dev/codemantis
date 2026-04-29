@@ -117,39 +117,35 @@ function handleToolUseStart(
       // didn't include the plan text (older versions).
       const planFilePath = directPlanFilePath ?? uiState.planCompleteFilePath;
       if (planFilePath) {
-        const session = sessionStore.sessions.get(sessionId);
-        const projectPath = session?.project_path;
-        if (projectPath) {
-          const fileName = planFilePath.split("/").pop() ?? planFilePath;
-          if (directPlanContent) {
-            useFileViewerStore.getState().openFile(projectPath, {
-              filePath: planFilePath,
-              fileName,
-              language: "markdown",
-              extension: "md",
-              fileSize: new Blob([directPlanContent]).size,
-              content: directPlanContent,
-              isDiff: false,
-            });
-            useUiStore.getState().setRightTab("files");
-          } else {
-            import("../tauri-commands").then(({ readFileContent }) => {
-              readFileContent(planFilePath).then((content) => {
-                useFileViewerStore.getState().openFile(projectPath, {
-                  filePath: planFilePath,
-                  fileName,
-                  language: "markdown",
-                  extension: "md",
-                  fileSize: new Blob([content]).size,
-                  content,
-                  isDiff: false,
-                });
-                useUiStore.getState().setRightTab("files");
-              }).catch((e) => {
-                console.error("Failed to auto-open plan file:", e);
+        const fileName = planFilePath.split("/").pop() ?? planFilePath;
+        if (directPlanContent) {
+          useFileViewerStore.getState().openFile(sessionId, {
+            filePath: planFilePath,
+            fileName,
+            language: "markdown",
+            extension: "md",
+            fileSize: new Blob([directPlanContent]).size,
+            content: directPlanContent,
+            isDiff: false,
+          });
+          useUiStore.getState().setRightTab("files");
+        } else {
+          import("../tauri-commands").then(({ readFileContent }) => {
+            readFileContent(planFilePath).then((content) => {
+              useFileViewerStore.getState().openFile(sessionId, {
+                filePath: planFilePath,
+                fileName,
+                language: "markdown",
+                extension: "md",
+                fileSize: new Blob([content]).size,
+                content,
+                isDiff: false,
               });
+              useUiStore.getState().setRightTab("files");
+            }).catch((e) => {
+              console.error("Failed to auto-open plan file:", e);
             });
-          }
+          });
         }
       }
     }
@@ -281,15 +277,13 @@ function handleToolResult(
   }
 
   // Auto-open file when Write or Edit tool completes successfully
-  // Only auto-switch tab for the active session's project
+  // Only auto-switch tab for the active session
   if (!event.is_error && useSettingsStore.getState().settings.autoOpenFiles) {
     const isActiveSession = sessionId === sessionStore.activeSessionId;
     const isMainSession = sessionStore.sessions.has(sessionId);
-    const session = sessionStore.sessions.get(sessionId);
-    const projectPath = session?.project_path;
     const entries = activityStore.getActiveEntries(sessionId);
     const entry = entries.find((e) => e.toolUseId === event.tool_use_id);
-    if (entry && projectPath) {
+    if (entry && isMainSession) {
       const toolName = entry.toolName;
       const filePath = entry.toolInput.file_path as string | undefined;
       if (filePath && (toolName === "Write" || toolName === "Edit")) {
@@ -301,7 +295,7 @@ function handleToolResult(
         import("../tauri-commands").then(({ readFileContent }) => {
           readFileContent(filePath).then((content) => {
             const hasDiffData = cachedOldContent !== undefined;
-            useFileViewerStore.getState().openFile(projectPath, {
+            useFileViewerStore.getState().openFile(sessionId, {
               filePath,
               fileName,
               language,
@@ -312,7 +306,7 @@ function handleToolResult(
               oldContent: hasDiffData ? cachedOldContent : undefined,
               newContent: hasDiffData ? content : undefined,
             });
-            if (isMainSession && isActiveSession) {
+            if (isActiveSession) {
               useUiStore.getState().setRightTab("files");
             }
           }).catch(() => {

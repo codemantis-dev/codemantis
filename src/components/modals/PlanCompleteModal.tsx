@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardCheck, X } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
-import { useSessionStore } from "../../stores/sessionStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { implementPendingPlan } from "../../lib/plan-actions";
 
@@ -27,11 +26,7 @@ export default function PlanCompleteModal() {
 
   const handleRevealPlanFile = useCallback(() => {
     if (!planFilePath || !sessionId) return;
-    const session = useSessionStore.getState().sessions.get(sessionId);
-    const projectPath = session?.project_path;
-    if (projectPath) {
-      useFileViewerStore.getState().setActiveFile(projectPath, planFilePath);
-    }
+    useFileViewerStore.getState().setActiveFile(sessionId, planFilePath);
     useUiStore.getState().setRightTab("files");
     setShowModal(false);
   }, [planFilePath, sessionId, setShowModal]);

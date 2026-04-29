@@ -48,10 +48,10 @@ function resetStores(): void {
   });
 
   useFileViewerStore.setState({
-    projectOpenFiles: new Map(),
-    projectActiveFile: new Map(),
-    projectEditedContents: new Map(),
-    projectDirtyFiles: new Map(),
+    sessionOpenFiles: new Map(),
+    sessionActiveFile: new Map(),
+    sessionEditedContents: new Map(),
+    sessionDirtyFiles: new Map(),
   });
 
   useUiStore.setState({
@@ -254,7 +254,7 @@ describe("event-classifier: auto-open on Write/Edit", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // File viewer should NOT have been opened
-    const openFiles = useFileViewerStore.getState().projectOpenFiles.get(PROJECT_PATH) ?? [];
+    const openFiles = useFileViewerStore.getState().sessionOpenFiles.get(SESSION_ID) ?? [];
     expect(openFiles).toHaveLength(0);
   });
 

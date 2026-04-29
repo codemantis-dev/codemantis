@@ -171,12 +171,18 @@ export default function FileTreeContextMenu({
 
     try {
       await deleteFile(node.path);
-      // Clean up FileViewer if the deleted file/folder has open tabs
-      const store = useFileViewerStore.getState();
-      const openFiles = store.projectOpenFiles.get(projectPath) ?? [];
-      for (const tab of openFiles) {
-        if (tab.filePath === node.path || tab.filePath.startsWith(node.path + "/")) {
-          store.closeFile(projectPath, tab.filePath);
+      // Clean up FileViewer if the deleted file/folder has open tabs.
+      // FileViewer state is keyed by sessionId, so close the path across
+      // every session that belongs to this project.
+      const fvStore = useFileViewerStore.getState();
+      const sessions = useSessionStore.getState().sessions;
+      for (const session of sessions.values()) {
+        if (session.project_path !== projectPath) continue;
+        const openFiles = fvStore.sessionOpenFiles.get(session.id) ?? [];
+        for (const tab of openFiles) {
+          if (tab.filePath === node.path || tab.filePath.startsWith(node.path + "/")) {
+            fvStore.closeFile(session.id, tab.filePath);
+          }
         }
       }
       onRefresh();

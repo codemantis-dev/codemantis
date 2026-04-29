@@ -28,8 +28,8 @@ interface UseFileViewerReturn {
 
 export function useFileViewer(): UseFileViewerReturn {
   const openFile = useCallback(async (filePath: string) => {
-    const projectPath = useSessionStore.getState().activeProjectPath;
-    if (!projectPath) return;
+    const sessionId = useSessionStore.getState().activeSessionId;
+    if (!sessionId) return;
 
     const extension = getExtension(filePath);
     const mimeType = IMAGE_EXTENSIONS[extension];
@@ -58,7 +58,7 @@ export function useFileViewer(): UseFileViewerReturn {
       const fileName = filePath.split("/").pop() ?? filePath;
       const language = getLanguageFromPath(filePath);
 
-      useFileViewerStore.getState().openFile(projectPath, {
+      useFileViewerStore.getState().openFile(sessionId, {
         filePath,
         fileName,
         language,
@@ -75,13 +75,13 @@ export function useFileViewer(): UseFileViewerReturn {
 
   const openDiff = useCallback(
     (filePath: string, oldContent: string, newContent: string) => {
-      const projectPath = useSessionStore.getState().activeProjectPath;
-      if (!projectPath) return;
+      const sessionId = useSessionStore.getState().activeSessionId;
+      if (!sessionId) return;
       const fileName = filePath.split("/").pop() ?? filePath;
       const language = getLanguageFromPath(filePath);
       const extension = getExtension(filePath);
 
-      useFileViewerStore.getState().openFile(projectPath, {
+      useFileViewerStore.getState().openFile(sessionId, {
         filePath,
         fileName,
         language,

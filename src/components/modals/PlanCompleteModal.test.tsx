@@ -134,7 +134,7 @@ describe("PlanCompleteModal", () => {
     render(<PlanCompleteModal />);
     fireEvent.click(screen.getByText("jazzy-prancing-wilkes.md"));
     expect(setActiveFile).toHaveBeenCalledWith(
-      "/Users/hr/project",
+      "s1",
       "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
     );
     expect(setRightTab).toHaveBeenCalledWith("files");

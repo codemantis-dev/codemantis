@@ -1,12 +1,26 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Globe } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { usePreviewStore } from "../../stores/previewStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { DevServerProgressEvent } from "../../types/preview";
+
+interface ProgressLine {
+  id: number;
+  text: string;
+}
+
+const MAX_LINES = 3;
 
 /**
  * Non-interactive modal shown while the dev server is starting and
  * CodeMantis is scanning for the port.  Dismisses automatically once
  * the preview window opens (status moves to "running") or on error.
+ *
+ * Streams a 3-line transcript of detection progress (terminal scan,
+ * lsof discovery, port probes) so users can see *why* a slow start is
+ * slow instead of staring at an opaque spinner.
  */
 export default function PreviewLoadingModal() {
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
@@ -17,6 +31,43 @@ export default function PreviewLoadingModal() {
   const open =
     devServer?.status === "starting" || devServer?.status === "scanning";
 
+  const [lines, setLines] = useState<ProgressLine[]>([]);
+  const idRef = useRef(0);
+
+  // Subscribe to progress events for the active project. Reset transcript
+  // when the modal closes so the next start begins fresh.
+  useEffect(() => {
+    if (!open || !activeProjectPath) {
+      setLines([]);
+      return;
+    }
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<DevServerProgressEvent>("dev-server-progress", (e) => {
+      if (e.payload.projectPath !== activeProjectPath) return;
+      const text = e.payload.message;
+      idRef.current += 1;
+      const id = idRef.current;
+      setLines((prev) => {
+        // Drop consecutive duplicates so noisy probes don't spam the UI
+        if (prev[prev.length - 1]?.text === text) return prev;
+        return [...prev, { id, text }].slice(-MAX_LINES);
+      });
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [open, activeProjectPath]);
+
   if (!open) return null;
 
   return (
@@ -24,7 +75,7 @@ export default function PreviewLoadingModal() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[360px] rounded-xl border border-border p-6"
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] rounded-xl border border-border p-6"
           style={{ background: "var(--bg-primary)" }}
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
@@ -54,6 +105,28 @@ export default function PreviewLoadingModal() {
                 }}
               />
             </div>
+
+            {/* Progress transcript */}
+            {lines.length > 0 && (
+              <div
+                className="w-full mt-2 px-3 py-2 rounded-md text-left text-text-dim font-mono text-xs leading-snug"
+                style={{
+                  background: "var(--bg-elevated)",
+                  minHeight: `${MAX_LINES * 1.25}rem`,
+                }}
+                aria-live="polite"
+              >
+                {lines.map((line) => (
+                  <div
+                    key={line.id}
+                    className="truncate"
+                    title={line.text}
+                  >
+                    {line.text}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <style>{`

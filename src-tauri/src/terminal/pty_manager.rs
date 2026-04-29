@@ -500,6 +500,16 @@ impl TerminalPool {
         let st = self.session_terminals.lock().await;
         st.get(session_id).cloned().unwrap_or_default()
     }
+
+    /// Returns the OS PID of the dev-server child shell for the given terminal,
+    /// or `None` if the terminal is not a dev-server PTY (regular interactive
+    /// shells don't track a PID) or doesn't exist. Used by the preview port
+    /// detector to query `lsof` directly against the subprocess as a parallel
+    /// fallback when terminal-output regex matching is slow or fails.
+    pub async fn get_devserver_pid(&self, terminal_id: &str) -> Option<u32> {
+        let terminals = self.terminals.lock().await;
+        terminals.get(terminal_id).and_then(|p| p.devserver_pgid)
+    }
 }
 
 #[cfg(test)]

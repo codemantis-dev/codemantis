@@ -13,19 +13,19 @@ export interface FileViewerTab {
 }
 
 interface FileViewerState {
-  projectOpenFiles: Map<string, FileViewerTab[]>;          // projectPath → tabs
-  projectActiveFile: Map<string, string | null>;           // projectPath → active file
-  projectEditedContents: Map<string, Map<string, string>>; // projectPath → (filePath → content)
-  projectDirtyFiles: Map<string, Set<string>>;             // projectPath → dirty set
+  sessionOpenFiles: Map<string, FileViewerTab[]>;          // sessionId → tabs
+  sessionActiveFile: Map<string, string | null>;           // sessionId → active file
+  sessionEditedContents: Map<string, Map<string, string>>; // sessionId → (filePath → content)
+  sessionDirtyFiles: Map<string, Set<string>>;             // sessionId → dirty set
 
-  openFile: (projectPath: string, tab: FileViewerTab) => void;
-  closeFile: (projectPath: string, filePath: string) => void;
-  setActiveFile: (projectPath: string, filePath: string) => void;
-  setEditedContent: (projectPath: string, filePath: string, content: string) => void;
-  markSaved: (projectPath: string, filePath: string) => void;
-  toggleFileDiff: (projectPath: string, filePath: string) => void;
-  closeAllFiles: (projectPath: string) => void;
-  clearProject: (projectPath: string) => void;
+  openFile: (sessionId: string, tab: FileViewerTab) => void;
+  closeFile: (sessionId: string, filePath: string) => void;
+  setActiveFile: (sessionId: string, filePath: string) => void;
+  setEditedContent: (sessionId: string, filePath: string, content: string) => void;
+  markSaved: (sessionId: string, filePath: string) => void;
+  toggleFileDiff: (sessionId: string, filePath: string) => void;
+  closeAllFiles: (sessionId: string) => void;
+  clearSession: (sessionId: string) => void;
 }
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -106,107 +106,107 @@ export function getLanguageFromPath(filePath: string): string {
 }
 
 export const useFileViewerStore = create<FileViewerState>((set, get) => ({
-  projectOpenFiles: new Map(),
-  projectActiveFile: new Map(),
-  projectEditedContents: new Map(),
-  projectDirtyFiles: new Map(),
+  sessionOpenFiles: new Map(),
+  sessionActiveFile: new Map(),
+  sessionEditedContents: new Map(),
+  sessionDirtyFiles: new Map(),
 
-  openFile: (projectPath, tab) =>
+  openFile: (sessionId, tab) =>
     set((state) => {
-      const openFiles = [...(state.projectOpenFiles.get(projectPath) ?? [])];
+      const openFiles = [...(state.sessionOpenFiles.get(sessionId) ?? [])];
       const existing = openFiles.findIndex((f) => f.filePath === tab.filePath);
       if (existing >= 0) {
         openFiles[existing] = tab;
       } else {
         openFiles.push(tab);
       }
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.set(projectPath, openFiles);
-      const projectActiveFile = new Map(state.projectActiveFile);
-      projectActiveFile.set(projectPath, tab.filePath);
-      return { projectOpenFiles, projectActiveFile };
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.set(sessionId, openFiles);
+      const sessionActiveFile = new Map(state.sessionActiveFile);
+      sessionActiveFile.set(sessionId, tab.filePath);
+      return { sessionOpenFiles, sessionActiveFile };
     }),
 
-  closeFile: (projectPath, filePath) =>
+  closeFile: (sessionId, filePath) =>
     set((state) => {
-      const openFiles = (state.projectOpenFiles.get(projectPath) ?? []).filter(
+      const openFiles = (state.sessionOpenFiles.get(sessionId) ?? []).filter(
         (f) => f.filePath !== filePath
       );
-      const editedContents = new Map<string, string>(state.projectEditedContents.get(projectPath) ?? new Map());
+      const editedContents = new Map<string, string>(state.sessionEditedContents.get(sessionId) ?? new Map());
       editedContents.delete(filePath);
-      const dirtyFiles = new Set<string>(state.projectDirtyFiles.get(projectPath) ?? new Set());
+      const dirtyFiles = new Set<string>(state.sessionDirtyFiles.get(sessionId) ?? new Set());
       dirtyFiles.delete(filePath);
 
-      let activeFilePath = state.projectActiveFile.get(projectPath) ?? null;
+      let activeFilePath = state.sessionActiveFile.get(sessionId) ?? null;
       if (activeFilePath === filePath) {
         activeFilePath = openFiles.length > 0 ? openFiles[openFiles.length - 1].filePath : null;
       }
 
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.set(projectPath, openFiles);
-      const projectActiveFile = new Map(state.projectActiveFile);
-      projectActiveFile.set(projectPath, activeFilePath);
-      const projectEditedContents = new Map(state.projectEditedContents);
-      projectEditedContents.set(projectPath, editedContents);
-      const projectDirtyFiles = new Map(state.projectDirtyFiles);
-      projectDirtyFiles.set(projectPath, dirtyFiles);
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.set(sessionId, openFiles);
+      const sessionActiveFile = new Map(state.sessionActiveFile);
+      sessionActiveFile.set(sessionId, activeFilePath);
+      const sessionEditedContents = new Map(state.sessionEditedContents);
+      sessionEditedContents.set(sessionId, editedContents);
+      const sessionDirtyFiles = new Map(state.sessionDirtyFiles);
+      sessionDirtyFiles.set(sessionId, dirtyFiles);
 
-      return { projectOpenFiles, projectActiveFile, projectEditedContents, projectDirtyFiles };
+      return { sessionOpenFiles, sessionActiveFile, sessionEditedContents, sessionDirtyFiles };
     }),
 
-  setActiveFile: (projectPath, filePath) => {
+  setActiveFile: (sessionId, filePath) => {
     const state = get();
-    const openFiles = state.projectOpenFiles.get(projectPath) ?? [];
+    const openFiles = state.sessionOpenFiles.get(sessionId) ?? [];
     if (openFiles.some((f) => f.filePath === filePath)) {
-      const projectActiveFile = new Map(state.projectActiveFile);
-      projectActiveFile.set(projectPath, filePath);
-      set({ projectActiveFile });
+      const sessionActiveFile = new Map(state.sessionActiveFile);
+      sessionActiveFile.set(sessionId, filePath);
+      set({ sessionActiveFile });
     }
   },
 
-  setEditedContent: (projectPath, filePath, content) =>
+  setEditedContent: (sessionId, filePath, content) =>
     set((state) => {
-      const editedContents = new Map<string, string>(state.projectEditedContents.get(projectPath) ?? new Map());
+      const editedContents = new Map<string, string>(state.sessionEditedContents.get(sessionId) ?? new Map());
       editedContents.set(filePath, content);
-      const dirtyFiles = new Set<string>(state.projectDirtyFiles.get(projectPath) ?? new Set());
-      const openFiles = state.projectOpenFiles.get(projectPath) ?? [];
+      const dirtyFiles = new Set<string>(state.sessionDirtyFiles.get(sessionId) ?? new Set());
+      const openFiles = state.sessionOpenFiles.get(sessionId) ?? [];
       const tab = openFiles.find((f) => f.filePath === filePath);
       if (tab && content !== (tab.content ?? "")) {
         dirtyFiles.add(filePath);
       } else {
         dirtyFiles.delete(filePath);
       }
-      const projectEditedContents = new Map(state.projectEditedContents);
-      projectEditedContents.set(projectPath, editedContents);
-      const projectDirtyFiles = new Map(state.projectDirtyFiles);
-      projectDirtyFiles.set(projectPath, dirtyFiles);
-      return { projectEditedContents, projectDirtyFiles };
+      const sessionEditedContents = new Map(state.sessionEditedContents);
+      sessionEditedContents.set(sessionId, editedContents);
+      const sessionDirtyFiles = new Map(state.sessionDirtyFiles);
+      sessionDirtyFiles.set(sessionId, dirtyFiles);
+      return { sessionEditedContents, sessionDirtyFiles };
     }),
 
-  markSaved: (projectPath, filePath) =>
+  markSaved: (sessionId, filePath) =>
     set((state) => {
-      const dirtyFiles = new Set<string>(state.projectDirtyFiles.get(projectPath) ?? new Set());
+      const dirtyFiles = new Set<string>(state.sessionDirtyFiles.get(sessionId) ?? new Set());
       dirtyFiles.delete(filePath);
-      const editedContents = new Map<string, string>(state.projectEditedContents.get(projectPath) ?? new Map());
+      const editedContents = new Map<string, string>(state.sessionEditedContents.get(sessionId) ?? new Map());
       const savedContent = editedContents.get(filePath);
-      const openFiles = (state.projectOpenFiles.get(projectPath) ?? []).map((f) =>
+      const openFiles = (state.sessionOpenFiles.get(sessionId) ?? []).map((f) =>
         f.filePath === filePath && savedContent !== undefined
           ? { ...f, content: savedContent }
           : f
       );
 
-      const projectDirtyFiles = new Map(state.projectDirtyFiles);
-      projectDirtyFiles.set(projectPath, dirtyFiles);
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.set(projectPath, openFiles);
-      const projectEditedContents = new Map(state.projectEditedContents);
-      projectEditedContents.set(projectPath, editedContents);
-      return { projectDirtyFiles, projectOpenFiles, projectEditedContents };
+      const sessionDirtyFiles = new Map(state.sessionDirtyFiles);
+      sessionDirtyFiles.set(sessionId, dirtyFiles);
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.set(sessionId, openFiles);
+      const sessionEditedContents = new Map(state.sessionEditedContents);
+      sessionEditedContents.set(sessionId, editedContents);
+      return { sessionDirtyFiles, sessionOpenFiles, sessionEditedContents };
     }),
 
-  toggleFileDiff: (projectPath, filePath) =>
+  toggleFileDiff: (sessionId, filePath) =>
     set((state) => {
-      const openFiles = (state.projectOpenFiles.get(projectPath) ?? []).map((f) => {
+      const openFiles = (state.sessionOpenFiles.get(sessionId) ?? []).map((f) => {
         if (f.filePath !== filePath) return f;
         if (f.isDiff) {
           // Diff → Normal: show the new content as regular view
@@ -217,34 +217,34 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         }
         return f;
       });
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.set(projectPath, openFiles);
-      return { projectOpenFiles };
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.set(sessionId, openFiles);
+      return { sessionOpenFiles };
     }),
 
-  closeAllFiles: (projectPath) =>
+  closeAllFiles: (sessionId) =>
     set((state) => {
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.set(projectPath, []);
-      const projectActiveFile = new Map(state.projectActiveFile);
-      projectActiveFile.set(projectPath, null);
-      const projectEditedContents = new Map(state.projectEditedContents);
-      projectEditedContents.set(projectPath, new Map());
-      const projectDirtyFiles = new Map(state.projectDirtyFiles);
-      projectDirtyFiles.set(projectPath, new Set());
-      return { projectOpenFiles, projectActiveFile, projectEditedContents, projectDirtyFiles };
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.set(sessionId, []);
+      const sessionActiveFile = new Map(state.sessionActiveFile);
+      sessionActiveFile.set(sessionId, null);
+      const sessionEditedContents = new Map(state.sessionEditedContents);
+      sessionEditedContents.set(sessionId, new Map());
+      const sessionDirtyFiles = new Map(state.sessionDirtyFiles);
+      sessionDirtyFiles.set(sessionId, new Set());
+      return { sessionOpenFiles, sessionActiveFile, sessionEditedContents, sessionDirtyFiles };
     }),
 
-  clearProject: (projectPath) =>
+  clearSession: (sessionId) =>
     set((state) => {
-      const projectOpenFiles = new Map(state.projectOpenFiles);
-      projectOpenFiles.delete(projectPath);
-      const projectActiveFile = new Map(state.projectActiveFile);
-      projectActiveFile.delete(projectPath);
-      const projectEditedContents = new Map(state.projectEditedContents);
-      projectEditedContents.delete(projectPath);
-      const projectDirtyFiles = new Map(state.projectDirtyFiles);
-      projectDirtyFiles.delete(projectPath);
-      return { projectOpenFiles, projectActiveFile, projectEditedContents, projectDirtyFiles };
+      const sessionOpenFiles = new Map(state.sessionOpenFiles);
+      sessionOpenFiles.delete(sessionId);
+      const sessionActiveFile = new Map(state.sessionActiveFile);
+      sessionActiveFile.delete(sessionId);
+      const sessionEditedContents = new Map(state.sessionEditedContents);
+      sessionEditedContents.delete(sessionId);
+      const sessionDirtyFiles = new Map(state.sessionDirtyFiles);
+      sessionDirtyFiles.delete(sessionId);
+      return { sessionOpenFiles, sessionActiveFile, sessionEditedContents, sessionDirtyFiles };
     }),
 }));

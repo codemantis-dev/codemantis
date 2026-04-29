@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useFileViewerStore, getLanguageFromPath } from "./fileViewerStore";
 
-const PROJECT = "/tmp/project";
+const SESSION = "session-1";
 
 function makeTab(filePath: string, content: string = "content") {
   const fileName = filePath.split("/").pop() ?? filePath;
@@ -17,124 +17,124 @@ function makeTab(filePath: string, content: string = "content") {
   };
 }
 
-describe("fileViewerStore (per-project multi-tab)", () => {
+describe("fileViewerStore (per-session multi-tab)", () => {
   beforeEach(() => {
     useFileViewerStore.setState({
-      projectOpenFiles: new Map(),
-      projectActiveFile: new Map(),
-      projectEditedContents: new Map(),
-      projectDirtyFiles: new Map(),
+      sessionOpenFiles: new Map(),
+      sessionActiveFile: new Map(),
+      sessionEditedContents: new Map(),
+      sessionDirtyFiles: new Map(),
     });
   });
 
   it("starts with no files open", () => {
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.get(PROJECT) ?? []).toHaveLength(0);
-    expect(state.projectActiveFile.get(PROJECT) ?? null).toBeNull();
+    expect(state.sessionOpenFiles.get(SESSION) ?? []).toHaveLength(0);
+    expect(state.sessionActiveFile.get(SESSION) ?? null).toBeNull();
   });
 
   it("opens a file and sets it as active", () => {
     const tab = makeTab("/src/main.rs", "fn main() {}");
-    useFileViewerStore.getState().openFile(PROJECT, tab);
+    useFileViewerStore.getState().openFile(SESSION, tab);
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.get(PROJECT)).toHaveLength(1);
-    expect(state.projectActiveFile.get(PROJECT)).toBe("/src/main.rs");
-    expect(state.projectOpenFiles.get(PROJECT)![0].content).toBe("fn main() {}");
+    expect(state.sessionOpenFiles.get(SESSION)).toHaveLength(1);
+    expect(state.sessionActiveFile.get(SESSION)).toBe("/src/main.rs");
+    expect(state.sessionOpenFiles.get(SESSION)![0].content).toBe("fn main() {}");
   });
 
   it("opening same file twice focuses instead of duplicating", () => {
     const tab1 = makeTab("/src/main.rs", "v1");
     const tab2 = makeTab("/src/lib.ts", "v2");
-    useFileViewerStore.getState().openFile(PROJECT, tab1);
-    useFileViewerStore.getState().openFile(PROJECT, tab2);
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/src/lib.ts");
+    useFileViewerStore.getState().openFile(SESSION, tab1);
+    useFileViewerStore.getState().openFile(SESSION, tab2);
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/src/lib.ts");
 
     // Re-open first file — should not duplicate
     const tab1Updated = makeTab("/src/main.rs", "v1-updated");
-    useFileViewerStore.getState().openFile(PROJECT, tab1Updated);
+    useFileViewerStore.getState().openFile(SESSION, tab1Updated);
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.get(PROJECT)).toHaveLength(2);
-    expect(state.projectActiveFile.get(PROJECT)).toBe("/src/main.rs");
-    expect(state.projectOpenFiles.get(PROJECT)![0].content).toBe("v1-updated");
+    expect(state.sessionOpenFiles.get(SESSION)).toHaveLength(2);
+    expect(state.sessionActiveFile.get(SESSION)).toBe("/src/main.rs");
+    expect(state.sessionOpenFiles.get(SESSION)![0].content).toBe("v1-updated");
   });
 
   it("closes a file and cleans up state", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts", "a"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/b.rs", "b"));
-    useFileViewerStore.getState().closeFile(PROJECT, "/b.rs");
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts", "a"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/b.rs", "b"));
+    useFileViewerStore.getState().closeFile(SESSION, "/b.rs");
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.get(PROJECT)).toHaveLength(1);
-    expect(state.projectOpenFiles.get(PROJECT)![0].filePath).toBe("/a.ts");
+    expect(state.sessionOpenFiles.get(SESSION)).toHaveLength(1);
+    expect(state.sessionOpenFiles.get(SESSION)![0].filePath).toBe("/a.ts");
   });
 
   it("closing active tab switches to last remaining tab", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/b.rs"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/c.py"));
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/c.py");
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/b.rs"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/c.py"));
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/c.py");
 
-    useFileViewerStore.getState().closeFile(PROJECT, "/c.py");
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/b.rs");
+    useFileViewerStore.getState().closeFile(SESSION, "/c.py");
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/b.rs");
   });
 
   it("closing last tab sets activeFilePath to null", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().closeFile(PROJECT, "/a.ts");
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBeNull();
-    expect(useFileViewerStore.getState().projectOpenFiles.get(PROJECT)).toHaveLength(0);
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().closeFile(SESSION, "/a.ts");
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBeNull();
+    expect(useFileViewerStore.getState().sessionOpenFiles.get(SESSION)).toHaveLength(0);
   });
 
   it("dirty state is per-file", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts", "original-a"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/b.rs", "original-b"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts", "original-a"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/b.rs", "original-b"));
 
-    useFileViewerStore.getState().setEditedContent(PROJECT, "/a.ts", "modified-a");
-    const dirtyFiles = useFileViewerStore.getState().projectDirtyFiles.get(PROJECT)!;
+    useFileViewerStore.getState().setEditedContent(SESSION, "/a.ts", "modified-a");
+    const dirtyFiles = useFileViewerStore.getState().sessionDirtyFiles.get(SESSION)!;
     expect(dirtyFiles.has("/a.ts")).toBe(true);
     expect(dirtyFiles.has("/b.rs")).toBe(false);
   });
 
   it("markSaved clears dirty and updates tab content", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts", "original"));
-    useFileViewerStore.getState().setEditedContent(PROJECT, "/a.ts", "modified");
-    expect(useFileViewerStore.getState().projectDirtyFiles.get(PROJECT)!.has("/a.ts")).toBe(true);
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts", "original"));
+    useFileViewerStore.getState().setEditedContent(SESSION, "/a.ts", "modified");
+    expect(useFileViewerStore.getState().sessionDirtyFiles.get(SESSION)!.has("/a.ts")).toBe(true);
 
-    useFileViewerStore.getState().markSaved(PROJECT, "/a.ts");
+    useFileViewerStore.getState().markSaved(SESSION, "/a.ts");
     const state = useFileViewerStore.getState();
-    expect(state.projectDirtyFiles.get(PROJECT)!.has("/a.ts")).toBe(false);
-    expect(state.projectOpenFiles.get(PROJECT)![0].content).toBe("modified");
+    expect(state.sessionDirtyFiles.get(SESSION)!.has("/a.ts")).toBe(false);
+    expect(state.sessionOpenFiles.get(SESSION)![0].content).toBe("modified");
   });
 
   it("setActiveFile switches active tab", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/b.rs"));
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/b.rs");
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/b.rs"));
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/b.rs");
 
-    useFileViewerStore.getState().setActiveFile(PROJECT, "/a.ts");
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/a.ts");
+    useFileViewerStore.getState().setActiveFile(SESSION, "/a.ts");
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/a.ts");
   });
 
   it("setActiveFile ignores non-open paths", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().setActiveFile(PROJECT, "/nonexistent.ts");
-    expect(useFileViewerStore.getState().projectActiveFile.get(PROJECT)).toBe("/a.ts");
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().setActiveFile(SESSION, "/nonexistent.ts");
+    expect(useFileViewerStore.getState().sessionActiveFile.get(SESSION)).toBe("/a.ts");
   });
 
-  it("closeAllFiles resets everything for project", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/b.rs"));
-    useFileViewerStore.getState().setEditedContent(PROJECT, "/a.ts", "dirty");
-    useFileViewerStore.getState().closeAllFiles(PROJECT);
+  it("closeAllFiles resets everything for session", () => {
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/b.rs"));
+    useFileViewerStore.getState().setEditedContent(SESSION, "/a.ts", "dirty");
+    useFileViewerStore.getState().closeAllFiles(SESSION);
 
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.get(PROJECT)).toHaveLength(0);
-    expect(state.projectActiveFile.get(PROJECT)).toBeNull();
-    expect(state.projectEditedContents.get(PROJECT)!.size).toBe(0);
-    expect(state.projectDirtyFiles.get(PROJECT)!.size).toBe(0);
+    expect(state.sessionOpenFiles.get(SESSION)).toHaveLength(0);
+    expect(state.sessionActiveFile.get(SESSION)).toBeNull();
+    expect(state.sessionEditedContents.get(SESSION)!.size).toBe(0);
+    expect(state.sessionDirtyFiles.get(SESSION)!.size).toBe(0);
   });
 
   it("toggleFileDiff switches from diff to normal view", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/src/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -147,8 +147,8 @@ describe("fileViewerStore (per-project multi-tab)", () => {
     });
 
     // Toggle: diff → normal
-    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/lib.ts");
-    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    useFileViewerStore.getState().toggleFileDiff(SESSION, "/src/lib.ts");
+    const tab = useFileViewerStore.getState().sessionOpenFiles.get(SESSION)![0];
     expect(tab.isDiff).toBe(false);
     expect(tab.content).toBe("const a = 2;"); // newContent becomes content
     // Old/new content preserved for toggling back
@@ -157,7 +157,7 @@ describe("fileViewerStore (per-project multi-tab)", () => {
   });
 
   it("toggleFileDiff switches from normal back to diff view", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/src/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -170,21 +170,21 @@ describe("fileViewerStore (per-project multi-tab)", () => {
     });
 
     // Toggle: normal → diff (has oldContent + newContent)
-    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/lib.ts");
-    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    useFileViewerStore.getState().toggleFileDiff(SESSION, "/src/lib.ts");
+    const tab = useFileViewerStore.getState().sessionOpenFiles.get(SESSION)![0];
     expect(tab.isDiff).toBe(true);
   });
 
   it("toggleFileDiff does nothing for files without diff data", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/src/plain.ts", "content"));
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/src/plain.ts", "content"));
 
-    useFileViewerStore.getState().toggleFileDiff(PROJECT, "/src/plain.ts");
-    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    useFileViewerStore.getState().toggleFileDiff(SESSION, "/src/plain.ts");
+    const tab = useFileViewerStore.getState().sessionOpenFiles.get(SESSION)![0];
     expect(tab.isDiff).toBe(false); // unchanged
   });
 
   it("supports diff mode", () => {
-    useFileViewerStore.getState().openFile(PROJECT, {
+    useFileViewerStore.getState().openFile(SESSION, {
       filePath: "/src/lib.ts",
       fileName: "lib.ts",
       language: "typescript",
@@ -195,45 +195,61 @@ describe("fileViewerStore (per-project multi-tab)", () => {
       oldContent: "const a = 1;",
       newContent: "const a = 2;",
     });
-    const tab = useFileViewerStore.getState().projectOpenFiles.get(PROJECT)![0];
+    const tab = useFileViewerStore.getState().sessionOpenFiles.get(SESSION)![0];
     expect(tab.isDiff).toBe(true);
     expect(tab.oldContent).toBe("const a = 1;");
     expect(tab.newContent).toBe("const a = 2;");
   });
 
   it("closeFile cleans up editedContents and dirtyFiles for that path", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts", "original"));
-    useFileViewerStore.getState().setEditedContent(PROJECT, "/a.ts", "modified");
-    expect(useFileViewerStore.getState().projectDirtyFiles.get(PROJECT)!.has("/a.ts")).toBe(true);
-    expect(useFileViewerStore.getState().projectEditedContents.get(PROJECT)!.has("/a.ts")).toBe(true);
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts", "original"));
+    useFileViewerStore.getState().setEditedContent(SESSION, "/a.ts", "modified");
+    expect(useFileViewerStore.getState().sessionDirtyFiles.get(SESSION)!.has("/a.ts")).toBe(true);
+    expect(useFileViewerStore.getState().sessionEditedContents.get(SESSION)!.has("/a.ts")).toBe(true);
 
-    useFileViewerStore.getState().closeFile(PROJECT, "/a.ts");
-    expect(useFileViewerStore.getState().projectDirtyFiles.get(PROJECT)!.has("/a.ts")).toBe(false);
-    expect(useFileViewerStore.getState().projectEditedContents.get(PROJECT)!.has("/a.ts")).toBe(false);
+    useFileViewerStore.getState().closeFile(SESSION, "/a.ts");
+    expect(useFileViewerStore.getState().sessionDirtyFiles.get(SESSION)!.has("/a.ts")).toBe(false);
+    expect(useFileViewerStore.getState().sessionEditedContents.get(SESSION)!.has("/a.ts")).toBe(false);
   });
 
-  it("clearProject removes all data for a project", () => {
-    useFileViewerStore.getState().openFile(PROJECT, makeTab("/a.ts"));
-    useFileViewerStore.getState().setEditedContent(PROJECT, "/a.ts", "dirty");
-    useFileViewerStore.getState().clearProject(PROJECT);
+  it("clearSession removes all data for a session", () => {
+    useFileViewerStore.getState().openFile(SESSION, makeTab("/a.ts"));
+    useFileViewerStore.getState().setEditedContent(SESSION, "/a.ts", "dirty");
+    useFileViewerStore.getState().clearSession(SESSION);
 
     const state = useFileViewerStore.getState();
-    expect(state.projectOpenFiles.has(PROJECT)).toBe(false);
-    expect(state.projectActiveFile.has(PROJECT)).toBe(false);
-    expect(state.projectEditedContents.has(PROJECT)).toBe(false);
-    expect(state.projectDirtyFiles.has(PROJECT)).toBe(false);
+    expect(state.sessionOpenFiles.has(SESSION)).toBe(false);
+    expect(state.sessionActiveFile.has(SESSION)).toBe(false);
+    expect(state.sessionEditedContents.has(SESSION)).toBe(false);
+    expect(state.sessionDirtyFiles.has(SESSION)).toBe(false);
   });
 
-  it("isolates files between different projects", () => {
-    const projectA = "/projects/a";
-    const projectB = "/projects/b";
-    useFileViewerStore.getState().openFile(projectA, makeTab("/a.ts", "a-content"));
-    useFileViewerStore.getState().openFile(projectB, makeTab("/b.rs", "b-content"));
+  it("isolates files between different sessions (regression: same-project leak)", () => {
+    const sessionA = "session-A";
+    const sessionB = "session-B";
+    // Both sessions belong to the same project, but the store is keyed by
+    // sessionId — opening a file in A must not surface in B.
+    useFileViewerStore.getState().openFile(sessionA, makeTab("/a.ts", "a-content"));
+    useFileViewerStore.getState().openFile(sessionB, makeTab("/b.rs", "b-content"));
 
-    expect(useFileViewerStore.getState().projectOpenFiles.get(projectA)).toHaveLength(1);
-    expect(useFileViewerStore.getState().projectOpenFiles.get(projectB)).toHaveLength(1);
-    expect(useFileViewerStore.getState().projectActiveFile.get(projectA)).toBe("/a.ts");
-    expect(useFileViewerStore.getState().projectActiveFile.get(projectB)).toBe("/b.rs");
+    expect(useFileViewerStore.getState().sessionOpenFiles.get(sessionA)).toHaveLength(1);
+    expect(useFileViewerStore.getState().sessionOpenFiles.get(sessionB)).toHaveLength(1);
+    expect(useFileViewerStore.getState().sessionActiveFile.get(sessionA)).toBe("/a.ts");
+    expect(useFileViewerStore.getState().sessionActiveFile.get(sessionB)).toBe("/b.rs");
+  });
+
+  it("opening the same file path in two sessions tracks dirty state independently", () => {
+    const sessionA = "session-A";
+    const sessionB = "session-B";
+    useFileViewerStore.getState().openFile(sessionA, makeTab("/shared.ts", "original"));
+    useFileViewerStore.getState().openFile(sessionB, makeTab("/shared.ts", "original"));
+
+    useFileViewerStore.getState().setEditedContent(sessionA, "/shared.ts", "edited-in-A");
+
+    expect(useFileViewerStore.getState().sessionDirtyFiles.get(sessionA)!.has("/shared.ts")).toBe(true);
+    expect(useFileViewerStore.getState().sessionDirtyFiles.get(sessionB)?.has("/shared.ts") ?? false).toBe(false);
+    expect(useFileViewerStore.getState().sessionEditedContents.get(sessionA)!.get("/shared.ts")).toBe("edited-in-A");
+    expect(useFileViewerStore.getState().sessionEditedContents.get(sessionB)?.get("/shared.ts")).toBeUndefined();
   });
 });
 

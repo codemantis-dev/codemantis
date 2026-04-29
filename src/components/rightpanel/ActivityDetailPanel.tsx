@@ -143,15 +143,15 @@ export default function ActivityDetailPanel() {
     dismiss();
 
     // Then open in file viewer via direct store access (safe after unmount)
-    const projectPath = useSessionStore.getState().activeProjectPath;
-    if (!projectPath) return;
+    const sessionId = useSessionStore.getState().activeSessionId;
+    if (!sessionId) return;
 
     const fileName = fp.split("/").pop() ?? fp;
     const lang = getLanguageFromPath(fp);
     const ext = fp.split(".").pop()?.toLowerCase() ?? "";
 
     if (edit && os !== undefined && ns !== undefined) {
-      useFileViewerStore.getState().openFile(projectPath, {
+      useFileViewerStore.getState().openFile(sessionId, {
         filePath: fp,
         fileName,
         language: lang,
@@ -166,7 +166,7 @@ export default function ActivityDetailPanel() {
     } else {
       // Async file read — fire and forget safely
       readFileContent(fp).then((content) => {
-        useFileViewerStore.getState().openFile(projectPath, {
+        useFileViewerStore.getState().openFile(sessionId, {
           filePath: fp,
           fileName,
           language: lang,

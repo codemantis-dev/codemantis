@@ -9,6 +9,7 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -37,6 +38,20 @@ pub struct DevServerReadyEvent {
 pub struct DevServerErrorEvent {
     pub message: String,
     pub project_path: String,
+}
+
+/// Streamed during dev-server detection so the loading modal can show what is
+/// being attempted. Fired multiple times per detection run; consumers should
+/// render the latest message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevServerProgressEvent {
+    pub project_path: String,
+    /// One of: `"scanning"`, `"probing"`, `"retrying"`, `"lsof"`, `"range"`, `"waiting"`.
+    pub stage: String,
+    pub message: String,
+    #[serde(default)]
+    pub port: Option<u16>,
 }
 
 /// Write console error/warn entries to `log_dir/preview-console.log` as NDJSON.
@@ -812,6 +827,11 @@ pub async fn start_dev_server(
         }
     });
 
+    // The PTY child PID lets the lsof poller (Layer 1.5) ask the OS directly
+    // what ports the dev-server subprocess is listening on. This is the most
+    // reliable detection signal — it bypasses output parsing entirely.
+    let child_pid = terminal_pool.get_devserver_pid(&terminal_id).await;
+
     // Spawn port detection task
     let ah = app_handle.clone();
     let pp = project_path.clone();
@@ -821,300 +841,18 @@ pub async fn start_dev_server(
     let unlisten_ah = app_handle.clone();
 
     tokio::spawn(async move {
-        info!(
-            "[preview] Port detection task started for {} (terminal: {}, expected_port: {:?})",
-            pp, output_tid, expected_port
-        );
-
-        let mut rx = rx;
-        let timeout = tokio::time::Duration::from_secs(30);
-        let deadline = tokio::time::Instant::now() + timeout;
-
-        // Track ports reported as occupied (e.g. "Port 5173 is in use") so
-        // Layer 3 can skip stale servers on those ports.
-        let mut occupied_ports: HashSet<u16> = HashSet::new();
-
-        // Track ports already probed in Layer 1 to avoid probing the same
-        // dead port twice (e.g. port appears in both Local: and Network: lines).
-        let mut probed_ports: HashSet<u16> = HashSet::new();
-
-        // Detect PTY exit so we can short-circuit probe delays when the
-        // dev server process has already crashed.  The tx sender is held by
-        // the Tauri event listener, so rx.recv() never returns None on PTY close.
-        let pty_exited = Arc::new(AtomicBool::new(false));
-        let close_listener_id;
-        {
-            let flag = pty_exited.clone();
-            let close_tid = output_tid.clone();
-            // DevServerClosedEvent uses #[serde(rename_all = "camelCase")]
-            close_listener_id = ah.listen("dev-server-closed", move |event| {
-                #[derive(Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct Closed { terminal_id: String }
-                if let Ok(e) = serde_json::from_str::<Closed>(event.payload()) {
-                    if e.terminal_id == close_tid {
-                        flag.store(true, Ordering::Relaxed);
-                    }
-                }
-            });
-        }
-
-        // Helper: check if project was removed (stop_dev_server called)
-        let project_removed = || async {
-            let servers = dev_servers.lock().await;
-            !servers.contains_key(&pp)
-        };
-
-        // Layer 1: Scan terminal output for port patterns
-        let detected = loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                break false;
-            }
-
-            match tokio::time::timeout(remaining, rx.recv()).await {
-                Ok(Some(data)) => {
-                    for line in data.lines() {
-                        // Track ports mentioned in "in use" messages for Layer 3 exclusion
-                        if let Some(occ_port) = port_detector::extract_occupied_port(line) {
-                            occupied_ports.insert(occ_port);
-                        }
-
-                        if let Some((port, url)) = port_detector::scan_for_dev_server_url(line) {
-                            // Skip ports already probed (e.g. same port in Local: and Network: lines)
-                            if probed_ports.contains(&port) {
-                                debug!("[preview] Skipping already-probed port {} for {}", port, pp);
-                                continue;
-                            }
-                            // Skip ports known to be occupied by stale servers
-                            if occupied_ports.contains(&port) {
-                                debug!("[preview] Skipping occupied port {} for {}", port, pp);
-                                continue;
-                            }
-
-                            // Guard: project may have been closed during scanning
-                            if project_removed().await {
-                                debug!("Project {} was closed during port detection, skipping emit", pp);
-                                unlisten_ah.unlisten(listener_id);
-                                unlisten_ah.unlisten(close_listener_id);
-                                return;
-                            }
-
-                            probed_ports.insert(port);
-                            info!("Dev server candidate on port {} for {}, verifying...", port, pp);
-
-                            // Probe the port with retries — some frameworks (Next.js
-                            // Turbopack, fumadocs-mdx) print the URL before they actually
-                            // accept HTTP connections.  Under heavy system load the gap
-                            // can exceed 3 seconds. We retry up to 4 times with increasing
-                            // delays (total ~5.1 s max per detected port) while the overall
-                            // 30 s deadline still applies as the hard ceiling.
-                            let probe_delays_ms: &[u64] = &[300, 800, 1500, 2500];
-                            let mut probe_succeeded = false;
-
-                            for (attempt, &delay_ms) in probe_delays_ms.iter().enumerate() {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-
-                                // Short-circuit if the dev server process has already exited
-                                if pty_exited.load(Ordering::Relaxed) {
-                                    warn!(
-                                        "[preview] PTY exited, skipping remaining probes for port {} ({})",
-                                        port, pp
-                                    );
-                                    break;
-                                }
-
-                                // Guard: project may have been closed during the wait
-                                if project_removed().await {
-                                    debug!("Project {} was closed during port verification, skipping emit", pp);
-                                    unlisten_ah.unlisten(listener_id);
-                                    unlisten_ah.unlisten(close_listener_id);
-                                    return;
-                                }
-
-                                if port_detector::probe_port(port).await {
-                                    probe_succeeded = true;
-                                    break;
-                                }
-
-                                info!(
-                                    "[preview] Port {} probe attempt {}/{} failed for {}, retrying...",
-                                    port, attempt + 1, probe_delays_ms.len(), pp
-                                );
-                            }
-
-                            if !probe_succeeded {
-                                warn!(
-                                    "Dev server on port {} for {} failed all {} probe attempts, continuing scan",
-                                    port, pp, probe_delays_ms.len()
-                                );
-                                continue;
-                            }
-
-                            info!("Dev server confirmed on port {} for {}", port, pp);
-                            let mut servers = dev_servers.lock().await;
-                            if let Some(info) = servers.get_mut(&pp) {
-                                info.port = Some(port);
-                                info.url = Some(url.clone());
-                                info.status = DevServerStatus::Detected;
-                            }
-                            if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
-                                port,
-                                url,
-                                terminal_id: output_tid.clone(),
-                                project_path: pp.clone(),
-                            }) {
-                                warn!("[preview] Failed to emit dev-server-ready: {}", e);
-                            }
-                            unlisten_ah.unlisten(listener_id);
-                            unlisten_ah.unlisten(close_listener_id);
-                            return;
-                        }
-                    }
-                    // If the PTY has exited, no more output will arrive — stop waiting.
-                    if pty_exited.load(Ordering::Relaxed) {
-                        info!("[preview] PTY exited, breaking Layer 1 for {}", pp);
-                        break false;
-                    }
-                }
-                Ok(None) => {
-                    info!("[preview] Terminal output channel closed for {} before port detected", pp);
-                    break false;
-                }
-                Err(_) => {
-                    warn!("[preview] Port detection timed out after 30s for {}", pp);
-                    break false;
-                }
-            }
-        };
-
-        // Clean up terminal output listener — no longer needed after Layer 1
-        unlisten_ah.unlisten(listener_id);
-
-        if detected {
-            unlisten_ah.unlisten(close_listener_id);
-            return;
-        }
-
-        // Guard: project may have been closed during scanning
-        if project_removed().await {
-            debug!("Project {} was closed during port detection, aborting", pp);
-            return;
-        }
-
-        // Layer 2: Try probing the expected port from template
-        if let Some(port) = expected_port {
-            info!("Probing expected port {} for {}", port, pp);
-            {
-                let mut servers = dev_servers.lock().await;
-                if let Some(info) = servers.get_mut(&pp) {
-                    info.status = DevServerStatus::Probing;
-                }
-            }
-
-            for _ in 0..5 {
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-                // Guard: check project still exists before each probe
-                if project_removed().await {
-                    debug!("Project {} was closed during port probing, aborting", pp);
-                    return;
-                }
-
-                if port_detector::probe_port(port).await {
-                    let url = format!("http://localhost:{}", port);
-                    info!("Dev server confirmed on expected port {} for {}", port, pp);
-                    let mut servers = dev_servers.lock().await;
-                    if let Some(info) = servers.get_mut(&pp) {
-                        info.port = Some(port);
-                        info.url = Some(url.clone());
-                        info.status = DevServerStatus::Detected;
-                    }
-                    if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
-                        port,
-                        url,
-                        terminal_id: output_tid.clone(),
-                        project_path: pp.clone(),
-                    }) {
-                        warn!("[preview] Failed to emit dev-server-ready: {}", e);
-                    }
-                    unlisten_ah.unlisten(close_listener_id);
-                    return;
-                }
-            }
-        }
-
-        // Guard: check project still exists
-        if project_removed().await {
-            debug!("Project {} was closed before Layer 3, aborting", pp);
-            return;
-        }
-
-        // Layer 3: Last-resort port scan.  Targets depend on whether the
-        // dev-server PTY is still alive — see `layer3_targets` for rationale.
-        let pty_dead = pty_exited.load(Ordering::Relaxed);
-        let layer3 = layer3_targets(pty_dead, &occupied_ports, expected_port);
-
-        if layer3.probe_set.is_empty() {
-            info!(
-                "[preview] Layer 3 skipped for {} — pty_exited={}, no candidate ports",
-                pp, pty_dead
-            );
-        } else {
-            info!(
-                "[preview] Layer 3 ({}) for {}: probing {:?} (pty_exited={})",
-                layer3.label, pp, layer3.probe_set, pty_dead
-            );
-            if let Some((port, url)) =
-                port_detector::probe_port_range(&layer3.probe_set, &layer3.exclude).await
-            {
-                info!(
-                    "[preview] Layer 3 success: dev server on port {} for {} ({})",
-                    port, pp, layer3.label
-                );
-                let mut servers = dev_servers.lock().await;
-                if let Some(info) = servers.get_mut(&pp) {
-                    info.port = Some(port);
-                    info.url = Some(url.clone());
-                    info.status = DevServerStatus::Detected;
-                }
-                if let Err(e) = ah.emit("dev-server-ready", DevServerReadyEvent {
-                    port,
-                    url,
-                    terminal_id: output_tid.clone(),
-                    project_path: pp.clone(),
-                }) {
-                    warn!("[preview] Failed to emit dev-server-ready: {}", e);
-                }
-                unlisten_ah.unlisten(close_listener_id);
-                return;
-            }
-            info!(
-                "[preview] Layer 3 ({}) found nothing for {}",
-                layer3.label, pp
-            );
-        }
-
-        // Guard: one final check before emitting failure
-        if project_removed().await {
-            debug!("Project {} was closed, not emitting failure", pp);
-            return;
-        }
-
-        unlisten_ah.unlisten(close_listener_id);
-        warn!("Failed to detect dev server port for {} (terminal: {})", pp, output_tid);
-        {
-            let mut servers = dev_servers.lock().await;
-            if let Some(info) = servers.get_mut(&pp) {
-                info.status = DevServerStatus::Failed;
-            }
-        }
-        if let Err(e) = ah.emit("dev-server-error", DevServerErrorEvent {
-            message: "Could not detect dev server port. Try entering the URL manually.".to_string(),
-            project_path: pp,
-        }) {
-            warn!("[preview] Failed to emit dev-server-error: {}", e);
-        }
+        run_port_detection(
+            ah,
+            unlisten_ah,
+            dev_servers,
+            pp,
+            output_tid,
+            expected_port,
+            child_pid,
+            rx,
+            listener_id,
+        )
+        .await;
     });
 
     info!(
@@ -1122,6 +860,431 @@ pub async fn start_dev_server(
         project_path, terminal_id, synthetic_session_id
     );
     Ok(terminal_id)
+}
+
+// ── Dev-server port detection ────────────────────────────────────────────
+//
+// `run_port_detection` is the supervisor for a single dev-server start.
+// Four worker tasks race to identify the port the dev server is serving on:
+//
+//   * Layer 1 — output_worker:   parses `terminal-output-{id}` for URLs.
+//   * Layer 1.5 — lsof_worker:   queries `lsof -p <pid>` for bound TCP ports.
+//   * Layer 2 — expected_worker: probes the port from the project template.
+//   * Layer 3 — range_worker:    probes common dev-server ports (5173, 3000, …)
+//
+// Each worker, on finding a candidate port, spawns a `confirm_and_announce`
+// task that probes the port with backoff. The first task that gets a real
+// HTTP response wins — it pushes to `winner_tx`, the supervisor cancels every
+// other task, and `dev-server-ready` is emitted.
+//
+// Adaptive deadline: 90 s base, extended to `last_activity + 30 s` whenever
+// the PTY emits output, capped at 180 s. Silent dev servers fail at 90 s;
+// noisy slow-compile dev servers (Next.js + Turbopack on a cold disk) get the
+// extra runway because each output line resets the clock — the same way a
+// human waits when they can see the dev server still working.
+
+const DETECT_BASE_TIMEOUT_SECS: u64 = 90;
+const DETECT_MAX_TIMEOUT_SECS: u64 = 180;
+const DETECT_ACTIVITY_EXTENSION_SECS: u64 = 30;
+const DETECT_LSOF_POLL_MS: u64 = 1500;
+const DETECT_RANGE_POLL_MS: u64 = 2000;
+const DETECT_PROJECT_REMOVED_POLL_MS: u64 = 500;
+
+#[allow(clippy::too_many_arguments)]
+async fn run_port_detection(
+    ah: AppHandle,
+    unlisten_ah: AppHandle,
+    dev_servers: Arc<AsyncMutex<std::collections::HashMap<String, DevServerInfo>>>,
+    project_path: String,
+    terminal_id: String,
+    expected_port: Option<u16>,
+    child_pid: Option<u32>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<String>,
+    listener_id: tauri::EventId,
+) {
+    info!(
+        "[preview] Port detection task started for {} (terminal: {}, expected_port: {:?}, child_pid: {:?})",
+        project_path, terminal_id, expected_port, child_pid
+    );
+
+    let started_at = tokio::time::Instant::now();
+    let max_deadline = started_at + tokio::time::Duration::from_secs(DETECT_MAX_TIMEOUT_SECS);
+    let base_deadline = started_at + tokio::time::Duration::from_secs(DETECT_BASE_TIMEOUT_SECS);
+    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+    let occupied_ports: Arc<AsyncMutex<HashSet<u16>>> = Arc::new(AsyncMutex::new(HashSet::new()));
+    let pty_exited = Arc::new(AtomicBool::new(false));
+    let cancel = CancellationToken::new();
+
+    // Single channel; whichever worker probes a real HTTP response first wins.
+    let (winner_tx, mut winner_rx) =
+        tokio::sync::mpsc::unbounded_channel::<(u16, String, &'static str)>();
+
+    // PTY-exit listener — flips an atomic so the lsof worker (whose PID is
+    // gone after exit) can stop polling. Output and range workers continue
+    // because they're useful even after PTY death (orphan reconnect).
+    let close_listener_id = {
+        let flag = pty_exited.clone();
+        let close_tid = terminal_id.clone();
+        ah.listen("dev-server-closed", move |event| {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Closed {
+                terminal_id: String,
+            }
+            if let Ok(e) = serde_json::from_str::<Closed>(event.payload()) {
+                if e.terminal_id == close_tid {
+                    flag.store(true, Ordering::Relaxed);
+                }
+            }
+        })
+    };
+
+    // Project-removed watcher: when the user calls stop_dev_server (or
+    // start_dev_server's stale-state cleanup) removes the project from
+    // dev_servers, cancel everything. Cheap polling — we don't have a
+    // reactive signal on the HashMap.
+    {
+        let dev_servers = dev_servers.clone();
+        let project_path = project_path.clone();
+        let cancel_w = cancel.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel_w.cancelled() => return,
+                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(
+                        DETECT_PROJECT_REMOVED_POLL_MS,
+                    )) => {
+                        let removed = !dev_servers.lock().await.contains_key(&project_path);
+                        if removed {
+                            cancel_w.cancel();
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    let _ = ah.emit(
+        "dev-server-progress",
+        DevServerProgressEvent {
+            project_path: project_path.clone(),
+            stage: "scanning".into(),
+            message: "Scanning terminal output and ports for dev-server URL…".into(),
+            port: None,
+        },
+    );
+
+    // ── Worker A: terminal-output scanner ──────────────────────────────
+    {
+        let ah = ah.clone();
+        let project_path = project_path.clone();
+        let occupied_ports = occupied_ports.clone();
+        let cancel_w = cancel.clone();
+        let winner_tx = winner_tx.clone();
+        let last_activity_ms = last_activity_ms.clone();
+        let probed_ports: Arc<AsyncMutex<HashSet<u16>>> =
+            Arc::new(AsyncMutex::new(HashSet::new()));
+        let mut rx = rx;
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel_w.cancelled() => return,
+                    msg = rx.recv() => {
+                        let Some(data) = msg else { return; };
+                        let elapsed_ms = started_at.elapsed().as_millis() as u64;
+                        last_activity_ms.store(elapsed_ms, Ordering::Relaxed);
+                        for line in data.lines() {
+                            if let Some(occ) = port_detector::extract_occupied_port(line) {
+                                occupied_ports.lock().await.insert(occ);
+                            }
+                            if let Some((port, _url)) = port_detector::scan_for_dev_server_url(line) {
+                                let already = !probed_ports.lock().await.insert(port);
+                                if already { continue; }
+                                if occupied_ports.lock().await.contains(&port) { continue; }
+                                let _ = ah.emit("dev-server-progress", DevServerProgressEvent {
+                                    project_path: project_path.clone(),
+                                    stage: "probing".into(),
+                                    message: format!(
+                                        "Detected port {} in dev-server output, verifying…",
+                                        port
+                                    ),
+                                    port: Some(port),
+                                });
+                                spawn_confirmation(port, "output", winner_tx.clone(), cancel_w.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Worker B (Layer 1.5): lsof poller ──────────────────────────────
+    if let Some(pid) = child_pid {
+        let ah = ah.clone();
+        let project_path = project_path.clone();
+        let cancel_w = cancel.clone();
+        let winner_tx = winner_tx.clone();
+        let pty_exited = pty_exited.clone();
+        tokio::spawn(async move {
+            let mut probing: HashSet<u16> = HashSet::new();
+            loop {
+                tokio::select! {
+                    _ = cancel_w.cancelled() => return,
+                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(DETECT_LSOF_POLL_MS)) => {
+                        if pty_exited.load(Ordering::Relaxed) { return; }
+                        let ports = match tokio::task::spawn_blocking(move || {
+                            port_detector::scan_pid_ports(pid)
+                        }).await {
+                            Ok(p) => p,
+                            Err(_) => continue,
+                        };
+                        for port in ports {
+                            if !probing.insert(port) { continue; }
+                            let _ = ah.emit("dev-server-progress", DevServerProgressEvent {
+                                project_path: project_path.clone(),
+                                stage: "lsof".into(),
+                                message: format!(
+                                    "Dev-server process is listening on port {}, verifying…",
+                                    port
+                                ),
+                                port: Some(port),
+                            });
+                            spawn_confirmation(port, "lsof", winner_tx.clone(), cancel_w.clone());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ── Worker C (Layer 2): expected-port prober ───────────────────────
+    if let Some(port) = expected_port {
+        let ah = ah.clone();
+        let project_path = project_path.clone();
+        let cancel_w = cancel.clone();
+        let winner_tx = winner_tx.clone();
+        tokio::spawn(async move {
+            let _ = ah.emit("dev-server-progress", DevServerProgressEvent {
+                project_path: project_path.clone(),
+                stage: "probing".into(),
+                message: format!("Probing template-configured port {}…", port),
+                port: Some(port),
+            });
+            confirm_and_announce(port, "expected", winner_tx, cancel_w).await;
+        });
+    }
+
+    // ── Worker D (Layer 3): range scanner ──────────────────────────────
+    {
+        let ah = ah.clone();
+        let project_path = project_path.clone();
+        let occupied_ports = occupied_ports.clone();
+        let pty_exited = pty_exited.clone();
+        let cancel_w = cancel.clone();
+        let winner_tx = winner_tx.clone();
+        tokio::spawn(async move {
+            let mut probing: HashSet<u16> = HashSet::new();
+            loop {
+                tokio::select! {
+                    _ = cancel_w.cancelled() => return,
+                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(DETECT_RANGE_POLL_MS)) => {
+                        let occupied = occupied_ports.lock().await.clone();
+                        let pty_dead = pty_exited.load(Ordering::Relaxed);
+                        let plan = layer3_targets(pty_dead, &occupied, expected_port);
+                        for port in &plan.probe_set {
+                            if plan.exclude.contains(port) { continue; }
+                            if !probing.insert(*port) { continue; }
+                            let _ = ah.emit("dev-server-progress", DevServerProgressEvent {
+                                project_path: project_path.clone(),
+                                stage: "range".into(),
+                                message: format!(
+                                    "Probing common dev-server port {} ({})…",
+                                    port, plan.label
+                                ),
+                                port: Some(*port),
+                            });
+                            spawn_confirmation(*port, "range", winner_tx.clone(), cancel_w.clone());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Drop our handle so when every worker (and every spawned confirmation
+    // task) exits, recv() returns None — the supervisor's "all workers
+    // exhausted" branch.
+    drop(winner_tx);
+
+    // ── Supervisor: race winner against adaptive deadline ──────────────
+    loop {
+        let now = tokio::time::Instant::now();
+        let last_act_ms = last_activity_ms.load(Ordering::Relaxed);
+        let activity_extended = if last_act_ms > 0 {
+            started_at
+                + tokio::time::Duration::from_millis(last_act_ms)
+                + tokio::time::Duration::from_secs(DETECT_ACTIVITY_EXTENSION_SECS)
+        } else {
+            started_at
+        };
+        let effective_deadline = std::cmp::min(
+            std::cmp::max(base_deadline, activity_extended),
+            max_deadline,
+        );
+
+        if effective_deadline <= now {
+            cancel.cancel();
+            unlisten_ah.unlisten(listener_id);
+            unlisten_ah.unlisten(close_listener_id);
+            let still_active = dev_servers.lock().await.contains_key(&project_path);
+            if !still_active {
+                return;
+            }
+            warn!(
+                "Failed to detect dev server port for {} (terminal: {}, elapsed: {}s)",
+                project_path,
+                terminal_id,
+                started_at.elapsed().as_secs()
+            );
+            {
+                let mut servers = dev_servers.lock().await;
+                if let Some(info) = servers.get_mut(&project_path) {
+                    info.status = DevServerStatus::Failed;
+                }
+            }
+            if let Err(e) = ah.emit(
+                "dev-server-error",
+                DevServerErrorEvent {
+                    message: "Could not detect dev server port. Try entering the URL manually."
+                        .to_string(),
+                    project_path: project_path.clone(),
+                },
+            ) {
+                warn!("[preview] Failed to emit dev-server-error: {}", e);
+            }
+            return;
+        }
+
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                unlisten_ah.unlisten(listener_id);
+                unlisten_ah.unlisten(close_listener_id);
+                debug!("[preview] Detection cancelled for {}", project_path);
+                return;
+            }
+            msg = winner_rx.recv() => {
+                match msg {
+                    Some((port, url, source)) => {
+                        cancel.cancel();
+                        unlisten_ah.unlisten(listener_id);
+                        unlisten_ah.unlisten(close_listener_id);
+                        let still_active = dev_servers.lock().await.contains_key(&project_path);
+                        if !still_active {
+                            debug!("Project {} closed before emit; dropping winner", project_path);
+                            return;
+                        }
+                        info!(
+                            "Dev server confirmed on port {} for {} (source={}, elapsed={}s)",
+                            port,
+                            project_path,
+                            source,
+                            started_at.elapsed().as_secs()
+                        );
+                        {
+                            let mut servers = dev_servers.lock().await;
+                            if let Some(info) = servers.get_mut(&project_path) {
+                                info.port = Some(port);
+                                info.url = Some(url.clone());
+                                info.status = DevServerStatus::Detected;
+                            }
+                        }
+                        if let Err(e) = ah.emit(
+                            "dev-server-ready",
+                            DevServerReadyEvent {
+                                port,
+                                url,
+                                terminal_id: terminal_id.clone(),
+                                project_path: project_path.clone(),
+                            },
+                        ) {
+                            warn!("[preview] Failed to emit dev-server-ready: {}", e);
+                        }
+                        return;
+                    }
+                    None => {
+                        // All workers + spawned probes have exited. Loop to
+                        // recompute deadline; effective_deadline <= now will
+                        // fire the timeout branch on the next iteration.
+                        // Sleep briefly to avoid a hot loop in the rare case
+                        // recv() returns None but deadline isn't yet hit
+                        // (e.g. project just removed and cancel.cancelled()
+                        // arm hasn't fired yet).
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    }
+                }
+            }
+            _ = tokio::time::sleep_until(effective_deadline) => {
+                // Wake to recompute. If activity extended the deadline,
+                // we'll keep waiting; otherwise the next iteration's
+                // effective_deadline <= now check fires the timeout branch.
+            }
+        }
+    }
+}
+
+/// Spawn a fire-and-forget task that probes `port` until success/cancel.
+fn spawn_confirmation(
+    port: u16,
+    source: &'static str,
+    winner_tx: tokio::sync::mpsc::UnboundedSender<(u16, String, &'static str)>,
+    cancel: CancellationToken,
+) {
+    tokio::spawn(async move {
+        confirm_and_announce(port, source, winner_tx, cancel).await;
+    });
+}
+
+/// Probe `port` repeatedly until it serves an HTTP response or the
+/// supervisor cancels. Backoff: 200 ms → 5 s ceiling, persistent. Unlike
+/// the prior implementation, we never abandon a candidate — slow
+/// first-compile dev servers (Vite warming up its dep graph, Next.js +
+/// Turbopack on a cold disk) eventually respond, and the supervisor's
+/// adaptive deadline is what decides when "eventually" is too long.
+async fn confirm_and_announce(
+    port: u16,
+    source: &'static str,
+    winner_tx: tokio::sync::mpsc::UnboundedSender<(u16, String, &'static str)>,
+    cancel: CancellationToken,
+) {
+    const DELAYS_MS: [u64; 8] = [200, 500, 1000, 1500, 2500, 5000, 5000, 5000];
+    let mut idx: usize = 0;
+    loop {
+        if cancel.is_cancelled() {
+            return;
+        }
+        let delay = DELAYS_MS.get(idx).copied().unwrap_or(5000);
+        tokio::select! {
+            _ = cancel.cancelled() => return,
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(delay)) => {}
+        }
+        if cancel.is_cancelled() {
+            return;
+        }
+        if port_detector::probe_port(port).await {
+            let url = format!("http://localhost:{}", port);
+            // send() returning Err just means the supervisor already declared
+            // a winner — that's fine, we're cleaning up anyway.
+            if winner_tx.send((port, url, source)).is_err() {
+                return;
+            }
+            return;
+        }
+        idx = idx.saturating_add(1);
+    }
 }
 
 #[tauri::command]

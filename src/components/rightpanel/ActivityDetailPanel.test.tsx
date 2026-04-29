@@ -66,7 +66,7 @@ function showEntry(entry: ActivityEntry): void {
 describe("ActivityDetailPanel", () => {
   beforeEach(() => {
     useUiStore.setState({ selectedActivityEntry: null, rightTab: "activity" });
-    useSessionStore.setState({ activeProjectPath: "/project" });
+    useSessionStore.setState({ activeProjectPath: "/project", activeSessionId: "session-1" });
     mockReadFileContent.mockReset().mockResolvedValue("file content");
     mockRevealItemInDir.mockReset().mockResolvedValue(undefined);
   });
@@ -217,7 +217,7 @@ describe("ActivityDetailPanel", () => {
     // Should dismiss the panel
     expect(useUiStore.getState().selectedActivityEntry).toBeNull();
     // Should open diff in file viewer
-    expect(openFileSpy).toHaveBeenCalledWith("/project", expect.objectContaining({
+    expect(openFileSpy).toHaveBeenCalledWith("session-1", expect.objectContaining({
       filePath: "src/main.ts",
       isDiff: true,
       oldContent: "old",

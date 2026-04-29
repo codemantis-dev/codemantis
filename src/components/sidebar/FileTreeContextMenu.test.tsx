@@ -77,10 +77,10 @@ describe("FileTreeContextMenu", () => {
     useAttachmentStore.setState({ attachments: new Map() });
     useAssistantStore.setState({ projectAssistants: new Map(), activeAssistantId: new Map() });
     useFileViewerStore.setState({
-      projectOpenFiles: new Map(),
-      projectActiveFile: new Map(),
-      projectEditedContents: new Map(),
-      projectDirtyFiles: new Map(),
+      sessionOpenFiles: new Map(),
+      sessionActiveFile: new Map(),
+      sessionEditedContents: new Map(),
+      sessionDirtyFiles: new Map(),
     });
   });
 
@@ -264,8 +264,8 @@ describe("FileTreeContextMenu", () => {
 
   describe("delete cleanup", () => {
     it("closes open FileViewer tabs when deleting a file", async () => {
-      // Setup: file is open in FileViewer
-      useFileViewerStore.getState().openFile(PROJECT_PATH, {
+      // Setup: file is open in FileViewer (per-session keying — session "s1")
+      useFileViewerStore.getState().openFile("s1", {
         filePath: FILE_NODE.path,
         fileName: FILE_NODE.name,
         language: "typescript",
@@ -274,7 +274,7 @@ describe("FileTreeContextMenu", () => {
         content: "content",
         isDiff: false,
       });
-      expect(useFileViewerStore.getState().projectOpenFiles.get(PROJECT_PATH)).toHaveLength(1);
+      expect(useFileViewerStore.getState().sessionOpenFiles.get("s1")).toHaveLength(1);
 
       // Mock window.confirm
       vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -287,15 +287,15 @@ describe("FileTreeContextMenu", () => {
         expect(deleteFile).toHaveBeenCalledWith(FILE_NODE.path);
       });
 
-      // The tab should be closed
+      // The tab should be closed across all sessions in this project
       await vi.waitFor(() => {
-        expect(useFileViewerStore.getState().projectOpenFiles.get(PROJECT_PATH)).toHaveLength(0);
+        expect(useFileViewerStore.getState().sessionOpenFiles.get("s1")).toHaveLength(0);
       });
     });
 
     it("closes child tabs when deleting a folder", async () => {
       // Open a file that is inside the folder
-      useFileViewerStore.getState().openFile(PROJECT_PATH, {
+      useFileViewerStore.getState().openFile("s1", {
         filePath: "/project/src/main.ts",
         fileName: "main.ts",
         language: "typescript",
@@ -316,7 +316,7 @@ describe("FileTreeContextMenu", () => {
       });
 
       await vi.waitFor(() => {
-        expect(useFileViewerStore.getState().projectOpenFiles.get(PROJECT_PATH)).toHaveLength(0);
+        expect(useFileViewerStore.getState().sessionOpenFiles.get("s1")).toHaveLength(0);
       });
     });
 

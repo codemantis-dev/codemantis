@@ -79,6 +79,36 @@ fi
     Ok(script_path)
 }
 
+/// Diagnostic-only: open a per-session raw NDJSON log file when
+/// `CODEMANTIS_RAW_STREAM_LOG=1`. Returns `None` (silently) if the
+/// env var is unset or anything goes wrong — this must never break
+/// the CLI session.
+fn maybe_open_raw_stream_log(session_id: &str) -> Option<tokio::fs::File> {
+    if std::env::var("CODEMANTIS_RAW_STREAM_LOG").ok().as_deref() != Some("1") {
+        return None;
+    }
+    let dir = dirs::home_dir()?.join(".codemantis");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("[raw-stream-log] cannot create dir: {}", e);
+        return None;
+    }
+    let path = dir.join(format!("raw-stream-{}.jsonl", session_id));
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(std_file) => {
+            info!("[raw-stream-log] capturing CLI stdout to {}", path.display());
+            Some(tokio::fs::File::from_std(std_file))
+        }
+        Err(e) => {
+            warn!("[raw-stream-log] cannot open {}: {}", path.display(), e);
+            None
+        }
+    }
+}
+
 /// Ensure the title hook script exists at ~/.codemantis/title-hook.sh.
 /// This hook runs on UserPromptSubmit and sets the CLI session title
 /// from the first ~80 characters of the user's message.
@@ -440,9 +470,11 @@ impl ClaudeProcess {
             }
         });
 
-        // Stdout parser task
+        // Stdout parser task — optionally tee raw NDJSON to a per-session
+        // log file when CODEMANTIS_RAW_STREAM_LOG=1, for protocol diagnostics.
+        let raw_log = maybe_open_raw_stream_log(&session_id);
         tokio::spawn(async move {
-            parse_stream(stdout, event_tx).await;
+            parse_stream(stdout, event_tx, raw_log).await;
         });
 
         // Message router task

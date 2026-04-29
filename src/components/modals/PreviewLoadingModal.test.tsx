@@ -1,9 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import * as React from "react";
 import PreviewLoadingModal from "./PreviewLoadingModal";
 import { usePreviewStore } from "../../stores/previewStore";
 import { useSessionStore } from "../../stores/sessionStore";
+
+// Capture the latest registered "dev-server-progress" handler so tests can
+// fire fake events at it. The Tauri event bridge is replaced with this
+// minimal mock — the real implementation is exercised by the Rust side.
+type ProgressHandler = (e: { payload: unknown }) => void;
+const progressHandlers: ProgressHandler[] = [];
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(
+    async (_event: string, handler: ProgressHandler): Promise<() => void> => {
+      progressHandlers.push(handler);
+      return () => {
+        const idx = progressHandlers.indexOf(handler);
+        if (idx >= 0) progressHandlers.splice(idx, 1);
+      };
+    },
+  ),
+}));
 
 // Mock Radix Dialog portal to render inline
 vi.mock("@radix-ui/react-dialog", () => {
@@ -53,6 +70,7 @@ function resetStores(): void {
 describe("PreviewLoadingModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    progressHandlers.length = 0;
     resetStores();
   });
 
@@ -197,5 +215,101 @@ describe("PreviewLoadingModal", () => {
     });
     const { container } = render(<PreviewLoadingModal />);
     expect(container.innerHTML).toBe("");
+  });
+
+  // ── Progress transcript ───────────────────────────────────────────
+  // The transcript surfaces detection-stage messages so the user sees
+  // why a slow start is slow. Three rules matter:
+  //   - only events for the active project show up
+  //   - consecutive duplicate messages collapse (probe noise)
+  //   - the visible window is capped (oldest drops off)
+
+  function fireProgress(message: string, projectPath = PROJECT): void {
+    act(() => {
+      for (const h of progressHandlers) {
+        h({ payload: { projectPath, stage: "probing", message, port: null } });
+      }
+    });
+  }
+
+  it("renders progress transcript lines for the active project", async () => {
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: null,
+      url: null,
+      status: "scanning",
+    });
+    render(<PreviewLoadingModal />);
+
+    // The listener registers asynchronously inside useEffect's then() —
+    // wait for it before firing events.
+    await waitFor(() => expect(progressHandlers.length).toBeGreaterThan(0));
+
+    fireProgress("Scanning terminal output…");
+    fireProgress("Detected port 5173, verifying…");
+
+    expect(screen.getByText(/Scanning terminal output/)).toBeTruthy();
+    expect(screen.getByText(/Detected port 5173/)).toBeTruthy();
+  });
+
+  it("ignores progress events for other projects", async () => {
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: null,
+      url: null,
+      status: "scanning",
+    });
+    render(<PreviewLoadingModal />);
+    await waitFor(() => expect(progressHandlers.length).toBeGreaterThan(0));
+
+    fireProgress("Stale event from other project", "/some/other/project");
+
+    expect(screen.queryByText(/Stale event/)).toBeNull();
+  });
+
+  it("collapses consecutive duplicate messages", async () => {
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: null,
+      url: null,
+      status: "scanning",
+    });
+    render(<PreviewLoadingModal />);
+    await waitFor(() => expect(progressHandlers.length).toBeGreaterThan(0));
+
+    fireProgress("Probing port 5173…");
+    fireProgress("Probing port 5173…");
+    fireProgress("Probing port 5173…");
+
+    // Only one transcript row even though the event fired three times.
+    const matches = screen.getAllByText(/Probing port 5173/);
+    expect(matches).toHaveLength(1);
+  });
+
+  it("caps the transcript at three visible lines", async () => {
+    usePreviewStore.getState().setDevServer(PROJECT, {
+      terminalId: "term-1",
+      sessionId: "devserver-abc",
+      port: null,
+      url: null,
+      status: "scanning",
+    });
+    render(<PreviewLoadingModal />);
+    await waitFor(() => expect(progressHandlers.length).toBeGreaterThan(0));
+
+    fireProgress("line 1");
+    fireProgress("line 2");
+    fireProgress("line 3");
+    fireProgress("line 4");
+    fireProgress("line 5");
+
+    expect(screen.queryByText("line 1")).toBeNull();
+    expect(screen.queryByText("line 2")).toBeNull();
+    expect(screen.getByText("line 3")).toBeTruthy();
+    expect(screen.getByText("line 4")).toBeTruthy();
+    expect(screen.getByText("line 5")).toBeTruthy();
   });
 });

@@ -31,3 +31,18 @@ export interface DevServerErrorEvent {
   message: string;
   projectPath: string;
 }
+
+export type DevServerProgressStage =
+  | "scanning"
+  | "probing"
+  | "retrying"
+  | "lsof"
+  | "range"
+  | "waiting";
+
+export interface DevServerProgressEvent {
+  projectPath: string;
+  stage: DevServerProgressStage;
+  message: string;
+  port?: number | null;
+}

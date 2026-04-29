@@ -534,7 +534,7 @@ describe("activity event handler", () => {
       await vi.waitFor(() => {
         // openFile is called on the store instance obtained inside the handler,
         // so we check the store state for the opened file instead
-        const openFiles = useFileViewerStore.getState().projectOpenFiles.get("/tmp/test-project");
+        const openFiles = useFileViewerStore.getState().sessionOpenFiles.get(SESSION_ID);
         expect(openFiles).toBeDefined();
         expect(openFiles!.some((f) => f.filePath === "/tmp/test-project/src/auto.ts")).toBe(true);
       });
@@ -566,7 +566,7 @@ describe("activity event handler", () => {
       // Give time for any async operations to complete
       await new Promise((r) => setTimeout(r, 50));
 
-      const openFiles = useFileViewerStore.getState().projectOpenFiles.get("/tmp/test-project");
+      const openFiles = useFileViewerStore.getState().sessionOpenFiles.get(SESSION_ID);
       const hasFile = openFiles?.some((f) => f.filePath === "/tmp/test-project/src/no-auto.ts");
       expect(hasFile ?? false).toBe(false);
     });
@@ -609,7 +609,7 @@ describe("activity event handler", () => {
       });
 
       await vi.waitFor(() => {
-        const openFiles = useFileViewerStore.getState().projectOpenFiles.get("/tmp/test-project");
+        const openFiles = useFileViewerStore.getState().sessionOpenFiles.get(SESSION_ID);
         expect(openFiles).toBeDefined();
         const diffTab = openFiles!.find((f) => f.filePath === "/tmp/test-project/src/diff-test.ts");
         expect(diffTab).toBeDefined();
