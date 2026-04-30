@@ -1,5 +1,34 @@
 # CodeMantis Releases
 
+## 1.1.3
+
+### Chat
+- **In-message search**: new search bar (Cmd+F) lets you find text across the active session's messages with term highlighting in both prose and code blocks, plus next/prev navigation across matches
+- **Highlight helpers**: shared `highlight-text` and `highlight-children` utilities so search hits render consistently in MessageBubble and CodeBlock
+
+### Session Resume
+- **Resume from Project picker**: the Open Project modal now lists recent sessions across all projects with a per-row Resume action — picking one switches active project and rehydrates the CLI session, instead of forcing you to open the project first
+- **Recent-sessions backend**: new SQLite query and Tauri command surface globally-ordered recent sessions with stored-message flag, project path, and capped changelog snippets per row
+- **Spec self-reference recognition**: stronger detection of when the assistant references the current spec by name so guide recognition doesn't double-load or mismatch the active plan
+
+### File Viewer & Preview
+- **Session-scoped file viewer**: file viewer state is now keyed per session — switching sessions no longer leaks the previously-open file or selection state across tabs
+- **Preview progress modal hardening**: clearer phase transitions in the preview loading modal, with port detection improvements that distinguish dev-server boot phases from idle states
+- **Claude stream-parser fixes**: process and stream-parser handle additional CLI partial-message edge cases without dropping events or stalling the activity feed
+
+### Claude CLI
+- **Protected-path denials surfaced in chat**: when the CLI refuses an operation due to its protected-path guardrail, the denial now appears in chat with the path and reason instead of disappearing silently — makes guardrail behavior debuggable
+- **New event types**: `tool_denied` / protected-path event handling wired through `event_types.rs`, the message router, and the chat event handler
+
+### Lifecycle & SpecWriter Recovery
+- **Bounded wake-reload backoff**: after a long sleep, the wake observer now reloads with exponential backoff capped at a small budget, so a flaky network or backend doesn't trigger a reload storm at wake
+- **SpecWriter wake recovery**: SpecWriter sessions detect post-wake state divergence and either resume the in-flight Claude conversation or restart cleanly with the user notified, instead of leaving a half-dead spec stream
+- **Audit companion hardening**: spec audit companion handles missing or moved guide files more gracefully and exposes errors instead of failing silently
+- **SaveSpecDialog/SpecPreview polish**: tighter loading/error states and cleaner integration with the audit + recovery flow
+
+### Documentation
+- User-guide version references synced to the shipped build (embedded guide and source-of-truth markdown in lockstep)
+
 ## 1.1.2
 
 ### Self-Drive
