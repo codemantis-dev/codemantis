@@ -44,25 +44,46 @@ const defaultDeps: WakeRecoveryDeps = {
 };
 
 /**
- * Install both recovery layers. Returns a cleanup function — primarily for
- * tests; in `main.tsx` we install once for the lifetime of the app.
+ * Handle returned by `installWakeRecovery`.
+ *
+ * - `cleanup` tears both recovery layers down (primarily for tests).
+ * - `ready` resolves once the Tauri `wake-from-sleep` listener has been
+ *   registered. Awaiting it guarantees the next backend ping won't be
+ *   dropped due to a not-yet-registered listener. Production callers may
+ *   ignore `ready` — listener registration is fast enough relative to the
+ *   30 s observer cadence — but tests should await it before emitting.
+ */
+export interface WakeRecoveryHandle {
+  cleanup: () => void;
+  ready: Promise<void>;
+}
+
+/**
+ * Install both recovery layers. Visibility handling is wired up
+ * synchronously; the Tauri listener is registered asynchronously and its
+ * readiness is exposed via the `ready` promise on the returned handle.
  */
 export function installWakeRecovery(
   deps: Partial<WakeRecoveryDeps> = {}
-): () => void {
+): WakeRecoveryHandle {
   const d: WakeRecoveryDeps = { ...defaultDeps, ...deps };
   let lastHiddenAt: number | null = null;
   let unlistenWake: UnlistenFn | null = null;
   let visibilityHandler: (() => void) | null = null;
 
   // Backend ping → frontend pong.
-  void listen(WAKE_EVENT, () => {
+  const ready = listen(WAKE_EVENT, () => {
     void d.pong().catch((e) => {
       console.warn("[wake-recovery] wake_pong failed:", e);
     });
-  }).then((fn) => {
-    unlistenWake = fn;
-  });
+  }).then(
+    (fn) => {
+      unlistenWake = fn;
+    },
+    (e) => {
+      console.warn("[wake-recovery] failed to register wake-from-sleep listener:", e);
+    }
+  );
 
   // Frontend visibility-based recovery.
   visibilityHandler = () => {
@@ -82,12 +103,14 @@ export function installWakeRecovery(
   };
   document.addEventListener("visibilitychange", visibilityHandler);
 
-  return () => {
+  const cleanup = () => {
     if (unlistenWake) unlistenWake();
     if (visibilityHandler) {
       document.removeEventListener("visibilitychange", visibilityHandler);
     }
   };
+
+  return { cleanup, ready };
 }
 
 async function pingOrReload(d: WakeRecoveryDeps, hiddenMs: number): Promise<void> {

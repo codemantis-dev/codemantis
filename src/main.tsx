@@ -4,7 +4,7 @@ import App from "./App";
 import { installWakeRecovery } from "./lib/wake-recovery";
 import "./index.css";
 
-installWakeRecovery();
+void installWakeRecovery().ready;
 
 // Show visible error if React fails to mount
 window.addEventListener("error", (e) => {
