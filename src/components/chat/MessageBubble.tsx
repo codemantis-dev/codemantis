@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { RotateCcw, Zap } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../../types/session";
 import { formatDuration, formatTime } from "../../lib/format-utils";
@@ -10,6 +10,9 @@ import CodeBlock from "./CodeBlock";
 import { ExternalLink } from "../../lib/external-links";
 import TurnStatsPopover from "./TurnStatsPopover";
 import CopyButton from "../shared/CopyButton";
+import { useChatSearchStore } from "../../stores/chatSearchStore";
+import { highlightText } from "../../lib/highlight-text";
+import { highlightChildren } from "../../lib/highlight-children";
 
 interface MessageBubbleProps {
   message: Message;
@@ -37,6 +40,41 @@ export default React.memo(function MessageBubble({
   const displayContent = message.isStreaming
     ? streamingContent ?? ""
     : message.content;
+  const searchQuery = useChatSearchStore((s) => s.query);
+
+  const highlightingComponents = useMemo<Components | undefined>(() => {
+    if (!searchQuery) return undefined;
+    const wrap = (Tag: keyof React.JSX.IntrinsicElements) => {
+      const Comp = (props: { children?: React.ReactNode }) => {
+        const counter = { i: 0 };
+        return <Tag>{highlightChildren(props.children, searchQuery, counter)}</Tag>;
+      };
+      Comp.displayName = `Highlighted(${String(Tag)})`;
+      return Comp;
+    };
+    return {
+      code: CodeBlock,
+      a: ExternalLink,
+      p: wrap("p"),
+      li: wrap("li"),
+      strong: wrap("strong"),
+      em: wrap("em"),
+      h1: wrap("h1"),
+      h2: wrap("h2"),
+      h3: wrap("h3"),
+      h4: wrap("h4"),
+      h5: wrap("h5"),
+      h6: wrap("h6"),
+      blockquote: wrap("blockquote"),
+      td: wrap("td"),
+      th: wrap("th"),
+    } as Components;
+  }, [searchQuery]);
+
+  const defaultComponents = useMemo<Components>(() => ({
+    code: CodeBlock,
+    a: ExternalLink,
+  }), []);
 
   const timeStr = formatTime(message.timestamp);
   const durationMs = message.turnStats?.durationMs;
@@ -74,7 +112,9 @@ export default React.memo(function MessageBubble({
               }}
             >
               <p className="text-chat text-text-primary whitespace-pre-wrap break-words overflow-hidden [overflow-wrap:anywhere]">
-                {message.content}
+                {searchQuery
+                  ? highlightText(message.content, searchQuery, 0).nodes
+                  : message.content}
               </p>
             </div>
             <CopyButton
@@ -97,10 +137,7 @@ export default React.memo(function MessageBubble({
         <div className="markdown-content text-chat text-text-secondary">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            components={{
-              code: CodeBlock,
-              a: ExternalLink,
-            }}
+            components={highlightingComponents ?? defaultComponents}
           >
             {displayContent}
           </ReactMarkdown>

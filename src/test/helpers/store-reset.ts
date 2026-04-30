@@ -19,6 +19,7 @@ import { useMcpStore } from "../../stores/mcpStore";
 import { useOpenRouterStore } from "../../stores/openRouterStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
+import { useChatSearchStore } from "../../stores/chatSearchStore";
 
 export function resetAllStores(): void {
   useSessionStore.setState({
@@ -225,5 +226,12 @@ export function resetAllStores(): void {
 
   useAttachmentStore.setState({
     attachments: new Map(),
+  });
+
+  useChatSearchStore.setState({
+    isOpen: false,
+    query: "",
+    currentIndex: 0,
+    totalMatches: 0,
   });
 }

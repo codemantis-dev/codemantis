@@ -1,5 +1,14 @@
-import { useState, useCallback, type HTMLAttributes } from "react";
+import {
+  useState,
+  useCallback,
+  cloneElement,
+  isValidElement,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { Check, Copy } from "lucide-react";
+import { useChatSearchStore } from "../../stores/chatSearchStore";
+import { highlightText } from "../../lib/highlight-text";
 
 interface CodeBlockProps extends HTMLAttributes<HTMLElement> {
   children?: React.ReactNode;
@@ -9,6 +18,7 @@ interface CodeBlockProps extends HTMLAttributes<HTMLElement> {
 
 export default function CodeBlock({ children, className, node, ...props }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
+  const searchQuery = useChatSearchStore((s) => s.query);
 
   // Block code: has a language class OR spans multiple lines in the markdown source
   const isBlock = !!className || (node?.position != null && node.position.end.line > node.position.start.line);
@@ -22,10 +32,17 @@ export default function CodeBlock({ children, className, node, ...props }: CodeB
     });
   }, [children]);
 
+  // Highlight inside code by walking the children tree but bypassing the
+  // code/pre skip rule (the rule exists for the markdown walker — here we
+  // explicitly want to highlight inside <code>).
+  const renderedChildren: ReactNode = searchQuery
+    ? highlightCodeChildren(children, searchQuery)
+    : children;
+
   if (!isBlock) {
     return (
       <code className={className} {...props}>
-        {children}
+        {renderedChildren}
       </code>
     );
   }
@@ -55,8 +72,38 @@ export default function CodeBlock({ children, className, node, ...props }: CodeB
         </button>
       </div>
       <code className={className} {...props}>
-        {children}
+        {renderedChildren}
       </code>
     </div>
   );
+}
+
+function highlightCodeChildren(children: ReactNode, query: string): ReactNode {
+  // Local walker — unlike highlightChildren this does NOT skip code/pre,
+  // because here we're already inside a code block and the user expects
+  // matches there to highlight.
+  const counter = { i: 0 };
+  const walk = (node: ReactNode): ReactNode => {
+    if (typeof node === "string") {
+      const { nodes, nextIndex } = highlightText(node, query, counter.i);
+      counter.i = nextIndex;
+      return nodes;
+    }
+    if (Array.isArray(node)) {
+      return node.map((c, idx) => {
+        const out = walk(c);
+        if (isValidElement(out) && out.key == null) {
+          return cloneElement(out, { key: `cc-${idx}` });
+        }
+        return out;
+      });
+    }
+    if (isValidElement(node)) {
+      const props = node.props as { children?: ReactNode };
+      if (props.children == null) return node;
+      return cloneElement(node, undefined, walk(props.children));
+    }
+    return node;
+  };
+  return walk(children);
 }

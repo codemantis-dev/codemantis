@@ -434,3 +434,17 @@ textarea {
   /* Prevent layout shift from re-renders by keeping block flow stable */
   will-change: contents;
 }
+
+
+/* ── Chat in-message search highlight ── */
+.cm-search-hit {
+  background: rgba(251, 191, 36, 0.32);
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+}
+.cm-search-hit[data-search-active="true"] {
+  background: var(--yellow, #fbbf24);
+  color: #000;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+}

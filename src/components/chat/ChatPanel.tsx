@@ -9,7 +9,9 @@ import MessageBubble from "./MessageBubble";
 import SelfDriveDecisionCard from "./SelfDriveDecisionCard";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
+import ChatSearchBar from "./ChatSearchBar";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
+import { useChatSearchStore } from "../../stores/chatSearchStore";
 
 export default function ChatPanel() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -80,6 +82,21 @@ export default function ChatPanel() {
     scrollRef,
   });
   const visibleMessages = messages.slice(startIndex);
+
+  const searchOpen = useChatSearchStore((s) => s.isOpen);
+
+  // Reset search when the active session changes (avoids stale highlights and counts)
+  useEffect(() => {
+    useChatSearchStore.getState().reset();
+  }, [activeSessionId]);
+
+  // When search opens, expand all messages into the DOM so matches in older
+  // chunks aren't silently missed.
+  useEffect(() => {
+    if (searchOpen && hasOlder) {
+      loadAll();
+    }
+  }, [searchOpen, hasOlder, loadAll]);
 
   const checkAtBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -168,6 +185,7 @@ export default function ChatPanel() {
   return (
     <div className="relative h-full flex flex-col">
       <div className="relative flex-1 overflow-hidden">
+        {searchOpen && <ChatSearchBar scrollRef={scrollRef} />}
         <div
           ref={scrollRef}
           onScroll={checkAtBottom}

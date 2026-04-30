@@ -6,6 +6,7 @@ import { useTerminal } from "./useTerminal";
 import { useClaudeSession } from "./useClaudeSession";
 import { usePreviewWindow } from "./usePreviewWindow";
 import { useSpecWriterStore } from "../stores/specWriterStore";
+import { useChatSearchStore } from "../stores/chatSearchStore";
 import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
@@ -198,6 +199,15 @@ export function useKeyboardShortcuts(): void {
       if (key === "?" || (key === "/" && shift)) {
         e.preventDefault();
         useUiStore.getState().toggleHelpPanel();
+        return;
+      }
+
+      // Cmd+F — open in-chat search (Cmd+Shift+F is reserved for Files tab)
+      if (key === "f" && !shift) {
+        if (useSessionStore.getState().activeSessionId) {
+          e.preventDefault();
+          useChatSearchStore.getState().open();
+        }
         return;
       }
 
