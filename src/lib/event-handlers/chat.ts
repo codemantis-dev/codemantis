@@ -289,18 +289,65 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
 
     case "protected_path_deny": {
-      // CLI 2.1.78+ silently blocks writes to .claude/, .git/, .vscode/ even
-      // with --dangerously-skip-permissions, with no inbound control_request.
-      // Surface a clear explanation so the agent doesn't appear stalled.
-      const paths = event.denials
-        .map((d) => {
+      // CLI 2.1.126: `permission_denials` is a multi-purpose channel — it carries
+      // (a) writes the host hook denied, (b) ALWAYS-denied control/UI tools
+      // (ExitPlanMode/EnterPlanMode/AskUserQuestion — the CLI denies these
+      // regardless of host hook decision and uses the entry as a UI-prompt
+      // signal), and (c) protected-path guardrail blocks (rare in
+      // bypassPermissions mode). Bucket by tool_name so the toast is honest.
+      // See docs/internal/cli-2.1.126-protocol-report.md §"actionable bugs B1".
+      const CONTROL_TOOLS = new Set(["ExitPlanMode", "EnterPlanMode", "AskUserQuestion"]);
+      const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+      const PROTECTED_PREFIXES = [".claude/", ".git/", ".vscode/"];
+
+      const writeDenials = event.denials.filter((d) => WRITE_TOOLS.has(d.tool_name));
+      const otherDenials = event.denials.filter(
+        (d) => !CONTROL_TOOLS.has(d.tool_name) && !WRITE_TOOLS.has(d.tool_name),
+      );
+      // Control-tool denials are intentionally NOT toasted — they drive
+      // PlanCompleteModal / QuestionModal via the tool_use_start path.
+
+      const formatList = (
+        items: Array<{ tool_name: string; tool_input?: Record<string, unknown> }>,
+        labelOf: (i: { tool_name: string; tool_input?: Record<string, unknown> }) => string,
+      ): string => {
+        const labels = items.slice(0, 3).map(labelOf);
+        const more = items.length > 3 ? ` (+${items.length - 3} more)` : "";
+        return labels.join(", ") + more;
+      };
+
+      if (writeDenials.length > 0) {
+        const isProtectedPath = (fp: unknown): fp is string => {
+          if (typeof fp !== "string") return false;
+          // Match `<anything>/.claude/...`, `.claude/...`, etc. — the CLI's
+          // protected-path check fires on the suffix segment, not absolute path.
+          return PROTECTED_PREFIXES.some(
+            (p) => fp.includes(`/${p}`) || fp.startsWith(p),
+          );
+        };
+        const protectedPathHits = writeDenials.filter((d) =>
+          isProtectedPath(d.tool_input?.file_path),
+        );
+        const protectedPath = protectedPathHits.length > 0;
+
+        const labelOf = (d: { tool_name: string; tool_input?: Record<string, unknown> }) => {
           const fp = d.tool_input?.file_path;
           return typeof fp === "string" ? fp : d.tool_name;
-        })
-        .slice(0, 3);
-      const more = event.denials.length > 3 ? ` (+${event.denials.length - 3} more)` : "";
-      const summary = `${event.denials.length === 1 ? "Write blocked" : `${event.denials.length} writes blocked`} by Claude CLI's protected-path guardrail: ${paths.join(", ")}${more}. Ask the agent to use Bash heredoc instead.`;
-      showToast(summary, "error", 12000);
+        };
+        const list = formatList(writeDenials, labelOf);
+        const noun = writeDenials.length === 1 ? "Write blocked" : `${writeDenials.length} writes blocked`;
+        const summary = protectedPath
+          ? `${noun} by Claude CLI's protected-path guardrail: ${list}. Ask the agent to use Bash heredoc instead.`
+          : `${noun}: ${list}.`;
+        showToast(summary, "error", 12000);
+      }
+
+      if (otherDenials.length > 0) {
+        const labelOf = (d: { tool_name: string }) => d.tool_name;
+        const list = formatList(otherDenials, labelOf);
+        const noun = otherDenials.length === 1 ? "Tool call denied" : `${otherDenials.length} tool calls denied`;
+        showToast(`${noun} by Claude CLI: ${list}.`, "error", 10000);
+      }
       break;
     }
 

@@ -568,6 +568,63 @@ describe("Chat-Activity Event Pipeline (Integration)", () => {
       expect(uiState.planCompleteSessionId).toBe(SID);
     });
 
+    it("ExitPlanMode with realistic 2.1.126 tool_input captures plan content (S06 shape)", () => {
+      // Real shape captured from CLI 2.1.126 harness scenario S06:
+      // tool_input contains only `plan` (markdown text) — no planFilePath.
+      const planMarkdown = "## Hello-World React Component\n\n1. **Create** the component\n2. **Wire** it in";
+      const toolId = "toolu_015KUFYf1aDUxp42MiYsYXEg";
+      simulateEventStream(SID, [
+        createToolUseStartEvent(
+          "ExitPlanMode",
+          { plan: planMarkdown },
+          { session_id: SID, tool_use_id: toolId },
+        ),
+      ]);
+
+      const uiState = useUiStore.getState();
+      expect(uiState.showPlanCompleteModal).toBe(true);
+      expect(uiState.planCompleteSessionId).toBe(SID);
+      expect(uiState.pendingPlanSessionId).toBe(SID);
+      expect(uiState.planCompleteContent).toBe(planMarkdown);
+      // No planFilePath in 2.1.126 input → file path stays at whatever was
+      // there before (null in this fresh fixture).
+      expect(uiState.planCompleteFilePath).toBeNull();
+    });
+
+    it("ExitPlanMode for INACTIVE session captures pendingPlanSessionId so banner can offer Review on return", () => {
+      // Set up a second session and make IT active — ExitPlanMode then
+      // arrives for the original session (the agent finished planning while
+      // the user was on a different tab). Without state capture, returning
+      // to the planning session would show no UI affordance and the plan
+      // would be lost.
+      const OTHER_SID = "test-session-other";
+      useSessionStore.setState({
+        sessions: new Map([
+          [SID, useSessionStore.getState().sessions.get(SID)!],
+          [OTHER_SID, { ...useSessionStore.getState().sessions.get(SID)!, id: OTHER_SID }],
+        ]),
+        activeSessionId: OTHER_SID,
+      });
+
+      const planMarkdown = "## Inactive plan\n\n1. Step";
+      const toolId = "tool-exit-plan-inactive";
+      simulateEventStream(SID, [
+        createToolUseStartEvent(
+          "ExitPlanMode",
+          { plan: planMarkdown },
+          { session_id: SID, tool_use_id: toolId },
+        ),
+      ]);
+
+      const uiState = useUiStore.getState();
+      // Modal must NOT pop up — user is looking at OTHER_SID.
+      expect(uiState.showPlanCompleteModal).toBe(false);
+      // BUT state must be captured so the banner shows on return.
+      expect(uiState.pendingPlanSessionId).toBe(SID);
+      expect(uiState.planCompleteSessionId).toBe(SID);
+      expect(uiState.planCompleteContent).toBe(planMarkdown);
+    });
+
     it("ExitPlanMode tool is excluded from activity feed", () => {
       const toolId = "tool-exit-plan-no-feed";
       simulateEventStream(SID, [

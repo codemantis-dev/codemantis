@@ -510,7 +510,7 @@ describe("chat event handler — protected_path_deny", () => {
     vi.mocked(showToast).mockClear();
   });
 
-  it("emits a toast naming the denied file path", () => {
+  it("emits a protected-path toast naming the denied file path", () => {
     const event: FrontendEvent = {
       type: "protected_path_deny",
       session_id: "s1",
@@ -531,7 +531,7 @@ describe("chat event handler — protected_path_deny", () => {
     expect(msg).toContain("Bash heredoc");
   });
 
-  it("summarizes multiple denials with truncation", () => {
+  it("summarizes multiple protected-path denials with truncation", () => {
     const event: FrontendEvent = {
       type: "protected_path_deny",
       session_id: "s1",
@@ -546,13 +546,84 @@ describe("chat event handler — protected_path_deny", () => {
     expect(showToast).toHaveBeenCalledTimes(1);
     const [msg] = vi.mocked(showToast).mock.calls[0];
     expect(msg).toContain("4 writes blocked");
+    expect(msg).toContain("Bash heredoc");
     expect(msg).toContain("/p/.claude/a");
     expect(msg).toContain("/p/.claude/c");
     expect(msg).toContain("(+1 more)");
     expect(msg).not.toContain("/p/.claude/d");
   });
 
-  it("falls back to tool_name when file_path is missing", () => {
+  it("uses generic 'Write blocked' wording for non-protected-path host denies (S11 shape)", () => {
+    // From harness S11: host hook returns deny for /tmp/cm-harness-S11-b.md.
+    // The path is NOT under .claude/.git/.vscode, so the toast must NOT
+    // claim "protected-path guardrail" or recommend Bash heredoc.
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        {
+          tool_name: "Write",
+          tool_use_id: "toolu_01LH",
+          tool_input: { file_path: "/tmp/cm-harness-S11-b.md", content: "b" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg, level] = vi.mocked(showToast).mock.calls[0];
+    expect(level).toBe("error");
+    expect(msg).toContain("Write blocked");
+    expect(msg).toContain("/tmp/cm-harness-S11-b.md");
+    expect(msg).not.toContain("protected-path");
+    expect(msg).not.toContain("Bash heredoc");
+  });
+
+  it("suppresses toast entirely for control-tool denials (S06/S09 shape)", () => {
+    // CLI 2.1.126: ExitPlanMode and AskUserQuestion are ALWAYS in
+    // permission_denials regardless of host decision — they are UI-prompt
+    // signals, not write blocks. PlanCompleteModal / QuestionModal handle
+    // them; no toast should fire.
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        {
+          tool_name: "ExitPlanMode",
+          tool_use_id: "toolu_015KUFYf",
+          tool_input: { plan: "1. Step one\n2. Step two" },
+        },
+        {
+          tool_name: "AskUserQuestion",
+          tool_use_id: "toolu_0185wYDN",
+          tool_input: { questions: [{ question: "Red, green, or blue?" }] },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("emits ONE toast per non-empty bucket on mixed denials", () => {
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        { tool_name: "ExitPlanMode", tool_use_id: "ec1", tool_input: { plan: "..." } },
+        { tool_name: "Write",        tool_use_id: "wr1", tool_input: { file_path: "/p/.claude/x.md" } },
+        { tool_name: "Bash",         tool_use_id: "ba1", tool_input: { command: "ls" } },
+      ],
+    };
+    handleChatEvent("s1", event);
+    // Two toasts: one writes-bucket (protected-path), one other-bucket (Bash)
+    // No toast for ExitPlanMode (control bucket).
+    expect(showToast).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(showToast).mock.calls.map(([m]) => m);
+    expect(calls.some((m) => m.includes("Write blocked") && m.includes("/p/.claude/x.md"))).toBe(true);
+    expect(calls.some((m) => m.includes("Tool call denied") && m.includes("Bash"))).toBe(true);
+    expect(calls.some((m) => m.includes("ExitPlanMode"))).toBe(false);
+  });
+
+  it("falls back to tool_name when file_path is missing (other bucket)", () => {
     const event: FrontendEvent = {
       type: "protected_path_deny",
       session_id: "s1",
@@ -561,7 +632,10 @@ describe("chat event handler — protected_path_deny", () => {
       ],
     };
     handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
     const [msg] = vi.mocked(showToast).mock.calls[0];
     expect(msg).toContain("WeirdTool");
+    expect(msg).toContain("Tool call denied");
+    expect(msg).not.toContain("protected-path");
   });
 });

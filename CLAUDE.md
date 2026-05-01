@@ -15,6 +15,15 @@ CodeMantis is a native macOS desktop app (Tauri v2 + React 19 + TypeScript + Rus
 - All Tauri IPC is async via invoke/listen
 - Frontend NEVER directly accesses the filesystem — always through Tauri commands
 
+### Before changing anything related to the Claude CLI protocol — REQUIRED reading
+Whenever your work touches the Claude Code CLI subprocess, the stream-json protocol, the PreToolUse hook, the approval server, `permission_denials`, `control_request`/`control_response`, ExitPlanMode/EnterPlanMode/AskUserQuestion handling, or any of the files under `src-tauri/src/claude/**` and the chat/activity event handlers under `src/lib/event-handlers/**`, you MUST first consult, in this order:
+
+1. **Skill** `.claude/skills/claude-cli-control-protocol/SKILL.md` — verified-against-live-CLI reference for every supported control_request subtype, the hook envelope, `permission_denials` semantics, model lineup, and known pitfalls (`--dangerously-skip-permissions` overriding `--permission-mode`, silent acceptance of unknown mode strings, etc.).
+2. **Audit report** `docs/internal/cli-2.1.126-protocol-report.md` — per-scenario NDJSON evidence behind every claim in the skill, plus the actionable bug list (`B1`–`B5`) and what the original 2.1.123-era hypotheses got wrong.
+3. **Capture harness** `src-tauri/tests/cli_protocol_capture.rs` — re-run before merging if your change makes any new assumption about CLI behaviour. Single-scenario form: `CM_HARNESS_ONLY=S06 cargo test --test cli_protocol_capture capture_single -- --ignored --nocapture`. Full battery (~3 min, consumes Anthropic credits): `cargo test --test cli_protocol_capture capture_full_battery -- --ignored --nocapture --test-threads=1`.
+
+If the skill's claims contradict what you observe in a fresh capture, **trust the capture and update the skill** — the skill is empirically derived, not authoritative on its own. A monthly drift-check routine re-runs the harness in Anthropic's cloud and posts findings; check `https://claude.ai/code/routines` for the latest report before you start work.
+
 ## Project Structure
 ```
 src/                          # React frontend

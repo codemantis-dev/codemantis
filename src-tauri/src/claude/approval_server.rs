@@ -248,7 +248,18 @@ async fn handle_tool_approval(
         return (StatusCode::OK, Json(HookResponse::allow()));
     }
 
-    // Mode-control tools: auto-approve and update session mode
+    // Mode-control tools: observe the call and update session mode.
+    //
+    // IMPORTANT (CLI 2.1.78+, verified against 2.1.126):
+    // ExitPlanMode and EnterPlanMode are CLI-internal "interactive UI" tools.
+    // The CLI fires the PreToolUse hook for them so the host can observe
+    // (and reject — see SpecWriter branch below), but the CLI's outcome is
+    // fixed regardless of the host's decision: it synthesises a denied
+    // tool_result and adds the entry to result.permission_denials. Returning
+    // `allow` here does NOT actually approve the tool execution — it just
+    // tells the CLI "the host has no objection." The session-mode update we
+    // do below is the load-bearing side effect of this branch.
+    // See docs/internal/cli-2.1.126-protocol-report.md §"Special tools".
     if tool_name == "ExitPlanMode" || tool_name == "EnterPlanMode" {
         let new_mode = if tool_name == "EnterPlanMode" {
             SessionMode::Plan
@@ -262,7 +273,7 @@ async fn handle_tool_approval(
                 Some(handle) => handle.clone(),
                 None => {
                     info!(
-                        "[approval-server] Auto-approving {} (no app handle for mode update)",
+                        "[approval-server] Observed {} (no app handle for mode update; CLI will surface its own UI prompt)",
                         tool_name
                     );
                     return (StatusCode::OK, Json(HookResponse::allow()));
@@ -303,7 +314,7 @@ async fn handle_tool_approval(
             if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
                 let mut modes = app_state.session_modes.lock().await;
                 info!(
-                    "[approval-server] {} → switching session {} to {:?}",
+                    "[approval-server] {} observed → switching session {} to {:?} (CLI emits its own UI denial regardless of this allow)",
                     tool_name, sid, new_mode
                 );
                 modes.insert(sid.clone(), new_mode.clone());
@@ -319,7 +330,7 @@ async fn handle_tool_approval(
             }
         } else {
             warn!(
-                "[approval-server] {} approved but session not found — mode not updated",
+                "[approval-server] {} observed but session not found — mode not updated",
                 tool_name
             );
         }
