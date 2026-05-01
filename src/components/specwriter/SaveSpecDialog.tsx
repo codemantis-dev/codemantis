@@ -8,6 +8,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { parseSessionPlan } from "../../lib/parse-session-plan";
 import { normalizeAuditCompanion } from "../../lib/audit-companion";
 import { normalizeSpecSelfReferences } from "../../lib/spec-self-reference";
+import { deriveDefaultSpecFilename } from "../../lib/spec-default-filename";
 
 interface Props {
   projectPath: string;
@@ -20,14 +21,6 @@ interface Props {
   onSaved: (filename: string) => void;
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
 export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
   const [filename, setFilename] = useState("");
   const [overwrite, setOverwrite] = useState(false);
@@ -38,31 +31,25 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
   const isAudit = documentType === 'audit';
   const dialogTitle = isAudit ? "Save Verification Audit" : "Save Specification";
 
-  // Pre-fill filename from spec title or derive audit filename from current spec
+  // Pre-fill filename. For audits, the just-saved spec wins; for everything
+  // else `deriveDefaultSpecFilename` reads the spec body's own self-reference
+  // (e.g. `docs/specs/<stem>.md` baked into Session Plan prompts) and only
+  // falls back to the H1 if that's absent or generic.
   useEffect(() => {
     if (isAudit) {
-      // Prefer the just-saved spec filename for correct pairing
       if (lastSavedFile) {
         setFilename(lastSavedFile.replace(/\.md$/, '.audit.md'));
-      } else {
-        // Fallback: derive from most recently saved spec on disk
-        const specs = savedSpecs.filter((s) => !s.filename.endsWith('.audit.md'));
-        const latestSpec = specs.length > 0 ? specs[specs.length - 1] : null;
-        if (latestSpec) {
-          setFilename(latestSpec.filename.replace(/\.md$/, '.audit.md'));
-        } else {
-          // Last resort: extract title from audit content
-          const titleMatch = specContent.match(/^#\s+(.+?)(?:\s*[—-]\s*.+)?$/m);
-          setFilename(titleMatch ? slugify(titleMatch[1]) + '.audit.md' : `audit-${Date.now()}.md`);
-        }
+        return;
       }
+      const specs = savedSpecs.filter((s) => !s.filename.endsWith('.audit.md'));
+      const latestSpec = specs.length > 0 ? specs[specs.length - 1] : null;
+      if (latestSpec) {
+        setFilename(latestSpec.filename.replace(/\.md$/, '.audit.md'));
+        return;
+      }
+      setFilename(deriveDefaultSpecFilename(specContent, true));
     } else {
-      const titleMatch = specContent.match(/^#\s+(.+?)(?:\s*[—-]\s*.+)?$/m);
-      if (titleMatch) {
-        setFilename(slugify(titleMatch[1]) + ".md");
-      } else {
-        setFilename(`spec-${Date.now()}.md`);
-      }
+      setFilename(deriveDefaultSpecFilename(specContent, false));
     }
   }, [specContent, isAudit, savedSpecs, lastSavedFile]);
 

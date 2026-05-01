@@ -183,6 +183,57 @@ describe("SaveSpecDialog", () => {
     });
   });
 
+  describe("default filename derivation", () => {
+    it("uses the spec body's self-reference when the H1 is generic (regression)", () => {
+      // Real failure mode: SpecWriter wrote `# Spec — …` as H1 but baked the
+      // correct filename into every Session Plan prompt. The dialog used to
+      // pre-fill `spec.md` because it parsed only the H1; now it picks up
+      // the body's self-reference.
+      const content = [
+        "# Spec — Spec-Forge Project Pipeline",
+        "",
+        "## 9. Session Plan",
+        "",
+        "**Prompt for Claude Code:**",
+        "",
+        "```",
+        "Read docs/specs/spec-forge-project-pipeline-dag.md — but ONLY these sections:",
+        "- Section 3 (Pages & Routes)",
+        "```",
+        "",
+        "Also: docs/specs/spec-forge-project-pipeline-dag.md sections 7, 8.",
+      ].join("\n");
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent={content}
+          documentType="spec"
+        />,
+      );
+      expect(
+        screen.getByDisplayValue("spec-forge-project-pipeline-dag.md"),
+      ).toBeTruthy();
+    });
+
+    it("preserves compound-word hyphens in the H1 when there is no self-reference", () => {
+      // Regression for the `[—-]` regex bug: the previous derivation split
+      // `Spec-Forge Project Pipeline DAG` at the first hyphen and yielded
+      // `spec.md`. The fix uses em-dash + en-dash only as separators.
+      render(
+        <SaveSpecDialog
+          {...baseProps}
+          specContent={
+            "# Spec-Forge Project Pipeline DAG — Requirements Specification\n\nNo body refs."
+          }
+          documentType="spec"
+        />,
+      );
+      expect(
+        screen.getByDisplayValue("spec-forge-project-pipeline-dag.md"),
+      ).toBeTruthy();
+    });
+  });
+
   describe("audit save substitution wiring", () => {
     it("normalizes <SPEC_FILENAME> in the saved audit body", async () => {
       useSpecWriterStore.setState({
