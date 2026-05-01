@@ -15,19 +15,10 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 vi.mock("./tauri-commands", () => ({
-  checkClaudeStatus: vi.fn(),
   wakePong: vi.fn(),
 }));
 
-import { installWakeRecovery, _internals } from "./wake-recovery";
-
-function setVisibility(state: "hidden" | "visible") {
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    get: () => state,
-  });
-  document.dispatchEvent(new Event("visibilitychange"));
-}
+import { installWakeRecovery, WAKE_EVENT } from "./wake-recovery";
 
 describe("installWakeRecovery", () => {
   let cleanup: (() => void) | null = null;
@@ -44,114 +35,10 @@ describe("installWakeRecovery", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not reload when document was hidden briefly", async () => {
-    let nowMs = 1_000_000;
-    const reload = vi.fn();
-    const ping = vi.fn().mockResolvedValue({ ok: true });
-    const pong = vi.fn().mockResolvedValue(1);
-
-    const handle = installWakeRecovery({
-      now: () => nowMs,
-      reload,
-      ping,
-      pong,
-    });
-    cleanup = handle.cleanup;
-    await handle.ready;
-
-    setVisibility("hidden");
-    nowMs += 5_000; // < STALE_THRESHOLD_MS
-    setVisibility("visible");
-    await vi.runAllTimersAsync();
-
-    expect(ping).not.toHaveBeenCalled();
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it("pings backend after long hidden period and does not reload on success", async () => {
-    let nowMs = 1_000_000;
-    const reload = vi.fn();
-    const ping = vi.fn().mockResolvedValue({ ok: true });
-    const pong = vi.fn().mockResolvedValue(1);
-
-    const handle = installWakeRecovery({
-      now: () => nowMs,
-      reload,
-      ping,
-      pong,
-    });
-    cleanup = handle.cleanup;
-    await handle.ready;
-
-    setVisibility("hidden");
-    nowMs += _internals.STALE_THRESHOLD_MS + 1;
-    setVisibility("visible");
-    await vi.runAllTimersAsync();
-
-    expect(ping).toHaveBeenCalledOnce();
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it("reloads when backend ping rejects", async () => {
-    let nowMs = 1_000_000;
-    const reload = vi.fn();
-    const ping = vi.fn().mockRejectedValue(new Error("ipc dead"));
-    const pong = vi.fn().mockResolvedValue(1);
-
-    const handle = installWakeRecovery({
-      now: () => nowMs,
-      reload,
-      ping,
-      pong,
-    });
-    cleanup = handle.cleanup;
-    await handle.ready;
-
-    setVisibility("hidden");
-    nowMs += _internals.STALE_THRESHOLD_MS + 1;
-    setVisibility("visible");
-    await vi.runAllTimersAsync();
-
-    expect(reload).toHaveBeenCalledOnce();
-  });
-
-  it("reloads when backend ping never resolves (timeout)", async () => {
-    let nowMs = 1_000_000;
-    const reload = vi.fn();
-    // Never-resolving ping forces the timeout race to win.
-    const ping = vi.fn().mockReturnValue(new Promise(() => {}));
-    const pong = vi.fn().mockResolvedValue(1);
-
-    const handle = installWakeRecovery({
-      now: () => nowMs,
-      reload,
-      ping,
-      pong,
-    });
-    cleanup = handle.cleanup;
-    await handle.ready;
-
-    setVisibility("hidden");
-    nowMs += _internals.STALE_THRESHOLD_MS + 1;
-    setVisibility("visible");
-
-    // Advance past the ping timeout so the race rejects.
-    await vi.advanceTimersByTimeAsync(_internals.PING_TIMEOUT_MS + 100);
-
-    expect(reload).toHaveBeenCalledOnce();
-  });
-
   it("ready resolves and wake-from-sleep event triggers wake_pong", async () => {
-    const reload = vi.fn();
-    const ping = vi.fn().mockResolvedValue({ ok: true });
     const pong = vi.fn().mockResolvedValue(1);
 
-    const handle = installWakeRecovery({
-      now: () => 1_000_000,
-      reload,
-      ping,
-      pong,
-    });
+    const handle = installWakeRecovery({ pong });
     cleanup = handle.cleanup;
 
     await handle.ready;
@@ -161,6 +48,70 @@ describe("installWakeRecovery", () => {
     await vi.runAllTimersAsync();
 
     expect(pong).toHaveBeenCalledOnce();
-    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("repeated wake events each trigger a pong", async () => {
+    const pong = vi.fn().mockResolvedValue(1);
+
+    const handle = installWakeRecovery({ pong });
+    cleanup = handle.cleanup;
+    await handle.ready;
+
+    wakeListenerHolder.current?.({});
+    wakeListenerHolder.current?.({});
+    wakeListenerHolder.current?.({});
+    await vi.runAllTimersAsync();
+
+    expect(pong).toHaveBeenCalledTimes(3);
+  });
+
+  it("swallows pong errors so a transient IPC failure doesn't unhandle-reject", async () => {
+    const pong = vi.fn().mockRejectedValue(new Error("boom"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const handle = installWakeRecovery({ pong });
+    cleanup = handle.cleanup;
+    await handle.ready;
+
+    wakeListenerHolder.current?.({});
+    await vi.runAllTimersAsync();
+
+    expect(pong).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("cleanup unregisters the wake listener", async () => {
+    const pong = vi.fn().mockResolvedValue(1);
+
+    const handle = installWakeRecovery({ pong });
+    await handle.ready;
+    expect(wakeListenerHolder.current).not.toBeNull();
+
+    handle.cleanup();
+    cleanup = null;
+    expect(wakeListenerHolder.current).toBeNull();
+  });
+
+  it("does not register a visibilitychange handler on document", async () => {
+    // Regression guard: the previous design installed a visibilitychange
+    // listener that called window.location.reload() after long hidden
+    // periods. That path was removed entirely. Verify by spying on
+    // document.addEventListener and asserting nothing wires
+    // "visibilitychange" during install.
+    const pong = vi.fn().mockResolvedValue(1);
+    const addSpy = vi.spyOn(document, "addEventListener");
+
+    const handle = installWakeRecovery({ pong });
+    cleanup = handle.cleanup;
+    await handle.ready;
+
+    const visibilityCalls = addSpy.mock.calls.filter(
+      ([eventName]) => eventName === "visibilitychange"
+    );
+    expect(visibilityCalls).toHaveLength(0);
+  });
+
+  it("exports WAKE_EVENT name matching the Rust constant", () => {
+    expect(WAKE_EVENT).toBe("wake-from-sleep");
   });
 });

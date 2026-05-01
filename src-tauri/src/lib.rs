@@ -285,10 +285,19 @@ pub fn run() {
                 }
             });
 
-            // Periodic WKWebView health-check. Recovers from blank/unmovable
-            // window when the content process is killed during long sleep
-            // or under memory pressure. See `lifecycle::wake_observer`.
+            // Periodic WKWebView liveness check. On a missed pong, asks
+            // AppKit to repaint (non-destructive). See
+            // `lifecycle::wake_observer`.
             lifecycle::wake_observer::spawn(app.handle().clone());
+
+            // Hold an `NSProcessInfo` activity assertion for the lifetime
+            // of the app so macOS keeps full timer fidelity / QoS even
+            // when the screen is locked. Token releases on `Drop` when
+            // Tauri tears down managed state at app shutdown.
+            // See `lifecycle::activity_assertion`.
+            app.manage(lifecycle::activity_assertion::ActivityToken::acquire(
+                "CodeMantis foreground app — long-running Claude / Self-Drive sessions",
+            ));
 
             Ok(())
         })

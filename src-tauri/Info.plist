@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Keep CodeMantis fully responsive while the user's screen is locked.
+        Long Self-Drive runs and overnight sessions otherwise get throttled
+        by macOS App Nap (timers coalesce to ~1/min, QoS drops, helper
+        processes can be reclaimed) — visible to the user as a white WebView
+        and stalled work on unlock. We opt out at the bundle level.
+    -->
+    <key>NSAppSleepDisabled</key>
+    <true/>
+
+    <!--
+        Don't let macOS silently terminate us when "idle." Terminating mid
+        Self-Drive run loses persistent in-memory state.
+    -->
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+</dict>
+</plist>
