@@ -58,7 +58,7 @@ export default function SpecWriterToolbar({
               border: "1px solid var(--border)",
             }}
           >
-            <Send size={11} />
+            <Send size={14} />
             Send to Chat
           </button>
           <button
@@ -68,7 +68,7 @@ export default function SpecWriterToolbar({
             className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:opacity-90 disabled:opacity-40"
             style={{ background: "var(--accent)", color: "white" }}
           >
-            <Play size={11} />
+            <Play size={14} />
             Implement
           </button>
           {hasGuide && (
@@ -82,7 +82,7 @@ export default function SpecWriterToolbar({
                 border: "1px solid var(--border)",
               }}
             >
-              <BookOpen size={11} />
+              <BookOpen size={14} />
               Use Guide
             </button>
           )}
@@ -97,7 +97,7 @@ export default function SpecWriterToolbar({
                 border: "1px solid var(--border)",
               }}
             >
-              <ScanSearch size={11} />
+              <ScanSearch size={14} />
               Recognize Guide
             </button>
           )}
@@ -116,7 +116,7 @@ export default function SpecWriterToolbar({
           border: canWrite ? "none" : "1px solid var(--border)",
         }}
       >
-        <PenTool size={11} />
+        <PenTool size={14} />
         Generate Spec
       </button>
 
@@ -133,7 +133,7 @@ export default function SpecWriterToolbar({
             border: "1px solid var(--border)",
           }}
         >
-          <RotateCcw size={11} />
+          <RotateCcw size={14} />
           Reset
         </button>
       )}
@@ -154,7 +154,7 @@ export default function SpecWriterToolbar({
             border: "1px solid var(--border)",
           }}
         >
-          <Lightbulb size={12} />
+          <Lightbulb size={14} />
           Suggest Features
         </button>
       )}

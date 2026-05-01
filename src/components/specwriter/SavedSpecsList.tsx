@@ -89,7 +89,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
         style={{ color: "var(--text-secondary)" }}
       >
         <span>Saved Specs ({specsList.length})</span>
-        <span className="text-detail">{isCollapsed ? "▸" : "▾"}</span>
+        <span className="text-ui">{isCollapsed ? "▸" : "▾"}</span>
       </button>
 
       {!isCollapsed && (
@@ -110,7 +110,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                   }}
                   onClick={() => handleClick(spec)}
                 >
-                  <FileText size={12} className="shrink-0" />
+                  <FileText size={14} className="shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="truncate font-medium">{spec.title}</div>
                     <div className="text-detail opacity-60">
@@ -131,7 +131,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                       className="p-1 rounded hover:bg-bg-elevated"
                       style={{ color: "var(--text-ghost)" }}
                     >
-                      <Upload size={11} />
+                      <Upload size={14} />
                     </button>
                     {pendingDelete === spec.filename ? (
                       <button
@@ -148,7 +148,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
                         className="p-1 rounded hover:bg-bg-elevated"
                         style={{ color: "var(--text-ghost)" }}
                       >
-                        <Trash2 size={11} />
+                        <Trash2 size={14} />
                       </button>
                     )}
                   </div>

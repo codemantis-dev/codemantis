@@ -172,7 +172,7 @@ export default function SpecPreviewPanel({
                   border: "1px solid var(--border)",
                 }}
               >
-                {isEditing ? <Eye size={13} /> : <Pencil size={13} />}
+                {isEditing ? <Eye size={14} /> : <Pencil size={14} />}
                 {isEditing ? "Preview" : "Edit"}
               </button>
             )}
@@ -203,7 +203,7 @@ export default function SpecPreviewPanel({
                   border: "1px solid var(--border)",
                 }}
               >
-                <ClipboardCheck size={13} />
+                <ClipboardCheck size={14} />
                 Generate Audit
               </button>
             )}
@@ -216,7 +216,7 @@ export default function SpecPreviewPanel({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:opacity-90"
                 style={{ background: "var(--accent)", color: "white" }}
               >
-                <FileDown size={13} />
+                <FileDown size={14} />
                 Save Spec
               </button>
             )}
@@ -227,7 +227,7 @@ export default function SpecPreviewPanel({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:opacity-90"
                 style={{ background: "var(--accent)", color: "white" }}
               >
-                <FileDown size={13} />
+                <FileDown size={14} />
                 Save Audit
               </button>
             )}
@@ -242,7 +242,7 @@ export default function SpecPreviewPanel({
                   border: "1px solid var(--border)",
                 }}
               >
-                <ScanSearch size={13} />
+                <ScanSearch size={14} />
                 Recognize Guide
               </button>
             )}
