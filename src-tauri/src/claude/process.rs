@@ -338,6 +338,14 @@ impl ClaudeProcess {
             // Skip CLI-level permissions: the CLI has no TTY in stream-json mode.
             // Tool approval is handled by the PreToolUse hook + CodeMantis's
             // approval server instead.
+            //
+            // ⚠ DO NOT pair this with `--permission-mode <m>` — the CLI silently
+            // overrides any --permission-mode value to "bypassPermissions" when
+            // --dangerously-skip-permissions is present. To enter plan mode at
+            // runtime, send a `set_permission_mode` control_request after spawn
+            // (see send_control_request / process.rs control protocol surface).
+            // Verified against CLI 2.1.126 in
+            // src-tauri/tests/cli_protocol_capture.rs scenario S06.
             "--dangerously-skip-permissions",
             // Opus 4.7+ defaults thinking.display to "omitted", which streams
             // thinking blocks with empty text. We need summarized content so

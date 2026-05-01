@@ -69,6 +69,19 @@ vi.mock("@tauri-apps/api/window", () => ({
   })),
 }));
 
+// Mock @tauri-apps/plugin-log (used by error-handler and the [plan-modal]
+// diagnostic instrumentation in activity.ts and PlanCompleteModal.tsx).
+// Tests that want to assert on log calls can re-mock locally with vi.mock
+// in the test file — this default no-op is safe because logs are
+// fire-and-forget side effects.
+vi.mock("@tauri-apps/plugin-log", () => ({
+  trace: vi.fn(() => Promise.resolve()),
+  debug: vi.fn(() => Promise.resolve()),
+  info: vi.fn(() => Promise.resolve()),
+  warn: vi.fn(() => Promise.resolve()),
+  error: vi.fn(() => Promise.resolve()),
+}));
+
 // Clean up after each test to prevent state leaks
 afterEach(() => {
   cleanup();

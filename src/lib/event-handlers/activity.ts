@@ -15,6 +15,7 @@ import { useAssistantStore } from "../../stores/assistantStore";
 import { toolActivityLabel, subAgentActivityLabel, parseAgentUsage } from "../event-classifier";
 import { assertActivitySessionScope } from "../session-integrity";
 import { detectSettingsCarveout } from "../carveout-detector";
+import { info as logInfo } from "@tauri-apps/plugin-log";
 
 // Store state types (derived from Zustand store getState())
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
@@ -80,6 +81,15 @@ function handleToolUseStart(
 
   // Mode-control tools: sync session mode and skip activity feed
   if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
+    // Diagnostic: pair with [plan-modal] logs in
+    // src-tauri/src/claude/message_router.rs and PlanCompleteModal.tsx.
+    // Together they trace router emit → activity handler → modal mount.
+    const activeAtArrival = sessionStore.activeSessionId;
+    const inputKeys = event.tool_input ? Object.keys(event.tool_input) : [];
+    logInfo(
+      `[plan-modal] activity received ToolUseStart: tool=${event.tool_name} id=${event.tool_use_id} session=${sessionId} active=${activeAtArrival ?? "null"} input_keys=${JSON.stringify(inputKeys)}`,
+    ).catch(() => {});
+
     modeControlToolIds.add(event.tool_use_id);
     const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
     sessionStore.setSessionMode(sessionId, newMode);
@@ -120,6 +130,9 @@ function handleToolUseStart(
       // session. For any other session, the PlanPendingBanner picks up the
       // pendingPlanSessionId we just set and offers Review on return.
       const isActive = sessionId === sessionStore.activeSessionId;
+      logInfo(
+        `[plan-modal] activity ExitPlanMode: session=${sessionId} active=${isActive} hasPlanContent=${directPlanContent !== null} hasPlanFilePath=${directPlanFilePath !== null} willOpenModal=${isActive}`,
+      ).catch(() => {});
       if (isActive) {
         uiState.setShowPlanCompleteModal(true);
 

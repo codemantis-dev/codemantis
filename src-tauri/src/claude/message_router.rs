@@ -224,6 +224,18 @@ fn handle_assistant_message(
             ContentBlock::ToolUse { id, name, input } => {
                 let is_pending = state.pending_tools.values().any(|p| p.id == *id);
                 if !is_pending && state.emitted_tool_ids.insert(id.clone()) {
+                    // Diagnostic: trace the modal-open path through Rust→frontend
+                    // for the tools that drive UI prompts. Pair with [plan-modal]
+                    // logs in src/lib/event-handlers/activity.ts.
+                    if matches!(name.as_str(), "ExitPlanMode" | "EnterPlanMode" | "AskUserQuestion") {
+                        info!(
+                            "[plan-modal] router emitting ToolUseStart from assistant path: tool={} id={} input_keys={:?} session={}",
+                            name,
+                            id,
+                            input.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                            session_id
+                        );
+                    }
                     let fe = FrontendEvent::ToolUseStart {
                         session_id: session_id.to_string(),
                         tool_use_id: id.clone(),
@@ -380,6 +392,18 @@ fn handle_content_block_stop(
             let input = serde_json::from_str(&pending.input_json)
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
             if state.emitted_tool_ids.insert(pending.id.clone()) {
+                // Diagnostic: trace the modal-open path through Rust→frontend
+                // for the tools that drive UI prompts. Pair with [plan-modal]
+                // logs in src/lib/event-handlers/activity.ts.
+                if matches!(pending.name.as_str(), "ExitPlanMode" | "EnterPlanMode" | "AskUserQuestion") {
+                    info!(
+                        "[plan-modal] router emitting ToolUseStart from content_block_stop path: tool={} id={} input_keys={:?} session={}",
+                        pending.name,
+                        pending.id,
+                        input.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                        session_id
+                    );
+                }
                 let fe = FrontendEvent::ToolUseStart {
                     session_id: session_id.to_string(),
                     tool_use_id: pending.id,

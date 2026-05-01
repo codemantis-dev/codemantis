@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardCheck, X } from "lucide-react";
+import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { implementPendingPlan } from "../../lib/plan-actions";
@@ -19,6 +20,28 @@ export default function PlanCompleteModal() {
       setAutoAccept(false);
     }
   }, [showModal]);
+
+  // Diagnostic: pair with [plan-modal] logs in message_router.rs and
+  // activity.ts. Logs every transition of (showModal, sessionId) so a single
+  // grep on the codemantis log file traces emit → handler → mount.
+  // We log render-decisions (rendered? skipped? why?) only on transitions, not
+  // on every render — `useRef` keeps the prior tuple to detect changes.
+  const lastLoggedRef = useRef<string>("");
+  useEffect(() => {
+    const willRender = showModal && sessionId !== null;
+    const reason = !showModal
+      ? "showModal=false"
+      : sessionId === null
+        ? "sessionId=null (state not yet set or cleared)"
+        : "ok";
+    const tuple = `${showModal}|${sessionId ?? "null"}|${willRender}|${reason}`;
+    if (lastLoggedRef.current !== tuple) {
+      lastLoggedRef.current = tuple;
+      logInfo(
+        `[plan-modal] modal render decision: showModal=${showModal} sessionId=${sessionId ?? "null"} willRender=${willRender} reason=${reason}`,
+      ).catch(() => {});
+    }
+  }, [showModal, sessionId]);
 
   const handleClose = useCallback(() => {
     setShowModal(false);
