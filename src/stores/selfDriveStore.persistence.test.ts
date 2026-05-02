@@ -379,10 +379,14 @@ describe("resume() post-restart: re-sends session prompt when no blocker", () =>
     expect(sawResetSnapshot).toBe(true);
 
     // Claude Code received the session's creation prompt on the new session.
+    // The prompt is wrapped in the BUILD_MODE preamble (Senior-Engineer
+    // Quality Contract); assert the wrapping and the original prompt are
+    // both present.
     const sendCalls = mockSendMessage.mock.calls as unknown as Array<[string, string]>;
     const lastSend = sendCalls[sendCalls.length - 1];
     expect(lastSend?.[0]).toBe(NEW_SESSION_ID);
-    expect(lastSend?.[1]).toBe("Build.");
+    expect(lastSend?.[1]).toContain("Build.");
+    expect(lastSend?.[1]).toContain("BUILD MODE");
 
     // postRestartFreshResumeNeeded flag is cleared.
     expect(useSelfDriveStore.getState().postRestartFreshResumeNeeded).toBe(false);

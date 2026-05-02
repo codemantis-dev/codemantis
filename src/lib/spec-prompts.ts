@@ -543,8 +543,18 @@ in previous sessions. Before referencing anything from a prior session:
   isn't listed, flag it: "NOTE: This assumes {entity/function} was
   created in Session {N}. If missing, create it here."
 
-Do NOT modify files from previous sessions unless the checklist
-explicitly says to.
+SCOPE = DELIVERABLES, NOT FILE FENCES.
+Do not speculatively touch files from previous sessions. BUT: if a
+deliverable in THIS session genuinely requires fixing an upstream
+type, schema column, migration, or definition from a previous
+session, fix it directly at the source. Inventing a parallel
+definition next to the call site (a "local type extension", a
+"shadow interface", a wrapper "to avoid modifying" upstream) is a
+contract violation — the right answer is to update the canonical
+definition and any consumers of it. If a hard constraint genuinely
+prevents the upstream fix (cross-repo file, coordinated rollout,
+missing credential), surface it via a \`DEFERRED:\` line or pause
+with a structured blocker — never work around it silently.
 \`\`\`
 
 **Verify before next session:**
@@ -799,7 +809,7 @@ Deployment commands MUST appear in this sequence:
   4. Deploy functions (if any serverless changes)
   5. Rebuild containers (if Docker project)
   6. Restart dev server (if config changed)
-  7. "Do NOT modify files from previous sessions..."
+  7. "Scope = deliverables, not file fences (fix upstream when required, no silent workarounds)..."
 
 EXAMPLE — Session prompt with deployment actions:
 
@@ -1994,8 +2004,18 @@ in previous sessions. Before referencing anything from a prior session:
   isn't listed, flag it: "NOTE: This assumes {entity/function} was
   created in Session {N}. If missing, create it here."
 
-Do NOT modify files from previous sessions unless the checklist
-explicitly says to.
+SCOPE = DELIVERABLES, NOT FILE FENCES.
+Do not speculatively touch files from previous sessions. BUT: if a
+deliverable in THIS session genuinely requires fixing an upstream
+type, schema column, migration, or definition from a previous
+session, fix it directly at the source. Inventing a parallel
+definition next to the call site (a "local type extension", a
+"shadow interface", a wrapper "to avoid modifying" upstream) is a
+contract violation — the right answer is to update the canonical
+definition and any consumers of it. If a hard constraint genuinely
+prevents the upstream fix (cross-repo file, coordinated rollout,
+missing credential), surface it via a \`DEFERRED:\` line or pause
+with a structured blocker — never work around it silently.
 \`\`\`
 
 **Verify before next session:**
@@ -2250,7 +2270,7 @@ Deployment commands MUST appear in this sequence:
   4. Deploy functions (if any serverless changes)
   5. Rebuild containers (if Docker project)
   6. Restart dev server (if config changed)
-  7. "Do NOT modify files from previous sessions..."
+  7. "Scope = deliverables, not file fences (fix upstream when required, no silent workarounds)..."
 
 EXAMPLE — Session prompt with deployment actions:
 

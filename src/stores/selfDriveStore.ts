@@ -34,6 +34,7 @@ import {
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
+import { wrapBuildPrompt } from "../lib/build-mode-preamble";
 import { formatDuration } from "../lib/format-utils";
 import {
   extractToolsFromTurn,
@@ -374,10 +375,11 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     try {
       // Add user message to chat so the prompt is visible
       const msgId = `sd-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const wrappedPrompt = wrapBuildPrompt(firstActive.prompt, "build");
       useSessionStore.getState().addMessage(sessionId, {
         id: msgId,
         role: "user",
-        content: firstActive.prompt,
+        content: wrappedPrompt,
         timestamp: new Date().toISOString(),
         activityIds: [],
         isStreaming: false,
@@ -385,7 +387,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       });
       useSessionStore.getState().setSessionBusy(sessionId, true);
 
-      await sendMessage(sessionId, firstActive.prompt);
+      await sendMessage(sessionId, wrappedPrompt);
       markPromptSentForSession(firstActive.index);
     } catch (e) {
       handlePause(`Failed to send build prompt: ${e}`);
@@ -540,7 +542,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       addLogEntry(session.index, "building",
         `Resuming: sending creation prompt for Session ${session.index}`,
         undefined, session.prompt);
-      await sendMessageToSession(session.prompt);
+      await sendMessageToSession(wrapBuildPrompt(session.prompt, "build"));
       markPromptSentForSession(session.index);
     } else if (!session.verifyRequested) {
       // Build was attempted but verification hasn't started — re-check build
@@ -1965,7 +1967,7 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
   );
 
   showToast(`${isRecovering ? "Retrying recovery" : "Fix applied, re-checking"}... (${fixAttempt}/${state.maxFixAttempts})`, "info");
-  await sendMessageToSession(decision.fixPrompt!);
+  await sendMessageToSession(wrapBuildPrompt(decision.fixPrompt!, "fix"));
 }
 
 /**
@@ -2135,7 +2137,7 @@ async function startNextSession(): Promise<void> {
   });
 
   addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`, undefined, nextSession.prompt);
-  await sendMessageToSession(nextSession.prompt);
+  await sendMessageToSession(wrapBuildPrompt(nextSession.prompt, "build"));
   markPromptSentForSession(nextSession.index);
 }
 
@@ -2363,7 +2365,7 @@ async function continueAfterRecovery(sessionIndex: number): Promise<void> {
     addLogEntry(session.index, "building",
       `Post-recovery: sending creation prompt for Session ${session.index}`,
       undefined, session.prompt);
-    await sendMessageToSession(session.prompt);
+    await sendMessageToSession(wrapBuildPrompt(session.prompt, "build"));
     markPromptSentForSession(session.index);
   } else if (!session.verifyRequested) {
     await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });

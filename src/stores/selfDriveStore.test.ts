@@ -496,7 +496,17 @@ describe("selfDriveStore", () => {
       expect(useSelfDriveStore.getState().status).toBe("running");
       expect(useSelfDriveStore.getState().currentPhase).toBe("building");
       expect(useSelfDriveStore.getState().currentSessionIndex).toBe(1);
-      expect(mockSendMessage).toHaveBeenCalledWith(SESSION_ID, "Build foundation.");
+      // Self-Drive wraps the session prompt with the BUILD_MODE preamble
+      // (Senior-Engineer Quality Contract) before sending. Assert both the
+      // wrapping AND the original prompt are present.
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("Build foundation."),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("BUILD MODE"),
+      );
     });
 
     it("switches to auto-accept mode", async () => {
@@ -980,8 +990,15 @@ describe("selfDriveStore", () => {
         expect(useSelfDriveStore.getState().currentPhase).toBe("building");
       });
 
-      // Session 2 prompt should be sent
-      expect(mockSendMessage).toHaveBeenCalledWith(SESSION_ID, "Build features.");
+      // Session 2 prompt should be sent (wrapped in BUILD_MODE preamble)
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("Build features."),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("BUILD MODE"),
+      );
 
       // Guide state: session 1 done, session 2 active
       const updatedGuide = useGuideStore.getState().guide!;
@@ -1201,8 +1218,15 @@ describe("selfDriveStore", () => {
       mockSendMessage.mockResolvedValue(undefined);
       await useSelfDriveStore.getState().resume();
 
-      // Should send the creation prompt
-      expect(mockSendMessage).toHaveBeenCalledWith(SESSION_ID, "Build foundation.");
+      // Should send the creation prompt (wrapped in BUILD_MODE preamble)
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("Build foundation."),
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.stringContaining("BUILD MODE"),
+      );
       // Should set phase to building
       expect(useSelfDriveStore.getState().currentPhase).toBe("building");
     });
@@ -2005,9 +2029,13 @@ describe("selfDriveStore — prompt visibility in chat", () => {
     const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
     const userMessages = messages.filter((m) => m.role === "user");
 
-    // Should have at least one user message with the build prompt
+    // Should have at least one user message with the build prompt.
+    // The chat-visible content is the wrapped prompt — preamble first,
+    // then the session prompt — so assert both pieces are present.
     expect(userMessages.length).toBeGreaterThanOrEqual(1);
-    expect(userMessages[userMessages.length - 1].content).toBe("Build foundation.");
+    const lastUserContent = userMessages[userMessages.length - 1].content;
+    expect(lastUserContent).toContain("Build foundation.");
+    expect(lastUserContent).toContain("BUILD MODE");
   });
 
   it("sendMessageToSession adds prompt as user message before sending", async () => {

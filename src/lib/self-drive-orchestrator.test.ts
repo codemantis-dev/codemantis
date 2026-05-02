@@ -134,6 +134,73 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).toContain('"action": "verify"');
     expect(systemPrompt).toContain('"action": "pause"');
   });
+
+  // The persona contract — the orchestrator now opens with adversarial-
+  // reviewer framing rather than neutral evaluator wording. Tone shapes
+  // verdicts; this test pins the wording so a future edit can't quietly
+  // soften the stance back to "evaluate what Claude Code did."
+  it("opens with skeptical-senior-reviewer persona, not neutral evaluator", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain("skeptical senior reviewer");
+    expect(systemPrompt).toContain("default verdict is FAIL");
+    expect(systemPrompt).toContain("narrative reads better than its evidence");
+    // The Senior-Engineer Quality Contract on the executor side must be
+    // referenced so the orchestrator knows what bar Claude Code is held to.
+    expect(systemPrompt).toContain("Senior-Engineer Quality Contract");
+    expect(systemPrompt).toContain("DEFERRED:");
+  });
+
+  it("includes WORKAROUND DETECTION block with banned phrases and a redo template", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain("WORKAROUND DETECTION");
+    // Each phrase from the plan must appear so the orchestrator catches
+    // the same wording Claude Code used in the original incident.
+    expect(systemPrompt).toContain("working around");
+    expect(systemPrompt).toContain("local type extension");
+    expect(systemPrompt).toContain("to avoid modifying");
+    expect(systemPrompt).toContain("@ts-ignore");
+    expect(systemPrompt).toContain("band-aid");
+    expect(systemPrompt).toContain("disabled the test");
+    // Fabrication signal — claims of success without evidence
+    expect(systemPrompt).toContain("the build should pass");
+    // Redo prompt template must reference both escape hatches
+    expect(systemPrompt).toContain("DEFERRED: line");
+    expect(systemPrompt).toContain("structured blocker");
+  });
+
+  it("includes ACTIVITY-EVIDENCE DETECTION cross-checking tools-used and duration", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain("ACTIVITY-EVIDENCE DETECTION");
+    expect(systemPrompt).toContain("TOOLS USED THIS TURN");
+    expect(systemPrompt).toContain("TURN DURATION");
+    // The detector must require Edit/Write tool use when completion is claimed
+    expect(systemPrompt).toContain("Edit, Write");
+    // The "<30s multi-file change" heuristic
+    expect(systemPrompt).toMatch(/30\s*s/);
+    // A fixing turn that did no Read/Grep/Glob is a guess
+    expect(systemPrompt).toContain("Read/Grep/Glob");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
