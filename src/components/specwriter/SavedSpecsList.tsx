@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from "react";
-import { FileText, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Trash2, Upload } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { listSpecDocuments, readSpecDocument, deleteSpecDocument } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
@@ -89,7 +89,7 @@ export default function SavedSpecsList({ projectPath, onLoadSpec }: Props) {
         style={{ color: "var(--text-secondary)" }}
       >
         <span>Saved Specs ({specsList.length})</span>
-        <span className="text-ui">{isCollapsed ? "▸" : "▾"}</span>
+        {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
       </button>
 
       {!isCollapsed && (
