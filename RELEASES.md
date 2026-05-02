@@ -1,5 +1,29 @@
 # CodeMantis Releases
 
+## 1.1.4
+
+Hotfix release focused on macOS lock-screen lifecycle, SpecWriter save UX, and CLI protocol alignment with `claude` 2.1.126.
+
+### macOS Lifecycle (Hotfix)
+- **Lock-screen stalls eliminated without destructive reloads**: long-running sessions no longer freeze when the Mac sleeps/locks for extended periods. Combines an App Nap opt-out, a process activity assertion token, and a non-destructive WKWebView repaint recovery path on missed wake pongs
+- **No more frontend visibility-triggered reloads**: the visibility-change reload path is gone — unlocking the screen no longer wipes in-memory UI state (active session, scroll position, modal stacks). Recovery now happens at the native layer instead of by reloading the webview
+- **Updated wake-recovery tests** to cover the new repaint path and the absence of the visibility reload
+
+### SpecWriter
+- **Smarter save dialog filename**: the SpecWriter save dialog now derives its default filename from `docs/specs/<stem>.md` self-references in the body (e.g. Session Plan prompts) before falling back to H1 slugging — so saved specs land at the filename the spec actually claims to use
+- **Em/en-dash only as title separators**: filename derivation no longer splits compound names like `Spec-Forge` on hyphens. Helper functions are pure and covered by unit + dialog regression tests
+- **Toolbar/list icon sizing normalized**: SpecWriter action buttons and saved-spec list icons render at a consistent visual scale, with collapse chevron typography aligned for legibility
+- **Lucide chevrons for saved-specs collapse**: replaced unicode triangle glyphs with `ChevronRight`/`ChevronDown` so the header matches the rest of the Lucide UI and scales cleanly
+
+### Claude CLI 2.1.126 Compatibility
+- **Protocol capture harness**: new reproducible suite with scenario NDJSON artifacts and a detailed 2.1.126 audit report, used to drive runtime behavior changes
+- **ExitPlanMode plan state preserved across inactive sessions**: switching tabs no longer drops the pending plan from a paused session
+- **Protected-path deny toast bucketing**: control-tool denials no longer surface as misleading errors; they're routed through the same protected-path UX introduced in 1.1.3
+- **Documented**: `--dangerously-skip-permissions` overrides `--permission-mode` in CLI spawn args (call-site comment, no behavior change)
+
+### Plan Mode Diagnostics
+- Cross-stack `[plan-modal]` trace logs at the message router (when `ExitPlanMode`/`EnterPlanMode`/`AskUserQuestion` ToolUseStart events surface), at the activity handler (visibility decision), and at `PlanCompleteModal` (render-state transitions). `@tauri-apps/plugin-log` is mocked in Vitest setup so diagnostic calls remain side-effect-free in tests
+
 ## 1.1.3
 
 ### Chat
