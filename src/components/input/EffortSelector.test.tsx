@@ -131,6 +131,34 @@ describe("EffortSelector", () => {
     expect(screen.getByText("Max")).toBeInTheDocument();
   });
 
+  it("matches the resolved Anthropic model ID (claude-opus-4-7[1m]) against the 'default' manifest entry", () => {
+    // The CLI's `system/init` reports the resolved ID — `default` resolves
+    // to claude-opus-4-7[1m]. The dropdown must still surface effort levels
+    // from the `default` entry instead of hiding itself.
+    seed({ model: "claude-opus-4-7[1m]", effort: "high" });
+    render(<EffortSelector />);
+    expect(screen.getByText("High")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("High"));
+    expect(screen.getByText("Low")).toBeInTheDocument();
+    expect(screen.getByText("XHigh")).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+  });
+
+  it("matches the resolved Sonnet model ID against the 'sonnet' manifest entry (4 levels, no xhigh)", () => {
+    seed({ model: "claude-sonnet-4-6-20250514", effort: "high" });
+    render(<EffortSelector />);
+    fireEvent.click(screen.getByText("High"));
+    expect(screen.getByText("Low")).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+    expect(screen.queryByText("XHigh")).not.toBeInTheDocument();
+  });
+
+  it("hides the selector when the resolved model ID has no effort-supporting manifest entry (e.g. Haiku)", () => {
+    seed({ model: "claude-haiku-4-5-20251001" });
+    const { container } = render(<EffortSelector />);
+    expect(container.innerHTML).toBe("");
+  });
+
   it("uses the active model's supportedEffortLevels — Sonnet does not expose xhigh", () => {
     seed({ model: "sonnet", effort: "high" });
     render(<EffortSelector />);

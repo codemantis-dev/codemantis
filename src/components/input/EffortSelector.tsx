@@ -8,18 +8,60 @@ import { showToast } from "../../stores/toastStore";
 import { pauseSessionProcess, resumeSessionProcess } from "../../lib/tauri-commands";
 import type { CliModelInfo } from "../../types/claude-events";
 
-function findActiveModel(
+/**
+ * Resolve which `CliModelInfo` corresponds to the running CLI session.
+ *
+ * The CLI's `system/init` event reports the *resolved* Anthropic model ID
+ * (e.g. `claude-opus-4-7[1m]`) while the `initialize` capability manifest
+ * lists models by their CLI alias (`default` / `sonnet` / `sonnet[1m]` /
+ * `haiku`). The two strings are not equal, but they share descriptive
+ * tokens — the resolved ID always contains the same family/version
+ * fragments that the manifest entries put in their `displayName` /
+ * `description`. We exploit that without baking any model lists into the
+ * code: tokenise the resolved ID, score each manifest entry by how many
+ * of those tokens appear in its searchable text, and pick the highest
+ * scorer. If a `value === modelValue` exact match exists (e.g. when the
+ * user passed `--model sonnet[1m]` and the CLI reports the alias
+ * verbatim), it wins outright.
+ *
+ * Pure data flow: both inputs come from the CLI. If Anthropic adds,
+ * removes, or renames a model family, the matcher follows automatically
+ * because both the resolved ID and the manifest text move together.
+ */
+function findManifestEntry(
   models: unknown,
   modelValue: string | null | undefined,
 ): CliModelInfo | null {
   if (!Array.isArray(models)) return null;
   const list = models as CliModelInfo[];
-  if (!modelValue) {
-    return list.find((m) => m.value === "default") ?? list[0] ?? null;
-  }
+  if (list.length === 0 || !modelValue) return null;
+
   const exact = list.find((m) => m.value === modelValue);
   if (exact) return exact;
-  return list.find((m) => modelValue.includes(m.value)) ?? null;
+
+  const idTokens = modelValue
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 0);
+  if (idTokens.length === 0) return null;
+
+  let best: CliModelInfo | null = null;
+  let bestScore = 0;
+  for (const m of list) {
+    const haystack = `${m.value} ${m.displayName} ${m.description}`
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 0);
+    let score = 0;
+    for (const t of idTokens) {
+      if (haystack.includes(t)) score += 1;
+    }
+    if (score > bestScore) {
+      best = m;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 function labelFor(level: string): string {
@@ -85,12 +127,12 @@ export default function EffortSelector() {
 
   const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
   const activeModel = useMemo(
-    () => findActiveModel(caps?.models, session?.model),
+    () => findManifestEntry(caps?.models, session?.model),
     [caps?.models, session?.model],
   );
 
   const supportsEffort = activeModel?.supportsEffort === true;
-  const levels = activeModel?.supportedEffortLevels ?? [];
+  const levels: string[] = activeModel?.supportedEffortLevels ?? [];
 
   if (!activeSessionId || !supportsEffort || levels.length === 0) {
     return null;

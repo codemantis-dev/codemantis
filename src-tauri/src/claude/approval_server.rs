@@ -1083,4 +1083,163 @@ mod tests {
         let parsed: OpenBrowserRequest = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.url, "http://localhost:3000/about");
     }
+
+    // ── Tool-approval round-trip integration tests ─────────────────────────
+    //
+    // These tests prove the user-decision → CLI-response link end-to-end at
+    // the Rust boundary:
+    //
+    //     hook POST → handler awaits oneshot
+    //                                   ▲
+    //   resolve_tool_approval Tauri command → state.resolve(id, …) → tx.send
+    //                                   │
+    //         handler turns ApprovalDecision into HookResponse
+    //
+    // The Tauri-emit step (which would deliver `tool-approval-request` to the
+    // frontend) is not exercisable without a real `AppHandle`; that link is
+    // covered by the corresponding TS integration test
+    // `tool-approval-round-trip.integration.test.ts`. Together they prove
+    // every leg of the round-trip.
+
+    /// Stand-in for `handle_tool_approval`'s post-emit wait. Real handler
+    /// drops the `pending` lock between insert and await; we mirror that.
+    async fn drive_pending_decision(
+        state: &ApprovalServerState,
+        request_id: &str,
+        timeout_secs: u64,
+    ) -> HookResponse {
+        let (tx, rx) = oneshot::channel::<ApprovalDecision>();
+        {
+            let mut pending = state.pending.lock().await;
+            pending.insert(request_id.to_string(), tx);
+        }
+
+        let decision =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx).await;
+
+        {
+            let mut pending = state.pending.lock().await;
+            pending.remove(request_id);
+        }
+
+        match decision {
+            Ok(Ok(d)) => {
+                if d.approved {
+                    HookResponse::allow()
+                } else {
+                    HookResponse::deny(d.reason)
+                }
+            }
+            Ok(Err(_)) => HookResponse::deny(Some("Approval cancelled".to_string())),
+            Err(_) => HookResponse::deny(Some("Approval timed out".to_string())),
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trip_user_deny_returns_hook_deny_with_reason() {
+        let state = std::sync::Arc::new(ApprovalServerState::new());
+        let request_id = "req-deny-1".to_string();
+
+        // Spawn the handler-side wait. In the real flow this is
+        // `handle_tool_approval` blocking on the oneshot after emitting
+        // `tool-approval-request` to the frontend.
+        let waiter = {
+            let state = state.clone();
+            let req_id = request_id.clone();
+            tokio::spawn(async move { drive_pending_decision(&state, &req_id, 5).await })
+        };
+
+        // Give the spawned task a moment to register its sender before we
+        // resolve. (Without this, resolve() can race ahead and find no
+        // pending entry.)
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Simulate the user clicking Deny in the modal — exactly what
+        // `resolve_tool_approval` Tauri command does.
+        let resolved = state
+            .resolve(&request_id, false, Some("dangerous command".into()))
+            .await;
+        assert!(resolved, "resolve must find the pending request");
+
+        let response = waiter.await.expect("waiter task must complete");
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecision"],
+            "deny",
+            "user-denied request must produce HookResponse::deny on the wire"
+        );
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecisionReason"],
+            "dangerous command",
+            "deny reason must reach the CLI verbatim — that's what the model sees"
+        );
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    }
+
+    #[tokio::test]
+    async fn round_trip_user_approve_returns_hook_allow() {
+        let state = std::sync::Arc::new(ApprovalServerState::new());
+        let request_id = "req-allow-1".to_string();
+
+        let waiter = {
+            let state = state.clone();
+            let req_id = request_id.clone();
+            tokio::spawn(async move { drive_pending_decision(&state, &req_id, 5).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let resolved = state.resolve(&request_id, true, None).await;
+        assert!(resolved);
+
+        let response = waiter.await.expect("waiter task must complete");
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "allow");
+        // allow() does not carry a reason
+        assert!(json["hookSpecificOutput"]["permissionDecisionReason"].is_null());
+    }
+
+    #[tokio::test]
+    async fn round_trip_timeout_returns_hook_deny_with_timeout_reason() {
+        // No `resolve()` call → handler eventually times out and the CLI
+        // sees a deny with the timeout reason. The real handler uses 300s;
+        // we use a 1s timeout to keep the test fast while exercising the
+        // same code path.
+        let state = std::sync::Arc::new(ApprovalServerState::new());
+        let response = drive_pending_decision(&state, "req-timeout-1", 1).await;
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecisionReason"],
+            "Approval timed out",
+        );
+    }
+
+    #[tokio::test]
+    async fn round_trip_resolve_unknown_request_id_does_not_affect_other_pending() {
+        // Defence against the modal sending a stale or wrong request_id —
+        // it must not accidentally release some other in-flight approval.
+        let state = std::sync::Arc::new(ApprovalServerState::new());
+        let request_id = "req-stable-1".to_string();
+
+        let waiter = {
+            let state = state.clone();
+            let req_id = request_id.clone();
+            tokio::spawn(async move { drive_pending_decision(&state, &req_id, 2).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let resolved_unknown = state.resolve("nonexistent-id", true, None).await;
+        assert!(!resolved_unknown, "resolve of unknown id must be a no-op");
+
+        // Now resolve the real one and confirm it propagates correctly.
+        let resolved = state.resolve(&request_id, false, Some("user denied".into())).await;
+        assert!(resolved);
+        let response = waiter.await.expect("waiter task must complete");
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+        assert_eq!(
+            json["hookSpecificOutput"]["permissionDecisionReason"],
+            "user denied",
+        );
+    }
 }

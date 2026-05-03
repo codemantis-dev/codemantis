@@ -19,6 +19,13 @@ struct PendingToolBlock {
 /// The CLI's wire format is camelCase (`acceptEdits`, `dontAsk`,
 /// `bypassPermissions`, `auto`, `plan`, `default`). Unknown strings fall
 /// back to `SessionMode::Normal` (safe default — prompt the user).
+///
+/// Currently only used by the round-trip test in `commands::session` and
+/// the per-mode tests below. We intentionally do NOT call it from the
+/// `system/init` handler (see `handle_system_init` for why) — `--dangerously
+/// -skip-permissions` always forces the CLI's reported mode to
+/// `bypassPermissions`, so syncing from there overwrites the user's choice.
+#[allow(dead_code)]
 pub(crate) fn classify_permission_mode(cli_perm_mode: &str) -> SessionMode {
     match cli_perm_mode {
         "plan" => SessionMode::Plan,
@@ -101,35 +108,6 @@ async fn store_cli_session_id(app_handle: &AppHandle, session_id: &str, cli_sid:
     }
 }
 
-/// Helper: sync the CLI permission mode to AppState and emit if changed.
-async fn sync_session_mode(
-    app_handle: &AppHandle,
-    session_id: &str,
-    cli_perm_mode: &str,
-) {
-    let new_mode = classify_permission_mode(cli_perm_mode);
-    if let Some(state) = app_handle.try_state::<AppState>() {
-        let mut modes = state.session_modes.lock().await;
-        if modes.get(session_id) != Some(&new_mode) {
-            info!(
-                "[message_router] System init: syncing permissionMode '{}' → {:?} for session {}",
-                cli_perm_mode, new_mode, session_id
-            );
-            modes.insert(session_id.to_string(), new_mode.clone());
-            drop(modes);
-            if let Err(e) = app_handle.emit(
-                "session-mode-changed",
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "mode": new_mode
-                }),
-            ) {
-                warn!("[message-router] Failed to emit session-mode-changed: {}", e);
-            }
-        }
-    }
-}
-
 // ── Mutable state threaded through the event loop ──
 
 struct RouterState {
@@ -198,9 +176,16 @@ async fn handle_system_init(
         maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
     }
 
-    if let Some(cli_perm_mode) = extra.get("permissionMode").and_then(|v| v.as_str()) {
-        sync_session_mode(app_handle, session_id, cli_perm_mode).await;
-    }
+    // We deliberately do NOT sync our session_mode from `extra.permissionMode`.
+    // CodeMantis spawns the CLI with `--dangerously-skip-permissions`, which
+    // (per CLI 2.1.126, harness S06) silently overrides any other mode and
+    // forces `system/init.permissionMode == "bypassPermissions"`. Syncing
+    // would therefore flip every session to Bypass on the first turn,
+    // overwriting whatever the user picked in `ModeSelector`. Mode is
+    // host-owned: the user's choice (kept in `state.session_modes`) is the
+    // source of truth, and the approval-hook server enforces it. Any runtime
+    // mode change goes through `set_session_mode` → `set_permission_mode`
+    // control_request and emits `session-mode-changed` directly.
 }
 
 fn handle_assistant_message(
