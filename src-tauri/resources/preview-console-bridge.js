@@ -141,20 +141,25 @@
     'color:#cdd6f4;padding:0 8px;font-size:11px;min-width:0;outline:none;';
   urlBar.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
-      var url = urlBar.value.trim();
-      if (url && url !== window.location.href) {
-        // Add protocol if missing
-        if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
-        // Reject any URL that didn't end up as plain http(s). The regex
-        // above would have prepended http:// to anything that wasn't
-        // already http(s)://, but a value like "javascript:alert(1)"
-        // matches a different prefix and would otherwise reach
-        // location.href as a code-execution sink. Belt-and-braces.
-        if (!/^https?:\/\//i.test(url)) {
+      var input = urlBar.value.trim();
+      if (input && input !== window.location.href) {
+        // Add protocol if missing — bare host or path goes to http://.
+        var withScheme = /^https?:\/\//i.test(input) ? input : 'http://' + input;
+        // Parse + validate via the URL constructor instead of a regex
+        // test on the string. URL.protocol is a CodeQL-recognized
+        // sanitizer for the js/xss-through-dom rule, and rejecting
+        // anything but http(s) here blocks `javascript:` / `data:` /
+        // `file:` / `vbscript:` schemes from reaching location.href.
+        var parsed;
+        try { parsed = new URL(withScheme); } catch (_err) {
           urlBar.blur();
           return;
         }
-        window.location.href = url;
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          urlBar.blur();
+          return;
+        }
+        window.location.href = parsed.href;
       }
       urlBar.blur();
     }
