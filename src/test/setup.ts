@@ -82,6 +82,34 @@ vi.mock("@tauri-apps/plugin-log", () => ({
   error: vi.fn(() => Promise.resolve()),
 }));
 
+// Swallow a specific known flake from @radix-ui/react-focus-scope:
+// it schedules a setTimeout(0) during Dialog/Popover unmount that
+// dispatches a CustomEvent on the now-detached DOM node. On jsdom 28
+// the stricter Event-IDL converter throws "parameter 1 is not of type
+// 'Event'", and Vitest 4.x escalates the throw to a CI suite failure
+// even though no real test actually failed. (Bit v1.1.6 CI; reproduced
+// once locally — manifests under specific timing only.)
+//
+// Filter is scoped to exactly that error message + stack frame, so
+// genuine unhandled errors still surface. Listener is installed once at
+// module load and stays for the test session — no per-test cost.
+window.addEventListener(
+  "error",
+  (event: ErrorEvent) => {
+    const msg = event.error?.message ?? event.message ?? "";
+    const stack: string = event.error?.stack ?? "";
+    if (
+      msg.includes("dispatchEvent") &&
+      msg.includes("parameter 1 is not of type 'Event'") &&
+      stack.includes("react-focus-scope")
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  },
+  { capture: true },
+);
+
 // Clean up after each test to prevent state leaks
 afterEach(() => {
   cleanup();
