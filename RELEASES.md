@@ -1,5 +1,26 @@
 # CodeMantis Releases
 
+## 1.1.6
+
+Security hardening release. No user-facing feature changes — patches transitive dependency vulnerabilities flagged by Dependabot and shrinks the runtime TLS attack surface.
+
+### Dependency Vulnerability Patches
+Resolved Dependabot alerts (11 total at v1.1.5 → 0 at v1.1.6):
+- **`rustls-webpki` 0.103.10 → 0.103.13** (high #24, low #15/#16) — DoS via panic on malformed CRL, plus name-constraint corner cases. This crate is in CodeMantis's actual TLS path (`reqwest` rustls-tls → rustls → rustls-webpki); the patch closes the only runtime-reachable advisory in the set.
+- **`openssl` 0.10.76 → 0.10.78** (high #19/#20/#21/#23, low #22) — multiple memory-safety bugs in the openssl bindings.
+- **`postcss` 8.5.8 → 8.5.13** (medium #25, dev-only) — XSS via unescaped `</style>` in CSS stringify output. PostCSS is a build-time CSS compiler in CodeMantis; the bug is not exploitable in our build pipeline, but patching keeps the development surface clean.
+- **`rand` 0.8.5 → 0.8.6, 0.9.2 → 0.9.4** (low #17 only — #18 dismissed) — soundness fix for `rand::rng()` with custom loggers. Build-time only; no runtime exposure.
+- **Dismissed alert #18** (`rand` 0.7.3) as `tolerable_risk`: transitive 5 levels deep through `tauri-build → tauri-utils → kuchikiki → selectors → phf_generator`, only consumed at build time, no runtime presence in the shipped binary, and has no patched 0.7.x version available — fix requires upstream Tauri to bump `kuchikiki`/`selectors`.
+
+### TLS Attack Surface Reduction
+- **Disabled `reqwest` default features** to remove `openssl` and `native-tls` from the dependency graph entirely. CodeMantis explicitly enables `rustls-tls` for TLS, but the previous configuration also pulled `default-tls` (= native-tls + openssl) implicitly — so two TLS stacks were compiled in but only one was used.
+- After the change, `cargo tree -p openssl --target all` and `cargo tree -p native-tls --target all` both report no matches. Removed from the binary: `openssl`, `openssl-sys`, `openssl-macros`, `native-tls`, `hyper-tls`, `tokio-native-tls`, `system-configuration` (and its `-sys` crate), `windows-registry`.
+- **Defense-in-depth benefit**: future `openssl` CVEs will not flag this repository because the crate is no longer in the dependency graph. The runtime TLS attack surface is now scoped to the `rustls`/`rustls-webpki`/`ring` chain CodeMantis actually exercises.
+
+### Notes for Updaters
+- This is an auto-updater patch release — installed copies of v1.1.5 will pick up v1.1.6 automatically.
+- No CLAUDE.md test floor changes. Test counts unchanged from v1.1.5 (TS unit ≥3,357, TS integration ≥122, Rust unit ≥1,227, Rust integration ≥10).
+
 ## 1.1.5
 
 Feature release: thinking-effort selector, Self-Drive quality contract, and CLI permission-mode ownership fix.
