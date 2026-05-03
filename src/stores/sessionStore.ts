@@ -177,8 +177,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionModes.set(session.id, "normal");
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(session.id, false);
+      // Do NOT seed sessionEffort. The CLI in v2.1.126 stream-json mode does
+      // not emit `thinking_effort` in `system/init`, so any seed value would
+      // mislead the badge. EffortSelector falls back to the persisted
+      // `defaultThinkingEffort` (which is what we actually passed via
+      // `--effort`), then to the first available level. See memory
+      // project_cli_effort_runtime_constraints.md.
       const sessionEffort = new Map(state.sessionEffort);
-      sessionEffort.set(session.id, "high");
       const tabOrder = [...state.tabOrder, session.id];
 
       // Project grouping
@@ -562,7 +567,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(sessionId, false);
       const sessionEffort = new Map(state.sessionEffort);
-      sessionEffort.set(sessionId, "high");
+      sessionEffort.delete(sessionId);
       const contextToastFired = new Map(state.contextToastFired);
       contextToastFired.set(sessionId, new Set());
       const sessionActivity = new Map(state.sessionActivity);
@@ -757,7 +762,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionBusy = new Map(state.sessionBusy);
       sessionBusy.set(sessionId, false);
       const sessionEffort = new Map(state.sessionEffort);
-      sessionEffort.set(sessionId, "high");
+      sessionEffort.delete(sessionId);
       return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort };
     }),
 

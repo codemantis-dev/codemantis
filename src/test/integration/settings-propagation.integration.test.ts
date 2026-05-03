@@ -92,6 +92,7 @@ function makeSettings(overrides?: Partial<AppSettings>): AppSettings {
     selfDriveRunTests: true,
 selfDriveAutoCommit: false,
     selfDriveEnableRecheckLoop: true,
+    defaultThinkingEffort: null,
     ...overrides,
   } as AppSettings;
 }

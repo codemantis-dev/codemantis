@@ -101,6 +101,8 @@ pub async fn create_session(
         *port
     };
 
+    let effort_override = state.thinking_effort_override(&project_path).await;
+
     // Spawn the CLI process
     let process = ClaudeProcess::spawn(
         app_handle,
@@ -112,6 +114,7 @@ pub async fn create_session(
         None, // model_override
         None, // append_system_prompt
         Some(&session_info.name),
+        effort_override.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -197,6 +200,8 @@ pub async fn resume_session_process(
         *port
     };
 
+    let effort_override = state.thinking_effort_override(&project_path).await;
+
     let process = ClaudeProcess::spawn(
         app_handle,
         session_id.clone(),
@@ -207,6 +212,7 @@ pub async fn resume_session_process(
         None, // model_override
         None, // append_system_prompt
         Some(&session_name),
+        effort_override.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -800,6 +806,7 @@ pub async fn create_specwriter_session(
         Some(&model),
         Some(&system_prompt),
         Some("SpecWriter"),
+        None, // effort_override — SpecWriter ignores user's effort choice
     )
     .await
     .map_err(|e| e.to_string())?;

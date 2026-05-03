@@ -19,7 +19,15 @@ export type SessionMode =
   | "dont-ask"
   | "bypass-permissions";
 
-export type ThinkingEffort = "high" | "medium" | "low";
+/**
+ * The CLI emits whatever effort label the active model supports
+ * (see `supportedEffortLevels` per model in the `initialize` capability
+ * response — Default has 5 levels incl. `xhigh`, Sonnet has 4 without it,
+ * Haiku has none). The set is per-model and changes between CLI versions.
+ * We treat it as an opaque CLI-provided string and validate at the UI
+ * boundary against the live capabilities — never against a hardcoded list.
+ */
+export type ThinkingEffort = string;
 
 
 export interface TurnStats {

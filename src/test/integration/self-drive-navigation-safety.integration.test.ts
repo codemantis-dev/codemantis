@@ -158,6 +158,7 @@ function setupReady(startingProject: string, startingSession: string): void {
       selfDriveRunTests: false,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      defaultThinkingEffort: null,
     } as unknown as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,
   });

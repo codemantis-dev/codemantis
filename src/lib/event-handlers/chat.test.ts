@@ -396,13 +396,34 @@ describe("chat event handler — system events", () => {
       expect(useSessionStore.getState().sessionEffort.get("s1")).toBe("high");
     });
 
-    it("ignores invalid thinking effort values", () => {
-      // Ensure no prior effort is set
+    it("accepts xhigh as a valid thinking effort", () => {
+      const effortMap = new Map(useSessionStore.getState().sessionEffort);
+      effortMap.delete("s1");
+      useSessionStore.setState({ sessionEffort: effortMap });
+
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "sonnet", thinking_effort: "xhigh" });
+      expect(useSessionStore.getState().sessionEffort.get("s1")).toBe("xhigh");
+    });
+
+    it("accepts whatever effort label the CLI emits — no hardcoded allow-list", () => {
+      // Per-model `supportedEffortLevels` is determined by the CLI and
+      // changes between releases. The handler must trust whatever the CLI
+      // reports (lowercased, trimmed) and let the UI validate against the
+      // live capabilities — never against a frozen list.
       const effortMap = new Map(useSessionStore.getState().sessionEffort);
       effortMap.delete("s1");
       useSessionStore.setState({ sessionEffort: effortMap });
 
       handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "sonnet", thinking_effort: "ULTRA" });
+      expect(useSessionStore.getState().sessionEffort.get("s1")).toBe("ultra");
+    });
+
+    it("ignores empty/whitespace thinking effort values", () => {
+      const effortMap = new Map(useSessionStore.getState().sessionEffort);
+      effortMap.delete("s1");
+      useSessionStore.setState({ sessionEffort: effortMap });
+
+      handleChatEvent("s1", { type: "session_init", session_id: "s1", model: "sonnet", thinking_effort: "   " });
       expect(useSessionStore.getState().sessionEffort.get("s1")).toBeUndefined();
     });
   });

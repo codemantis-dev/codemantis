@@ -110,6 +110,17 @@ pub struct AppSettings {
     pub super_bro_provider: String,
     #[serde(default = "default_super_bro_model")]
     pub super_bro_model: String,
+
+    // --- Claude CLI: thinking effort override ---
+    /// When set, baked into the inline `--settings` blob passed to the CLI on
+    /// spawn (see `claude::process::build_session_settings_json`). Overrides
+    /// whatever effort the user has in `~/.claude/settings.json`. None = let
+    /// the CLI inherit its own config. Valid: "low" | "medium" | "high" |
+    /// "xhigh". The CLI's runtime `set_effort` control_request is unsupported
+    /// in v2.1.126 — runtime changes go through `set_max_thinking_tokens`
+    /// (see `claude::session::ControlRequestKind::SetMaxThinkingTokens`).
+    #[serde(default)]
+    pub default_thinking_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +267,7 @@ impl Default for AppSettings {
             super_bro_enabled: true,
             super_bro_provider: default_super_bro_provider(),
             super_bro_model: default_super_bro_model(),
+            default_thinking_effort: None,
         }
     }
 }
@@ -398,6 +410,47 @@ mod tests {
         assert_eq!(settings.theme, "sand");
         assert_eq!(settings.font_size, 13);
         assert_eq!(settings.send_shortcut, "cmd+enter");
+    }
+
+    #[test]
+    fn default_thinking_effort_starts_unset() {
+        // None means "inherit Claude Code's own setting" — we never invent
+        // a default level for the user. The dropdown only writes a value
+        // here when the user explicitly picks one.
+        let settings = AppSettings::default();
+        assert_eq!(settings.default_thinking_effort, None);
+    }
+
+    #[test]
+    fn default_thinking_effort_round_trips_arbitrary_cli_label() {
+        // The valid set of effort labels is whatever the CLI exposes per
+        // model in `supportedEffortLevels`. We persist whatever the user
+        // selected from that live list — never a hardcoded enum.
+        let json = r#"{"defaultThinkingEffort":"xhigh"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.default_thinking_effort.as_deref(), Some("xhigh"));
+
+        let json = r#"{"defaultThinkingEffort":"max"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.default_thinking_effort.as_deref(), Some("max"));
+
+        // Forward-compat: a future CLI level we don't know about today
+        // must still round-trip — never reject CLI-provided strings.
+        let json = r#"{"defaultThinkingEffort":"ultra"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.default_thinking_effort.as_deref(), Some("ultra"));
+    }
+
+    #[test]
+    fn default_thinking_effort_serializes_camel_case() {
+        let mut settings = AppSettings::default();
+        settings.default_thinking_effort = Some("low".into());
+        let json = serde_json::to_string(&settings).unwrap();
+        // Setting must serialize under the camelCase key the frontend uses.
+        assert!(
+            json.contains("\"defaultThinkingEffort\":\"low\""),
+            "serialized JSON must contain camelCase defaultThinkingEffort key, got: {json}"
+        );
     }
 
     #[test]

@@ -244,8 +244,11 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         store.updateContext(sessionId, currentCtx?.used ?? 0, modelMax);
       }
       if (event.thinking_effort) {
-        const effort = event.thinking_effort.toLowerCase();
-        if (effort === "high" || effort === "medium" || effort === "low") {
+        const effort = event.thinking_effort.toLowerCase().trim();
+        // Accept whatever effort label the CLI emits (per-model
+        // supportedEffortLevels — never hardcode the list). Just guard
+        // against empty/whitespace.
+        if (effort.length > 0) {
           store.setSessionEffort(sessionId, effort);
         }
       }

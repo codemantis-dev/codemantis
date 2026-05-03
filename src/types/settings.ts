@@ -119,6 +119,20 @@ export interface AppSettings {
    * verification pause manually.
    */
   selfDriveEnableRecheckLoop: boolean;
+
+  /**
+   * Default thinking-effort the Claude CLI is launched with for new sessions.
+   * Baked into the inline `--settings` blob (see `build_session_settings_json`
+   * in src-tauri/src/claude/process.rs) so it overrides the user's
+   * ~/.claude/settings.json. `null` = inherit the CLI's own config.
+   *
+   * The set of valid values is whatever the CLI exposes in
+   * `initialize.response.models[].supportedEffortLevels` — this is per-model
+   * and changes between CLI versions (Sonnet has 4 levels, Default has 5
+   * incl. xhigh, Haiku has none). DO NOT hardcode the list anywhere — read
+   * it from `sessionCapabilities` and validate against it.
+   */
+  defaultThinkingEffort: string | null;
 }
 
 export { getDefaultModelPricing };

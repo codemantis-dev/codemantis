@@ -179,6 +179,7 @@ function setupReadyState(): void {
       selfDriveRunTests: true,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      defaultThinkingEffort: null,
     } as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,
   });
@@ -259,6 +260,7 @@ describe("Self-Drive Orchestration (Integration)", () => {
         selfDriveRunTests: true,
 selfDriveAutoCommit: false,
         selfDriveEnableRecheckLoop: true,
+        defaultThinkingEffort: null,
       } as ReturnType<typeof useSettingsStore.getState>["settings"],
       loaded: true,
     });

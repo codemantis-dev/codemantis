@@ -105,4 +105,18 @@ impl AppState {
             last_wake_pong: Arc::new(AtomicU64::new(0)),
         }
     }
+
+    /// Resolve the thinking-effort override that should be baked into the
+    /// `--settings` blob for a newly spawned CLI session. Reads from the
+    /// global `settings.json` (`default_thinking_effort`). The `_project_path`
+    /// argument is reserved for future per-project overrides — current
+    /// behaviour is global. Returns `None` to let the CLI inherit its own
+    /// `~/.claude/settings.json` configuration.
+    pub async fn thinking_effort_override(&self, _project_path: &str) -> Option<String> {
+        let settings = crate::commands::settings::get_settings().ok()?;
+        settings
+            .default_thinking_effort
+            .map(|s| s.to_lowercase())
+            .filter(|s| matches!(s.as_str(), "low" | "medium" | "high" | "xhigh"))
+    }
 }

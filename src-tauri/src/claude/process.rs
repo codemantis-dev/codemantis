@@ -317,6 +317,7 @@ impl ClaudeProcess {
         model_override: Option<&str>,
         append_system_prompt: Option<&str>,
         session_name: Option<&str>,
+        effort_override: Option<&str>,
     ) -> Result<Self, AppError> {
         info!(
             "Spawning Claude CLI for session {} in {} (resume: {:?}, approval_port: {:?}, model: {:?})",
@@ -373,6 +374,19 @@ impl ClaudeProcess {
             build_session_settings_json(None)
         };
         cmd.args(["--settings", &settings_json]);
+
+        // Thinking-effort override uses the documented `--effort` CLI flag
+        // (values per `claude --help`: low, medium, high, xhigh, max). This
+        // is the ONLY spawn-time mechanism the CLI documents — putting
+        // `thinking.effort` in the --settings blob is undocumented, the
+        // CLI does not echo it back in `system/init`, and we have no way
+        // to verify it took effect. The runtime alternatives are all
+        // unavailable in stream-json mode (`set_effort` control_request
+        // unsupported, `/effort` slash command TTY-only). See memory
+        // project_cli_effort_runtime_constraints.md.
+        if let Some(effort) = effort_override {
+            cmd.args(["--effort", effort]);
+        }
 
         // Model override (for SpecWriter sessions with a specific model)
         if let Some(model) = model_override {
@@ -678,7 +692,8 @@ mod tests {
 
     #[test]
     fn build_session_settings_json_produces_valid_json() {
-        let result = build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
+        let result =
+            build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result)
             .expect("should be valid JSON");
         assert!(parsed.is_object());
@@ -686,7 +701,8 @@ mod tests {
 
     #[test]
     fn build_session_settings_json_contains_hook_command() {
-        let result = build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
+        let result =
+            build_session_settings_json(Some(("/path/to/hook.sh", "/path/to/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let command = parsed

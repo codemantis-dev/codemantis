@@ -79,6 +79,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   selfDriveRunTests: true,
   selfDriveAutoCommit: false,
   selfDriveEnableRecheckLoop: true,
+  defaultThinkingEffort: null,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

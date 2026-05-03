@@ -986,6 +986,119 @@ async fn capture_full_battery() {
     eprintln!("[harness] === DONE ===");
 }
 
+/// Verifies the *spawn-time* effort path: passing `--effort <level>` (the
+/// documented Anthropic CLI flag, see `claude --help`) to the CLI for each
+/// of `low / medium / high / xhigh` causes the CLI to spawn cleanly (no
+/// "unrecognised option" error on stderr) and emit a normal `system/init`
+/// event. Note: the CLI does NOT echo the effort back in any event in
+/// v2.1.126, so this test asserts the spawn path stays clean — not that
+/// the budget actually changed (which can only be measured by token
+/// usage on a real prompt).
+///
+/// Also captures (in the same scenario file) the empirical fact that
+/// `/effort <level>` typed as a user message returns
+/// "/effort isn't available in this environment." That's the gate the
+/// CLI puts on the slash command in non-TTY mode and is the reason the
+/// CodeMantis dropdown only takes effect on next-session spawn.
+/// Capture: `S13-spawn-effort-<level>.jsonl`.
+async fn s13_spawn_time_effort() {
+    use tokio::io::AsyncWriteExt;
+
+    for level in ["low", "medium", "high", "xhigh"] {
+        let scenario = format!("S13-spawn-effort-{level}");
+        let ctx = setup(&scenario, allow_all()).await;
+
+        let mut cmd = tokio::process::Command::new("claude");
+        for a in production_cli_args() { cmd.arg(a); }
+        for a in diagnostic_cli_args() { cmd.arg(a); }
+        cmd.args(["--settings", &settings_json(&ctx.hook_path)]);
+        cmd.args(["--effort", level]);
+        cmd.env("CODEMANTIS_APPROVAL_PORT", ctx.hook_port.to_string());
+        cmd.env(
+            "CODEMANTIS_SESSION_ID",
+            format!("harness-{}", uuid::Uuid::new_v4()),
+        );
+        cmd.current_dir(&ctx.cwd);
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let arg_view: Vec<String> = cmd.as_std().get_args()
+            .map(|s| s.to_string_lossy().into_owned()).collect();
+        ctx.capture.log_event("spawn", serde_json::json!({
+            "binary": "claude", "args": arg_view, "level_under_test": level,
+        })).await;
+
+        let mut child = cmd.spawn().expect("spawn claude");
+        let mut stdin = child.stdin.take().expect("stdin");
+        let stdout = child.stdout.take().expect("stdout");
+        let stderr = child.stderr.take().expect("stderr");
+
+        let cap_out = ctx.capture.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                cap_out.log("stdout", &line).await;
+            }
+        });
+        let cap_err = ctx.capture.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                cap_err.log("stderr", &line).await;
+            }
+        });
+
+        let user = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": "ping" }
+        });
+        ctx.capture.log("stdin", &user.to_string()).await;
+        let _ = stdin.write_all(format!("{user}\n").as_bytes()).await;
+        let _ = stdin.flush().await;
+
+        let init = poll_for(
+            &ctx.capture_path,
+            |v| {
+                v.get("type").and_then(Value::as_str) == Some("system")
+                    && v.get("subtype").and_then(Value::as_str) == Some("init")
+            },
+            Duration::from_secs(20),
+        ).await;
+
+        ctx.capture.log_event("init_observed", serde_json::json!({
+            "level_requested": level,
+            "got_init": init.is_some(),
+            // Documented as None in 2.1.126 — see memory
+            // project_cli_effort_runtime_constraints.md.
+            "thinking_effort_in_init": init.as_ref()
+                .and_then(|v| v.get("thinking_effort"))
+                .and_then(Value::as_str)
+                .map(|s| s.to_string()),
+        })).await;
+
+        // Probe `/effort <level>` as a user message to keep documenting
+        // that the slash command is gated to TTY mode in v2.1.126.
+        let probe_level = if level == "low" { "high" } else { "low" };
+        let probe = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user",
+                "content": format!("/effort {probe_level}") }
+        });
+        ctx.capture.log("stdin", &probe.to_string()).await;
+        let _ = stdin.write_all(format!("{probe}\n").as_bytes()).await;
+        let _ = stdin.flush().await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        let _ = stdin.shutdown().await;
+        let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        ctx.capture.log_event("scenario_end",
+            serde_json::json!({ "ts": now_ts() })).await;
+    }
+}
+
 // Convenience: run a single scenario via env var.
 //   CM_HARNESS_ONLY=S03 cargo test --test cli_protocol_capture -- --ignored --nocapture
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1006,6 +1119,7 @@ async fn capture_single() {
         "S11" => s11_mixed_denials().await,
         "S12a" => s12a_hook_slow().await,
         "S12b" => s12b_hook_500().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S12b (got '{other}')"),
+        "S13" => s13_spawn_time_effort().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S13 (got '{other}')"),
     }
 }

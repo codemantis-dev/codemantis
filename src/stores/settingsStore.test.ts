@@ -64,6 +64,7 @@ function resetStore(): void {
       selfDriveRunTests: true,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      defaultThinkingEffort: null,
     },
     loaded: false,
   });
@@ -247,6 +248,7 @@ describe("settingsStore", () => {
         selfDriveRunTests: false,
 selfDriveAutoCommit: true,
         selfDriveEnableRecheckLoop: true,
+        defaultThinkingEffort: null,
         superBroEnabled: false,
         superBroProvider: "gemini",
         superBroModel: "gemini-2.5-flash-lite",

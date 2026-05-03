@@ -65,6 +65,16 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     const session = await createSession(projectPath);
     sessionStore.getState().addSession(session);
 
+    // The CLI in stream-json mode does not echo the running effort back in
+    // any event (verified against v2.1.126), so we record what we passed
+    // via the `--effort` flag at spawn. This makes the badge reflect the
+    // actual running session, not whatever the user later changes the
+    // persisted default to. See memory project_cli_effort_runtime_constraints.md.
+    const spawnEffort = useSettingsStore.getState().settings.defaultThinkingEffort;
+    if (spawnEffort) {
+      sessionStore.getState().setSessionEffort(session.id, spawnEffort);
+    }
+
     // Register event listeners for this session
     const unlistenChat = await listenChatEvents(session.id, (event) =>
       handleChatEvent(session.id, event)
@@ -259,6 +269,11 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       const session = await createSession(projectPath, originalName, cliSessionId);
       sessionStore.getState().addSession(session);
+
+      const spawnEffort = useSettingsStore.getState().settings.defaultThinkingEffort;
+      if (spawnEffort) {
+        sessionStore.getState().setSessionEffort(session.id, spawnEffort);
+      }
 
       // Always load stored messages if they exist (regardless of current sessionLogsEnabled toggle —
       // the toggle controls saving, not loading; previously saved messages should always be accessible)

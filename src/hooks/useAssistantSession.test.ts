@@ -143,6 +143,7 @@ function resetStores(): void {
       selfDriveRunTests: true,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      defaultThinkingEffort: null,
     },
     loaded: true,
   });

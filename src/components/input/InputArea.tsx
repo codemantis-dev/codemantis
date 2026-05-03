@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type KeyboardEvent } from "react";
 import { Send, Square, Plus, AtSign } from "lucide-react";
-import type { ThinkingEffort } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
@@ -10,6 +9,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
 import ModelSelector from "./ModelSelector";
+import EffortSelector from "./EffortSelector";
 import type { Attachment } from "../../types/attachment";
 import { handleError } from "../../lib/error-handler";
 import { useFileDrop } from "../../hooks/useFileDrop";
@@ -27,25 +27,6 @@ import MessageHistory, { type MessageHistoryHandle } from "./MessageHistory";
 import PlanPendingBanner from "./PlanPendingBanner";
 import { getUserMessageHistory } from "../../lib/message-history";
 import { useCommandExecution } from "../../hooks/useCommandExecution";
-
-function EffortBars({ effort }: { effort: ThinkingEffort }) {
-  const count = effort === "high" ? 3 : effort === "medium" ? 2 : 1;
-  return (
-    <span className="inline-flex gap-px items-end" style={{ height: 12 }}>
-      {[1, 2, 3].map((i) => (
-        <span
-          key={i}
-          className="rounded-sm transition-colors"
-          style={{
-            width: 3,
-            height: 4 + i * 3,
-            background: i <= count ? "var(--accent)" : "var(--border-light)",
-          }}
-        />
-      ))}
-    </span>
-  );
-}
 
 export default function InputArea() {
   const [input, setInput] = useState("");
@@ -363,10 +344,6 @@ export default function InputArea() {
     }
   }, [session, activeSessionId, addAttachment]);
 
-  const effort: ThinkingEffort = useSessionStore((s) => s.activeSessionId
-    ? s.sessionEffort.get(s.activeSessionId) ?? "high"
-    : "high");
-
   const selfDriveRunning = useSelfDriveRunningForActiveProject();
 
   const isActive = (input.trim().length > 0 || attachments.length > 0) && !!session && !isStreaming && !selfDriveRunning;
@@ -525,14 +502,7 @@ export default function InputArea() {
                   <ModeSelector />
                   <div className="w-px h-4 bg-border-light" />
                   <ModelSelector />
-                  <button
-                    onClick={() => useUiStore.getState().setShowSettingsModal(true)}
-                    className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-label text-text-ghost hover:text-text-dim hover:bg-bg-subtle transition-colors"
-                    title={`Thinking: ${effort} — click to open settings`}
-                  >
-                    <EffortBars effort={effort} />
-                    <span className="capitalize">{effort}</span>
-                  </button>
+                  <EffortSelector />
                 </div>
               )}
               {isBusy ? (
