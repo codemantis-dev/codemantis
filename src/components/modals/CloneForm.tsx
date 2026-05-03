@@ -178,12 +178,30 @@ export default function CloneForm({ onBack, onCloned, onBusyChange }: CloneFormP
     updateSettings({ lastCloneDirectory: cloneTo });
 
     try {
-      // Normalize URL: add .git if missing for GitHub/GitLab URLs
+      // Normalize URL: add .git if missing for GitHub/GitLab/Bitbucket URLs.
+      // Use proper URL parsing rather than substring matching — the previous
+      // `.includes("github.com")` check would match `attacker.com/?x=github.com`
+      // and similar adversarial inputs (CodeQL js/incomplete-url-substring-sanitization).
+      // Failure here is benign (we just don't add `.git`; the clone call
+      // itself will reject malformed URLs), but the safer pattern is the
+      // right pattern.
       let normalizedUrl = repoUrl.trim();
+      const isKnownHost = ((): boolean => {
+        try {
+          const host = new URL(normalizedUrl).hostname.toLowerCase();
+          return (
+            host === "github.com" || host.endsWith(".github.com") ||
+            host === "gitlab.com" || host.endsWith(".gitlab.com") ||
+            host === "bitbucket.org" || host.endsWith(".bitbucket.org")
+          );
+        } catch {
+          return false;
+        }
+      })();
       if (
         !normalizedUrl.endsWith(".git") &&
         !normalizedUrl.startsWith("git@") &&
-        (normalizedUrl.includes("github.com") || normalizedUrl.includes("gitlab.com") || normalizedUrl.includes("bitbucket.org"))
+        isKnownHost
       ) {
         normalizedUrl += ".git";
       }

@@ -17,8 +17,10 @@ A free, open-source native macOS application that gives Claude Code a proper gra
 [![Built with Tauri v2](https://img.shields.io/badge/built_with-Tauri_v2-FFC131.svg)](https://tauri.app)
 [![GitHub Release](https://img.shields.io/github/v/release/codemantis-dev/codemantis?color=green)](https://github.com/codemantis-dev/codemantis/releases)
 [![Free & Open Source](https://img.shields.io/badge/free_%26_open_source-brightgreen.svg)]()
+[![Security Policy](https://img.shields.io/badge/security-policy-informational.svg)](SECURITY.md)
+[![CodeQL](https://github.com/codemantis-dev/codemantis/actions/workflows/codeql.yml/badge.svg?branch=dev)](https://github.com/codemantis-dev/codemantis/actions/workflows/codeql.yml)
 
-[Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [User Guide](docs/user-guide/codemantis-complete-guide.md) · [Contributing](CONTRIBUTING.md)
+[Download](https://github.com/codemantis-dev/codemantis/releases) · [Features](#features) · [Screenshots](#screenshots) · [User Guide](docs/user-guide/codemantis-complete-guide.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 

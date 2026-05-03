@@ -2,22 +2,31 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 
-// Polyfill ResizeObserver for jsdom
+// Polyfill ResizeObserver for jsdom.
+// Constructor signature must match the DOM lib `(callback: ResizeObserverCallback)`
+// — otherwise CodeQL's TypeScript extractor sees this stub as the
+// authoritative type and flags every prod `new ResizeObserver(cb)` call as
+// having superfluous trailing arguments.
 global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  constructor(_callback: ResizeObserverCallback) {}
+  observe(_target: Element, _options?: ResizeObserverOptions): void {}
+  unobserve(_target: Element): void {}
+  disconnect(): void {}
 };
 
-// Polyfill IntersectionObserver for jsdom (ActivityFeed, ChatPanel lazy loading)
+// Polyfill IntersectionObserver for jsdom (ActivityFeed, ChatPanel lazy loading).
+// Same signature-fidelity reasoning as ResizeObserver above.
 global.IntersectionObserver = class IntersectionObserver {
-  readonly root: Element | null = null;
+  readonly root: Element | Document | null = null;
   readonly rootMargin: string = "";
   readonly thresholds: ReadonlyArray<number> = [];
-  constructor() {}
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  constructor(
+    _callback: IntersectionObserverCallback,
+    _options?: IntersectionObserverInit,
+  ) {}
+  observe(_target: Element): void {}
+  unobserve(_target: Element): void {}
+  disconnect(): void {}
   takeRecords(): IntersectionObserverEntry[] {
     return [];
   }

@@ -145,6 +145,15 @@
       if (url && url !== window.location.href) {
         // Add protocol if missing
         if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
+        // Reject any URL that didn't end up as plain http(s). The regex
+        // above would have prepended http:// to anything that wasn't
+        // already http(s)://, but a value like "javascript:alert(1)"
+        // matches a different prefix and would otherwise reach
+        // location.href as a code-execution sink. Belt-and-braces.
+        if (!/^https?:\/\//i.test(url)) {
+          urlBar.blur();
+          return;
+        }
         window.location.href = url;
       }
       urlBar.blur();
