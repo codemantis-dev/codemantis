@@ -1,5 +1,34 @@
 # CodeMantis Releases
 
+## 1.1.5
+
+Feature release: thinking-effort selector, Self-Drive quality contract, and CLI permission-mode ownership fix.
+
+### Thinking Effort
+- **EffortSelector in input chrome**: new selector lets you pick the model's thinking effort per session, with levels read live from the CLI's `initialize` capability manifest — no hardcoded effort lists, so Anthropic-side changes (e.g. the new `xhigh` level on Opus 4.7) are picked up automatically
+- **`defaultThinkingEffort` setting** persists your preferred default across sessions; spawn-time resolution passes the documented `--effort` flag to the CLI (SpecWriter sessions unchanged)
+- **Level-change pause/resume**: switching effort mid-session pauses the CLI cleanly and resumes with the new flag, instead of forcing a destructive restart
+- **Capability-driven matching**: resolved Anthropic model IDs (e.g. `claude-opus-4-7`) map back to initialize manifest entries via token overlap, so per-model effort options follow the actual model
+- **No fake defaults**: stopped seeding a synthetic "high" default on new sessions; `ThinkingEffort` is treated as an opaque CLI string everywhere
+
+### Self-Drive
+- **Senior-Engineer Quality Contract**: shared `BUILD_MODE` and `FIX_MODE` preambles wrap every building/fixing Claude prompt via `wrapBuildPrompt`, raising the floor for code quality and reducing the rate of half-finished work the orchestrator has to reject
+- **Stricter orchestrator stance**: system prompt retargeted to a skeptical senior-reviewer, with explicit workaround-phrase detection and activity-evidence cross-checks against tools-used and turn duration before allowing a session to finish
+- **Spec session copy** aligned to deliverables-over-file-fences scope so spec sessions stop hand-waving file boundaries
+
+### Claude CLI Integration
+- **Permission mode is host-owned**: stopped syncing session permission mode from the CLI's `system/init.permissionMode` field. The CLI always reports `bypassPermissions` there when CodeMantis spawns with `--dangerously-skip-permissions`, so the previous sync silently overwrote the user's ModeSelector choice every time. Plan/Default/Bypass selections now stick
+- **Approval server hardening**: new tokio round-trip tests cover the pending-oneshot → `HookResponse` allow/deny/timeout flow, plus a frontend integration test that exercises the full tool-approval round trip through the `resolve_tool_approval` invoke
+- **`classify_permission_mode` marked test-only** so future contributors don't reintroduce the sync that broke this case
+
+### Documentation
+- User guide synced to the shipped build: documents the Resume Session project-picker tab, Cmd+F in-chat search, the thinking-effort selector behavior, `defaultThinkingEffort` persistence, and expanded keyboard shortcuts
+- New screenshots for the effort UI and resume tab; bundled Tauri resources mirror the docs
+
+### Code Quality
+- Test count floors raised to lock in current coverage: TS unit ≥3,357, TS integration ≥122, Rust unit ≥1,227, Rust integration ≥10
+- Integration-test fixture indentation fixed (`selfDriveAutoCommit`)
+
 ## 1.1.4
 
 Hotfix release focused on macOS lock-screen lifecycle, SpecWriter save UX, and CLI protocol alignment with `claude` 2.1.126.
