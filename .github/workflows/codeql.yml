@@ -1,0 +1,55 @@
+# GitHub CodeQL static security analysis for CodeMantis.
+# Runs against TypeScript/JavaScript on every push to dev, every PR
+# targeting dev, and weekly to catch newly-published query updates.
+#
+# CodeQL does not support Rust as a first-class language, so the Tauri
+# backend is covered by `cargo clippy -D warnings` in test.yml plus the
+# protocol-capture harness in src-tauri/tests/cli_protocol_capture.rs.
+# This workflow scans the React/TypeScript surface area only.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  schedule:
+    # Mondays 06:00 UTC = 07:00 Europe/Vienna (winter) / 08:00 (summer).
+    # Weekly cadence picks up CodeQL query-pack updates without burning
+    # CI time on every commit.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Default + security-extended pulls more queries (taint tracking
+          # depth, less common XSS sinks, etc.). Quality is bundled.
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}

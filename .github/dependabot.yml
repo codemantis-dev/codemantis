@@ -1,0 +1,87 @@
+# Dependabot configuration for CodeMantis
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Strategy:
+#   - Security updates run automatically (enabled at the repo level, not here).
+#   - Version updates run weekly to catch non-CVE drift before it accumulates.
+#   - Group lockfile-only patch bumps into a single PR per ecosystem to avoid
+#     PR storms on busy weeks.
+#   - Major version bumps surface as individual PRs so they get a real review.
+
+version: 2
+updates:
+  # ── Rust crates (Cargo.lock under src-tauri/) ──────────────────────
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Vienna
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      tauri-ecosystem:
+        patterns:
+          - "tauri"
+          - "tauri-*"
+          - "tauri-plugin-*"
+        update-types:
+          - patch
+          - minor
+      runtime-patches:
+        applies-to: version-updates
+        update-types:
+          - patch
+
+  # ── npm packages (pnpm-lock.yaml at repo root) ─────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Vienna
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      tauri-plugins-npm:
+        patterns:
+          - "@tauri-apps/*"
+        update-types:
+          - patch
+          - minor
+      dev-deps-patches:
+        dependency-type: development
+        update-types:
+          - patch
+      prod-deps-patches:
+        dependency-type: production
+        update-types:
+          - patch
+
+  # ── GitHub Actions ─────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Vienna
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
