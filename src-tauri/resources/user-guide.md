@@ -2472,7 +2472,7 @@ When you type "/" at the beginning of a message in the chat input, a floating pa
   - A description in dimmed text.
   - An argument hint (italic, shown only for the currently selected command).
   - A **category badge** on the right side, color-coded:
-    - **Skill** (accent color) -- custom commands from `.claude/commands/` that expand into prompts.
+    - **Skill** (accent color) -- custom commands from `.claude/commands/` (flat `.md` files) and `.claude/skills/` (directories containing `SKILL.md`) that expand into prompts. Project-level entries override user-level entries with the same name.
     - **Built-in** (dim color) -- instant commands handled by CodeMantis without restarting the session.
     - **Opens CLI** (yellow) -- commands that open the CLI Overlay.
 
@@ -2518,7 +2518,7 @@ Click any command row to execute it.
 
 **Execute a skill command**
 
-Select a Skill command (accent-colored badge). CodeMantis reads the command's source file from `.claude/commands/`, expands any variables, and sends the resulting prompt to Claude Code as a regular message.
+Select a Skill command (accent-colored badge). CodeMantis reads the command's source file from `.claude/commands/` or `.claude/skills/<skill>/SKILL.md` (project-level first, then user-level), expands frontmatter variables and `!`cmd`!` shell snippets (allowlisted, read-only commands only), substitutes `$ARGUMENTS`, `$0`..`$9`, `${CLAUDE_SESSION_ID}`, `${CLAUDE_SKILL_DIR}`, and sends the resulting prompt to Claude Code as a regular message.
 
 **Execute a built-in command**
 
@@ -2561,7 +2561,7 @@ Type the command name followed by a space and arguments. For example: `/rename M
 
 ### Configuration
 
-Skill commands are discovered from `.claude/commands/` directories in your project. There are no dedicated settings for the command palette or CLI Overlay.
+Skill commands are discovered from `.claude/commands/` and `.claude/skills/` directories at both project and user (`~/.claude/`) levels. There are no dedicated settings for the command palette or CLI Overlay.
 
 ### Keyboard Shortcuts
 
@@ -3594,13 +3594,15 @@ A panel with the heading **"Keyboard Shortcuts"** and categorized lists. Each en
 
 #### API Logs Tab (BarChart3 icon)
 
-A panel with the heading **"API Logs"** and a tab switcher at the top with two tabs:
+A panel with the heading **"API Logs"** and a tab switcher at the top with three tabs:
 
 **Cost Log** (default view) -- Shows:
 
 1. **Cost Summary Card** (when calls exist): Total Cost (formatted), Total Calls count, and a per-provider breakdown (provider name, cost, call count).
 
-2. **Call List**: Each row shows:
+2. **Cost by Feature matrix** (when calls exist): A table grouping cost per provider × feature (Changelog, Assistant, Super-Bro), with row totals and a footer total row.
+
+3. **Call List**: Each row shows:
    - A colored dot (green for success, red for failure)
    - Timestamp
    - Provider name
@@ -3609,7 +3611,7 @@ A panel with the heading **"API Logs"** and a tab switcher at the top with two t
    - Cost amount
    - A copy button (appears on hover) that copies the entry details to clipboard
 
-3. Empty state: A bar-chart icon with "No API calls logged yet" and "Calls will appear here when API providers are used."
+4. Empty state: A bar-chart icon with "No API calls logged yet" and "Calls will appear here when API providers are used."
 
 **Error Log** -- Shows:
 
@@ -3627,7 +3629,17 @@ A panel with the heading **"API Logs"** and a tab switcher at the top with two t
 
 3. Empty state: A warning icon with "No errors logged" and "API errors will appear here when they occur."
 
-Below both tabs: "Logs older than 5 days are automatically deleted."
+**Super-Bro** -- Shows the Super-Bro activity log:
+
+1. **Summary Card** (when log entries exist): Total Events count plus a typed breakdown (Event, API Call, Response, All Good, Error, Skipped), each with a coloured dot.
+
+2. **Log Entries**: Each row shows a coloured dot, timestamp, type label, and the log message in monospace.
+
+3. **Clear Log** button at the bottom-right.
+
+4. Empty state: A shield icon with "No Super-Bro activity yet" and an explanatory subtitle.
+
+Below all three tabs: "Logs older than 5 days are automatically deleted."
 
 **Diagnostics** section at the bottom:
 - **Copy Log Path** button -- copies `~/Library/Logs/dev.codemantis.myapp/codemantis.log` to clipboard
@@ -4161,7 +4173,7 @@ Complete reference of every slash command available in CodeMantis. Data from `sr
 
 | Command | Category | Description | Argument Hint |
 |---|---|---|---|
-| *(varies)* | Skill | Custom commands from `.claude/commands/` and `.claude/skills/` directories that expand into prompts. Discovered at runtime from project-level and user-level directories. | Defined per skill via frontmatter |
+| *(varies)* | Skill | Custom commands from `.claude/commands/` (flat `.md` files) and `.claude/skills/` (per-skill directories with `SKILL.md`) that expand into prompts. Discovered at runtime from both project-level and user-level (`~/.claude/`) directories; project entries override user entries with the same name. | Defined per skill via frontmatter |
 
 ---
 
