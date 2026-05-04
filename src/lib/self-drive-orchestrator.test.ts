@@ -746,14 +746,21 @@ describe("co-pilot identity (Layer 7)", () => {
     expect(sp).toMatch(/Quote the result/);
   });
 
-  it("system prompt encodes repeat-pattern escalation across PREVIOUS FIX PROMPTS", async () => {
+  it("system prompt encodes repeat-pattern enforcement as a PRE-EMIT SELF-CHECK gate over PREVIOUS FIX PROMPTS", async () => {
     const sp = await getSystemPromptOnce();
-    expect(sp).toContain("REPEAT-PATTERN ESCALATION");
+    // The rule is now phrased as a mandatory pre-emit gate (was: REPEAT-PATTERN ESCALATION).
+    // The new phrasing is harder for Sonnet-grade orchestrators to treat as advisory.
+    expect(sp).toContain("PRE-EMIT SELF-CHECK on repeat-pattern");
     expect(sp).toContain("PREVIOUS FIX PROMPTS ALREADY TRIED");
-    // 2 prior attempts → suggest a different approach
-    expect(sp).toMatch(/2 prior attempts.*different approach/i);
-    // 3+ prior attempts → pause with a structured blocker
-    expect(sp).toMatch(/3\+ prior attempts.*pause/i);
+    expect(sp).toMatch(/MANDATORY GATE/);
+    // Three routes — accept, switch diagnostic, pause with satisfiable blocker.
+    expect(sp).toMatch(/\(a\) ACCEPT AND PASS/);
+    expect(sp).toMatch(/\(b\) SWITCH the diagnostic/);
+    expect(sp).toMatch(/\(c\) PAUSE with a structured blocker/);
+    // The "third-shape-identical" trip-wire and the explicit "accept and move on" guidance
+    // for when the verifier already provided the evidence in another location.
+    expect(sp).toMatch(/third-shape-identical/);
+    expect(sp).toMatch(/accept and move on/);
   });
 
   it("system prompt warns to prefer fix over pause for ambiguity", async () => {
@@ -864,5 +871,64 @@ describe("build-mode preamble sync (Layer 6 sync)", () => {
       expect(text).toContain("deployed");
       expect(text).toMatch(/false[- ]positive/);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Verification-phase contract: anti-loop fixes for the
+// "consolidated-evidence false-FAIL → triple recheck → USER-DECISION pause"
+// failure mode that hit users running Sonnet-grade orchestrators on
+// otherwise-valid verification reports.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function captureSystemPrompt(): Promise<string> {
+  const { sendAssistantChat } = await import("./tauri-commands");
+  const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+  await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+  capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+  await promise;
+  return vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt as string;
+}
+
+describe("verification-phase anti-loop rules", () => {
+  it("includes a CROSS-ITEM EVIDENCE CREDIT rule that allows consolidated test runs to satisfy multiple items", async () => {
+    const sp = await captureSystemPrompt();
+    expect(sp).toContain("CROSS-ITEM EVIDENCE CREDIT");
+    expect(sp).toMatch(/consolidated command/i);
+    expect(sp).toContain("vitest run");
+    expect(sp).toMatch(/lift the relevant snippet into EACH covered item/);
+    expect(sp).toMatch(/even when the snippet is physically printed under a different item number/i);
+    expect(sp).toMatch(/Reject ONLY when no relevant evidence appears anywhere in the turn/);
+  });
+
+  it("includes an [integration] COMPLETENESS RULE forbidding stacked evidence requirements", async () => {
+    const sp = await captureSystemPrompt();
+    expect(sp).toContain("COMPLETENESS RULE");
+    expect(sp).toMatch(/all three parts present\s+and non-empty/);
+    expect(sp).toMatch(/no companion vitest\s+pass-count/);
+    expect(sp).toMatch(/Stacking unrelated evidence\s+requirements onto an \[integration\] item is a contract violation/);
+    expect(sp).toMatch(/mark such an item passed:true on the integration\s+triple alone/);
+  });
+
+  it("converts repeat-pattern guidance into a PRE-EMIT SELF-CHECK gate with three explicit routes", async () => {
+    const sp = await captureSystemPrompt();
+    expect(sp).toContain("PRE-EMIT SELF-CHECK on repeat-pattern");
+    expect(sp).toMatch(/MANDATORY GATE/);
+    expect(sp).toMatch(/\(a\) ACCEPT AND PASS the item if the verifier provided the same evidence twice/);
+    expect(sp).toMatch(/\(b\) SWITCH the diagnostic — ask for a \*different\* concrete output/);
+    expect(sp).toMatch(/\(c\) PAUSE with a structured blocker/);
+    expect(sp).toMatch(/Never \(b\) repeated as paraphrase/);
+    expect(sp).toMatch(/the verifier produced the evidence, you didn't recognize it, accept and move on/);
+  });
+
+  it("includes a FILESYSTEM-BLINDNESS clarification that bars fabricated DEFERRED criteria", async () => {
+    const sp = await captureSystemPrompt();
+    expect(sp).toContain("FILESYSTEM-BLINDNESS");
+    expect(sp).toMatch(/you evaluate the verifier's TEXT ONLY/);
+    expect(sp).toMatch(/cannot read source files/);
+    // The exact failure-mode phrase from the production incident must be
+    // called out by name so future edits can't silently re-allow it.
+    expect(sp).toContain('OR explicit DEFERRED lines in audit doc');
+    expect(sp).toMatch(/never write a Blocker whose resolution is a workflow you cannot verify/);
   });
 });
