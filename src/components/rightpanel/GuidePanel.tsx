@@ -83,29 +83,30 @@ export default function GuidePanel() {
 
   const handleMarkComplete = async (sessionIndex: number) => {
     if (routeThroughSelfDrive()) {
-      // Self-Drive path — use the async wrapper so the cross-system parity
-      // gate runs before flipping the session done. Surface each failure
-      // reason clearly so the user isn't left wondering why the click
-      // appeared to do nothing.
-      const outcome = await attemptMarkSessionComplete(sessionIndex);
+      // Self-Drive path — manual click is an explicit user override. We
+      // bypass the cross-system parity gate here on purpose: parity is
+      // useful as an *automated* guard inside handleAdvance(), but it
+      // must never silently block a deliberate human "Mark Complete".
+      // The verify-checks gate still applies (button is disabled at the
+      // UI level until every check is ticked).
+      const outcome = await attemptMarkSessionComplete(sessionIndex, {
+        skipParityGate: true,
+      });
       if (!outcome.ok) {
         if (outcome.reason === "checks-incomplete") {
           showToast("Complete all verify checks before marking done.", "error");
-        } else if (outcome.reason === "parity-failed") {
-          const failed = outcome.results
-            .filter((r) => r.status !== "PASS")
-            .map((r) => `${r.action}: ${r.detail}`)
-            .join(" | ");
-          showToast(`Parity gate failed: ${failed}`, "error");
-        } else if (outcome.reason === "parity-errored") {
-          showToast(
-            "Parity check itself errored — this is not a code failure. Check ripgrep/workspace and retry.",
-            "error",
-          );
         } else if (outcome.reason === "session-not-found") {
           showToast("Session not found in pinned guide.", "error");
         }
         return;
+      }
+      // Manual completion of the active session is the user's signal that
+      // they've handled the situation. If Self-Drive was paused (typically
+      // by the parity gate they just bypassed), clear the pause so Resume
+      // picks up at the next session instead of immediately re-tripping.
+      const sd = useSelfDriveStore.getState();
+      if (sd.status === "paused") {
+        sd.clearPause();
       }
       const g = useSelfDriveStore.getState().guide;
       if (g?.status === "completed") {

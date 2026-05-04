@@ -168,6 +168,14 @@ interface SelfDriveState {
   stop: () => Promise<void>;
   pause: () => void;
   /**
+   * Lift a pause without auto-resuming. Used when the user resolves the
+   * blocker manually (e.g. force-completes the session that caused the
+   * parity-gate pause). Status goes to "idle" so the user has to click
+   * Start/Resume to continue — matching pause/stop semantics and avoiding
+   * surprise auto-execution.
+   */
+  clearPause: () => void;
+  /**
    * Record that the user has chosen a resolution for the current blocker.
    * Transitions the blocker to "user-decided" and stashes the resolution
    * text so the next Resume triggers a recovery verification.
@@ -591,6 +599,22 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     handlePause("Paused by user");
   },
 
+  clearPause: () => {
+    const state = get();
+    if (state.status !== "paused") return;
+    const sessionIdx = state.currentSessionIndex ?? 0;
+    set({
+      status: "idle",
+      pauseReason: null,
+      activeBlocker: null,
+    });
+    addLogEntry(
+      sessionIdx,
+      "resumed",
+      "Pause cleared by manual session completion.",
+    );
+  },
+
   userResolveBlocker: (resolution: string) => {
     const state = get();
     const blocker = state.activeBlocker;
@@ -974,6 +998,7 @@ function markSessionCompleteForSession(sessionIndex: number): boolean {
  */
 export async function attemptMarkSessionComplete(
   sessionIndex: number,
+  opts: { skipParityGate?: boolean } = {},
 ): Promise<
   | { ok: true }
   | { ok: false; reason: "checks-incomplete" }
@@ -1013,7 +1038,18 @@ export async function attemptMarkSessionComplete(
   const handlerAuthoring =
     actions.length > 0 && actions.every((a) => isHandlerInSessionFiles(a.handler, target.files));
 
-  if (actions.length > 0 && projectPath && !handlerAuthoring) {
+  if (opts.skipParityGate && actions.length > 0 && !handlerAuthoring) {
+    // User-initiated bypass — record an audit-trail entry so the run log
+    // honestly shows which completions were human-overridden rather than
+    // gate-cleared.
+    addLogEntry(
+      sessionIndex,
+      "decision",
+      "Session marked complete by user — parity gate bypassed.",
+    );
+  }
+
+  if (!opts.skipParityGate && actions.length > 0 && projectPath && !handlerAuthoring) {
     const actionInputs = actions.map((a) => ({
       action: a.action,
       callerPath: deriveCallerPath(target.files, a.action),

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
-import type { ImplementationGuide, OrchestratorDecision, OrchestratorInput } from "../types/implementation-guide";
+import type { Blocker, ImplementationGuide, OrchestratorDecision, OrchestratorInput } from "../types/implementation-guide";
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
 
@@ -2630,6 +2630,163 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     const outcome = await attemptMarkSessionComplete(1);
     expect(outcome.ok).toBe(true);
     expect(mockVerifyActionParity).toHaveBeenCalledTimes(2);
+  });
+
+  it("with skipParityGate=true, completes the session even when parity would FAIL — manual user override", async () => {
+    // The exact incident: rg-based parity scan can't reason about a
+    // handler declared as "Postgres function in migration SQL" (or any
+    // other non-source-code handler) and false-positives every time.
+    // The user must always be able to mark a session complete by hand.
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "verified by hand", checked: true }],
+            files: ["supabase/migrations/0042_twin.sql"],
+            crossSystemActions: [
+              {
+                action: "twin_recompute_entity_importance()",
+                handler: "Postgres function in migration SQL",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1, { skipParityGate: true });
+    expect(outcome.ok).toBe(true);
+    // Critical: the parity check must NOT have run. Skipping the gate
+    // means skipping the rg scan, not just ignoring its result.
+    expect(mockVerifyActionParity).not.toHaveBeenCalled();
+    expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("done");
+
+    // Audit trail: a "decision" log entry must record the bypass so the
+    // user can see in the run log which completions were human-overridden.
+    const log = useSelfDriveStore.getState().runLog;
+    const bypass = log.find((e) => e.summary.includes("parity gate bypassed"));
+    expect(bypass).toBeDefined();
+    expect(bypass?.phase).toBe("decision");
+  });
+
+  it("default opts (skipParityGate omitted) still runs parity and blocks on FAIL — auto-advance regression guard", async () => {
+    // handleAdvance() calls attemptMarkSessionComplete(idx) with no opts.
+    // The "mocked tests green, handlers missing" guard MUST stay intact
+    // for the unattended automation path — the bypass is only for the
+    // explicit manual button click.
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "emit_audit_log",
+        callerPresent: true,
+        handlerPresent: false,
+        handlerStubFree: false,
+        status: "FAIL",
+        detail: "handler missing — incident-pattern regression",
+      },
+    ]);
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: ["producers/audit.ts"],
+            crossSystemActions: [
+              { action: "emit_audit_log", handler: "services/audit/sink.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { reason: string }).reason).toBe("parity-failed");
+    expect(mockVerifyActionParity).toHaveBeenCalledTimes(1);
+    expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("active");
+  });
+
+  it("with skipParityGate=true, still rejects when verify checks are incomplete (UI gate is the real safeguard)", async () => {
+    // skipParityGate is ONLY for the parity scan. The verify-checks gate
+    // (every check ticked) is still the user's deliberate-act surface
+    // and must apply even on the manual override path. The button is
+    // disabled at the UI level before this code is even reached, but
+    // belt-and-braces: the function must reject too.
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [
+              { id: "a", label: "A", checked: true },
+              { id: "b", label: "B", checked: false },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1, { skipParityGate: true });
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { reason: string }).reason).toBe("checks-incomplete");
+    expect(mockVerifyActionParity).not.toHaveBeenCalled();
+    expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("active");
+  });
+});
+
+describe("clearPause action", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("transitions paused → idle and clears pauseReason + activeBlocker", () => {
+    useSelfDriveStore.setState({
+      status: "paused",
+      pauseReason: "Self-Drive halted: cross-system action parity check failed.",
+      activeBlocker: {
+        id: "blk-1",
+        sessionIndex: 1,
+        detectedAt: Date.now(),
+        kind: "user-decision",
+        summary: "Parity gate failed",
+        detail: "twin_recompute_entity_importance(): handler missing in rg scan",
+        optionsOffered: [],
+        resolutionCriteria: "User confirms session is complete",
+        status: "open",
+      } satisfies Blocker,
+      currentSessionIndex: 1,
+    });
+
+    useSelfDriveStore.getState().clearPause();
+
+    const after = useSelfDriveStore.getState();
+    expect(after.status).toBe("idle");
+    expect(after.pauseReason).toBeNull();
+    expect(after.activeBlocker).toBeNull();
+    // Audit trail: log entry recorded so the run log reflects the override.
+    const cleared = after.runLog.find((e) =>
+      e.summary.includes("Pause cleared by manual session completion"),
+    );
+    expect(cleared).toBeDefined();
+    expect(cleared?.phase).toBe("resumed");
+  });
+
+  it("is a no-op when status is not paused", () => {
+    useSelfDriveStore.setState({
+      status: "running",
+      pauseReason: null,
+      activeBlocker: null,
+      currentSessionIndex: 1,
+    });
+    const before = useSelfDriveStore.getState().runLog.length;
+
+    useSelfDriveStore.getState().clearPause();
+
+    const after = useSelfDriveStore.getState();
+    expect(after.status).toBe("running");
+    expect(after.runLog.length).toBe(before);
   });
 });
 
