@@ -26,6 +26,7 @@ import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
 import Toast from "./components/shared/Toast";
 import ErrorCard from "./components/shared/ErrorCard";
+import AppErrorBoundary from "./components/shared/AppErrorBoundary";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import UpdateModal from "./components/modals/UpdateModal";
 import { showToast } from "./stores/toastStore";
@@ -229,6 +230,7 @@ export default function App() {
       <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
         <UpdateNotification />
         <div className="h-12 shrink-0" data-tauri-drag-region />
+        <AppErrorBoundary>
         <div className="flex-1 flex items-center justify-center overflow-hidden">
           <div className="w-full max-w-lg p-8 flex flex-col max-h-full">
             {/* Logo and title */}
@@ -336,6 +338,7 @@ export default function App() {
             )}
           </div>
         </div>
+        </AppErrorBoundary>
 
         <ProjectPicker onSelectProject={handleSelectProject} onResumeSession={handleResumeSession} />
         <SettingsModal />
@@ -349,7 +352,9 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       <UpdateNotification />
-      <AppShell />
+      <AppErrorBoundary>
+        <AppShell />
+      </AppErrorBoundary>
       <ToolApproval />
       <QuestionModal />
       <PlanCompleteModal />
