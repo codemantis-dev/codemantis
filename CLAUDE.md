@@ -131,8 +131,8 @@ These rules are non-negotiable. Every code change must satisfy ALL of them:
 3. **No code change without corresponding tests.** New features need unit tests. Cross-module features need integration tests. Bug fixes need a regression test.
 4. **No `test.skip`, `test.only`, or `#[ignore]` in committed code.** All tests must run, always.
 5. **Test count floors — never decrease:**
-   - TS unit tests: **3,357** minimum
-   - TS integration tests: **122** minimum
+   - TS unit tests: **3,385** minimum
+   - TS integration tests: **124** minimum
    - Rust unit tests: **1,227** minimum
    - Rust integration tests: **10** minimum
 6. **Integration tests required for cross-module changes.** If a change touches 2+ stores, a hook + store, or the event pipeline, there must be an integration test covering the interaction.

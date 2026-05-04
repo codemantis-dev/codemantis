@@ -1,5 +1,36 @@
 # CodeMantis Releases
 
+## 1.1.7
+
+Patch release: recoverable error boundary, Self-Drive accuracy fixes, additional CodeQL hardening, and full security infrastructure (vulnerability disclosure policy, Dependabot, code scanning).
+
+### UI Resilience
+- **`AppErrorBoundary` for recoverable render failures**: a top-level React error boundary now catches render-time exceptions in any component and offers a "Reload affected panel" action instead of dropping the user into a blank window. Prior behavior was a fully white app on any uncaught render error; the boundary keeps the rest of the UI alive while the failed subtree resets cleanly.
+
+### Self-Drive
+- **Reduced orchestrator false positives** when correlating tool calls to specific session phases. The orchestrator was occasionally attributing tool activity to the wrong phase under interleaved sub-agent traffic, leading to incorrect "phase X never used tool Y" rejections; tool attribution now follows the per-turn boundary instead of the per-session boundary, eliminating the drift
+- **Manual "Mark Complete" bypasses the parity gate**: when the user explicitly closes a Self-Drive session via the Mark Complete button, the cross-system action-parity check no longer runs. The parity check is meant to catch *Claude* claiming completion without evidence; it shouldn't override the *user* explicitly ending a session
+
+### Security
+- **CodeQL static analysis added** to `dev` (every push + weekly), with `security-extended` + `security-and-quality` query packs. First scan surfaced 4 high-severity findings, all patched in this release:
+  - **Preview console URL bar (`preview-console-bridge.js`)**: URL navigation now uses `URL` constructor parsing + `protocol === "http:" || "https:"` check before assigning to `location.href`. Blocks `javascript:`, `data:`, `file:`, `vbscript:` schemes from reaching a navigation sink. (Closes CodeQL `js/xss-through-dom`.)
+  - **Clone form host check (`CloneForm.tsx`)**: replaced `.includes("github.com")` substring matching with proper `new URL(...).hostname` equality. Old check matched adversarial inputs like `attacker.com/?x=github.com`. Functional impact was benign (only decided whether to append `.git`), but the fragile pattern is gone. (Closes CodeQL `js/incomplete-url-substring-sanitization` ×3.)
+  - **Test polyfill signatures (`src/test/setup.ts`)**: aligned `ResizeObserver` and `IntersectionObserver` polyfills with the DOM lib's constructor signatures so CodeQL's TypeScript extractor stops treating the test stubs as the authoritative type. (Closes 7 `js/superfluous-trailing-arguments` warnings that were polyfill-shadowed false positives in production code.)
+- **Vulnerability disclosure policy** at [SECURITY.md](https://github.com/codemantis-dev/codemantis/blob/dev/SECURITY.md), with [private vulnerability reporting](https://github.com/codemantis-dev/codemantis/security/advisories/new) as the preferred channel and documented safe-harbor for good-faith research
+- **Dependabot security updates enabled** — auto-creates PRs for new CVEs in tracked dependencies
+- **Dependabot version updates** scheduled weekly for cargo, npm, and github-actions ecosystems (`.github/dependabot.yml`)
+- **Secret scanning + push protection** enabled — pushes containing secrets are blocked at the git layer
+- **README badges**: Security Policy + CodeQL workflow status, plus a `Security` link in the nav row
+
+### Test Infrastructure
+- **Radix focus-scope flake on jsdom 28**: `@radix-ui/react-focus-scope` schedules a `setTimeout(0)` during Dialog/Popover unmount that dispatches a `CustomEvent` on the now-detached DOM node. On jsdom 28 the stricter Event-IDL converter throws "parameter 1 is not of type 'Event'", which Vitest 4.x escalates to a CI suite failure even though no real test failed (bit v1.1.6 CI). A surgical capture-phase error filter in `src/test/setup.ts` swallows exactly that error class; genuine unhandled errors still surface
+
+### Documentation
+- User guide synced to current build: documents skills discovery and the API Logs UI, with bundled Tauri resources mirroring the docs
+
+### Code Quality
+- Test count floors raised: TS unit ≥3,385 (+28), TS integration ≥124 (+2). Rust counts unchanged from v1.1.6
+
 ## 1.1.6
 
 Security hardening release. No user-facing feature changes — patches transitive dependency vulnerabilities flagged by Dependabot and shrinks the runtime TLS attack surface.
