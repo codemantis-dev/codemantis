@@ -10,23 +10,35 @@ import { useActivityStore } from "../stores/activityStore";
 /**
  * Extract tool names used in the current turn.
  *
- * Source of truth is the activity store — the same place the Activity
- * Feed reads from. Every tool_use event flows into activityStore.sessionEntries
- * via a per-session listener registered in useClaudeSession, and those
- * entries carry the toolName verbatim ("Write", "Bash", …).
+ * Three layers, primary → fallback, deduplicated into one list:
  *
- * Historically this function walked back through `msg.activityIds` +
- * a regex fallback scanning assistant text. The activityIds field is
- * never populated anywhere (verified repo-wide), and the regex falls
- * silent on concise replies like "Created 7 functions and deployed" —
- * which made the orchestrator conclude "TOOLS USED: none" and flag real
- * work as fabricated. This implementation reads from the store so the
- * detector stays correct regardless of what the assistant wrote.
+ *   1. TIMESTAMP slice of activityStore (primary). Take every
+ *      ActivityEntry whose timestamp ≥ the boundary (last user
+ *      message's timestamp, or the start of time when there isn't one).
+ *      This bypasses messageId attribution entirely, so it survives the
+ *      long-turn / sub-agent / message-id-drift races that previously
+ *      made the orchestrator see "TOOLS USED: none" on a 13-minute
+ *      turn that actually did real work.
+ *
+ *   2. MESSAGE-ID lookup of activityStore (secondary). Per-message
+ *      attribution. Catches the case where an entry's timestamp is
+ *      somehow before the boundary (clock skew, restored sessions) but
+ *      its messageId clearly belongs to a turn message.
+ *
+ *   3. Prose regex over assistant text (last resort). Cheap, harmless,
+ *      and catches the rare case where activity events are missing
+ *      entirely (listener not yet registered, restored chat history
+ *      with no live activity stream).
+ *
+ * The orchestrator's fabrication detector is gated on this list. False
+ * negatives (real work reported as "none") cause Self-Drive to interrupt
+ * legitimate long-running work with a Blocker, so we err on the side of
+ * over-reporting tools rather than under-reporting.
  */
 export function extractToolsFromTurn(messages: Message[], sessionId: string): string[] {
   const tools = new Set<string>();
 
-  // Find the id boundary: last user message. Everything after is the
+  // Find the boundary: last user message. Everything after is the
   // current turn (one or more assistant messages).
   let boundaryIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -37,9 +49,28 @@ export function extractToolsFromTurn(messages: Message[], sessionId: string): st
   }
   const turnMessages = messages.slice(boundaryIdx + 1).filter((m) => m.role === "assistant");
 
-  // Primary source: activityStore entries tagged with this turn's message ids.
+  const store = useActivityStore.getState();
+  const allEntries = store.getActiveEntries(sessionId);
+
+  // Primary source: timestamp slice. Independent of messageId tagging.
+  // We use the user message's timestamp as the lower bound; an entry
+  // created at-or-after that point is part of the current turn. Entries
+  // without a parseable timestamp (rare; only synthetic test fixtures)
+  // fall through to the secondary check.
+  const boundaryMessage = boundaryIdx >= 0 ? messages[boundaryIdx] : null;
+  const boundaryTs = boundaryMessage?.timestamp ? Date.parse(boundaryMessage.timestamp) : NaN;
+  if (!Number.isNaN(boundaryTs)) {
+    for (const entry of allEntries) {
+      const entryTs = Date.parse(entry.timestamp);
+      if (!Number.isNaN(entryTs) && entryTs >= boundaryTs && entry.toolName) {
+        tools.add(entry.toolName);
+      }
+    }
+  }
+
+  // Secondary source: per-message attribution. Catches entries with
+  // skewed/missing timestamps but a clear messageId match.
   if (turnMessages.length > 0) {
-    const store = useActivityStore.getState();
     for (const msg of turnMessages) {
       const entries = store.getEntriesForMessage(sessionId, msg.id);
       for (const entry of entries) {
@@ -50,9 +81,9 @@ export function extractToolsFromTurn(messages: Message[], sessionId: string): st
     }
   }
 
-  // Fallback: scan assistant prose for literal tool names. Cheap,
-  // harmless, and catches the rare race where the activity event is
-  // slightly delayed relative to turn_complete.
+  // Last resort: scan assistant prose for literal tool names. Won't
+  // catch concise summaries that don't name tools by string, but
+  // protects sessions where the activity stream isn't running.
   const toolPatterns: Array<[RegExp, string]> = [
     [/\bRead\b/, "Read"], [/\bWrite\b/, "Write"], [/\bEdit\b/, "Edit"],
     [/\bBash\b/, "Bash"], [/\bGlob\b/, "Glob"], [/\bGrep\b/, "Grep"],

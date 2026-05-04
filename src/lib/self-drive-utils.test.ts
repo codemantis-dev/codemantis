@@ -192,6 +192,111 @@ describe("extractToolsFromTurn", () => {
     const tools = extractToolsFromTurn(messages, SID);
     expect(tools.filter((t) => t === "Read")).toHaveLength(1);
   });
+
+  // ── Layer 1 (May 2026 fix): timestamp-slice resilience ─────────────────
+  // The image-4 failure mode: a 13-minute turn whose tool-use entries were
+  // somehow attributed to a different messageId than the orchestrator
+  // looked at, leaving extractToolsFromTurn returning empty and the
+  // fabrication detector flagging the turn. Slicing by timestamp instead
+  // of (or in addition to) messageId makes the function survive that
+  // attribution gap.
+
+  it("Layer 1: catches tools by TIMESTAMP slice when messageId attribution misses", () => {
+    // Simulate the image-4 scenario: the activity entries are tagged with
+    // a messageId the orchestrator's loop won't reach (e.g. a sub-agent
+    // child message), but their timestamps clearly fall inside the
+    // current turn.
+    const userTs = "2026-05-04T17:34:00.000Z";
+    const turnTs = "2026-05-04T17:47:00.000Z"; // 13 min into the turn
+
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "phantom-subagent-msg",
+      toolName: "Edit",
+      timestamp: turnTs,
+    }));
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "phantom-subagent-msg",
+      toolName: "Bash",
+      timestamp: turnTs,
+    }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user",      content: "Build it",   timestamp: userTs, activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "Done.",      timestamp: "2026-05-04T17:48:00.000Z", activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).toContain("Edit");
+    expect(tools).toContain("Bash");
+  });
+
+  it("Layer 1: timestamp slice excludes tools from PRIOR turns", () => {
+    // Same session, two turns. Tools from the prior turn must not bleed
+    // into the current turn's count even though they share the sessionId.
+    const oldTs = "2026-05-04T16:00:00.000Z";  // before user-1 boundary
+    const newTs = "2026-05-04T17:48:00.000Z";  // after user-2 boundary
+
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "old-asst",
+      toolName: "Bash",
+      timestamp: oldTs,
+    }));
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "new-asst",
+      toolName: "Edit",
+      timestamp: newTs,
+    }));
+
+    const messages: Message[] = [
+      { id: "user-1",    role: "user",      content: "first",  timestamp: "2026-05-04T15:59:00.000Z", activityIds: [], isStreaming: false },
+      { id: "old-asst",  role: "assistant", content: "first",  timestamp: oldTs, activityIds: [], isStreaming: false },
+      { id: "user-2",    role: "user",      content: "second", timestamp: "2026-05-04T17:34:00.000Z", activityIds: [], isStreaming: false },
+      { id: "new-asst",  role: "assistant", content: "second", timestamp: newTs, activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).toContain("Edit");
+    expect(tools).not.toContain("Bash");
+  });
+
+  it("Layer 1: timestamp slice + messageId lookup compose (entry has both)", () => {
+    const userTs = "2026-05-04T17:34:00.000Z";
+    const newTs  = "2026-05-04T17:48:00.000Z";
+
+    // Entry has the right messageId AND a timestamp inside the turn —
+    // both layers see it; the result must dedupe to one "Write".
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "m2",
+      toolName: "Write",
+      timestamp: newTs,
+    }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user",      content: "build",  timestamp: userTs, activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "ok",     timestamp: newTs,  activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools.filter((t) => t === "Write")).toHaveLength(1);
+  });
+
+  it("Layer 1: when user-message timestamp is unparseable, messageId path still works", () => {
+    // Defensive: synthetic test fixtures sometimes omit timestamps.
+    // Layer 2 (per-message lookup) must still catch tools.
+    useActivityStore.getState().addEntry(SID, makeActivity({
+      messageId: "m2",
+      toolName: "Bash",
+      // no timestamp override → defaults to now, but the user msg has ""
+    }));
+
+    const messages: Message[] = [
+      { id: "m1", role: "user",      content: "x", timestamp: "", activityIds: [], isStreaming: false },
+      { id: "m2", role: "assistant", content: "y", timestamp: "", activityIds: [], isStreaming: false },
+    ];
+
+    const tools = extractToolsFromTurn(messages, SID);
+    expect(tools).toContain("Bash");
+  });
 });
 
 // ── getCurrentSessionPlan ─────────────────────────────────────────

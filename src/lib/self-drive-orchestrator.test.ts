@@ -53,6 +53,7 @@ function makeInput(overrides: Partial<OrchestratorInput> = {}): OrchestratorInpu
     claudeCodeResponse: "I created the files successfully.",
     claudeCodeToolsUsed: ["Write", "Bash"],
     turnDurationMs: 12_000,
+    turnTokensUsed: 8_000,
     fixAttempt: 0,
     maxFixAttempts: 3,
     previousFixPrompts: [],
@@ -698,5 +699,170 @@ describe("callOrchestrator", () => {
     expect(systemPrompt).toContain("all remaining items pass");
     expect(systemPrompt).toContain("LGTM");
     expect(systemPrompt).toContain("batch-PASS language without evidence");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Regression-proofing: false-positive floor + co-pilot character
+// (Layers 2–7 of the May 2026 Self-Drive overhaul.)
+//
+// These tests pin the prompt against drift back into the pre-fix behavior
+// where (a) the detector flagged real long-running work as fabrication,
+// (b) recovery demanded impossible per-turn Edit/Write proof, and (c) the
+// orchestrator preferred `pause + Blocker` over diagnostic `fix` prompts.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function getSystemPromptOnce(): Promise<string> {
+  const { sendAssistantChat } = await import("./tauri-commands");
+  const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+  await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+  capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+  await promise;
+  return vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+}
+
+describe("co-pilot identity (Layer 7)", () => {
+  it("system prompt frames the orchestrator as a CO-PILOT, not just a gatekeeper", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("CO-PILOT");
+    expect(sp).toContain("DRIVE THE SESSION FORWARD");
+    expect(sp).toContain("CATCH FABRICATION");
+    expect(sp).toContain("path forward");
+    expect(sp).toContain("Detection without guidance is half a feature");
+  });
+
+  it("system prompt encodes the action preference order with pause as last resort", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("ACTION PREFERENCE ORDER");
+    expect(sp).toContain("advance > advance_recovery > request_recheck > fix > pause");
+    expect(sp).toMatch(/pause.*last resort/);
+  });
+
+  it("system prompt provides co-pilot fix-prompt templates with diagnosis + suggested next step", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("CO-PILOT FIX-PROMPT TEMPLATES");
+    expect(sp).toContain("Most likely cause");
+    expect(sp).toContain("Suggested next step");
+    expect(sp).toMatch(/Quote the result/);
+  });
+
+  it("system prompt encodes repeat-pattern escalation across PREVIOUS FIX PROMPTS", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("REPEAT-PATTERN ESCALATION");
+    expect(sp).toContain("PREVIOUS FIX PROMPTS ALREADY TRIED");
+    // 2 prior attempts → suggest a different approach
+    expect(sp).toMatch(/2 prior attempts.*different approach/i);
+    // 3+ prior attempts → pause with a structured blocker
+    expect(sp).toMatch(/3\+ prior attempts.*pause/i);
+  });
+
+  it("system prompt warns to prefer fix over pause for ambiguity", async () => {
+    const sp = await getSystemPromptOnce();
+    // The old "If the response is ambiguous → set confidence to 'low' and prefer 'pause'"
+    // has been replaced with the co-pilot version that prefers fix-with-diagnostic.
+    expect(sp).toMatch(/PREFER "fix"/);
+    expect(sp).not.toMatch(/ambiguous.*prefer "pause"/);
+  });
+});
+
+describe("ACTIVITY-EVIDENCE DETECTION refinements (Layers 2-4)", () => {
+  it("system prompt requires sanity bounds (duration AND tokens) before flagging fabrication", async () => {
+    const sp = await getSystemPromptOnce();
+    // Detector A's fourth condition: short turn OR low token count
+    expect(sp).toMatch(/TURN DURATION.*<\s*60s/);
+    expect(sp).toMatch(/TURN TOKENS USED.*<\s*50,?000/);
+    // Long turns get the benefit of the doubt explicitly
+    expect(sp).toMatch(/benefit of the doubt/);
+  });
+
+  it("system prompt distinguishes file-change verbs from generic completion verbs", async () => {
+    const sp = await getSystemPromptOnce();
+    // File-change verbs that DO trigger the rule
+    expect(sp).toContain("created file");
+    expect(sp).toContain("wrote file");
+    expect(sp).toContain("added test");
+    expect(sp).toContain("added migration");
+    // Generic verbs that do NOT trigger it (the legitimate non-edit work)
+    expect(sp).toContain("deployed");
+    expect(sp).toContain("verified");
+    expect(sp).toContain("memory updated");
+    expect(sp).toMatch(/do NOT trigger this rule/);
+  });
+
+  it("system prompt routes detected fabrication through a SOFT verify-evidence prompt, not a Blocker", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toMatch(/SOFT verify-evidence prompt/);
+    expect(sp).toMatch(/action: ?"fix"/);
+    expect(sp).toMatch(/not a Blocker, not a pause/);
+    // Two-paths-forward template — collaborative
+    expect(sp).toContain("Two paths forward");
+    expect(sp).toContain("git status --porcelain");
+  });
+
+  it("CONTEXT block surfaces TURN TOKENS USED to the orchestrator", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const input = makeInput({ turnTokensUsed: 1_234_567 });
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).toContain("TURN TOKENS USED:");
+    expect(userMessage).toContain("1,234,567");
+  });
+
+  it("CONTEXT block reports 'unknown' when token count is zero", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const input = makeInput({ turnTokensUsed: 0 });
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).toContain("TURN TOKENS USED: unknown");
+  });
+});
+
+describe("Recovery-phase escape hatch (Layers 5-6)", () => {
+  it("system prompt declares filesystem evidence as GROUND TRUTH in recovery", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("FILESYSTEM EVIDENCE IS GROUND TRUTH");
+    // Specific commands that count as primary evidence
+    expect(sp).toContain("ls -la");
+    expect(sp).toContain("git status --porcelain");
+    expect(sp).toContain("git diff --stat");
+    expect(sp).toContain("pnpm tsc --noEmit");
+    // The explicit anti-Edit/Write-requirement clause
+    expect(sp).toMatch(/regardless of whether Edit\/Write tool calls were recorded/);
+  });
+
+  it("system prompt has an ANTI-LOOP guard that breaks the recovery cycle", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("ANTI-LOOP GUARD");
+    expect(sp).toMatch(/2nd or later recovery turn/);
+    expect(sp).toMatch(/advance_recovery/);
+    expect(sp).toMatch(/impossible criterion|infinite Blocker loop/);
+  });
+
+  it("system prompt forbids resolutionCriteria that demand re-Editing already-correct files", async () => {
+    const sp = await getSystemPromptOnce();
+    expect(sp).toContain("SATISFIABILITY CONSTRAINT");
+    // The exact failure mode from images 5-6 is called out by name
+    expect(sp).toContain('"TOOLS USED THIS TURN must contain at least one Edit or Write call per deliverable file"');
+    expect(sp).toMatch(/destructive|permanent Blocker loop/);
+    // The proper criterion shape is filesystem verification
+    expect(sp).toMatch(/proper criterion for "deliverables present" is FILESYSTEM VERIFICATION/);
+  });
+});
+
+describe("build-mode preamble sync (Layer 6 sync)", () => {
+  it("preamble explains the file-change vs generic-verb distinction to Claude Code", async () => {
+    const { BUILD_MODE_PREAMBLE, FIX_MODE_PREAMBLE } = await import("./build-mode-preamble");
+    for (const text of [BUILD_MODE_PREAMBLE, FIX_MODE_PREAMBLE]) {
+      expect(text).toContain("REPORT NON-EDIT WORK PLAINLY");
+      expect(text).toContain("created file");
+      expect(text).toContain("deployed");
+      expect(text).toMatch(/false[- ]positive/);
+    }
   });
 });

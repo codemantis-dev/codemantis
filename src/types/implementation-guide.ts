@@ -157,6 +157,15 @@ export interface OrchestratorInput {
   claudeCodeResponse: string;
   claudeCodeToolsUsed: string[];
   turnDurationMs: number;
+  /**
+   * Total tokens consumed by Claude Code during the turn (input + output +
+   * cache). Surfaced to the orchestrator so the fabrication detector can
+   * apply a sanity bound: a turn that genuinely spent millions of tokens
+   * cannot be a "claim of work without doing the work". Pass 0 when the
+   * count is unknown (no usage_update arrived) — the detector treats 0 as
+   * "uncertain" and does not use it to soften the rule.
+   */
+  turnTokensUsed: number;
   fixAttempt: number;
   maxFixAttempts: number;
   previousFixPrompts: string[];

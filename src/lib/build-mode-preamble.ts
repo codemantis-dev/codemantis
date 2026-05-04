@@ -76,6 +76,23 @@ Tests must fail before they pass: show the red, then the green. Do not:
 If a test is wrong, fix the test deliberately and explain why in the
 commit. If the test is right and the code fails, fix the code.
 
+RULE 4b — REPORT NON-EDIT WORK PLAINLY (avoid false fabrication flags)
+The orchestrator's fabrication detector watches for "claimed a file change but
+no Edit/Write tool was called". It triggers ONLY on file-change verbs like
+"created file", "wrote function", "added test", "edited", "patched", "modified".
+Generic completion verbs ("done", "complete", "deployed", "verified", "ran
+lint", "tests passing", "set up cron", "memory updated") do NOT trigger it.
+
+When you summarise legitimate non-edit work — running a deploy, monitoring a
+job, verifying an existing setup, regenerating memory, running lint/tsc/tests
+without code changes — use the generic verbs. Don't dress non-edit work in
+file-change language; it confuses the detector and triggers a false-positive
+re-prompt asking you to "produce the diff".
+
+When the work in a turn IS a file change, name the file and (when feasible)
+quote a few lines of the resulting diff. That gives the orchestrator the
+evidence it needs to advance without a recheck round.
+
 RULE 5 — HONEST BLOCKER OVER FAKE PROGRESS
 If a hard constraint genuinely prevents the root-cause fix, surface it.
 Two escape hatches in increasing strength:

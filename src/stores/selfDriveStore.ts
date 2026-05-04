@@ -1273,6 +1273,11 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     claudeCodeResponse: assembledResponse,
     claudeCodeToolsUsed: toolsUsed,
     turnDurationMs: payload.duration_ms || 0,
+    turnTokensUsed:
+      (payload.usage?.input_tokens ?? 0) +
+      (payload.usage?.output_tokens ?? 0) +
+      (payload.usage?.cache_creation_input_tokens ?? 0) +
+      (payload.usage?.cache_read_input_tokens ?? 0),
     fixAttempt: state.fixAttempt,
     maxFixAttempts: state.maxFixAttempts,
     previousFixPrompts: state.previousFixPrompts,
