@@ -107,9 +107,9 @@ export default function Sidebar() {
       </div>
 
       {/* Git status */}
-      {gitStatus?.is_git_repo && (
+      {session && gitStatus?.is_git_repo && (
         <div className="shrink-0 border-t border-border-light">
-          <GitStatusCard gitStatus={gitStatus} projectPath={session!.project_path} />
+          <GitStatusCard gitStatus={gitStatus} projectPath={session.project_path} />
         </div>
       )}
 

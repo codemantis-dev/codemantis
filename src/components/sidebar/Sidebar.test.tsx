@@ -86,4 +86,34 @@ describe("Sidebar", () => {
     render(<Sidebar />);
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
+
+  // Regression: opening another project via the "Open Project" dialogue while
+  // the previous project's session is still cached produced a transient render
+  // where `activeSessionId === null` but `useGitStatus` still returned the
+  // previous repo's `is_git_repo: true`. The Git Status block dereferenced
+  // `session!.project_path` and crashed with
+  // "null is not an object (evaluating 'e.project_path')".
+  it("does not crash when session is null but gitStatus is stale (project-switch race)", async () => {
+    const { useGitStatus } = await import("../../hooks/useGitStatus");
+    (useGitStatus as ReturnType<typeof vi.fn>).mockReturnValue({
+      gitStatus: {
+        is_git_repo: true,
+        branch: "main",
+        uncommitted_changes: 0,
+        untracked_files: 0,
+        staged_files: 0,
+        ahead: 0,
+        behind: 0,
+      },
+      refresh: vi.fn(),
+    });
+    useSessionStore.setState({
+      activeSessionId: null,
+      sessions: new Map(),
+      sessionContext: new Map(),
+      sessionStats: new Map(),
+    });
+    expect(() => render(<Sidebar />)).not.toThrow();
+    expect(screen.getByText("No project open")).toBeInTheDocument();
+  });
 });
