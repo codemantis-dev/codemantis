@@ -486,4 +486,112 @@ describe("useClaudeSession", () => {
 
     expect(mockSaveSessionMessages).not.toHaveBeenCalled();
   });
+
+  it("restorePausedSession adds a tab in paused-recovered status and loads stored messages", async () => {
+    mockLoadSessionMessages.mockResolvedValueOnce([
+      { id: "m1", role: "user", content: "from before crash", timestamp: "2026-01-01T00:00:00Z", thinkingContent: null, sortOrder: 0 },
+    ]);
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.restorePausedSession({
+        session_id: "crashed-1",
+        name: "Crashed Tab",
+        project_path: PROJECT_PATH,
+        model: "sonnet",
+        closed_at: "2026-01-01T00:00:00Z",
+        cli_session_id: "cli-old",
+        icon_index: 3,
+        recent_headlines: [],
+        has_stored_messages: true,
+      });
+    });
+
+    const session = useSessionStore.getState().sessions.get("crashed-1");
+    expect(session).toBeDefined();
+    expect(session!.status).toBe("paused-recovered");
+    expect(session!.cli_session_id).toBe("cli-old");
+
+    // CLI must NOT be spawned for paused tabs
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockListenChatEvents).not.toHaveBeenCalled();
+
+    const messages = useSessionStore.getState().sessionMessages.get("crashed-1") ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("from before crash");
+    expect(messages[0].isRestored).toBe(true);
+  });
+
+  it("restorePausedSession is idempotent for the same session id", async () => {
+    mockLoadSessionMessages.mockResolvedValue([]);
+    const { result } = renderHook(() => useClaudeSession());
+    const entry = {
+      session_id: "crashed-1",
+      name: "C",
+      project_path: PROJECT_PATH,
+      model: null,
+      closed_at: "2026-01-01T00:00:00Z",
+      cli_session_id: "cli-old",
+      icon_index: 0,
+      recent_headlines: [],
+      has_stored_messages: false,
+    };
+
+    await act(async () => {
+      await result.current.restorePausedSession(entry);
+      await result.current.restorePausedSession(entry); // second call should no-op
+    });
+
+    expect(useSessionStore.getState().tabOrder.filter((id) => id === "crashed-1")).toHaveLength(1);
+  });
+
+  it("resumeRecoveredSession spawns CLI via resumeFromHistory and preserves tab position", async () => {
+    // Set up a workspace with a live tab, a paused tab, and another live tab.
+    mockLoadSessionMessages.mockResolvedValue([]);
+    const { result } = renderHook(() => useClaudeSession());
+
+    useSessionStore.getState().addSession(makeSession("live-a"));
+    await act(async () => {
+      await result.current.restorePausedSession({
+        session_id: "crashed-mid",
+        name: "Mid",
+        project_path: PROJECT_PATH,
+        model: null,
+        closed_at: "2026-01-01T00:00:00Z",
+        cli_session_id: "cli-mid",
+        icon_index: 0,
+        recent_headlines: [],
+        has_stored_messages: false,
+      });
+    });
+    useSessionStore.getState().addSession(makeSession("live-b"));
+
+    expect(useSessionStore.getState().tabOrder).toEqual(["live-a", "crashed-mid", "live-b"]);
+
+    // Now resume — createSession returns the new session ID
+    mockCreateSession.mockResolvedValueOnce(makeSession("new-mid", { id: "new-mid" }));
+    let returned: string | null = null;
+    await act(async () => {
+      returned = await result.current.resumeRecoveredSession("crashed-mid");
+    });
+
+    expect(returned).toBe("new-mid");
+    // resumeFromHistory invokes createSession with the stored cli_session_id
+    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Mid", "cli-mid");
+    // Tab position preserved (index 1 between live-a and live-b)
+    expect(useSessionStore.getState().tabOrder).toEqual(["live-a", "new-mid", "live-b"]);
+    // Old paused entry is gone
+    expect(useSessionStore.getState().sessions.has("crashed-mid")).toBe(false);
+  });
+
+  it("resumeRecoveredSession is a no-op for non-paused sessions", async () => {
+    useSessionStore.getState().addSession(makeSession("live-a"));
+    const { result } = renderHook(() => useClaudeSession());
+    let returned: string | null = "init";
+    await act(async () => {
+      returned = await result.current.resumeRecoveredSession("live-a");
+    });
+    expect(returned).toBeNull();
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
 });

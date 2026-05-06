@@ -95,6 +95,12 @@ pub async fn create_session(
         log::error!("Failed to persist session to database: {}", e);
     }
 
+    // Crash-recovery flag: this session is now open. Cleared on close or graceful exit;
+    // anything still set on next launch indicates the prior shutdown was unclean.
+    if let Err(e) = state.database.set_session_was_open(&session_info.id, true) {
+        log::warn!("Failed to set was_open flag: {}", e);
+    }
+
     // Get approval server port
     let approval_port = {
         let port = state.approval_server_port.lock().await;
@@ -386,6 +392,10 @@ pub async fn close_session(
     ) {
         error!("Failed to persist session close details to database: {}", e);
     }
+    // Crash-recovery flag: explicit close means this session is no longer open.
+    if let Err(e) = state.database.set_session_was_open(&session_id, false) {
+        warn!("Failed to clear was_open flag on close: {}", e);
+    }
     // Check if messages still exist AFTER close
     let has_msgs_after = state.database.session_has_messages(&session_id).unwrap_or(false);
 
@@ -562,6 +572,68 @@ pub async fn list_recent_sessions(
     }
 
     Ok(entries)
+}
+
+/// Crash recovery: returns all sessions still flagged was_open=1, meaning
+/// the previous shutdown didn't run the graceful drain. Each entry carries
+/// the cli_session_id needed for `claude --resume` and the icon/name needed
+/// to redraw the tab. Sessions without a cli_session_id (CLI never returned
+/// System/init) are skipped — they can't be resumed.
+#[tauri::command]
+pub async fn list_crashed_sessions(
+    state: State<'_, AppState>,
+) -> Result<Vec<SessionHistoryEntry>, String> {
+    let crashed = state
+        .database
+        .list_crashed_sessions()
+        .map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for session in crashed {
+        let headlines: Vec<String> = state
+            .database
+            .list_changelog_entries(&session.id)
+            .unwrap_or_default()
+            .into_iter()
+            .take(3)
+            .map(|e| e.headline)
+            .collect();
+
+        // closed_at may be NULL (the session never went through close_session);
+        // fall back to created_at so the frontend always has a sortable timestamp.
+        let closed_at = session.closed_at.unwrap_or_else(|| session.created_at.clone());
+        if let Some(cli_sid) = session.cli_session_id {
+            entries.push(SessionHistoryEntry {
+                session_id: session.id,
+                name: session.name,
+                project_path: session.project_path,
+                model: session.model,
+                closed_at,
+                cli_session_id: cli_sid,
+                icon_index: session.icon_index,
+                recent_headlines: headlines,
+                has_stored_messages: session.has_stored_messages,
+            });
+        }
+    }
+
+    Ok(entries)
+}
+
+/// After the user dismisses the recovery banner (or closes a paused-recovered tab
+/// without resuming), clear the was_open flag for these IDs so we don't keep
+/// reporting them as crash candidates on subsequent launches.
+#[tauri::command]
+pub async fn acknowledge_crashed_sessions(
+    state: State<'_, AppState>,
+    session_ids: Vec<String>,
+) -> Result<(), String> {
+    for id in &session_ids {
+        if let Err(e) = state.database.set_session_was_open(id, false) {
+            log::warn!("Failed to clear was_open for {}: {}", id, e);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

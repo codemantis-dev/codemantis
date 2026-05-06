@@ -20,7 +20,7 @@ import {
   loadSessionMessages,
 } from "../lib/tauri-commands";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { SessionMessagePayload, Message } from "../types/session";
+import type { SessionMessagePayload, Message, Session, SessionHistoryEntry } from "../types/session";
 import { useUiStore } from "../stores/uiStore";
 import {
   handleChatEvent,
@@ -47,6 +47,17 @@ interface UseClaudeSessionReturn {
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
   resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string) => Promise<string>;
+  /**
+   * Add a tab in 'paused-recovered' status from a crash-recovery entry.
+   * Loads the stored transcript but does NOT spawn a CLI subprocess; the user
+   * clicks Resume on the in-chat banner to attach via resumeRecoveredSession.
+   */
+  restorePausedSession: (entry: SessionHistoryEntry) => Promise<void>;
+  /**
+   * Resume a paused-recovered tab: spawn a fresh CLI via --resume, then
+   * replace the placeholder tab in-place so its position is preserved.
+   */
+  resumeRecoveredSession: (pausedSessionId: string) => Promise<string | null>;
 }
 
 export function useClaudeSession(): UseClaudeSessionReturn {
@@ -327,6 +338,85 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
+  const restorePausedSession = useCallback(async (entry: SessionHistoryEntry): Promise<void> => {
+    const state = sessionStore.getState();
+    if (state.sessions.has(entry.session_id)) {
+      // Already restored — possibly a duplicate startup pass
+      return;
+    }
+    const restored: Session = {
+      id: entry.session_id,
+      name: entry.name,
+      project_path: entry.project_path,
+      status: "paused-recovered",
+      created_at: entry.closed_at,
+      model: entry.model,
+      icon_index: entry.icon_index,
+      cli_session_id: entry.cli_session_id,
+    };
+    sessionStore.getState().addSession(restored);
+
+    try {
+      const stored = await loadSessionMessages(entry.session_id);
+      if (stored.length > 0) {
+        const restoredMessages: Message[] = stored.map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: m.timestamp,
+          activityIds: [],
+          isStreaming: false,
+          thinkingContent: m.thinkingContent ?? undefined,
+          isRestored: true,
+        }));
+        const sessionMessages = new Map(sessionStore.getState().sessionMessages);
+        sessionMessages.set(entry.session_id, restoredMessages);
+        sessionStore.setState({ sessionMessages });
+      }
+    } catch (e) {
+      console.error("[restorePausedSession] Failed to load stored messages:", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+  }, []);
+
+  const resumeRecoveredSession = useCallback(async (pausedSessionId: string): Promise<string | null> => {
+    const state = sessionStore.getState();
+    const session = state.sessions.get(pausedSessionId);
+    if (!session || session.status !== "paused-recovered") return null;
+    const cliSessionId = session.cli_session_id;
+    if (!cliSessionId) {
+      showToast("Cannot resume — no CLI session ID stored", "error");
+      return null;
+    }
+    const oldIndex = state.tabOrder.indexOf(pausedSessionId);
+
+    // Detach the placeholder before resumeFromHistory so its tab slot frees up
+    // (also avoids tripping the MAX_SESSIONS guard on full workspaces).
+    sessionStore.getState().removeSession(pausedSessionId);
+
+    let newSessionId: string;
+    try {
+      newSessionId = await resumeFromHistory(
+        session.project_path,
+        cliSessionId,
+        session.name,
+        pausedSessionId,
+      );
+    } catch (e) {
+      handleError("Failed to resume recovered session", e);
+      return null;
+    }
+
+    if (oldIndex >= 0) {
+      const order = sessionStore.getState().tabOrder.filter((id) => id !== newSessionId);
+      order.splice(oldIndex, 0, newSessionId);
+      sessionStore.getState().reorderTabs(order);
+    }
+
+    return newSessionId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+  }, [resumeFromHistory]);
+
   return {
     startSession,
     addSessionToProject,
@@ -336,5 +426,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     switchSession,
     renameSession: renameSessionFn,
     resumeFromHistory,
+    restorePausedSession,
+    resumeRecoveredSession,
   };
 }

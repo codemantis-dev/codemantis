@@ -9,7 +9,17 @@ export interface Session {
   cli_session_id?: string | null;
 }
 
-export type SessionStatus = "starting" | "connected" | "idle" | "closed";
+export type SessionStatus =
+  | "starting"
+  | "connected"
+  | "idle"
+  | "closed"
+  /**
+   * Restored from a violent shutdown. The tab and stored transcript are visible
+   * but no Claude CLI process is attached; the user clicks Resume on the in-chat
+   * banner to spawn a fresh CLI via `--resume` (existing resumeFromHistory path).
+   */
+  | "paused-recovered";
 
 export type SessionMode =
   | "normal"

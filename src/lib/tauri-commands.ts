@@ -167,6 +167,26 @@ export async function listRecentSessions(
   return invoke<SessionHistoryEntry[]>("list_recent_sessions", { limit });
 }
 
+/**
+ * Returns the sessions whose `was_open` flag is still set in SQLite — meaning
+ * the previous shutdown did not run the graceful drain. The frontend uses
+ * these on launch to redraw paused-recovered tabs. Empty array == clean exit.
+ */
+export async function listCrashedSessions(): Promise<SessionHistoryEntry[]> {
+  return invoke<SessionHistoryEntry[]>("list_crashed_sessions");
+}
+
+/**
+ * Clears `was_open` for the given session IDs. Called once after the frontend
+ * has rendered the paused-recovered tabs so we don't re-list the same crash on
+ * subsequent launches.
+ */
+export async function acknowledgeCrashedSessions(
+  sessionIds: string[]
+): Promise<void> {
+  return invoke("acknowledge_crashed_sessions", { sessionIds });
+}
+
 export async function saveSessionMessages(
   sessionId: string,
   messages: SessionMessagePayload[]

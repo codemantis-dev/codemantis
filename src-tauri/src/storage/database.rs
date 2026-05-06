@@ -132,6 +132,10 @@ impl Database {
             let _ = conn.execute_batch(sql); // ignore if column already exists
         }
 
+        for sql in migrations::MIGRATE_SESSION_WAS_OPEN {
+            let _ = conn.execute_batch(sql);
+        }
+
         for sql in migrations::MIGRATE_CHANGELOG_DETAIL {
             let _ = conn.execute_batch(sql);
         }
@@ -299,6 +303,50 @@ impl Database {
             );
         }
         Ok(sessions)
+    }
+
+    /// Mark a session as currently open in the workspace, used for crash detection.
+    /// Set on session create/restore, cleared on session close or graceful shutdown.
+    pub fn set_session_was_open(&self, id: &str, was_open: bool) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "UPDATE sessions SET was_open = ?1 WHERE id = ?2",
+            rusqlite::params![if was_open { 1 } else { 0 }, id],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Set was_open failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Bulk-clear was_open across every session. Called from the graceful-shutdown
+    /// drain in lib.rs so that a clean exit leaves no rows flagged.
+    pub fn clear_all_session_was_open(&self) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute("UPDATE sessions SET was_open = 0 WHERE was_open = 1", [])
+            .map_err(|e| AppError::DatabaseError(format!("Clear was_open failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Return the IDs of every session currently flagged was_open=1. On startup,
+    /// any IDs returned indicate the previous shutdown was unclean.
+    pub fn list_was_open_session_ids(&self) -> Result<Vec<String>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare("SELECT id FROM sessions WHERE was_open = 1 ORDER BY created_at ASC")
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?);
+        }
+        Ok(ids)
     }
 
     pub fn delete_session(&self, id: &str) -> Result<(), AppError> {
@@ -472,6 +520,46 @@ impl Database {
 
         let rows = stmt
             .query_map(rusqlite::params![project_path, limit], |row| {
+                Ok(PersistedSession {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    project_path: row.get(2)?,
+                    status: row.get(3)?,
+                    created_at: row.get(4)?,
+                    model: row.get(5)?,
+                    icon_index: row.get(6)?,
+                    cli_session_id: row.get(7)?,
+                    closed_at: row.get(8)?,
+                    has_stored_messages: row.get::<_, i32>(9)? != 0,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(
+                row.map_err(|e| AppError::DatabaseError(format!("Row error: {}", e)))?,
+            );
+        }
+        Ok(sessions)
+    }
+
+    /// Sessions whose was_open flag is still set, ordered oldest-first to match
+    /// the original tab insertion order. Used by crash-recovery on startup.
+    pub fn list_crashed_sessions(&self) -> Result<Vec<PersistedSession>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 FROM sessions s WHERE s.was_open = 1 ORDER BY s.created_at ASC"
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map([], |row| {
                 Ok(PersistedSession {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -1117,6 +1205,96 @@ mod tests {
 
         let sessions = db.list_sessions().unwrap();
         assert_eq!(sessions.len(), 0);
+    }
+
+    #[test]
+    fn test_was_open_default_zero_after_insert() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+            .unwrap();
+        // Fresh insert leaves was_open at the column default (0). The
+        // session command sets it to 1 explicitly; we verify the default here.
+        let ids = db.list_was_open_session_ids().unwrap();
+        assert!(ids.is_empty(), "expected no flagged sessions, got {:?}", ids);
+    }
+
+    #[test]
+    fn test_set_session_was_open_marks_and_clears() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+            .unwrap();
+        db.set_session_was_open("s1", true).unwrap();
+        assert_eq!(db.list_was_open_session_ids().unwrap(), vec!["s1".to_string()]);
+
+        db.set_session_was_open("s1", false).unwrap();
+        assert!(db.list_was_open_session_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_clear_all_session_was_open_resets_every_row() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("a", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+            .unwrap();
+        db.insert_session("b", "B", "/p", "connected", "2026-01-01T00:00:01Z", None, 0)
+            .unwrap();
+        db.insert_session("c", "C", "/p", "connected", "2026-01-01T00:00:02Z", None, 0)
+            .unwrap();
+        db.set_session_was_open("a", true).unwrap();
+        db.set_session_was_open("b", true).unwrap();
+        // c left at 0
+        assert_eq!(db.list_was_open_session_ids().unwrap().len(), 2);
+
+        db.clear_all_session_was_open().unwrap();
+        assert!(db.list_was_open_session_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_list_crashed_sessions_orders_oldest_first() {
+        let db = Database::new(":memory:").unwrap();
+        // Insert in non-creation order to verify sort
+        db.insert_session("late", "L", "/p", "connected", "2026-01-03T00:00:00Z", None, 0)
+            .unwrap();
+        db.insert_session("early", "E", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+            .unwrap();
+        db.insert_session("mid", "M", "/p", "connected", "2026-01-02T00:00:00Z", None, 0)
+            .unwrap();
+        // Each crashed session needs a cli_session_id to be returned by
+        // list_crashed_sessions (the command filters on it). We persist via
+        // close_session_with_details which writes cli_session_id.
+        db.close_session_with_details("late", Some("cli-late"), None, "2026-01-03T01:00:00Z").unwrap();
+        db.close_session_with_details("early", Some("cli-early"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.close_session_with_details("mid", Some("cli-mid"), None, "2026-01-02T01:00:00Z").unwrap();
+        // close_session_with_details set status='closed' but did NOT touch was_open;
+        // simulate the violent-shutdown state by setting all three.
+        db.set_session_was_open("late", true).unwrap();
+        db.set_session_was_open("early", true).unwrap();
+        db.set_session_was_open("mid", true).unwrap();
+
+        let crashed = db.list_crashed_sessions().unwrap();
+        let ids: Vec<&str> = crashed.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["early", "mid", "late"], "should be ordered by created_at ASC");
+    }
+
+    #[test]
+    fn test_was_open_migration_idempotent_on_existing_db() {
+        // Open + close + re-open the same on-disk db file. The was_open ALTER
+        // would fail on the second pass (column already exists) but the
+        // wrapper swallows the error, so re-opening must succeed.
+        let dir = std::env::temp_dir().join(format!("cm-was-open-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.db");
+        let path_str = path.to_str().unwrap();
+        {
+            let db = Database::new(path_str).unwrap();
+            db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+            db.set_session_was_open("s1", true).unwrap();
+        }
+        // Re-open the same file — migrations re-run.
+        let db = Database::new(path_str).unwrap();
+        let ids = db.list_was_open_session_ids().unwrap();
+        assert_eq!(ids, vec!["s1".to_string()], "was_open value must survive re-open");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

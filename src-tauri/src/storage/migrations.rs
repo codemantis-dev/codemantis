@@ -46,6 +46,13 @@ pub const MIGRATE_SESSION_HISTORY: &[&str] = &[
     "ALTER TABLE sessions ADD COLUMN closed_at TEXT",
 ];
 
+// Crash-recovery flag. Set to 1 while a session tab is open, cleared during
+// graceful shutdown. If any rows still hold 1 on next launch, the previous
+// shutdown was unclean and those sessions are candidates for paused-restore.
+pub const MIGRATE_SESSION_WAS_OPEN: &[&str] = &[
+    "ALTER TABLE sessions ADD COLUMN was_open INTEGER NOT NULL DEFAULT 0",
+];
+
 pub const MIGRATE_CHANGELOG_DETAIL: &[&str] = &[
     "ALTER TABLE changelog_entries ADD COLUMN technical_details TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE changelog_entries ADD COLUMN tools_summary TEXT NOT NULL DEFAULT ''",

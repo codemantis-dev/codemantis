@@ -320,6 +320,8 @@ pub fn run() {
             commands::session::delete_persisted_session,
             commands::session::list_session_history,
             commands::session::list_recent_sessions,
+            commands::session::list_crashed_sessions,
+            commands::session::acknowledge_crashed_sessions,
             commands::session::interrupt_session,
             commands::session::set_session_model,
             commands::session::initialize_session,
@@ -438,6 +440,11 @@ pub fn run() {
                             proc.shutdown().await;
                         }
                         processes.clear();
+                        // Crash-recovery: graceful shutdown, so wipe all was_open flags.
+                        // Anything still set after this means the next exit was violent.
+                        if let Err(e) = state.database.clear_all_session_was_open() {
+                            warn!("[exit] Failed to clear was_open flags: {}", e);
+                        }
                     }
 
                     // Close all PTY terminals

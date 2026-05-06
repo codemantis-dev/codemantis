@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { ArrowDown, Sparkles, X } from "lucide-react";
+import { ArrowDown, Sparkles, X, Play } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useChatIncrementalLoad } from "../../hooks/useChatIncrementalLoad";
@@ -19,7 +19,18 @@ export default function ChatPanel() {
   const streaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId) ?? EMPTY_STREAMING : EMPTY_STREAMING);
   const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
   const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
-  const { startSession } = useClaudeSession();
+  const { startSession, resumeRecoveredSession } = useClaudeSession();
+  const [resumingRecovered, setResumingRecovered] = useState(false);
+
+  const handleResumeRecovered = useCallback(async () => {
+    if (!session || session.status !== "paused-recovered") return;
+    setResumingRecovered(true);
+    try {
+      await resumeRecoveredSession(session.id);
+    } finally {
+      setResumingRecovered(false);
+    }
+  }, [session, resumeRecoveredSession]);
 
   const handleRestart = useCallback(() => {
     if (!session) return;
@@ -198,6 +209,29 @@ export default function ChatPanel() {
                 <p className="text-text-dim text-ui">
                   Send a message to start the conversation
                 </p>
+              </div>
+            )}
+
+            {/* Paused-recovered banner — tab restored from a violent shutdown */}
+            {session?.status === "paused-recovered" && (
+              <div className="mb-4 px-4 py-3 rounded-lg border border-accent/30 bg-accent/10 flex items-center gap-3">
+                <Play size={16} className="text-accent shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-text-secondary text-ui">
+                    Recovered from an unexpected shutdown — paused.
+                  </p>
+                  <p className="text-text-dim text-label">
+                    Resume to reconnect this conversation via{" "}
+                    <code>claude --resume</code>.
+                  </p>
+                </div>
+                <button
+                  onClick={handleResumeRecovered}
+                  disabled={resumingRecovered}
+                  className="px-3 py-1.5 rounded-md bg-accent text-white text-label font-medium hover:bg-accent-light disabled:opacity-60 transition-colors shrink-0"
+                >
+                  {resumingRecovered ? "Resuming..." : "Resume"}
+                </button>
               </div>
             )}
 

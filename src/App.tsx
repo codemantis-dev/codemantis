@@ -8,6 +8,8 @@ import {
   loadGuide,
   type ClaudeStatus,
 } from "./lib/tauri-commands";
+import { useCrashRecoverySnapshot } from "./hooks/useCrashRecoverySnapshot";
+import { hydratePersistedOpenSessions } from "./lib/crash-recovery";
 import { useSelfDriveStore, type PersistedRunState } from "./stores/selfDriveStore";
 import type { ImplementationGuide } from "./types/implementation-guide";
 import { useClaudeSession } from "./hooks/useClaudeSession";
@@ -79,7 +81,7 @@ export default function App() {
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const openSettingsToTab = useUiStore((s) => s.openSettingsToTab);
-  const { startSession, resumeFromHistory } = useClaudeSession();
+  const { startSession, resumeFromHistory, restorePausedSession } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const onboardingCompleted = useSettingsStore((s) => s.settings.onboardingCompleted);
@@ -91,6 +93,7 @@ export default function App() {
   useToolApprovalListener();
   useExternalLinkGuard();
   useUpdatePoller();
+  useCrashRecoverySnapshot();
 
   useEffect(() => {
     checkClaudeStatus()
@@ -110,6 +113,11 @@ export default function App() {
     // is hydrated as paused + needsSessionAttach; the user explicitly
     // attaches a fresh Claude Code session via the PAUSED banner.
     void hydratePersistedSelfDriveRuns();
+    // Crash-recovery: if the previous shutdown was violent, the sessions
+    // table holds rows with was_open=1. Redraw each as a paused tab so the
+    // user can resume on demand.
+    void hydratePersistedOpenSessions(restorePausedSession);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restorePausedSession is a stable callback
   }, [loadSettings]);
 
   const handleRecheck = async (): Promise<void> => {
