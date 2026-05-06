@@ -49,6 +49,51 @@ describe("translateError — API provider errors", () => {
     expect(result.title).toBe("Invalid API key");
   });
 
+  // ── Claude Code CLI not signed in (no provider prefix) ──
+  // The Claude Code CLI proxies Anthropic 401 responses verbatim, with no
+  // provider prefix. Must NOT route to "Settings › AI Providers" — there is
+  // no API-key field for Claude Code in CodeMantis settings.
+
+  it("translates a Claude Code CLI auth error to a 'claude login' message", () => {
+    const raw =
+      'API Error: 401 {"error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code isn't signed in");
+    expect(result.remediation).toContain("claude login");
+    expect(result.remediation).not.toContain("Settings");
+    expect(result.message).toContain("Pro/Max subscription");
+    expect(result.toastMessage).toContain("claude login");
+  });
+
+  it("translates a bare 'API Error: 401 Unauthorized' (no provider, no body) to the CLI auth message", () => {
+    const raw = "API Error: 401 Unauthorized";
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code isn't signed in");
+    expect(result.remediation).toContain("claude login");
+  });
+
+  it("translates 'API Error: invalid x-api-key' (no status code) to the CLI auth message", () => {
+    const raw =
+      'API Error: {"error":{"type":"authentication_error","message":"invalid x-api-key"}}';
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code isn't signed in");
+  });
+
+  it("does NOT hijack a third-party Anthropic 401 — that still routes to Settings", () => {
+    const raw = "Anthropic API error 401: Unauthorized";
+    const result = translateError(raw);
+    expect(result.title).toBe("Invalid API key");
+    expect(result.remediation).toContain("Settings");
+  });
+
+  it("does NOT hijack a third-party OpenRouter 401 — that still routes to Settings", () => {
+    const raw =
+      'OpenRouter API error 401 Unauthorized: {"error":{"message":"Invalid API key"}}';
+    const result = translateError(raw);
+    expect(result.title).toBe("Invalid API key");
+    expect(result.remediation).toContain("Settings");
+  });
+
   // ── 402 Payment required ──
 
   it("translates 402 payment required", () => {

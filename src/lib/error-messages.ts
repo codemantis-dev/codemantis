@@ -77,7 +77,36 @@ const ERROR_CATALOG: ErrorPattern[] = [
     }),
   },
 
-  // ── 401 Unauthorized / Invalid API key ──
+  // ── Claude Code CLI not signed in ──
+  // Must run BEFORE the generic 401 pattern below. When the Claude Code CLI
+  // forwards an Anthropic 401 (subscription session expired or never logged
+  // in), the result string has no third-party provider prefix. The generic
+  // 401 pattern's "Settings › AI Providers" remediation is wrong for this
+  // case — CodeMantis has no API-key field for Claude Code itself; auth is
+  // handled by the OS-level `claude login` flow.
+  {
+    test: (r) => {
+      const l = lower(r);
+      const looksLikeAuthError =
+        l.includes("api error") &&
+        (l.includes("401") ||
+          l.includes("unauthorized") ||
+          l.includes("authentication_error") ||
+          l.includes("invalid x-api-key") ||
+          (l.includes("invalid") && l.includes("key")));
+      return looksLikeAuthError && extractProviderName(r) === null;
+    },
+    map: () => ({
+      title: "Claude Code isn't signed in",
+      message:
+        "The Claude Code CLI rejected the request because it isn't authenticated with your Anthropic account. CodeMantis uses your existing Claude Pro/Max subscription via the CLI — there is no API key to configure inside CodeMantis for this.",
+      remediation:
+        "Open a terminal and run `claude login`, complete the browser sign-in, then start a new session in CodeMantis. (If you recently logged out of the Claude desktop app or your session expired, this also fixes it.)",
+      toastMessage: "Claude Code not signed in — run 'claude login'",
+    }),
+  },
+
+  // ── 401 Unauthorized / Invalid API key (third-party providers) ──
   {
     test: (r) => {
       const l = lower(r);
