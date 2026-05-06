@@ -1,5 +1,24 @@
 # CodeMantis Releases
 
+## 1.1.8
+
+Hotfix release: sidebar Git Status crash guard, Self-Drive verification tightening, and crash-recovery for interrupted sessions on restart.
+
+### Sidebar (Hotfix)
+- **Git Status no longer crashes during project switch**: when switching to another project while the git hook still reports the previous repo, `GitStatusCard` now requires an active session before rendering — eliminating the null-deref crash that could leave the sidebar in a broken state
+- Regression test added for stale `gitStatus` with `null` `activeSessionId`
+
+### Crash Recovery
+- **Interrupted sessions restored on restart**: open-session state is now tracked in SQLite, so unclean shutdowns no longer leave you with empty tabs at next launch. New `crashed-session` Tauri commands surface what was open
+- **Paused-recovered flow**: when a recovered session is reopened, it lands in a paused-recovered state with explicit Restore/Resume actions, instead of silently re-attaching and racing against the CLI
+- Integration coverage for the recovery orchestrator and the frontend restore/resume paths
+
+### Self-Drive
+- **Tighter verification phase**: new `FILESYSTEM-BLINDNESS` and `CROSS-ITEM EVIDENCE CREDIT` rules for the verifying phase prevent the orchestrator from demanding evidence it cannot inspect, and from refusing credit for evidence already supplied for an adjacent item
+- **`COMPLETENESS RULE` for [integration]**: forbids stacked evidence demands so a single integration item can't snowball into a multi-round interrogation
+- **`PRE-EMIT SELF-CHECK` (a/b/c) replaces repeat-pattern escalation**: when the orchestrator detects a repeat pattern it now runs a mandatory self-check before re-emitting, instead of mechanically escalating
+- Prompt-contract test coverage extended for all new strings
+
 ## 1.1.7
 
 Patch release: recoverable error boundary, Self-Drive accuracy fixes, additional CodeQL hardening, and full security infrastructure (vulnerability disclosure policy, Dependabot, code scanning).
