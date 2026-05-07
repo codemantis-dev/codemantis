@@ -197,6 +197,21 @@ async fn call_gemini(
     Ok((text, input_tokens, output_tokens))
 }
 
+fn build_openai_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
+    // NOTE: Do not send `temperature` — GPT-5 family and reasoning models (o1/o3/o4)
+    // reject non-default temperature with HTTP 400 ("Only the default (1) is supported").
+    // `response_format: json_object` keeps output deterministic enough.
+    serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "max_completion_tokens": 1024,
+        "response_format": {"type": "json_object"}
+    })
+}
+
 async fn call_openai(
     client: &reqwest::Client,
     api_key: &str,
@@ -204,16 +219,7 @@ async fn call_openai(
     system_prompt: &str,
     prompt: &str,
 ) -> Result<(String, u32, u32), String> {
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.3,
-        "max_completion_tokens": 1024,
-        "response_format": {"type": "json_object"}
-    });
+    let body = build_openai_body(model, system_prompt, prompt);
 
     let resp = client
         .post("https://api.openai.com/v1/chat/completions")
@@ -251,6 +257,20 @@ async fn call_openai(
     Ok((text, input_tokens, output_tokens))
 }
 
+fn build_anthropic_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
+    // NOTE: Do not send `temperature` — Anthropic deprecated it for newer models
+    // (e.g. Opus 4.7 returns 400 "`temperature` is deprecated for this model").
+    // The "must return JSON" prompt is enough to keep output deterministic.
+    serde_json::json!({
+        "model": model,
+        "max_tokens": 1024,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ]
+    })
+}
+
 async fn call_anthropic(
     client: &reqwest::Client,
     api_key: &str,
@@ -258,15 +278,7 @@ async fn call_anthropic(
     system_prompt: &str,
     prompt: &str,
 ) -> Result<(String, u32, u32), String> {
-    let body = serde_json::json!({
-        "model": model,
-        "max_tokens": 1024,
-        "system": system_prompt,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.3
-    });
+    let body = build_anthropic_body(model, system_prompt, prompt);
 
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
@@ -306,6 +318,20 @@ async fn call_anthropic(
     Ok((text, input_tokens, output_tokens))
 }
 
+fn build_openrouter_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
+    // NOTE: Do not send `temperature` — OpenRouter forwards to the underlying model,
+    // and Anthropic Opus 4.7 / OpenAI GPT-5 family reject it with HTTP 400.
+    // The "must return JSON" prompt keeps output deterministic enough for changelog summaries.
+    serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "max_completion_tokens": 1024
+    })
+}
+
 async fn call_openrouter(
     client: &reqwest::Client,
     api_key: &str,
@@ -313,15 +339,7 @@ async fn call_openrouter(
     system_prompt: &str,
     prompt: &str,
 ) -> Result<(String, u32, u32), String> {
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.3,
-        "max_completion_tokens": 1024
-    });
+    let body = build_openrouter_body(model, system_prompt, prompt);
 
     let resp = client
         .post("https://openrouter.ai/api/v1/chat/completions")
@@ -632,5 +650,75 @@ Hope this helps!"#;
         let resp = parse_response(json).unwrap();
         assert_eq!(resp.input_tokens, 0);
         assert_eq!(resp.output_tokens, 0);
+    }
+
+    // ── build_anthropic_body ─────────────────────────────────────────────
+
+    // Regression: Anthropic deprecated `temperature` for Opus 4.7 (returns 400
+    // "`temperature` is deprecated for this model"). The Settings → Test API Key
+    // button picks the first AI_MODELS.anthropic entry (claude-opus-4-7), so any
+    // hardcoded `temperature` makes the test always fail.
+    #[test]
+    fn test_anthropic_body_omits_temperature() {
+        let body = build_anthropic_body("claude-opus-4-7", "system", "user prompt");
+        assert!(
+            body.get("temperature").is_none(),
+            "Anthropic request body must not include `temperature` — it's rejected by Opus 4.7+"
+        );
+    }
+
+    #[test]
+    fn test_anthropic_body_has_required_fields() {
+        let body = build_anthropic_body("claude-sonnet-4-6", "sys", "hi");
+        assert_eq!(body["model"], "claude-sonnet-4-6");
+        assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["system"], "sys");
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "hi");
+    }
+
+    // ── build_openai_body ────────────────────────────────────────────────
+
+    // Regression: GPT-5 family + reasoning models (o1/o3/o4) reject non-default
+    // `temperature` with HTTP 400 ("Only the default (1) is supported").
+    #[test]
+    fn test_openai_body_omits_temperature() {
+        let body = build_openai_body("gpt-5.4", "system", "user prompt");
+        assert!(
+            body.get("temperature").is_none(),
+            "OpenAI request body must not include `temperature` — rejected by GPT-5 family and reasoning models"
+        );
+    }
+
+    #[test]
+    fn test_openai_body_has_required_fields() {
+        let body = build_openai_body("gpt-5.4-mini", "sys", "hi");
+        assert_eq!(body["model"], "gpt-5.4-mini");
+        assert_eq!(body["max_completion_tokens"], 1024);
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][1]["role"], "user");
+    }
+
+    // ── build_openrouter_body ────────────────────────────────────────────
+
+    // Regression: OpenRouter forwards to the underlying model. If routed to
+    // Anthropic Opus 4.7 or OpenAI GPT-5, `temperature` is rejected with 400.
+    #[test]
+    fn test_openrouter_body_omits_temperature() {
+        let body = build_openrouter_body("anthropic/claude-opus-4-7", "system", "user prompt");
+        assert!(
+            body.get("temperature").is_none(),
+            "OpenRouter request body must not include `temperature` — underlying providers reject it"
+        );
+    }
+
+    #[test]
+    fn test_openrouter_body_has_required_fields() {
+        let body = build_openrouter_body("openai/gpt-5", "sys", "hi");
+        assert_eq!(body["model"], "openai/gpt-5");
+        assert_eq!(body["max_completion_tokens"], 1024);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][1]["role"], "user");
     }
 }
