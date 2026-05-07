@@ -15,6 +15,7 @@ import { useAssistantStore } from "../../stores/assistantStore";
 import { toolActivityLabel, subAgentActivityLabel, parseAgentUsage } from "../event-classifier";
 import { assertActivitySessionScope } from "../session-integrity";
 import { detectSettingsCarveout } from "../carveout-detector";
+import { handleError } from "../error-handler";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 
 // Store state types (derived from Zustand store getState())
@@ -93,8 +94,15 @@ function handleToolUseStart(
     modeControlToolIds.add(event.tool_use_id);
     const newMode: SessionMode = event.tool_name === "EnterPlanMode" ? "plan" : "normal";
     sessionStore.setSessionMode(sessionId, newMode);
+    // Persist to SQLite so the mode survives reload. Surface failures via
+    // handleError — silent divergence between frontend and backend has caused
+    // mode-revert-on-reload regressions before. The frontend store still
+    // updated above, so a sync failure leaves the UI accurate for the
+    // current session; the toast tells the user to expect a revert.
     import("../tauri-commands").then(({ syncSessionMode }) => {
-      syncSessionMode(sessionId, newMode).catch(console.error);
+      syncSessionMode(sessionId, newMode).catch((e) => {
+        handleError(`activity: failed to persist ${newMode} mode for session`, e);
+      });
     });
 
     if (event.tool_name === "ExitPlanMode") {

@@ -5,6 +5,7 @@ import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useUiStore } from "../../stores/uiStore";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
 import { implementPendingPlan } from "../../lib/plan-actions";
+import { useModalSettle } from "../../hooks/useModalSettle";
 
 export default function PlanCompleteModal() {
   const showModal = useUiStore((s) => s.showPlanCompleteModal);
@@ -62,10 +63,14 @@ export default function PlanCompleteModal() {
     await implementPendingPlan(sessionId, autoAccept);
   }, [sessionId, autoAccept]);
 
-  // Keyboard shortcut: Enter to implement
+  const isSettling = useModalSettle(showModal);
+
+  // Keyboard shortcut: Enter to implement. Settling guard suppresses a stray
+  // Enter that was buffered from the chat input the moment this modal popped.
   useEffect(() => {
     if (!showModal) return;
     const handler = (e: KeyboardEvent) => {
+      if (isSettling()) return;
       if (e.key === "Enter" && !e.metaKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         handleImplement();
@@ -73,7 +78,7 @@ export default function PlanCompleteModal() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [showModal, handleImplement]);
+  }, [showModal, handleImplement, isSettling]);
 
   if (!showModal || !sessionId) return null;
 

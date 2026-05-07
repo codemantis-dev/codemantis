@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle } from "lucide-react";
+import { useModalSettle } from "../../hooks/useModalSettle";
 
 export interface PendingClose {
   type: "session" | "project";
@@ -21,12 +22,16 @@ export default function ConfirmCloseModal({
   onCancel,
 }: ConfirmCloseModalProps) {
   const open = pendingClose !== null;
+  const isSettling = useModalSettle(open);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts. Settling guard suppresses a stray Enter/Escape that
+  // was buffered from the previous focus the moment this modal popped —
+  // closing/confirming a project unintentionally would be destructive.
   useEffect(() => {
     if (!open) return;
 
     const handler = (e: KeyboardEvent) => {
+      if (isSettling()) return;
       if (e.key === "Enter") {
         e.preventDefault();
         onConfirm();
@@ -38,7 +43,7 @@ export default function ConfirmCloseModal({
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onConfirm, onCancel]);
+  }, [open, onConfirm, onCancel, isSettling]);
 
   if (!pendingClose) return null;
 

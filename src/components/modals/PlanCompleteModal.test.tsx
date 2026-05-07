@@ -11,6 +11,10 @@ vi.mock("../../lib/tauri-commands", () => ({
 }));
 vi.mock("../../lib/error-handler", () => ({ handleError: vi.fn() }));
 vi.mock("../../stores/toastStore", () => ({ showToast: vi.fn() }));
+const implementPendingPlan = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../lib/plan-actions", () => ({
+  implementPendingPlan: (...args: unknown[]) => implementPendingPlan(...args),
+}));
 vi.mock("@radix-ui/react-dialog", () => ({
   Root: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
     open ? <div data-testid="dialog-root">{children}</div> : null,
@@ -169,6 +173,41 @@ describe("PlanCompleteModal", () => {
     expect(s.planCompleteFilePath).toBe("/plans/p.md");
     expect(s.planCompleteContent).toBe("## body");
     expect(s.pendingPlanSessionId).toBe("s1");
+  });
+
+  it("ignores stray Enter during the settling window after open", () => {
+    // Regression: an Enter buffered from chat input would auto-launch
+    // implementation the moment this modal popped. The settling guard
+    // suppresses Enter for ~400ms after open. See useModalSettle.
+    const nowSpy = vi.spyOn(performance, "now");
+    nowSpy.mockReturnValue(0);
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+    });
+    render(<PlanCompleteModal />);
+
+    nowSpy.mockReturnValue(100);
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(implementPendingPlan).not.toHaveBeenCalled();
+
+    nowSpy.mockRestore();
+  });
+
+  it("triggers implement on Enter once settling window has elapsed", () => {
+    const nowSpy = vi.spyOn(performance, "now");
+    nowSpy.mockReturnValue(0);
+    useUiStore.setState({
+      showPlanCompleteModal: true,
+      planCompleteSessionId: "s1",
+    });
+    render(<PlanCompleteModal />);
+
+    nowSpy.mockReturnValue(500);
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(implementPendingPlan).toHaveBeenCalledWith("s1", false);
+
+    nowSpy.mockRestore();
   });
 
   it("Reveal in File Viewer preserves pending plan state", async () => {

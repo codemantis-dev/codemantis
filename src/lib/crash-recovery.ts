@@ -52,10 +52,14 @@ export async function hydratePersistedOpenSessions(
       if (!seen.has(entry.session_id)) orderedEntries.push(entry);
     }
 
+    let restored = 0;
+    let failed = 0;
     for (const entry of orderedEntries) {
       try {
         await restorePausedSession(entry);
+        restored += 1;
       } catch (e) {
+        failed += 1;
         console.warn(`[crash-recovery] Failed to restore session ${entry.session_id}:`, e);
       }
     }
@@ -71,10 +75,19 @@ export async function hydratePersistedOpenSessions(
     }
     clearWorkspaceSnapshot();
 
-    showToast(
-      `Recovered ${orderedEntries.length} session${orderedEntries.length === 1 ? "" : "s"} from an unexpected shutdown`,
-      "info",
-    );
+    const noun = (n: number) => `session${n === 1 ? "" : "s"}`;
+    if (failed > 0) {
+      const message =
+        restored > 0
+          ? `Recovered ${restored} ${noun(restored)} from an unexpected shutdown — ${failed} failed`
+          : `Failed to recover ${failed} ${noun(failed)} from an unexpected shutdown`;
+      showToast(message, "error");
+    } else {
+      showToast(
+        `Recovered ${restored} ${noun(restored)} from an unexpected shutdown`,
+        "info",
+      );
+    }
   } catch (e) {
     console.warn("[crash-recovery] Hydration failed:", e);
   }

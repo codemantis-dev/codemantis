@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
@@ -7,13 +7,8 @@ import { useAssistantStore } from "../../stores/assistantStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
+import { useModalSettle } from "../../hooks/useModalSettle";
 import ToolBadge from "../shared/ToolBadge";
-
-// Ignore keystrokes (and stray pointer-down-outside) for this many ms after the
-// modal opens. Absorbs in-flight keys from a chat the user was typing in when
-// an unrelated approval popped up — Enter/Escape would otherwise resolve a
-// modal the user hadn't even read yet.
-const SETTLE_MS = 400;
 
 export default function ToolApproval() {
   const approvalQueue = useActivityStore((s) => s.approvalQueue);
@@ -105,15 +100,10 @@ export default function ToolApproval() {
     }
   }, [approvalQueue]);
 
-  // Settling window — see SETTLE_MS comment at module top.
-  const openedAtRef = useRef<number>(0);
-  useEffect(() => {
-    if (showModal) openedAtRef.current = performance.now();
-  }, [showModal]);
-  const isSettling = useCallback(
-    () => performance.now() - openedAtRef.current < SETTLE_MS,
-    []
-  );
+  // Absorbs in-flight keys from a chat the user was typing in when an
+  // unrelated approval popped up — Enter/Escape would otherwise resolve a
+  // modal the user hadn't even read yet.
+  const isSettling = useModalSettle(showModal);
 
   const onDialogKeyDown = useCallback(
     (e: ReactKeyboardEvent) => {

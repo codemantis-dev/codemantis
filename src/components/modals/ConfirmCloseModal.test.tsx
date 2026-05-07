@@ -80,7 +80,12 @@ describe("ConfirmCloseModal", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onConfirm on Enter key and onCancel on Escape key", () => {
+  it("ignores stray Enter/Escape during the settling window after open", () => {
+    // Regression: a buffered keystroke from the previous focus would resolve
+    // the modal the moment it appeared. The settling guard suppresses
+    // Enter/Escape for ~400ms after open. See useModalSettle.
+    const nowSpy = vi.spyOn(performance, "now");
+    nowSpy.mockReturnValue(0);
     const pending: PendingClose = {
       type: "session",
       id: "s1",
@@ -88,9 +93,35 @@ describe("ConfirmCloseModal", () => {
       sessionCount: 1,
     };
     render(<ConfirmCloseModal pendingClose={pending} onConfirm={onConfirm} onCancel={onCancel} />);
+
+    // Within the settling window — keys are ignored.
+    nowSpy.mockReturnValue(100);
+    fireEvent.keyDown(window, { key: "Enter" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    nowSpy.mockRestore();
+  });
+
+  it("calls onConfirm on Enter key and onCancel on Escape key after settling", () => {
+    const nowSpy = vi.spyOn(performance, "now");
+    nowSpy.mockReturnValue(0);
+    const pending: PendingClose = {
+      type: "session",
+      id: "s1",
+      name: "Test",
+      sessionCount: 1,
+    };
+    render(<ConfirmCloseModal pendingClose={pending} onConfirm={onConfirm} onCancel={onCancel} />);
+
+    // Past the settling window — keys are honored.
+    nowSpy.mockReturnValue(500);
     fireEvent.keyDown(window, { key: "Enter" });
     expect(onConfirm).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
   });
 });
