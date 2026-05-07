@@ -202,8 +202,20 @@ export default function App() {
     );
   }
 
-  // Show onboarding welcome screen on first launch (before settings are loaded or when not completed)
-  if (settingsLoaded && !onboardingCompleted && !onboardingDismissed) {
+  // The CLI gate. Always show the welcome screen when:
+  //  - it's the user's first launch (onboarding not yet completed), OR
+  //  - the installed Claude Code CLI is missing or outdated.
+  // Without the second condition, an existing user with an old CLI silently
+  // falls through to the chat view and hits cryptic stream errors at session
+  // start. The welcome screen renders the prerequisites (`Claude Code CLI`,
+  // `Authentication`) with clear remediation copy and the upgrade command.
+  const cliGateBlocking =
+    !claudeStatus ||
+    claudeStatus.support.kind === "notInstalled" ||
+    claudeStatus.support.kind === "outdated";
+  const showOnboarding =
+    settingsLoaded && !onboardingCompleted && !onboardingDismissed;
+  if (showOnboarding || cliGateBlocking) {
     return (
       <WelcomeScreen
         claudeStatus={claudeStatus}

@@ -495,8 +495,36 @@ impl ClaudeProcess {
         // Stdout parser task — optionally tee raw NDJSON to a per-session
         // log file when CODEMANTIS_RAW_STREAM_LOG=1, for protocol diagnostics.
         let raw_log = maybe_open_raw_stream_log(&session_id);
+
+        // Protocol-failure channel: parser fires this once if it sees sustained
+        // un-parseable output before any valid event (an outdated CLI is the
+        // common cause). A small task forwards that into a frontend
+        // `process_error` so the user gets the "Outdated CLI" remediation card
+        // instead of a silent stuck session.
+        let (proto_tx, mut proto_rx) = mpsc::channel::<String>(1);
         tokio::spawn(async move {
-            parse_stream(stdout, event_tx, raw_log).await;
+            parse_stream(stdout, event_tx, raw_log, Some(proto_tx)).await;
+        });
+
+        let proto_app = app_handle.clone();
+        let proto_sid = session_id.clone();
+        tokio::spawn(async move {
+            if let Some(detail) = proto_rx.recv().await {
+                let chat_channel = format!("claude-chat-{}", proto_sid);
+                let user_msg = format!(
+                    "The Claude Code CLI is producing output we cannot parse ({}). \
+                     This usually means the installed CLI is too old. \
+                     Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis.",
+                    detail
+                );
+                let payload = FrontendEvent::ProcessError {
+                    session_id: proto_sid.clone(),
+                    error: user_msg,
+                };
+                if let Err(e) = proto_app.emit(&chat_channel, &payload) {
+                    warn!("[process:{}] failed to emit protocol-failure event: {}", proto_sid, e);
+                }
+            }
         });
 
         // Message router task

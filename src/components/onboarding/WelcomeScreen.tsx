@@ -33,15 +33,48 @@ interface Prerequisite {
   helpCommand?: string;
 }
 
+function describeCli(status: ClaudeStatus | null): { description: string; satisfied: boolean; helpCommand?: string } {
+  if (!status?.installed) {
+    return {
+      description: "Not installed",
+      satisfied: false,
+      helpCommand: "npm install -g @anthropic-ai/claude-code",
+    };
+  }
+  const versionLabel = status.parsed_version ?? status.version ?? "unknown";
+  switch (status.support.kind) {
+    case "outdated": {
+      const min = status.min_supported_version
+        ? `, minimum supported v${status.min_supported_version}`
+        : "";
+      const latest = status.latest_version
+        ? ` (latest v${status.latest_version})`
+        : "";
+      return {
+        description: `Outdated — detected v${versionLabel}${min}${latest}`,
+        satisfied: false,
+        helpCommand: "npm install -g @anthropic-ai/claude-code@latest",
+      };
+    }
+    case "supported":
+    case "unknown":
+    case "notInstalled":
+    default:
+      return {
+        description: `Installed (v${versionLabel})`,
+        satisfied: true,
+      };
+  }
+}
+
 function getPrerequisites(status: ClaudeStatus | null): Prerequisite[] {
+  const cli = describeCli(status);
   return [
     {
       label: "Claude Code CLI",
-      description: status?.installed
-        ? `Installed${status.version ? ` (v${status.version})` : ""}`
-        : "Not installed",
-      satisfied: status?.installed ?? false,
-      helpCommand: "npm install -g @anthropic-ai/claude-code",
+      description: cli.description,
+      satisfied: cli.satisfied,
+      helpCommand: cli.helpCommand,
     },
     {
       label: "Authentication",
@@ -74,6 +107,12 @@ export default function WelcomeScreen({
   const prerequisites = getPrerequisites(claudeStatus);
   const prerequisitesMet = prerequisites.every((p) => p.satisfied);
   const claudeNotFound = !(claudeStatus?.installed ?? false);
+  const claudeOutdated =
+    !!claudeStatus?.installed && claudeStatus.support.kind === "outdated";
+  const outdatedReason =
+    claudeStatus?.support.kind === "outdated"
+      ? claudeStatus.support.reason
+      : null;
 
   return (
     <div
@@ -106,6 +145,48 @@ export default function WelcomeScreen({
               v{__APP_VERSION__}
             </p>
           </div>
+
+          {/* Claude Code outdated info box */}
+          {claudeOutdated && (
+            <div
+              className="rounded-xl border px-5 py-4 mb-6 flex items-start gap-4"
+              style={{
+                borderColor: "var(--yellow, #b8860b)",
+                background: "color-mix(in srgb, var(--yellow, #b8860b) 8%, var(--bg-subtle))",
+              }}
+            >
+              <AlertTriangle
+                size={20}
+                className="shrink-0 mt-0.5"
+                style={{ color: "var(--yellow, #b8860b)" }}
+              />
+              <div className="flex-1 min-w-0" style={{ fontSize: "13px" }}>
+                <p className="text-text-primary font-medium mb-1.5">
+                  Claude Code CLI is outdated
+                </p>
+                <p className="text-text-secondary leading-relaxed mb-3">
+                  {outdatedReason ??
+                    "The installed Claude Code CLI is older than CodeMantis supports. Update it to continue."}
+                </p>
+                <div className="mb-3">
+                  <code
+                    className="text-accent font-mono px-2 py-1 rounded inline-block"
+                    style={{
+                      fontSize: "12px",
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    npm install -g @anthropic-ai/claude-code@latest
+                  </code>
+                </div>
+                <p className="text-text-dim leading-relaxed">
+                  After updating, click <strong className="text-text-secondary">Re-check</strong> below
+                  or restart CodeMantis.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Claude Code not found info box */}
           {claudeNotFound && (

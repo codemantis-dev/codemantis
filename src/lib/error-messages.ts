@@ -250,6 +250,36 @@ const ERROR_CATALOG: ErrorPattern[] = [
   // Claude CLI errors
   // ═══════════════════════════════════════════════════════════
 
+  // ── Outdated CLI: structured ProcessError emitted by the backend
+  //    (initialize handshake failed, or sustained NDJSON parse failures), or
+  //    raw stderr signatures from an older CLI that doesn't recognize the
+  //    stream-json args we pass at spawn. All map to one card. ──
+  {
+    test: (r) => {
+      const l = lower(r);
+      return (
+        l.includes("initialize handshake failed") ||
+        l.includes("the installed claude code cli is too old") ||
+        l.includes("we cannot parse") ||
+        l.includes("unrecognized argument") ||
+        (l.includes("unknown option") &&
+          (l.includes("--include-partial-messages") ||
+            l.includes("--input-format") ||
+            l.includes("--output-format") ||
+            l.includes("stream-json"))) ||
+        l.includes("does not advertise the stream-json protocol")
+      );
+    },
+    map: () => ({
+      title: "Claude Code CLI is outdated",
+      message:
+        "Your installed Claude Code CLI is too old to communicate with CodeMantis. Update it to continue.",
+      remediation:
+        "Run npm install -g @anthropic-ai/claude-code@latest in a terminal, then restart CodeMantis.",
+      toastMessage: "Outdated Claude Code CLI",
+    }),
+  },
+
   // ── Claude CLI not found / spawn failure (file not found) ──
   {
     test: (r) => {

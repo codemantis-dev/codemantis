@@ -474,14 +474,37 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   const ratio = failures.find(isByteRatio);
 
   lines.push(
-    'Coverage audit on the spec you just wrote — the following items from the input are missing or were silently changed. ' +
-      'Please supply ONLY the missing/corrected content, matching the structure you used above. ' +
-      'Begin your reply with the marker `<!-- AUDIT-PATCH -->` so the system can splice it in.',
+    'Coverage audit on the spec you just wrote — the following items from the input are missing or were silently changed.',
+    '',
+    'Reply ONLY with a structured patch envelope. The system splices the patch into your existing spec — your reply must NOT be a new full spec.',
+    '',
+    'FORMAT (strict):',
+    '  Begin your reply with the literal marker:  `<!-- AUDIT-PATCH -->`',
+    '  Then emit one or more patch blocks. Three operations are supported — anything outside this grammar is ignored:',
+    '',
+    '    `<!-- patch:replace-section heading="EXACT_HEADING" -->`',
+    '      …new full body of that section, INCLUDING its `## ` or `### ` heading line on the first line…',
+    '    `<!-- /patch -->`',
+    '',
+    '    `<!-- patch:insert-after heading="EXACT_HEADING" -->`',
+    '      …new section to splice in immediately after the named anchor section…',
+    '    `<!-- /patch -->`',
+    '',
+    '    `<!-- patch:append-section -->`',
+    '      …new section to append at the end of the spec…',
+    '    `<!-- /patch -->`',
+    '',
+    'Heading attribute rules:',
+    '  - `heading="…"` MUST match a heading that already exists in the spec (e.g. `heading="§4.1 _STAGE_REGISTRY"`).',
+    '  - For `replace-section`, the body MUST keep every existing sub-heading (H3) of the targeted section unless you are deliberately removing it. Dropping a sub-heading without an explicit removal will cause the splice to be rejected and the spec rolled back.',
+    '  - Do NOT include the H1 title line. Do not redefine `# ` headings.',
+    '',
+    'Now emit the patches. Each item below corresponds to one `replace-section` / `insert-after` / `append-section` block:',
     '',
   );
 
   if (missingSections.length > 0) {
-    lines.push('Missing input sections (reproduce each as its own H2 with full content from the input):');
+    lines.push('Missing input sections — emit ONE `<!-- patch:append-section -->` block per item, each containing a fresh H2 with full content from the input:');
     for (const f of missingSections.slice(0, 25)) {
       lines.push(`- ${f.inputRef} ${f.title} (from \`${f.source}\`)`);
     }
@@ -492,7 +515,7 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   }
 
   if (unmapped.length > 0) {
-    lines.push('Coverage map rows claim these output sections exist but I cannot find them:');
+    lines.push('Coverage map rows claim these output sections exist but I cannot find them — emit ONE `<!-- patch:replace-section heading="…" -->` block per item that adds the missing body, OR remove the claim from the coverage map via a `<!-- patch:replace-section heading="Coverage Map" -->` block:');
     for (const f of unmapped.slice(0, 15)) {
       lines.push(`- ${f.inputRef} → ${f.title}`);
     }
@@ -502,7 +525,7 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   if (renames.length > 0) {
     lines.push(
       'Schema rewrites — the following table names from the input do NOT appear in your output. ' +
-        'Either restore the original name OR add an explicit DEVIATION block explaining the rename:',
+        'Emit a `<!-- patch:replace-section heading="…" -->` block on the affected schema/data-model section that either restores the original name or adds an explicit DEVIATION block explaining the rename:',
     );
     for (const f of renames.slice(0, 25)) {
       lines.push(`- \`${f.inputName}\``);
@@ -511,7 +534,7 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   }
 
   if (drift.length > 0) {
-    lines.push('Verbatim-fidelity zones missing from the output — reproduce the input exactly:');
+    lines.push('Verbatim-fidelity zones missing from the output — emit `<!-- patch:replace-section heading="…" -->` blocks on the section(s) that should contain these, reproducing the input exactly:');
     for (const f of drift.slice(0, 25)) {
       const z = f.zone;
       lines.push(`- ${z.label ?? `${z.kind}: ${z.signature}`} (from \`${z.source}\`)`);
@@ -520,7 +543,7 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   }
 
   if (numerics.length > 0) {
-    lines.push('Numeric facts (cost figures) from the input not present in the output — preserve every value:');
+    lines.push('Numeric facts (cost figures) from the input not present in the output — emit `<!-- patch:replace-section heading="…" -->` blocks restoring every value verbatim:');
     for (const f of numerics.slice(0, 25)) {
       lines.push(`- ${f.what}: ${f.sample}`);
     }
@@ -530,20 +553,23 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   if (trunc) {
     lines.push(
       `The spec output appears truncated — the last heading was "${trunc.lastHeading}" and it ended at "${trunc.tail}". ` +
-        'Please continue from where it stopped, completing the truncated section AND every section after it.',
+        'Emit a `<!-- patch:replace-section heading="' + trunc.lastHeading + '" -->` block restoring that section in full, plus `<!-- patch:append-section -->` blocks for every section that was supposed to follow it.',
       '',
     );
   }
 
   if (placeholders.length > 0) {
-    lines.push(`A placeholder leaked into the output: "${placeholders[0].quote}". Replace it with concrete content.`, '');
+    lines.push(
+      `A placeholder leaked into the output: "${placeholders[0].quote}". Emit a \`<!-- patch:replace-section heading="…" -->\` block on the affected section, replacing the placeholder with concrete content.`,
+      '',
+    );
   }
 
   if (ratio) {
     lines.push(
       `Output is too compressed — current ratio ${(ratio.ratio * 100).toFixed(0)}% of input ` +
         `(floor ${(ratio.floor * 100).toFixed(0)}%). Sections may have been summarized when they should have been transcribed verbatim. ` +
-        'Re-expand any over-compressed sections.',
+        'Emit `<!-- patch:replace-section heading="…" -->` blocks on each over-compressed section, re-expanding to verbatim transcription.',
       '',
     );
   }

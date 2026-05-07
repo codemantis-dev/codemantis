@@ -12,6 +12,10 @@ import { handleFileRequests } from "../lib/spec-file-requests";
 import { fileToBase64, isTextMime } from "../lib/file-utils";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
 import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
+import { parseAuditPatch, applyAuditPatch, summarizePatchApplication } from "../lib/spec-audit-patch";
+
+/** Marker the model emits at the start of an auto-recheck reply per buildRecheckPrompts. */
+const AUDIT_PATCH_MARKER = "<!-- AUDIT-PATCH -->";
 import type { StreamStatus } from "../types/spec-writer";
 
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
@@ -46,6 +50,8 @@ interface PerProjectStreamState {
   lastEventMs: number;
   watchdogTimer: ReturnType<typeof setInterval> | null;
   stalledNoticed: boolean;
+  /** True when this stream is the model's reply to an auto-recheck dispatch. */
+  isAutoRecheck: boolean;
 }
 
 function makeStreamState(): PerProjectStreamState {
@@ -61,6 +67,7 @@ function makeStreamState(): PerProjectStreamState {
     lastEventMs: 0,
     watchdogTimer: null,
     stalledNoticed: false,
+    isAutoRecheck: false,
   };
 }
 
@@ -329,6 +336,7 @@ export function useSpecConversation(): {
       state.specDetected = false;
       state.auditDetected = false;
       state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
+      state.isAutoRecheck = !!meta?.isAutoRecheck;
       // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
       state.chunkCount = 0;
       state.streamStartMs = Date.now();
@@ -388,6 +396,12 @@ export function useSpecConversation(): {
         if (!buf) return;
         const store = useSpecWriterStore.getState();
         store.updateLastAssistantMessage(projectPath, buf);
+        // Auto-recheck replies are patch envelopes, not specs. Never let the
+        // streaming buffer overwrite currentSpecContent with patch text — the
+        // splice happens atomically in the done handler against preStreamSpec.
+        if (state.isAutoRecheck && buf.includes(AUDIT_PATCH_MARKER)) {
+          return;
+        }
         if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
           if (!state.auditDetected && state.specDetected) {
@@ -434,12 +448,38 @@ export function useSpecConversation(): {
           const parsed = parseSelectableOptions(finalContent);
           // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
-          const isSpec = !isAudit && (SPEC_START_PATTERN.test(finalContent) || isLikelySpecDocument(finalContent));
+
+          // Auto-recheck path: response is a structured patch envelope, NOT a
+          // new spec. Splice it into preStreamSpec; on any failure keep the
+          // original spec untouched. This is the primary guard against the
+          // "coverage repair replaced the spec" bug.
+          let isSpec = !isAudit && (SPEC_START_PATTERN.test(finalContent) || isLikelySpecDocument(finalContent));
+          let mergedSpecContent: string | null = null;
+          let patchFailureReasons: string[] | null = null;
+          let patchAppliedSummary: string | null = null;
+          if (state.isAutoRecheck && finalContent.includes(AUDIT_PATCH_MARKER)) {
+            const { ops, warnings: parseWarnings } = parseAuditPatch(finalContent);
+            const apply = applyAuditPatch(state.preStreamSpec ?? '', ops);
+            const allWarnings = [...parseWarnings, ...apply.warnings];
+            if (apply.merged !== null) {
+              mergedSpecContent = apply.merged;
+              isSpec = true;
+              patchAppliedSummary = summarizePatchApplication({
+                ...apply,
+                warnings: allWarnings,
+              });
+            } else {
+              // Fail-closed: preserve preStreamSpec, mark this turn as
+              // non-spec so completeTurn does NOT touch currentSpecContent.
+              isSpec = false;
+              patchFailureReasons = apply.errors.length > 0 ? apply.errors : ['no recognizable patch ops in reply'];
+            }
+          }
           const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
 
           // Single batched store update: streaming=false, content, status, message type
           currentStore.completeTurn(projectPath, {
-            finalContent,
+            finalContent: mergedSpecContent ?? finalContent,
             isSpec,
             isAudit,
             displayContent: parsed?.cleanContent,
@@ -447,13 +487,38 @@ export function useSpecConversation(): {
             isReadyToWrite,
           });
 
+          if (patchAppliedSummary) {
+            currentStore.addMessage(projectPath, {
+              id: `msg-patch-${Date.now()}`,
+              role: "system",
+              content: patchAppliedSummary,
+              message_type: "conversation",
+              timestamp: new Date().toISOString(),
+            });
+          } else if (patchFailureReasons) {
+            currentStore.addMessage(projectPath, {
+              id: `msg-patch-fail-${Date.now()}`,
+              role: "system",
+              content:
+                `Coverage repair could not be applied automatically — original spec preserved.\n\n` +
+                `Reasons:\n${patchFailureReasons.map((r) => `- ${r}`).join('\n')}\n\n` +
+                `The model's raw reply is shown above; you can apply changes manually or ask for another pass.`,
+              message_type: "conversation",
+              timestamp: new Date().toISOString(),
+            });
+          }
+
           // ─── Stage 1: Coverage audit + auto-recheck loop ───
           let auditTriggeredRecheck = false;
           if (isSpec) {
             const convNow = useSpecWriterStore.getState().getActiveConversation(projectPath);
             if (convNow) {
               const inputDocs = extractInputDocs(convNow.messages);
-              const report = auditCoverage(inputDocs, finalContent, {
+              // After a successful AUDIT-PATCH merge, audit the merged spec —
+              // not the raw patch text — so progress on the original failures
+              // is actually measured.
+              const auditTarget = mergedSpecContent ?? finalContent;
+              const report = auditCoverage(inputDocs, auditTarget, {
                 skipForNewApp: convNow.mode === 'new_application',
               });
               // Stage 3: persist the structured report so the Coverage panel can render it.

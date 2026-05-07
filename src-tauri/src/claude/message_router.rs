@@ -801,6 +801,24 @@ async fn handle_control_response(
                                 "[message_router] initialize failed: {:?}",
                                 error_msg
                             );
+                            // Surface to the user instead of failing silently. An
+                            // outdated CLI is the most common cause — the error
+                            // catalog (`error-messages.ts`) translates this exact
+                            // prefix into the "Outdated CLI" remediation card.
+                            let detail = error_msg
+                                .as_deref()
+                                .unwrap_or("no detail returned by CLI")
+                                .to_string();
+                            let user_msg = format!(
+                                "Initialize handshake failed: {detail}. \
+                                 This usually means the installed Claude Code CLI is too old. \
+                                 Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis."
+                            );
+                            let fe = FrontendEvent::ProcessError {
+                                session_id: session_id.to_string(),
+                                error: user_msg,
+                            };
+                            emit_or_warn(app_handle, chat_event, &fe, "process-error");
                         }
                     }
                     None => {

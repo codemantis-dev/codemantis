@@ -13,9 +13,28 @@ import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult
 
 // --- Startup ---
 
+/**
+ * Compatibility verdict for the installed Claude Code CLI. Emitted by the
+ * Rust backend's `cli_version::CliSupport` enum. The `kind` discriminator
+ * follows the camelCase rename in serde.
+ */
+export type CliSupport =
+  | { kind: "supported" }
+  | { kind: "outdated"; reason: string }
+  | { kind: "unknown"; reason: string }
+  | { kind: "notInstalled" };
+
 export interface ClaudeStatus {
   installed: boolean;
+  /** Raw `claude --version` stdout, kept for display. */
   version: string | null;
+  /** Canonical x.y.z parsed from the raw string. */
+  parsed_version: string | null;
+  /** npm-registry "latest" tag at detection time. */
+  latest_version: string | null;
+  /** Floor below which CodeMantis considers the CLI outdated. */
+  min_supported_version: string | null;
+  support: CliSupport;
   authenticated: boolean;
   binary_path: string | null;
 }

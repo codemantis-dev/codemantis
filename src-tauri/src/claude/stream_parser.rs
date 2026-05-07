@@ -24,16 +24,32 @@ fn try_unwrap_stream_event(value: serde_json::Value) -> Result<RawStreamEvent, s
     }
 }
 
+/// After this many consecutive un-parseable lines without a single valid event,
+/// the parser concludes the CLI is speaking a protocol it doesn't understand
+/// and emits a one-shot protocol-failure notification (used to surface the
+/// "outdated CLI" remediation to the user).
+const PROTOCOL_FAILURE_THRESHOLD: u32 = 5;
+
 /// Read NDJSON events from the CLI's stdout and forward parsed events.
 /// When `raw_log` is `Some`, every raw line is also tee'd to that file
 /// (used for protocol-level diagnostics gated by `CODEMANTIS_RAW_STREAM_LOG`).
+///
+/// `protocol_failure_tx`, if provided, receives a single notification (with
+/// the offending raw line) when the parser detects sustained protocol-level
+/// gibberish (see `PROTOCOL_FAILURE_THRESHOLD`). Once notified, the parser
+/// continues running but won't fire the channel again — exactly one error
+/// surfaces to the user per session.
 pub async fn parse_stream(
     stdout: ChildStdout,
     sender: mpsc::Sender<RawStreamEvent>,
     mut raw_log: Option<File>,
+    protocol_failure_tx: Option<mpsc::Sender<String>>,
 ) {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
+    let mut consecutive_parse_failures: u32 = 0;
+    let mut protocol_failure_notified = false;
+    let mut any_event_seen = false;
 
     loop {
         match lines.next_line().await {
@@ -63,6 +79,15 @@ pub async fn parse_stream(
                                     Ok(ev) => ev,
                                     Err(e) => {
                                         warn!("Failed to parse NDJSON event: {} — raw: {}", e, trimmed);
+                                        consecutive_parse_failures += 1;
+                                        maybe_notify_protocol_failure(
+                                            &protocol_failure_tx,
+                                            &mut protocol_failure_notified,
+                                            any_event_seen,
+                                            consecutive_parse_failures,
+                                            trimmed,
+                                        )
+                                        .await;
                                         continue;
                                     }
                                 }
@@ -71,10 +96,21 @@ pub async fn parse_stream(
                     }
                     Err(e) => {
                         warn!("Failed to parse NDJSON line: {} — raw: {}", e, trimmed);
+                        consecutive_parse_failures += 1;
+                        maybe_notify_protocol_failure(
+                            &protocol_failure_tx,
+                            &mut protocol_failure_notified,
+                            any_event_seen,
+                            consecutive_parse_failures,
+                            trimmed,
+                        )
+                        .await;
                         continue;
                     }
                 };
 
+                consecutive_parse_failures = 0;
+                any_event_seen = true;
                 if sender.send(event).await.is_err() {
                     debug!("Stream parser: receiver dropped, stopping");
                     break;
@@ -89,6 +125,41 @@ pub async fn parse_stream(
                 break;
             }
         }
+    }
+}
+
+/// Fires the protocol-failure channel once when the threshold is crossed.
+/// We only treat it as a real protocol failure if we've never seen a valid
+/// event yet — otherwise an occasional malformed line in a long session
+/// shouldn't trigger the "outdated CLI" path.
+async fn maybe_notify_protocol_failure(
+    tx: &Option<mpsc::Sender<String>>,
+    notified: &mut bool,
+    any_event_seen: bool,
+    consecutive_failures: u32,
+    raw_line: &str,
+) {
+    if *notified {
+        return;
+    }
+    if any_event_seen {
+        return;
+    }
+    if consecutive_failures < PROTOCOL_FAILURE_THRESHOLD {
+        return;
+    }
+    if let Some(sender) = tx {
+        let truncated = if raw_line.len() > 200 {
+            format!("{}…", &raw_line[..200])
+        } else {
+            raw_line.to_string()
+        };
+        let detail = format!(
+            "{consecutive_failures} consecutive un-parseable lines from the CLI before any valid event. \
+             First offending line: {truncated}"
+        );
+        let _ = sender.send(detail).await;
+        *notified = true;
     }
 }
 
@@ -112,7 +183,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -334,7 +405,7 @@ mod tests {
 
         // This should complete without hanging — the send fails and the parser breaks
         let handle = tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         // Should complete within a reasonable time

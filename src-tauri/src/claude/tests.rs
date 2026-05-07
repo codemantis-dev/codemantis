@@ -1215,7 +1215,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -1253,7 +1253,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -1286,7 +1286,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -1327,7 +1327,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -1382,7 +1382,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];
@@ -1423,7 +1423,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
 
         tokio::spawn(async move {
-            parse_stream(stdout, tx, None).await;
+            parse_stream(stdout, tx, None, None).await;
         });
 
         let mut events = vec![];

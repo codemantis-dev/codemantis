@@ -232,6 +232,38 @@ describe("translateError — file read errors", () => {
   });
 });
 
+describe("translateError — outdated Claude CLI", () => {
+  it("matches the structured ProcessError emitted by the backend on initialize failure", () => {
+    const raw =
+      "Initialize handshake failed: missing field. This usually means the installed Claude Code CLI is too old. Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis.";
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code CLI is outdated");
+    expect(result.remediation).toContain("npm install -g @anthropic-ai/claude-code@latest");
+  });
+
+  it("matches the protocol-failure message from sustained NDJSON parse errors", () => {
+    const raw =
+      "The Claude Code CLI is producing output we cannot parse (5 consecutive un-parseable lines from the CLI before any valid event).";
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code CLI is outdated");
+  });
+
+  it("matches stderr 'unrecognized argument' from old CLIs that don't know stream-json", () => {
+    const raw =
+      "claude: error: unrecognized argument: --include-partial-messages";
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code CLI is outdated");
+    expect(result.toastMessage).toBe("Outdated Claude Code CLI");
+  });
+
+  it("matches the probe's 'does not advertise the stream-json protocol' phrase", () => {
+    const raw =
+      "The installed CLI does not advertise the stream-json protocol that CodeMantis requires (missing: stream-json).";
+    const result = translateError(raw);
+    expect(result.title).toBe("Claude Code CLI is outdated");
+  });
+});
+
 describe("formatErrorAsMarkdown", () => {
   it("formats with title, message, and remediation", () => {
     const md = formatErrorAsMarkdown({

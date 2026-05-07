@@ -9,7 +9,16 @@ import { getSettings } from "./lib/tauri-commands";
 // Mock tauri commands — must include all commands used transitively by stores/hooks
 vi.mock("./lib/tauri-commands", () => ({
   checkClaudeStatus: vi.fn(() =>
-    Promise.resolve({ installed: true, version: "1.0.0", authenticated: true, binary_path: "/usr/local/bin/claude" })
+    Promise.resolve({
+      installed: true,
+      version: "2.1.126",
+      parsed_version: "2.1.126",
+      latest_version: "2.1.126",
+      min_supported_version: "2.1.116",
+      support: { kind: "supported" },
+      authenticated: true,
+      binary_path: "/usr/local/bin/claude",
+    })
   ),
   cleanupOldAttachments: vi.fn(() => Promise.resolve(0)),
   listTemplates: vi.fn(() => Promise.resolve([])),
