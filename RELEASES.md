@@ -1,5 +1,27 @@
 # CodeMantis Releases
 
+## 1.1.9
+
+Hotfix release: early detection of CLI protocol/version mismatches, friendlier error guidance for unprefixed 401s, modal key-press guard, and a changelog summarizer regression that broke OpenAI GPT-5 / Opus 4.7 / OpenRouter.
+
+### Claude CLI Integration
+- **Handshake & version mismatch detection**: an outdated or incompatible `claude` install no longer fails silently. A new CLI handshake probe (`cli_handshake_probe.rs`) and version checker (`cli_version.rs`) run at startup, and the stream parser surfaces protocol-failure events instead of dropping them. The Welcome screen and startup flow now show actionable upgrade guidance when the local CLI is too old for the wire protocol CodeMantis speaks
+- Integration coverage in `src-tauri/src/utils/cli_handshake_probe.rs` and `cli_version.rs`, plus refreshed `claude_detection.rs` paths
+
+### Error Messages
+- **Unprefixed 401s now route to `claude login` guidance**: when the Claude CLI forwards an Anthropic 401 without a provider prefix, the user is told to run `claude login` instead of being sent to Settings → AI Providers. Third-party provider 401s (Anthropic-prefixed, OpenRouter-prefixed) still route to API-key remediation
+- **Friendly binary-file preview**: file reads that fail UTF-8 decoding now show a "binary file" preview instead of a raw decode error
+- New regression coverage in `src/lib/error-messages.test.ts`
+
+### Modals
+- **No more stray key auto-approval on modal open**: in-flight `Enter` / `Escape` keystrokes that landed within the first few ms of a Tool Approval or Question modal opening could auto-confirm before the user saw the dialog. A short settling window now ignores those keys, and keyboard handling moved onto dialog content for proper focus scoping. Regression tests added for both modals
+
+### Changelog Summarizer
+- **`temperature` removed from summarizer API bodies**: OpenAI GPT-5 and the reasoning-model series, Anthropic Opus 4.7+, and OpenRouter (which forwards both) all return HTTP 400 on any non-default `temperature`. Body construction is now per-provider with regression tests asserting the field is absent. (Memo: see `project_anthropic_temperature_deprecated.md`.)
+
+### Code Quality
+- Test count floors raised: TS unit ≥3,427 (+42), TS integration ≥132 (+8), Rust unit ≥1,256 (+5)
+
 ## 1.1.8
 
 Hotfix release: sidebar Git Status crash guard, Self-Drive verification tightening, and crash-recovery for interrupted sessions on restart.
