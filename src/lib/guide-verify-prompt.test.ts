@@ -95,7 +95,6 @@ describe("buildSessionVerifyPrompt", () => {
         ],
       },
       "ai-potential-analysis.md",
-      null,
     );
 
     expect(result).toContain(PREAMBLE_HEADER);
@@ -109,26 +108,43 @@ describe("buildSessionVerifyPrompt", () => {
     expect(result).not.toContain("Verification Audit at");
   });
 
-  it("includes audit line when auditFilename is provided", () => {
-    const result = buildSessionVerifyPrompt(
+  it("never appends the global audit-doc reference (per-session must stay scoped)", () => {
+    // Regression: the audit-doc pointer used to be appended whenever the
+    // guide had an auditFilename. That caused Self-Drive to verify all
+    // sessions on every per-session verify, so most items failed. The
+    // audit reference belongs only in buildGuideCompleteVerifyPrompt.
+    const withChecks = buildSessionVerifyPrompt(
       {
         index: 1,
         name: "Setup",
         verifyChecks: [{ label: "DB migrations run" }],
       },
       "my-spec.md",
-      "my-spec.audit.md",
+    );
+    const empty = buildSessionVerifyPrompt(
+      { index: 1, name: "Setup", verifyChecks: [] },
+      "my-spec.md",
+    );
+    const withCustomPrompt = buildSessionVerifyPrompt(
+      {
+        index: 1,
+        name: "Setup",
+        verifyChecks: [],
+        verificationPrompt: "Verify the API responds.",
+      },
+      "my-spec.md",
     );
 
-    expect(result).toContain("Verification Audit at docs/specs/my-spec.audit.md");
-    expect(result).toContain("subject to the same evidence contract");
+    for (const result of [withChecks, empty, withCustomPrompt]) {
+      expect(result).not.toContain("Verification Audit");
+      expect(result).not.toContain(".audit.md");
+    }
   });
 
   it("handles session with no checks (still includes preamble and tsc fallback)", () => {
     const result = buildSessionVerifyPrompt(
       { index: 3, name: "Polish", verifyChecks: [] },
       "spec.md",
-      null,
     );
 
     expect(result).toContain(PREAMBLE_HEADER);
@@ -154,7 +170,6 @@ describe("buildSessionVerifyPrompt", () => {
           "Open src/models/user.ts.\nVERIFY: User model exists.",
       },
       "test.md",
-      null,
     );
 
     // Guidance block is included.
@@ -184,7 +199,6 @@ describe("buildSessionVerifyPrompt", () => {
         verificationPrompt: "Old weak prompt body here.",
       },
       "test.md",
-      null,
     );
 
     expect(result).toContain(PREAMBLE_HEADER);
@@ -204,7 +218,6 @@ describe("buildSessionVerifyPrompt", () => {
         verificationPrompt: null,
       },
       "test.md",
-      null,
     );
 
     expect(result).toContain(PREAMBLE_HEADER);
@@ -223,30 +236,11 @@ describe("buildSessionVerifyPrompt", () => {
         ],
       },
       "notes-pipeline.md",
-      null,
     );
 
     expect(result).toContain("1. [integration] caller + handler present for insert_note_classification");
     expect(result).toContain("2. [integration] Rows land in note_classifications after real call");
     expect(result).toContain("Items to verify (2 total)");
-  });
-
-  it("appends audit line to verificationPrompt when audit filename provided", () => {
-    const result = buildSessionVerifyPrompt(
-      {
-        index: 2,
-        name: "API",
-        verifyChecks: [],
-        verificationPrompt: "Verify the API routes respond correctly.",
-      },
-      "spec.md",
-      "spec.audit.md",
-    );
-
-    expect(result).toContain("Verify the API routes respond correctly.");
-    expect(result).toContain(
-      "Verification Audit at docs/specs/spec.audit.md",
-    );
   });
 });
 

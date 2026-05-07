@@ -20,7 +20,6 @@ import { buildSessionVerifyPrompt } from "../../lib/guide-verify-prompt";
 interface Props {
   session: GuideSession;
   specFilename: string;
-  auditFilename: string | null;
   onToggleVerifyCheck: (checkId: string) => void;
   onMarkComplete: () => void;
   onMarkPromptSent: () => void;
@@ -30,7 +29,6 @@ interface Props {
 export default function GuideSessionCard({
   session,
   specFilename,
-  auditFilename,
   onToggleVerifyCheck,
   onMarkComplete,
   onMarkPromptSent,
@@ -88,11 +86,7 @@ export default function GuideSessionCard({
       return;
     }
 
-    const verifyPrompt = buildSessionVerifyPrompt(
-      session,
-      specFilename,
-      auditFilename,
-    );
+    const verifyPrompt = buildSessionVerifyPrompt(session, specFilename);
 
     useUiStore.getState().setDraftInput(verifyPrompt);
     onMarkVerifyRequested();

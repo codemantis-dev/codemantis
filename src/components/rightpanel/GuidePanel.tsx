@@ -280,7 +280,6 @@ export default function GuidePanel() {
             key={session.index}
             session={session}
             specFilename={guide.specFilename}
-            auditFilename={guide.auditFilename}
             onToggleVerifyCheck={(checkId) =>
               handleToggleVerifyCheck(session.index, checkId)
             }

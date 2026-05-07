@@ -130,19 +130,14 @@ an older contract that did not enforce mock disclosure or the
 export function buildSessionVerifyPrompt(
   session: SessionForVerify,
   specFilename: string,
-  auditFilename: string | null,
 ): string {
-  const auditLine = auditFilename
-    ? `\n\nAlso read the Verification Audit at docs/specs/${auditFilename} and use it as a checklist. Every VERIFY directive in it is subject to the same evidence contract above.`
-    : "";
-
   const total = session.verifyChecks.length;
 
   if (total === 0) {
     // No checklist. Fall back to a dedicated verificationPrompt if any,
     // otherwise the minimal typecheck/tests form.
     if (session.verificationPrompt) {
-      return `${VERIFY_MODE_PREAMBLE}\n${session.verificationPrompt}${auditLine}`;
+      return `${VERIFY_MODE_PREAMBLE}\n${session.verificationPrompt}`;
     }
     return `${VERIFY_MODE_PREAMBLE}
 Verify Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
@@ -151,7 +146,7 @@ This session has no explicit verify checks. At minimum:
 - Run \`pnpm tsc --noEmit\` and quote the final output line as evidence.
 - Run the test suite if one is configured.
 
-End with the final accounting line described in the preamble.${auditLine}`;
+End with the final accounting line described in the preamble.`;
   }
 
   const numbered = session.verifyChecks
@@ -195,7 +190,7 @@ For each numbered item above:
 3. After every 10 items, emit the running tally described in the preamble.
 4. End with the final accounting line.
 
-Do NOT batch. Do NOT assume. Do NOT summarize instead of verifying.${auditLine}`;
+Do NOT batch. Do NOT assume. Do NOT summarize instead of verifying.`;
 }
 
 /**

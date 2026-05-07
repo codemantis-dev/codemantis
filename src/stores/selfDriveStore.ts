@@ -1965,7 +1965,7 @@ export async function handleVerify(): Promise<void> {
 
   useSelfDriveStore.setState({ currentPhase: "verifying" });
 
-  const verifyPrompt = buildSessionVerifyPrompt(session, guide.specFilename, guide.auditFilename);
+  const verifyPrompt = buildSessionVerifyPrompt(session, guide.specFilename);
   addLogEntry(sessionIndex, "verifying", `Verifying Session ${sessionIndex}`, undefined, verifyPrompt);
   await sendMessageToSession(verifyPrompt);
   markVerifyRequestedForSession(sessionIndex);

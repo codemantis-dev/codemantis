@@ -73,7 +73,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -92,7 +91,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -116,7 +114,6 @@ describe("GuideSessionCard", () => {
           ],
         })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -132,7 +129,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -150,7 +146,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -167,7 +162,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -185,7 +179,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -208,7 +201,6 @@ describe("GuideSessionCard", () => {
           ],
         })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -227,7 +219,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -247,7 +238,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -263,7 +253,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ status: "pending" })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -281,7 +270,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession({ verifyChecks: [] })}
         specFilename="test.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -297,7 +285,6 @@ describe("GuideSessionCard", () => {
       <GuideSessionCard
         session={makeSession()}
         specFilename="my-feature.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -315,12 +302,17 @@ describe("GuideSessionCard", () => {
     expect(prompt).not.toContain("Verification Audit");
   });
 
-  it("includes audit document reference in verify prompt when auditFilename is provided", () => {
+  it("never references the global audit document — per-session prompts must be scoped to that session", () => {
+    // Regression: the per-session verify prompt used to append a pointer to
+    // the global Verification Audit doc whenever `guide.auditFilename` was
+    // set. That caused Self-Drive to verify ALL sessions on every per-
+    // session verify, with most items failing because they belonged to
+    // sessions that had not been implemented yet. The audit reference
+    // belongs only in the guide-complete (all-sessions) prompt.
     render(
       <GuideSessionCard
         session={makeSession()}
         specFilename="my-feature.md"
-        auditFilename="my-feature-audit.md"
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -329,10 +321,9 @@ describe("GuideSessionCard", () => {
     );
 
     fireEvent.click(screen.getByText("Verify for me"));
-    expect(mockSetDraftInput).toHaveBeenCalledOnce();
     const prompt = mockSetDraftInput.mock.calls[0][0] as string;
-    expect(prompt).toContain("docs/specs/my-feature-audit.md");
-    expect(prompt).toContain("Verification Audit");
+    expect(prompt).not.toContain("Verification Audit");
+    expect(prompt).not.toContain(".audit.md");
   });
 
   it("uses dedicated verificationPrompt when present instead of checklist template", () => {
@@ -343,7 +334,6 @@ describe("GuideSessionCard", () => {
             "Verify Session 1.\n\n1. Open `src/db.ts`\n   - VERIFY: schema initialized",
         })}
         specFilename="my-feature.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
@@ -369,7 +359,6 @@ describe("GuideSessionCard", () => {
           verificationPrompt: "Verify Session 1.\n- VERIFY: thing",
         })}
         specFilename="my-feature.md"
-        auditFilename={null}
         onToggleVerifyCheck={onToggle}
         onMarkComplete={onComplete}
         onMarkPromptSent={vi.fn()}
