@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { MessageCircleQuestion, Check, X } from "lucide-react";
 import { useActivityStore, type QuestionItem } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
+
+// Ignore stray Escape / pointer-down-outside for this many ms after the modal
+// opens. Prevents an in-flight keystroke (typed into another chat the moment
+// the question popped up) from auto-cancelling Claude's question.
+const SETTLE_MS = 400;
 
 function TextQuestion({
   question,
@@ -245,13 +250,19 @@ export default function QuestionModal() {
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
 
-  // Reset state when modal opens
+  // Reset state when modal opens, and stamp open time for the settling window.
+  const openedAtRef = useRef<number>(0);
   useEffect(() => {
     if (showModal) {
       setCurrentQuestionIdx(0);
       setAnswers([]);
+      openedAtRef.current = performance.now();
     }
   }, [showModal]);
+  const isSettling = useCallback(
+    () => performance.now() - openedAtRef.current < SETTLE_MS,
+    []
+  );
 
   const handleCancel = useCallback(() => {
     if (!pendingQuestion || !questionSessionId) return;
@@ -333,6 +344,7 @@ export default function QuestionModal() {
       open={showModal}
       onOpenChange={(open) => {
         if (!open) {
+          if (isSettling()) return;
           handleCancel();
         }
       }}
@@ -344,6 +356,7 @@ export default function QuestionModal() {
           style={{ background: "var(--bg-primary)" }}
           onEscapeKeyDown={(e) => {
             e.preventDefault();
+            if (isSettling()) return;
             handleCancel();
           }}
         >

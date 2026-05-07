@@ -216,6 +216,22 @@ describe("translateError — CLI errors (regression)", () => {
   });
 });
 
+describe("translateError — file read errors", () => {
+  it("translates Rust UTF-8 read failure into a friendly toast", () => {
+    const raw = "stream did not contain valid UTF-8";
+    const result = translateError(raw);
+    expect(result.title).toBe("Can't preview this file");
+    expect(result.toastMessage).toBe("Can't preview binary file");
+    expect(result.toastMessage).not.toContain("UTF-8");
+  });
+
+  it("also matches FromUtf8Error variants with byte index", () => {
+    const raw = "invalid utf-8 sequence of 1 bytes from index 0";
+    const result = translateError(raw);
+    expect(result.toastMessage).toBe("Can't preview binary file");
+  });
+});
+
 describe("formatErrorAsMarkdown", () => {
   it("formats with title, message, and remediation", () => {
     const md = formatErrorAsMarkdown({

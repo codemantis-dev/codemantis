@@ -429,6 +429,24 @@ const ERROR_CATALOG: ErrorPattern[] = [
     }),
   },
 
+  // ── Binary / non-UTF-8 file read ──
+  // Rust's fs::read_to_string serialises FromUtf8Error as
+  // "stream did not contain valid UTF-8". Surfaces when the user clicks a
+  // binary file (font, archive, compiled output) in the file tree.
+  {
+    test: (r) => {
+      const l = lower(r);
+      return l.includes("stream did not contain valid utf-8") || l.includes("invalid utf-8");
+    },
+    map: () => ({
+      title: "Can't preview this file",
+      message:
+        "This looks like a binary file, so it can't be shown in the text editor.",
+      remediation: "Open it in another app, or use a hex/binary viewer.",
+      toastMessage: "Can't preview binary file",
+    }),
+  },
+
   // ── IO / File system errors ──
   {
     test: (r) => {

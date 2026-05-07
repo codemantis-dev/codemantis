@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import QuestionModal from "./QuestionModal";
 import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -8,12 +8,31 @@ vi.mock("../../lib/tauri-commands", () => ({
   resolveToolApproval: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../../lib/error-handler", () => ({ handleError: vi.fn() }));
+// Radix Dialog mock: forwards onEscapeKeyDown so settling-window tests can
+// exercise the actual handler logic without booting Radix's portal stack.
 vi.mock("@radix-ui/react-dialog", () => ({
   Root: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
     open ? <div data-testid="dialog-root">{children}</div> : null,
   Portal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Overlay: ({ className }: { className: string }) => <div className={className} />,
-  Content: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Content: ({
+    children,
+    onEscapeKeyDown,
+  }: {
+    children: React.ReactNode;
+    onEscapeKeyDown?: (e: { preventDefault: () => void }) => void;
+  }) => (
+    <div
+      data-testid="dialog-content"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && onEscapeKeyDown) {
+          onEscapeKeyDown({ preventDefault: () => e.preventDefault() });
+        }
+      }}
+    >
+      {children}
+    </div>
+  ),
   Title: ({ children, className }: { children: React.ReactNode; className?: string }) => (
     <h2 className={className}>{children}</h2>
   ),
@@ -139,6 +158,52 @@ describe("QuestionModal", () => {
     useUiStore.setState({ showQuestionModal: true });
     render(<QuestionModal />);
     expect(screen.getByText("Write your own response...")).toBeInTheDocument();
+  });
+
+  it("ignores Escape inside the settling window", async () => {
+    const { resolveToolApproval } = await import("../../lib/tauri-commands");
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    useActivityStore.setState({
+      sessionQuestions: new Map([
+        ["s1", {
+          toolUseId: "tu1",
+          requestId: "req-1",
+          sessionId: "s1",
+          question: "Settle?",
+        }],
+      ]),
+    });
+    useUiStore.setState({ showQuestionModal: true });
+    render(<QuestionModal />);
+    nowSpy.mockReturnValue(100); // still settling
+    fireEvent.keyDown(screen.getByTestId("dialog-content"), { key: "Escape" });
+    expect(resolveToolApproval).not.toHaveBeenCalled();
+    nowSpy.mockRestore();
+  });
+
+  it("cancels on Escape after the settling window", async () => {
+    const { resolveToolApproval } = await import("../../lib/tauri-commands");
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
+    useActivityStore.setState({
+      sessionQuestions: new Map([
+        ["s1", {
+          toolUseId: "tu1",
+          requestId: "req-1",
+          sessionId: "s1",
+          question: "Settle?",
+        }],
+      ]),
+    });
+    useUiStore.setState({ showQuestionModal: true });
+    render(<QuestionModal />);
+    nowSpy.mockReturnValue(500); // past settling
+    fireEvent.keyDown(screen.getByTestId("dialog-content"), { key: "Escape" });
+    expect(resolveToolApproval).toHaveBeenCalledWith(
+      "req-1",
+      false,
+      "User declined to answer",
+    );
+    nowSpy.mockRestore();
   });
 
   it("sends full question text (not just header) with the answer to Claude", async () => {

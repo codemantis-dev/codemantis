@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
@@ -8,6 +8,12 @@ import { useUiStore } from "../../stores/uiStore";
 import { resolveToolApproval } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
 import ToolBadge from "../shared/ToolBadge";
+
+// Ignore keystrokes (and stray pointer-down-outside) for this many ms after the
+// modal opens. Absorbs in-flight keys from a chat the user was typing in when
+// an unrelated approval popped up — Enter/Escape would otherwise resolve a
+// modal the user hadn't even read yet.
+const SETTLE_MS = 400;
 
 export default function ToolApproval() {
   const approvalQueue = useActivityStore((s) => s.approvalQueue);
@@ -99,17 +105,22 @@ export default function ToolApproval() {
     }
   }, [approvalQueue]);
 
-  // Keyboard shortcuts
+  // Settling window — see SETTLE_MS comment at module top.
+  const openedAtRef = useRef<number>(0);
   useEffect(() => {
-    if (!showModal) return;
+    if (showModal) openedAtRef.current = performance.now();
+  }, [showModal]);
+  const isSettling = useCallback(
+    () => performance.now() - openedAtRef.current < SETTLE_MS,
+    []
+  );
 
-    const handler = (e: KeyboardEvent) => {
+  const onDialogKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      if (isSettling()) return;
       if (e.key === "Enter") {
         e.preventDefault();
         handleResponse(true);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        handleResponse(false);
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         navigateQueue(-1);
@@ -120,11 +131,9 @@ export default function ToolApproval() {
         e.preventDefault();
         handleApproveAll();
       }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [showModal, handleResponse, navigateQueue, handleApproveAll]);
+    },
+    [isSettling, handleResponse, navigateQueue, handleApproveAll]
+  );
 
   const inputStr = useMemo(
     () => currentApproval ? JSON.stringify(currentApproval.toolInput, null, 2) : "",
@@ -134,10 +143,35 @@ export default function ToolApproval() {
   if (!currentApproval) return null;
 
   return (
-    <Dialog.Root open={showModal} onOpenChange={setShowModal}>
+    <Dialog.Root
+      open={showModal}
+      onOpenChange={(open) => {
+        // Only honor close requests after the settling window — protects against
+        // stray Escape / pointer-down-outside in the first ~400ms after open.
+        if (!open && isSettling()) return;
+        setShowModal(open);
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] rounded-xl border border-border p-6" style={{ background: "var(--bg-primary)" }}>
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] rounded-xl border border-border p-6"
+          style={{ background: "var(--bg-primary)" }}
+          onKeyDown={onDialogKeyDown}
+          onEscapeKeyDown={(e) => {
+            if (isSettling()) {
+              e.preventDefault();
+              return;
+            }
+            e.preventDefault();
+            handleResponse(false);
+          }}
+          onOpenAutoFocus={(e) => {
+            // Don't auto-focus the first button ("Always allow …") — a stray
+            // Enter would otherwise grant a session-wide permission.
+            e.preventDefault();
+          }}
+        >
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-yellow/10">
               <ShieldAlert size={20} className="text-yellow" />
