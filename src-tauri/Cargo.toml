@@ -50,6 +50,6 @@ objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow", "NSResponde
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.13"
-rstest = "0.24"
+rstest = "0.26"
 insta = { version = "1", features = ["json"] }
 pretty_assertions = "1"
