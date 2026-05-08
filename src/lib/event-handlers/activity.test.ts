@@ -366,6 +366,66 @@ describe("activity event handler", () => {
       expect(modeControlToolIds.has("tu-exit-plan-2")).toBe(true);
     });
 
+    it("skips AskUserQuestion from activity feed and registers id for result skip", () => {
+      // Regression: CLI 2.1.126 emits AskUserQuestion as a normal tool_use in
+      // the assistant stream alongside the approval-server tool-approval-request
+      // event that drives the QuestionModal. Without this guard the tool_use
+      // landed in the activity feed as a "User Question" entry with the
+      // toolActivityLabel ("Answer questions?") rendered as both the result
+      // and the error.
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-ask-1",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              header: "Approach",
+              question: "Which way?",
+              multiSelect: false,
+              options: [
+                { label: "A", description: "Path A" },
+                { label: "B", description: "Path B" },
+              ],
+            },
+          ],
+        },
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+      expect(entries).toHaveLength(0);
+      expect(modeControlToolIds.has("tu-ask-1")).toBe(true);
+
+      // Session mode must NOT have been mutated — AskUserQuestion has no
+      // associated mode (unlike ExitPlanMode/EnterPlanMode).
+      expect(useSessionStore.getState().sessionModes.get(SESSION_ID)).toBe("normal");
+    });
+
+    it("does not surface AskUserQuestion tool_result in the activity feed", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-ask-2",
+        tool_name: "AskUserQuestion",
+        tool_input: { questions: [] },
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-ask-2",
+        content: "User selected: A",
+        is_error: false,
+      });
+
+      const entries = useActivityStore.getState().getActiveEntries(SESSION_ID);
+      expect(entries).toHaveLength(0);
+      // The id is consumed by the tool_result skip path, mirroring the
+      // ExitPlanMode/EnterPlanMode flow.
+      expect(modeControlToolIds.has("tu-ask-2")).toBe(false);
+    });
+
     it("tracks sub-agent for Agent tool", () => {
       handleActivityEvent(SESSION_ID, {
         type: "tool_use_start",

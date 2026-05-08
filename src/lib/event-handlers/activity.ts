@@ -80,6 +80,17 @@ function handleToolUseStart(
     filePath,
   });
 
+  // AskUserQuestion: surfaces via QuestionModal (driven by useToolApprovalListener
+  // off the approval HTTP server's tool-approval-request event). The CLI also
+  // emits this same tool_use through the assistant stream — suppress that copy
+  // here so it doesn't render as a stray "User Question" activity entry with
+  // duplicated "Answer questions?" text. Registering the tool_use_id in
+  // modeControlToolIds also suppresses the matching tool_result (line 231).
+  if (event.tool_name === "AskUserQuestion") {
+    modeControlToolIds.add(event.tool_use_id);
+    return;
+  }
+
   // Mode-control tools: sync session mode and skip activity feed
   if (event.tool_name === "ExitPlanMode" || event.tool_name === "EnterPlanMode") {
     // Diagnostic: pair with [plan-modal] logs in

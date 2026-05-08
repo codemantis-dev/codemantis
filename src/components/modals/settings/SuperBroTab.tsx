@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
 import { AI_MODELS } from "../../../types/assistant-provider";
@@ -74,6 +74,21 @@ export default function SuperBroTab({
   }, [apiKeys]);
 
   const hasAnyKey = availableProviders.length > 0;
+
+  // Reconcile drifted state: when the saved provider has no API key, the
+  // <select> visually shows the first available option but `provider` state
+  // stays stale, so the Model dropdown keeps offering the wrong models.
+  useEffect(() => {
+    if (!enabled || availableProviders.length === 0) return;
+    if (!availableProviders.some((p) => p.id === provider)) {
+      onProviderChange(availableProviders[0].id);
+      onModelChange("auto");
+      return;
+    }
+    if (models.length > 0 && !models.some((m) => m.id === model)) {
+      onModelChange(models[0].id);
+    }
+  }, [enabled, provider, model, availableProviders, models, onProviderChange, onModelChange]);
 
   return (
     <div className="space-y-6">

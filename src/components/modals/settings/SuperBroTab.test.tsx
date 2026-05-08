@@ -173,6 +173,35 @@ describe("SuperBroTab", () => {
     expect(defaultProps.onModelChange).toHaveBeenCalledWith("gemini-2.5-flash");
   });
 
+  it("snaps stale provider to first available when its API key is missing", () => {
+    render(
+      <SuperBroTab
+        {...defaultProps}
+        enabled={true}
+        provider="anthropic"
+        model="claude-haiku-4-5"
+        apiKeys={{ gemini: "gem-key-456" }}
+      />,
+    );
+    // First available provider when only gemini has a key is the synthetic "auto"
+    expect(defaultProps.onProviderChange).toHaveBeenCalledWith("auto");
+    expect(defaultProps.onModelChange).toHaveBeenCalledWith("auto");
+  });
+
+  it("does not snap when disabled (avoids unnecessary writes)", () => {
+    render(
+      <SuperBroTab
+        {...defaultProps}
+        enabled={false}
+        provider="anthropic"
+        model="claude-haiku-4-5"
+        apiKeys={{ gemini: "gem-key-456" }}
+      />,
+    );
+    expect(defaultProps.onProviderChange).not.toHaveBeenCalled();
+    expect(defaultProps.onModelChange).not.toHaveBeenCalled();
+  });
+
   it("toggle callback fires", () => {
     render(<SuperBroTab {...defaultProps} enabled={false} />);
     const toggleButton = screen.getByRole("button");

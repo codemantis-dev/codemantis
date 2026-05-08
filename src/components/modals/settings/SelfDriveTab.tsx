@@ -2,6 +2,7 @@
 // Self-Drive Settings Tab
 // ═══════════════════════════════════════════════════════════════════════
 
+import { useEffect, useMemo } from "react";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
 import { AI_MODELS } from "../../../types/assistant-provider";
@@ -56,9 +57,29 @@ export default function SelfDriveTab({
   onAutoCommitChange,
   onEnableRecheckLoopChange,
 }: SelfDriveTabProps) {
-  const models = getModelOptions(provider);
-  const availableProviders = PROVIDERS.filter((p) => !!apiKeys[p.id]?.trim());
+  const models = useMemo(() => getModelOptions(provider), [provider]);
+  const availableProviders = useMemo(
+    () => PROVIDERS.filter((p) => !!apiKeys[p.id]?.trim()),
+    [apiKeys],
+  );
   const hasAnyKey = availableProviders.length > 0;
+
+  // Reconcile drifted state: when the saved provider has no API key, the
+  // <select> visually shows the first available option but `provider` state
+  // stays stale, so the Model dropdown keeps offering the wrong models.
+  useEffect(() => {
+    if (availableProviders.length === 0) return;
+    if (!availableProviders.some((p) => p.id === provider)) {
+      const next = availableProviders[0].id;
+      onProviderChange(next);
+      const nextModels = getModelOptions(next);
+      if (nextModels.length > 0) onModelChange(nextModels[0].id);
+      return;
+    }
+    if (models.length > 0 && !models.some((m) => m.id === model)) {
+      onModelChange(models[0].id);
+    }
+  }, [provider, model, availableProviders, models, onProviderChange, onModelChange]);
 
   return (
     <div className="space-y-6">
