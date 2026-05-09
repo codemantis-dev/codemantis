@@ -1,3 +1,4 @@
+use crate::storage::secret_box;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -20,8 +21,13 @@ pub struct AppSettings {
     pub quick_commands: Vec<QuickCommand>,
 
     // --- Shared AI provider settings ---
+    // `api_keys` is the wire-facing plaintext map exchanged with the frontend.
+    // On disk, values live in `api_keys_encrypted` (AES-GCM ciphertext, base64).
+    // Both are `default`-able for legacy compat and for clearing on serialize.
     #[serde(default, alias = "changelogApiKeys")]
     pub api_keys: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub api_keys_encrypted: HashMap<String, String>,
     #[serde(default = "default_model_pricing", alias = "changelogModelPricing")]
     pub model_pricing: HashMap<String, ModelPricing>,
 
@@ -236,6 +242,7 @@ impl Default for AppSettings {
             terminal_font_size: default_terminal_font_size(),
             quick_commands: default_quick_commands(),
             api_keys: HashMap::new(),
+            api_keys_encrypted: HashMap::new(),
             model_pricing: default_model_pricing(),
             changelog_enabled: false,
             changelog_provider: default_changelog_provider(),
@@ -278,24 +285,105 @@ fn settings_path() -> PathBuf {
         .join("settings.json")
 }
 
-#[tauri::command]
-pub fn get_settings() -> Result<AppSettings, String> {
-    let path = settings_path();
+/// Decrypt `api_keys_encrypted` into `api_keys` (plaintext for the wire).
+/// Existing plaintext entries in `api_keys` (legacy / hand-edited) win over
+/// any encrypted entry under the same provider — we never silently override
+/// a value the user might have just written into the file.
+/// Returns `true` if any plaintext entries were found that should be
+/// migrated to ciphertext on the next save.
+fn decrypt_api_keys_into_wire(settings: &mut AppSettings) -> Result<bool, String> {
+    let mut had_plaintext_legacy = false;
+    let encrypted = std::mem::take(&mut settings.api_keys_encrypted);
+    let plaintext_legacy = std::mem::take(&mut settings.api_keys);
+
+    let mut merged: HashMap<String, String> = HashMap::new();
+    for (provider, blob_b64) in encrypted {
+        match secret_box::decrypt_from_b64(&blob_b64) {
+            Ok(plain) => {
+                merged.insert(provider, plain);
+            }
+            Err(e) => {
+                // A corrupted/unreadable ciphertext shouldn't kill all settings —
+                // log and drop just this entry. The user will be asked to re-enter.
+                log::warn!("decrypt failed for api key '{}': {}", provider, e);
+            }
+        }
+    }
+    for (provider, value) in plaintext_legacy {
+        if !value.is_empty() {
+            had_plaintext_legacy = true;
+            merged.insert(provider, value);
+        }
+    }
+    settings.api_keys = merged;
+    Ok(had_plaintext_legacy)
+}
+
+/// Encrypt the wire `api_keys` map into `api_keys_encrypted`, blanking the
+/// plaintext field before serialization. Empty values are dropped (we don't
+/// persist empty cipher records — a missing key means "not set").
+fn encrypt_api_keys_for_disk(settings: &mut AppSettings) -> Result<(), String> {
+    let plaintext = std::mem::take(&mut settings.api_keys);
+    let mut encrypted: HashMap<String, String> = HashMap::new();
+    for (provider, value) in plaintext {
+        if value.is_empty() {
+            continue;
+        }
+        let blob_b64 = secret_box::encrypt_to_b64(&value).map_err(|e| e.to_string())?;
+        encrypted.insert(provider, blob_b64);
+    }
+    settings.api_keys_encrypted = encrypted;
+    Ok(())
+}
+
+fn write_settings_to_path(path: &std::path::Path, settings: &AppSettings) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())
+}
+
+/// Path-aware read used by both the Tauri command and integration tests.
+fn get_settings_from_path(path: &std::path::Path) -> Result<AppSettings, String> {
     if !path.exists() {
         return Ok(AppSettings::default());
     }
-    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut settings: AppSettings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let needs_migration = decrypt_api_keys_into_wire(&mut settings)?;
+
+    // Opportunistic migration: if we found plaintext keys on disk, re-write
+    // them as ciphertext now. This is idempotent and runs at most once per
+    // launch (after the rewrite, only `api_keys_encrypted` will be present).
+    if needs_migration {
+        let mut for_disk = settings.clone();
+        encrypt_api_keys_for_disk(&mut for_disk)?;
+        if let Err(e) = write_settings_to_path(path, &for_disk) {
+            log::warn!("api key encryption migration failed: {}", e);
+        } else {
+            log::info!(
+                "migrated {} plaintext api key(s) to encrypted-at-rest",
+                for_disk.api_keys_encrypted.len()
+            );
+        }
+    }
+    Ok(settings)
+}
+
+fn update_settings_at_path(path: &std::path::Path, mut settings: AppSettings) -> Result<(), String> {
+    encrypt_api_keys_for_disk(&mut settings)?;
+    write_settings_to_path(path, &settings)
+}
+
+#[tauri::command]
+pub fn get_settings() -> Result<AppSettings, String> {
+    get_settings_from_path(&settings_path())
 }
 
 #[tauri::command]
 pub fn update_settings(settings: AppSettings) -> Result<(), String> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    update_settings_at_path(&settings_path(), settings)
 }
 
 #[cfg(test)]
@@ -666,5 +754,225 @@ mod tests {
         assert!(prompt.contains("description"));
         assert!(prompt.contains("category"));
         assert!(prompt.contains("JSON"));
+    }
+
+    // ── API key encryption (wire ↔ disk) ──
+
+    #[test]
+    fn encrypt_then_decrypt_round_trips_through_helpers() {
+        // Wire-side AppSettings with two plaintext keys.
+        let mut settings = AppSettings::default();
+        settings.api_keys.insert("openai".into(), "sk-test-abc".into());
+        settings.api_keys.insert("anthropic".into(), "sk-ant-xyz".into());
+
+        // Going to disk: api_keys cleared, api_keys_encrypted populated.
+        encrypt_api_keys_for_disk(&mut settings).unwrap();
+        assert!(settings.api_keys.is_empty());
+        assert_eq!(settings.api_keys_encrypted.len(), 2);
+        assert!(settings.api_keys_encrypted.contains_key("openai"));
+        assert!(settings.api_keys_encrypted.contains_key("anthropic"));
+        // Ciphertext is not the plaintext.
+        assert_ne!(
+            settings.api_keys_encrypted.get("openai").unwrap(),
+            "sk-test-abc"
+        );
+
+        // Coming back from disk: ciphertext decrypted into api_keys.
+        let needs_migration = decrypt_api_keys_into_wire(&mut settings).unwrap();
+        assert!(!needs_migration, "no legacy plaintext was on disk");
+        assert!(settings.api_keys_encrypted.is_empty());
+        assert_eq!(settings.api_keys.get("openai").unwrap(), "sk-test-abc");
+        assert_eq!(settings.api_keys.get("anthropic").unwrap(), "sk-ant-xyz");
+    }
+
+    #[test]
+    fn encrypt_drops_empty_values() {
+        // An empty string is "not set", not an encrypted empty secret.
+        let mut settings = AppSettings::default();
+        settings.api_keys.insert("openai".into(), "sk-real".into());
+        settings.api_keys.insert("gemini".into(), "".into());
+
+        encrypt_api_keys_for_disk(&mut settings).unwrap();
+        assert_eq!(settings.api_keys_encrypted.len(), 1);
+        assert!(settings.api_keys_encrypted.contains_key("openai"));
+        assert!(!settings.api_keys_encrypted.contains_key("gemini"));
+    }
+
+    #[test]
+    fn decrypt_flags_legacy_plaintext_for_migration() {
+        // Simulates an old settings.json: `api_keys` populated, `api_keys_encrypted` empty.
+        let mut settings = AppSettings::default();
+        settings.api_keys.insert("openai".into(), "legacy-plaintext".into());
+
+        let needs_migration = decrypt_api_keys_into_wire(&mut settings).unwrap();
+        assert!(needs_migration, "must flag plaintext for migration");
+        assert_eq!(settings.api_keys.get("openai").unwrap(), "legacy-plaintext");
+    }
+
+    #[test]
+    fn decrypt_merges_encrypted_and_legacy_plaintext_with_plaintext_winning() {
+        // If both `api_keys_encrypted[provider]` and `api_keys[provider]` exist,
+        // the plaintext wins — a manual edit to the file should be respected.
+        let mut wire = AppSettings::default();
+        wire.api_keys.insert("openai".into(), "freshly-set".into());
+        encrypt_api_keys_for_disk(&mut wire).unwrap();
+        // Now `wire` has only encrypted form. Add a conflicting plaintext entry.
+        wire.api_keys.insert("openai".into(), "user-edited".into());
+
+        let _ = decrypt_api_keys_into_wire(&mut wire).unwrap();
+        assert_eq!(wire.api_keys.get("openai").unwrap(), "user-edited");
+    }
+
+    #[test]
+    fn decrypt_skips_corrupted_ciphertext_without_failing_settings_load() {
+        // A garbage ciphertext for one provider must not nuke the others.
+        let mut settings = AppSettings::default();
+        settings
+            .api_keys_encrypted
+            .insert("openai".into(), "this-is-not-base64-cipher".into());
+
+        // Add a real encrypted entry alongside.
+        let real = secret_box::encrypt_to_b64("sk-good").unwrap();
+        settings.api_keys_encrypted.insert("anthropic".into(), real);
+
+        let _ = decrypt_api_keys_into_wire(&mut settings).unwrap();
+        // openai dropped (corrupted), anthropic preserved.
+        assert!(!settings.api_keys.contains_key("openai"));
+        assert_eq!(settings.api_keys.get("anthropic").unwrap(), "sk-good");
+    }
+
+    #[test]
+    fn wire_serialization_omits_empty_encrypted_field() {
+        // After decrypt_api_keys_into_wire clears api_keys_encrypted, the
+        // serialized form sent to the frontend must NOT include the field.
+        let settings = AppSettings::default();
+        let json = serde_json::to_value(&settings).unwrap();
+        assert!(
+            json.get("apiKeysEncrypted").is_none(),
+            "wire shape must not leak apiKeysEncrypted when empty"
+        );
+    }
+
+    #[test]
+    fn disk_serialization_includes_encrypted_field() {
+        // When api_keys_encrypted has entries (about to be written to disk),
+        // serialization must include the camelCase field.
+        let mut settings = AppSettings::default();
+        settings
+            .api_keys_encrypted
+            .insert("openai".into(), "ciphertext-b64".into());
+        let json = serde_json::to_value(&settings).unwrap();
+        assert!(json.get("apiKeysEncrypted").is_some());
+        assert_eq!(
+            json["apiKeysEncrypted"]["openai"].as_str().unwrap(),
+            "ciphertext-b64"
+        );
+    }
+
+    #[test]
+    fn deserialize_legacy_settings_json_with_plaintext_only() {
+        // Real-world: a user upgrades from a pre-encryption version. Their
+        // settings.json has only `apiKeys`, no `apiKeysEncrypted`.
+        let json = r#"{"apiKeys": {"openai": "sk-legacy"}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.api_keys.get("openai").unwrap(), "sk-legacy");
+        assert!(settings.api_keys_encrypted.is_empty());
+    }
+
+    #[test]
+    fn deserialize_post_migration_settings_json() {
+        // After migration the wire field is empty and the encrypted field is populated.
+        let json = r#"{"apiKeys": {}, "apiKeysEncrypted": {"openai": "abc=="}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.api_keys.is_empty());
+        assert_eq!(
+            settings.api_keys_encrypted.get("openai").unwrap(),
+            "abc=="
+        );
+    }
+
+    // ── File-based migration round-trip (integration-style) ──
+
+    #[test]
+    fn legacy_plaintext_settings_json_is_migrated_on_first_read() {
+        // Simulate an existing-user upgrade: settings.json on disk has only
+        // plaintext `apiKeys`. After get_settings runs once, the file must
+        // be rewritten with encrypted form, and the wire response must still
+        // expose the plaintext.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let legacy = r#"{"apiKeys": {"openai": "sk-legacy-abc"}}"#;
+        fs::write(&path, legacy).unwrap();
+
+        // First read: returns plaintext on the wire AND rewrites the file.
+        let returned = get_settings_from_path(&path).unwrap();
+        assert_eq!(returned.api_keys.get("openai").unwrap(), "sk-legacy-abc");
+        assert!(returned.api_keys_encrypted.is_empty(), "wire must not leak ciphertext");
+
+        // Second read: file should now be in encrypted form, but wire is unchanged.
+        let on_disk = fs::read_to_string(&path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert!(
+            parsed["apiKeysEncrypted"].is_object()
+                && parsed["apiKeysEncrypted"]["openai"].is_string(),
+            "encrypted ciphertext must be on disk after migration, got: {}",
+            on_disk
+        );
+        // The plaintext field on disk must be empty after migration.
+        let plaintext_field = parsed.get("apiKeys").and_then(|v| v.as_object());
+        assert!(
+            plaintext_field.map_or(true, |o| o.is_empty()),
+            "apiKeys must be empty/absent on disk after migration, got: {}",
+            on_disk
+        );
+
+        let returned2 = get_settings_from_path(&path).unwrap();
+        assert_eq!(returned2.api_keys.get("openai").unwrap(), "sk-legacy-abc");
+    }
+
+    #[test]
+    fn update_settings_writes_encrypted_form_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut settings = AppSettings::default();
+        settings.api_keys.insert("anthropic".into(), "sk-ant-real".into());
+        update_settings_at_path(&path, settings).unwrap();
+
+        // Disk has only ciphertext, not plaintext.
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(
+            !on_disk.contains("sk-ant-real"),
+            "plaintext key leaked into disk file: {}",
+            on_disk
+        );
+        assert!(on_disk.contains("apiKeysEncrypted"));
+    }
+
+    #[test]
+    fn round_trip_via_file_preserves_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let mut original = AppSettings::default();
+        original.theme = "midnight".into();
+        original.api_keys.insert("openai".into(), "sk-foo".into());
+        original.api_keys.insert("gemini".into(), "key-bar".into());
+
+        update_settings_at_path(&path, original).unwrap();
+        let restored = get_settings_from_path(&path).unwrap();
+
+        assert_eq!(restored.theme, "midnight");
+        assert_eq!(restored.api_keys.get("openai").unwrap(), "sk-foo");
+        assert_eq!(restored.api_keys.get("gemini").unwrap(), "key-bar");
+    }
+
+    #[test]
+    fn nonexistent_settings_file_returns_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let settings = get_settings_from_path(&path).unwrap();
+        assert_eq!(settings.theme, "sand");
+        assert!(settings.api_keys.is_empty());
     }
 }

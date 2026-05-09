@@ -3,6 +3,7 @@ mod claude;
 mod commands;
 pub mod errors;
 mod lifecycle;
+mod preflight;
 mod preview;
 pub mod storage;
 mod terminal;

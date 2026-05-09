@@ -30,8 +30,11 @@ export default function AIProvidersTab({
   return (
     <div>
       <SectionTitle>AI Providers</SectionTitle>
-      <p className="text-label text-text-dim mb-4">
+      <p className="text-label text-text-dim mb-1">
         Configure API keys and token pricing for each provider. These are shared across Changelog and Assistant features.
+      </p>
+      <p className="text-detail text-text-ghost mb-4">
+        API keys are encrypted at rest. They remain readable to anyone with access to your user account on this Mac.
       </p>
 
       {/* OpenRouter Free Banner — show when user has no API keys or no OpenRouter key */}
