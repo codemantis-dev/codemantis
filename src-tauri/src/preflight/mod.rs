@@ -6,10 +6,13 @@
 // verification engine, Tauri commands, and event emitters. See
 // `_guidance/requirements/CodeMantis_SPEC-Preflight-System-v1.md.md`.
 
+pub mod ai_fallback;
 pub mod audit;
 pub mod catalog;
+pub mod catalog_cache;
 pub mod commands;
 pub mod detection;
+pub mod detection_files;
 pub mod events;
 pub mod installer;
 pub mod manifest;
