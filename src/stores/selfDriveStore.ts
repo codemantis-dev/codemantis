@@ -29,6 +29,7 @@ import {
   saveSelfDriveState,
   deleteSelfDriveState,
   verifyActionParity,
+  preflightStatus,
   type ActionParityResult,
 } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
@@ -316,6 +317,23 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     if (!firstActive) {
       showToast("No remaining sessions", "error");
       return;
+    }
+
+    // Preflight gate — refuse to start if the project ships a preflight.yaml
+    // and any blocking capability is unsatisfied. Legacy projects without a
+    // manifest fall through (preflightStatus throws → catch → continue).
+    try {
+      const status = await preflightStatus(projectPath);
+      if (!status.allSatisfied) {
+        const missing = status.blockingCount;
+        showToast(
+          `${missing} setup item${missing === 1 ? "" : "s"} need${missing === 1 ? "s" : ""} attention before Self-Drive can start. Open Mission Control to fix.`,
+          "error",
+        );
+        return;
+      }
+    } catch {
+      // No manifest at this project — legacy behaviour, proceed.
     }
 
     // Validate API key

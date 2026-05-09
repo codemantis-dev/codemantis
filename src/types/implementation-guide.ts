@@ -31,6 +31,14 @@ export interface GuideSession {
    * run a static parity check before marking the session done.
    */
   crossSystemActions?: CrossSystemAction[];
+  /**
+   * Capability IDs (matching `preflight.yaml::capabilities[].id`) that must
+   * be in `Satisfied` state before this session can run. Self-Drive's
+   * pre-session loop verifies each entry; any failure pauses the run.
+   * Optional for backwards compatibility — sessions without a `requires`
+   * field run unchanged (no preflight gating).
+   */
+  requires?: string[];
   status: "pending" | "active" | "done";
   promptSent?: boolean;
   verifyRequested?: boolean;
@@ -79,6 +87,7 @@ export type BlockerKind =
   | "env-config"          // missing env var, wrong config value
   | "user-decision"       // Claude asked a question with multiple valid options
   | "external-failure"    // third-party outage / rate limit
+  | "capability-missing"  // a preflight.yaml capability isn't satisfied
   | "unknown";
 
 export interface Blocker {

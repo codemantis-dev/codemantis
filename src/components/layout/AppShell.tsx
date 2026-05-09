@@ -24,6 +24,10 @@ import HelpPanel from "../help/HelpPanel";
 import ImagePreviewModal from "../modals/ImagePreviewModal";
 import SuperBroStrip from "../chat/SuperBroStrip";
 import { useSuperBro } from "../../hooks/useSuperBro";
+import { useProjectPreflight } from "../../hooks/useProjectPreflight";
+import { usePreflightStore } from "../../stores/preflightStore";
+import PreflightTray from "../preflight/PreflightTray";
+import MissionControl from "../preflight/MissionControl";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -101,6 +105,10 @@ export default function AppShell() {
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
   useDevServerDetection();
   useSuperBro(activeProjectPath);
+  useProjectPreflight(activeProjectPath);
+  const preflightManifest = usePreflightStore((s) => s.manifest);
+  const preflightStatus = usePreflightStore((s) => s.status);
+  const [showMissionControl, setShowMissionControl] = useState(false);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
 
   // Subscribe to preview console entries → Activity Feed + toast on errors
@@ -233,11 +241,53 @@ export default function AppShell() {
   return (
     <div className="flex-1 min-h-0 w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       <TitleBar onCloseProject={handleCloseProject} />
+      {preflightManifest && (
+        <PreflightTray
+          status={preflightStatus}
+          onOpenMissionControl={() => setShowMissionControl(true)}
+        />
+      )}
       <SessionSubTabs
         onAddSession={addSessionToProject}
         onCloseSession={handleCloseSession}
         onRenameSession={renameSession}
       />
+
+      {showMissionControl && preflightManifest && activeProjectPath && (
+        <div
+          className="fixed inset-0 z-40"
+          style={{ background: "var(--bg-primary)" }}
+        >
+          <div className="h-full flex flex-col">
+            <div
+              className="flex items-center justify-between px-4 py-2 border-b"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <span className="text-ui font-semibold text-text-primary">
+                Mission Control
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowMissionControl(false)}
+                className="text-detail text-text-secondary hover:text-text-primary"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <MissionControl
+                manifest={preflightManifest}
+                status={preflightStatus}
+                onSetUp={(cap) => {
+                  usePreflightStore.getState().startSetupFlow(cap.id);
+                }}
+                onStartBuilding={() => setShowMissionControl(false)}
+                resolveCatalog={() => null /* Phase 5: hook into bundled catalog */}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
