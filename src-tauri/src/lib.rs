@@ -422,6 +422,7 @@ pub fn run() {
             preflight::commands::preflight_store_secret,
             preflight::commands::preflight_run_auto_install,
             preflight::commands::preflight_detect_existing,
+            preflight::commands::preflight_generate_manifest,
             commands::super_bro::save_observation,
             commands::super_bro::load_observations,
             commands::super_bro::delete_observation,

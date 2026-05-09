@@ -54,6 +54,16 @@ interface GuideState {
    * the user actually saved on disk.
    */
   setAuditFilename: (projectPath: string, auditFilename: string) => Promise<void>;
+  /**
+   * Merge per-session `requires:` arrays produced by the preflight extraction
+   * pass into the loaded guide. Each key is a session index; each value is
+   * the list of capability IDs that session needs satisfied before it can
+   * run. Idempotent — re-applying the same map is a no-op. Persists once.
+   */
+  applyPreflightRequires: (
+    projectPath: string,
+    requiresBySession: Record<number, string[]>,
+  ) => Promise<void>;
 }
 
 export const useGuideStore = create<GuideState>((set, get) => ({
@@ -244,6 +254,34 @@ export const useGuideStore = create<GuideState>((set, get) => ({
       await updateGuideData(updated.id, JSON.stringify(updated));
     } catch (e) {
       console.warn("[guideStore] Failed to persist auditFilename:", e);
+    }
+  },
+
+  applyPreflightRequires: async (projectPath, requiresBySession) => {
+    const { guide } = get();
+    if (!guide || guide.projectPath !== projectPath) return;
+    if (Object.keys(requiresBySession).length === 0) return;
+
+    let mutated = false;
+    const updatedSessions = guide.sessions.map((session) => {
+      const next = requiresBySession[session.index];
+      if (!next || next.length === 0) return session;
+      // Skip if already identical (idempotent).
+      const current = session.requires ?? [];
+      if (current.length === next.length && current.every((c) => next.includes(c))) {
+        return session;
+      }
+      mutated = true;
+      return { ...session, requires: next };
+    });
+    if (!mutated) return;
+
+    const updated: ImplementationGuide = { ...guide, sessions: updatedSessions };
+    set({ guide: updated });
+    try {
+      await updateGuideData(updated.id, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("[guideStore] Failed to persist preflight requires:", e);
     }
   },
 }));

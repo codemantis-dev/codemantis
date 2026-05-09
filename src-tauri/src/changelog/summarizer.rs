@@ -135,7 +135,7 @@ pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<
     }
 }
 
-async fn call_gemini(
+pub(crate) async fn call_gemini(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,
@@ -212,7 +212,7 @@ fn build_openai_body(model: &str, system_prompt: &str, prompt: &str) -> serde_js
     })
 }
 
-async fn call_openai(
+pub(crate) async fn call_openai(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,
@@ -271,7 +271,7 @@ fn build_anthropic_body(model: &str, system_prompt: &str, prompt: &str) -> serde
     })
 }
 
-async fn call_anthropic(
+pub(crate) async fn call_anthropic(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,
@@ -332,7 +332,7 @@ fn build_openrouter_body(model: &str, system_prompt: &str, prompt: &str) -> serd
     })
 }
 
-async fn call_openrouter(
+pub(crate) async fn call_openrouter(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,

@@ -14,6 +14,7 @@ pub mod commands;
 pub mod detection;
 pub mod detection_files;
 pub mod events;
+pub mod extraction;
 pub mod installer;
 pub mod manifest;
 pub mod secrets;

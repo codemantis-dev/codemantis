@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { X } from "lucide-react";
-import { saveSpecDocument } from "../../lib/tauri-commands";
+import {
+  saveSpecDocument,
+  preflightGenerateManifest,
+} from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useGuideStore } from "../../stores/guideStore";
@@ -14,6 +17,9 @@ interface Props {
   projectPath: string;
   specContent: string;
   aiModel: string;
+  /** Provider id matching settings.apiKeys (used to call the same LLM for
+   *  preflight extraction). Optional for backwards compat with tests. */
+  aiProvider?: string;
   mode: string;
   documentType: 'spec' | 'audit';
   lastSavedFile?: string | null;
@@ -21,7 +27,7 @@ interface Props {
   onSaved: (filename: string) => void;
 }
 
-export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
+export default function SaveSpecDialog({ projectPath, specContent, aiModel, aiProvider, mode, documentType, lastSavedFile, onClose, onSaved }: Props) {
   const [filename, setFilename] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,6 +123,7 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
       // Parse from the NORMALIZED body so the guide's prompts reference the
       // actual saved filename, matching what's on disk.
       if (!isAudit) {
+        let createdSessions: { index: number; name: string; prompt: string; scope: string }[] = [];
         try {
           const parsed = parseSessionPlan(body);
           if (parsed) {
@@ -129,6 +136,12 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
                 "info",
               );
               useUiStore.getState().setRightTab("guide");
+              createdSessions = parsed.sessions.map((s) => ({
+                index: s.index,
+                name: s.name,
+                prompt: s.prompt,
+                scope: s.scope,
+              }));
             }
           } else {
             showToast("Spec saved. Add a Session Plan section for a step-by-step implementation guide.", "info");
@@ -137,13 +150,59 @@ export default function SaveSpecDialog({ projectPath, specContent, aiModel, mode
           // Non-fatal: guide creation failure shouldn't block spec save
           console.warn("[SaveSpecDialog] Failed to create implementation guide:", guideErr);
         }
+
+        // Phase 4.5 \u2014 auto-generate preflight.yaml. Best-effort: never block
+        // the save flow on this. Skip when we have no provider (legacy callers
+        // or audit saves) or no sessions (nothing for preflight to gate).
+        if (aiProvider && createdSessions.length > 0) {
+          try {
+            const projectName = projectPath.split("/").filter(Boolean).pop() ?? "project";
+            const result = await preflightGenerateManifest({
+              projectPath,
+              projectName,
+              specContent: body,
+              sessions: createdSessions.map((s) => ({
+                index: s.index,
+                name: s.name,
+                body: `${s.scope}\n\n${s.prompt}`,
+              })),
+              aiProvider,
+              aiModel,
+            });
+            const capCount = result.manifest.capabilities.length;
+            if (capCount > 0) {
+              showToast(
+                `Preflight: ${capCount} capability${capCount === 1 ? "" : "s"} detected. Open Mission Control to set up.`,
+                "success",
+              );
+              // Push the requires: arrays into the guide store so Self-Drive
+              // gates each session correctly.
+              try {
+                await useGuideStore.getState().applyPreflightRequires(
+                  projectPath,
+                  result.requiresBySession,
+                );
+              } catch (applyErr) {
+                console.warn("[SaveSpecDialog] Failed to apply requires:", applyErr);
+              }
+            } else if (result.unresolvedRefs.length > 0) {
+              showToast(
+                `Preflight: detected ${result.unresolvedRefs.length} service(s) we don't have recipes for yet.`,
+                "info",
+              );
+            }
+          } catch (preflightErr) {
+            // Non-fatal: a preflight failure should never block the save.
+            console.warn("[SaveSpecDialog] Preflight extraction failed:", preflightErr);
+          }
+        }
       }
     } catch (e) {
       showToast(`Failed to save: ${e}`, "error");
     } finally {
       setSaving(false);
     }
-  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, mode, isAudit, onSaved]);
+  }, [filename, fileExists, overwrite, specContent, projectPath, aiModel, aiProvider, mode, isAudit, onSaved]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.5)" }}>

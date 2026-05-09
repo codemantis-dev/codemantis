@@ -517,4 +517,81 @@ describe("guideStore", () => {
       expect(useGuideStore.getState().guide!.auditFilename).toBeNull();
     });
   });
+
+  describe("applyPreflightRequires", () => {
+    it("merges per-session requires into the loaded guide", async () => {
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {
+        1: ["PREFLIGHT-A"],
+        2: ["PREFLIGHT-B", "PREFLIGHT-C"],
+      });
+      const sessions = useGuideStore.getState().guide!.sessions;
+      expect(sessions.find((s) => s.index === 1)?.requires).toEqual(["PREFLIGHT-A"]);
+      expect(sessions.find((s) => s.index === 2)?.requires).toEqual([
+        "PREFLIGHT-B",
+        "PREFLIGHT-C",
+      ]);
+    });
+
+    it("leaves sessions without entries untouched", async () => {
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {
+        1: ["PREFLIGHT-A"],
+        // session 2 absent
+      });
+      const sessions = useGuideStore.getState().guide!.sessions;
+      expect(sessions.find((s) => s.index === 1)?.requires).toEqual(["PREFLIGHT-A"]);
+      expect(sessions.find((s) => s.index === 2)?.requires).toBeUndefined();
+    });
+
+    it("persists exactly once", async () => {
+      const { updateGuideData } = await import("../lib/tauri-commands");
+      const mockFn = updateGuideData as ReturnType<typeof vi.fn>;
+      mockFn.mockClear();
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {
+        1: ["PREFLIGHT-A"],
+      });
+      expect(mockFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("is a no-op when re-applied with the same map (idempotent)", async () => {
+      const { updateGuideData } = await import("../lib/tauri-commands");
+      const mockFn = updateGuideData as ReturnType<typeof vi.fn>;
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {
+        1: ["PREFLIGHT-A"],
+      });
+      mockFn.mockClear();
+      // Re-apply identical map.
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {
+        1: ["PREFLIGHT-A"],
+      });
+      expect(mockFn).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op when no guide is loaded", async () => {
+      useGuideStore.setState({ guide: null });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, { 1: ["X"] });
+      expect(useGuideStore.getState().guide).toBeNull();
+    });
+
+    it("is a no-op when the loaded guide is for a different project", async () => {
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore
+        .getState()
+        .applyPreflightRequires("/different/project", { 1: ["X"] });
+      const sessions = useGuideStore.getState().guide!.sessions;
+      expect(sessions.find((s) => s.index === 1)?.requires).toBeUndefined();
+    });
+
+    it("is a no-op when the requires map is empty", async () => {
+      const { updateGuideData } = await import("../lib/tauri-commands");
+      const mockFn = updateGuideData as ReturnType<typeof vi.fn>;
+      mockFn.mockClear();
+      useGuideStore.setState({ guide: makeGuide() });
+      await useGuideStore.getState().applyPreflightRequires(PROJECT, {});
+      expect(mockFn).not.toHaveBeenCalled();
+    });
+  });
 });

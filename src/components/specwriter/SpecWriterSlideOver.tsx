@@ -205,6 +205,7 @@ export default function SpecWriterSlideOver() {
           projectPath={activeProjectPath}
           specContent={saveDialogContent}
           aiModel={conversation.ai_model}
+          aiProvider={conversation.ai_provider}
           mode={conversation.mode === 'feature' ? 'Feature (existing project)' : 'New Application'}
           documentType={actions.saveDialogType}
           lastSavedFile={actions.lastSavedFile}

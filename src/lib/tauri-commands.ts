@@ -13,6 +13,8 @@ import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult
 import type {
   CapabilityStatus,
   DetectionHit,
+  ExtractionRequest,
+  ExtractionResult,
   InstallResult,
   Manifest,
   PreflightStatus,
@@ -1090,4 +1092,10 @@ export async function preflightDetectExisting(
   projectPath: string,
 ): Promise<DetectionHit[]> {
   return invoke<DetectionHit[]>("preflight_detect_existing", { projectPath });
+}
+
+export async function preflightGenerateManifest(
+  request: ExtractionRequest,
+): Promise<ExtractionResult> {
+  return invoke<ExtractionResult>("preflight_generate_manifest", { request });
 }

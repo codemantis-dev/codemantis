@@ -19,6 +19,7 @@ use crate::preflight::{
     catalog::Catalog,
     detection,
     events,
+    extraction::{self, ExtractionRequest, ExtractionResult},
     installer::{self, InstallResult},
     manifest::{Capability, Manifest, Verification},
     secrets,
@@ -273,3 +274,62 @@ pub async fn preflight_detect_existing(
 
 // Silence "unused" warnings on unused imports until Phase 3 wires more callers.
 const _: fn(&Verification) = |_| {};
+
+/// Generate a `preflight.yaml` from a SpecWriter-saved spec by asking the
+/// same LLM that authored the spec what external services and tools the
+/// project needs. Resolves against the bundled catalog; unknown services
+/// are surfaced for the user to handle manually.
+///
+/// **Idempotent on disk:** overwrites any existing `preflight.yaml` at the
+/// project root. Returns the parsed result so the frontend can update its
+/// guide-store sessions with the new `requires:` arrays.
+#[tauri::command]
+pub async fn preflight_generate_manifest(
+    app: AppHandle,
+    request: ExtractionRequest,
+) -> Result<ExtractionResult, String> {
+    // Resolve the API key for the requested provider from settings.
+    let settings = get_settings()?;
+    let api_key = settings
+        .api_keys
+        .get(&request.ai_provider)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "No API key configured for `{}`. Add it in Settings → AI Providers.",
+                request.ai_provider
+            )
+        })?;
+
+    // Run the LLM extraction.
+    let (extracted, in_tok, out_tok) = extraction::extract(&request, &api_key)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Resolve against the bundled catalog.
+    let catalog = load_catalog(&app)?;
+    let mut result = extraction::build_manifest(
+        &request,
+        &extracted,
+        &catalog,
+        &format!("CodeMantis SpecWriter ({}/{})", request.ai_provider, request.ai_model),
+    );
+    result.input_tokens = in_tok;
+    result.output_tokens = out_tok;
+
+    // Write preflight.yaml to the project root.
+    let yaml = extraction::manifest_to_yaml(&result.manifest).map_err(|e| e.to_string())?;
+    let path = PathBuf::from(&request.project_path).join(MANIFEST_FILE);
+    std::fs::write(&path, yaml).map_err(|e| {
+        format!("Failed to write {}: {}", path.display(), e)
+    })?;
+    log::info!(
+        "[preflight] wrote {} ({} capabilities, {} unresolved)",
+        path.display(),
+        result.manifest.capabilities.len(),
+        result.unresolved_refs.len()
+    );
+
+    Ok(result)
+}

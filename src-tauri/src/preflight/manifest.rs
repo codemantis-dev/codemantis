@@ -176,12 +176,11 @@ pub enum ManifestError {
     Parse(String),
 }
 
-/// We don't want a hard dependency on `serde_yaml` for Phase 0 (one more
-/// crate to audit). YAML parsing arrives in Phase 1 alongside the catalog.
-/// For now we accept JSON-format manifests — sufficient to validate the
-/// schema with unit tests.
+/// Parse YAML or JSON (YAML is a superset). Phase 1 added `serde_yml`
+/// alongside the catalog loader; we use it here too so real preflight.yaml
+/// files parse correctly.
 fn serde_yaml_with_serde_json(text: &str) -> Result<Manifest, ManifestError> {
-    serde_json::from_str(text).map_err(|e| ManifestError::Parse(e.to_string()))
+    serde_yml::from_str(text).map_err(|e| ManifestError::Parse(e.to_string()))
 }
 
 #[cfg(test)]

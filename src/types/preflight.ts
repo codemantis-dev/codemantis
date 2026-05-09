@@ -156,3 +156,31 @@ export const PREFLIGHT_EVENTS = {
   installerProgress: "preflight:installer_progress",
   detectionHit: "preflight:detection_hit",
 } as const;
+
+// ── SpecWriter → preflight.yaml extraction (Phase 4.5) ──
+
+export interface ExtractionSessionInput {
+  index: number;
+  name: string;
+  body: string;
+}
+
+export interface ExtractionRequest {
+  projectPath: string;
+  projectName: string;
+  specContent: string;
+  sessions: ExtractionSessionInput[];
+  /** Provider id matching settings.apiKeys (e.g. "anthropic", "openai"). */
+  aiProvider: string;
+  aiModel: string;
+}
+
+export interface ExtractionResult {
+  manifest: Manifest;
+  /** index → list of capability IDs to add to that session's `requires:`. */
+  requiresBySession: Record<number, string[]>;
+  /** Catalog refs the LLM proposed but the bundled catalog doesn't know. */
+  unresolvedRefs: string[];
+  inputTokens: number;
+  outputTokens: number;
+}
