@@ -1,0 +1,56 @@
+schema_version: "1.0"
+catalog_ref: resend.api_key
+display_name: Resend API Key
+service:
+  name: Resend
+  category: email
+  homepage: https://resend.com
+  icon: resend.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Transactional email API — sign-up confirmations, password resets,
+  receipts. Resend's free tier covers 3,000 emails/month with their
+  shared `onboarding@resend.dev` sender domain.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://api.resend.com/domains
+  auth: bearer
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^re_[A-Za-z0-9_]{20,}$"
+  hint: "Resend keys start with re_"
+  example_format: "re_… (≈ 35 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 2
+  steps:
+    - id: 1
+      title: "Sign up for Resend"
+      body: |
+        Free tier; no card required to start.
+      action:
+        kind: open_url
+        url: https://resend.com/signup
+        label: "Sign up"
+    - id: 2
+      title: "Open the API Keys page"
+      action:
+        kind: open_url
+        url: https://resend.com/api-keys
+        label: "Open API Keys"
+    - id: 3
+      title: "Click ‘Create API key’"
+      body: |
+        Choose **Sending access** for the permission scope (full access
+        is overkill for sending mail).
+    - id: 4
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

@@ -1,0 +1,59 @@
+schema_version: "1.0"
+catalog_ref: stripe.webhook.signing_secret
+display_name: Stripe Webhook Signing Secret
+service:
+  name: Stripe
+  category: payments
+  homepage: https://stripe.com
+  icon: stripe.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Used by your server to verify that webhook events actually came from
+  Stripe and weren't forged. You'll create one webhook endpoint per
+  environment (local, staging, production).
+
+verification_recipe:
+  # Webhook secrets can't be tested with a simple HTTP probe — that needs
+  # a real Stripe event delivery. So verification here is "value is stored
+  # and matches expected format".
+  kind: secret_present
+  key: stripe_webhook_signing_secret
+
+value_validation:
+  kind: regex
+  pattern: "^whsec_[A-Za-z0-9]{32,}$"
+  hint: "Stripe webhook secrets start with whsec_"
+  example_format: "whsec_… (≈ 38 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 4
+  steps:
+    - id: 1
+      title: "Open Stripe Webhooks"
+      action:
+        kind: open_url
+        url: https://dashboard.stripe.com/test/webhooks
+        label: "Open Webhooks"
+    - id: 2
+      title: "Add an endpoint"
+      body: |
+        Click **Add endpoint**. Use your local dev URL while developing
+        (e.g. via the Stripe CLI's `stripe listen --forward-to` command),
+        or your real backend URL for production.
+    - id: 3
+      title: "Pick events to listen for"
+      body: |
+        For most apps, start with `checkout.session.completed`,
+        `customer.subscription.updated`, and `invoice.paid`. Add more
+        events as your code needs them.
+    - id: 4
+      title: "Copy the Signing Secret"
+      body: |
+        Once the endpoint is created, click **Reveal** under "Signing
+        secret" and copy the value (starts with `whsec_`).
+    - id: 5
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

@@ -1,0 +1,63 @@
+schema_version: "1.0"
+catalog_ref: stripe.api_key.secret
+display_name: Stripe Secret API Key
+service:
+  name: Stripe
+  category: payments
+  homepage: https://stripe.com
+  icon: stripe.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Server-side key for charging customers, managing subscriptions, and
+  reading customer data. Use the **test** key (starts with `sk_test_`)
+  for development and switch to `sk_live_` when you're ready to accept
+  real payments.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://api.stripe.com/v1/account
+  auth: bearer
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^sk_(test|live)_[A-Za-z0-9]{24,}$"
+  hint: "Stripe secret keys start with sk_test_ or sk_live_"
+  example_format: "sk_test_… (≈ 100 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 3
+  steps:
+    - id: 1
+      title: "Sign in to the Stripe Dashboard"
+      body: |
+        Stripe is free to sign up. You won't be charged anything until
+        you accept your first real payment.
+      action:
+        kind: open_url
+        url: https://dashboard.stripe.com/login
+        label: "Open Stripe Dashboard"
+    - id: 2
+      title: "Make sure you're in test mode"
+      body: |
+        Use the **Test mode** toggle at the top of the dashboard while
+        you're developing — you can flip to live later.
+    - id: 3
+      title: "Open the API keys page"
+      action:
+        kind: open_url
+        url: https://dashboard.stripe.com/test/apikeys
+        label: "Open API keys"
+    - id: 4
+      title: "Reveal and copy the Secret key"
+      body: |
+        Click **Reveal test key** next to the Secret key row, then copy
+        the value (it starts with `sk_test_`).
+    - id: 5
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

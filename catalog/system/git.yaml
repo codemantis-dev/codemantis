@@ -1,0 +1,35 @@
+schema_version: "1.0"
+catalog_ref: system.git
+display_name: Git version control
+service:
+  name: Git
+  category: version_control
+  homepage: https://git-scm.com
+  icon: git.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Standard version control system. Required for cloning project templates,
+  tracking changes, and pushing to GitHub.
+
+verification_recipe:
+  kind: shell_command
+  command: "git --version"
+  success_when: "exit_code == 0"
+  timeout_ms: 3000
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 3
+  steps:
+    - id: 1
+      title: "Install Git via Apple's Command Line Tools"
+      body: |
+        On macOS, the easiest way is to run this in Terminal:
+        `xcode-select --install`
+        It opens a system installer and only takes a couple of minutes.
+    - id: 2
+      title: "Verify"
+      action:
+        kind: manual_confirm
+        label: "I've installed it"

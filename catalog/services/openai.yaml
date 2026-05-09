@@ -1,0 +1,57 @@
+schema_version: "1.0"
+catalog_ref: openai.api_key
+display_name: OpenAI API Key
+service:
+  name: OpenAI
+  category: llm_provider
+  homepage: https://openai.com
+  icon: openai.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  API key for using GPT models (GPT-4o, GPT-5, o-series) via the OpenAI API.
+  Used by CodeMantis features that call GPT directly — Changelog summarisation,
+  the in-app Assistant, and SpecWriter.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://api.openai.com/v1/models
+  auth: bearer
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^sk-(proj-)?[A-Za-z0-9_-]{20,}$"
+  hint: "OpenAI keys start with sk- (project keys with sk-proj-)"
+  example_format: "sk-proj-… (≈ 50 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 3
+  steps:
+    - id: 1
+      title: "Sign in to the OpenAI Platform"
+      body: |
+        You'll need an OpenAI account. Sign-up is free; you'll only be
+        charged for the tokens you actually use.
+      action:
+        kind: open_url
+        url: https://platform.openai.com/login
+        label: "Open OpenAI Platform"
+    - id: 2
+      title: "Open the API Keys page"
+      action:
+        kind: open_url
+        url: https://platform.openai.com/api-keys
+        label: "Open API Keys"
+    - id: 3
+      title: "Create a new secret key"
+      body: |
+        Click **Create new secret key**, name it "CodeMantis", and copy
+        the value when it appears. You won't be able to see it again.
+    - id: 4
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

@@ -1,0 +1,59 @@
+schema_version: "1.0"
+catalog_ref: anthropic.api_key
+display_name: Anthropic API Key
+service:
+  name: Anthropic
+  category: llm_provider
+  homepage: https://www.anthropic.com
+  icon: anthropic.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  API key for using Claude (Sonnet, Opus, Haiku) via the Anthropic API.
+  Used by CodeMantis features that call Claude directly — Changelog
+  summarisation, the in-app Assistant, and SpecWriter.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://api.anthropic.com/v1/models
+  auth: x_api_key
+  extra_headers:
+    anthropic-version: "2023-06-01"
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}$"
+  hint: "Anthropic keys start with sk-ant-api"
+  example_format: "sk-ant-api03-…"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 3
+  steps:
+    - id: 1
+      title: "Sign in to the Anthropic Console"
+      body: |
+        If you don't have an account yet, you can sign up for free.
+        You only get charged when you actually use the API.
+      action:
+        kind: open_url
+        url: https://console.anthropic.com/login
+        label: "Open Anthropic Console"
+    - id: 2
+      title: "Open the API Keys page"
+      action:
+        kind: open_url
+        url: https://console.anthropic.com/settings/keys
+        label: "Open API Keys"
+    - id: 3
+      title: "Create a key and copy the value"
+      body: |
+        Click **Create Key**, give it a name like "CodeMantis", and copy
+        the key shown. You only see the full value once — keep it safe.
+    - id: 4
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

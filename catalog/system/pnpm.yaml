@@ -1,0 +1,29 @@
+schema_version: "1.0"
+catalog_ref: system.pnpm
+display_name: pnpm package manager
+service:
+  name: pnpm
+  category: package_manager
+  homepage: https://pnpm.io
+  icon: pnpm.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Fast, disk-space-efficient alternative to npm. Used by many modern
+  TypeScript projects (including CodeMantis itself).
+
+verification_recipe:
+  kind: shell_command
+  command: "pnpm --version"
+  success_when: "exit_code == 0"
+  timeout_ms: 3000
+
+remediation:
+  kind: automated
+  estimated_minutes: 1
+  command: "npm"
+  args:
+    - "install"
+    - "-g"
+    - "pnpm"
+  success_message: "pnpm installed successfully"

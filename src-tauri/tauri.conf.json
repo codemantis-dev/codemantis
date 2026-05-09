@@ -62,11 +62,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "resources/templates.json",
-      "resources/claude-md/*",
-      "resources/user-guide.md",
-      "resources/super-bro/*"
-    ]
+    "resources": {
+      "resources/templates.json": "resources/templates.json",
+      "resources/claude-md/*": "resources/claude-md/",
+      "resources/user-guide.md": "resources/user-guide.md",
+      "resources/super-bro/*": "resources/super-bro/",
+      "../catalog/version.json": "catalog/version.json",
+      "../catalog/LICENSE": "catalog/LICENSE",
+      "../catalog/services/*.yaml": "catalog/services/",
+      "../catalog/system/*.yaml": "catalog/system/"
+    }
   }
 }

@@ -1,0 +1,61 @@
+schema_version: "1.0"
+catalog_ref: google_oauth.client_id
+display_name: Google OAuth Client ID
+service:
+  name: Google Cloud OAuth
+  category: auth
+  homepage: https://console.cloud.google.com
+  icon: google.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  OAuth 2.0 Client ID for "Sign in with Google" flows. The Client ID is
+  the public half of the credentials — safe to embed in your frontend.
+  The Client Secret is a separate, sibling capability.
+
+verification_recipe:
+  # Live verification needs a full OAuth round-trip with redirect URIs.
+  # Until then, verification is "value is stored and matches expected format".
+  kind: secret_present
+  key: google_oauth_client_id
+
+value_validation:
+  kind: regex
+  pattern: "^[0-9]+-[a-z0-9]+\\.apps\\.googleusercontent\\.com$"
+  hint: "Google OAuth client IDs end in .apps.googleusercontent.com"
+  example_format: "123456789-abc.apps.googleusercontent.com"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 8
+  steps:
+    - id: 1
+      title: "Open Google Cloud Console"
+      body: |
+        You'll need a Google account. If you don't have a Cloud project
+        yet, create one — the free tier covers most OAuth use.
+      action:
+        kind: open_url
+        url: https://console.cloud.google.com/apis/credentials
+        label: "Open Credentials"
+    - id: 2
+      title: "Configure the OAuth consent screen"
+      body: |
+        If prompted, choose **External** user type and fill in the app
+        name, your support email, and the redirect domain. You only have
+        to do this once per project.
+    - id: 3
+      title: "Create an OAuth Client ID"
+      body: |
+        Click **Create Credentials → OAuth client ID**. Choose **Web
+        application**. Add your redirect URIs (e.g.
+        `http://localhost:3000/auth/callback` for development).
+    - id: 4
+      title: "Copy the Client ID"
+      body: |
+        Use the value ending in `.apps.googleusercontent.com`. The
+        client *secret* goes in a separate capability.
+    - id: 5
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

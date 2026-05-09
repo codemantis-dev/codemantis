@@ -100,8 +100,14 @@ pub enum Verification {
         #[serde(default = "default_get")]
         method: String,
         url: String,
+        /// Auth scheme hint for the Phase 2 verifier. Recognised values:
+        /// `bearer` (Authorization: Bearer …), `x_api_key` (x-api-key: …),
+        /// `query_param:<name>` (?<name>=…). None = no auth header injected.
         #[serde(default)]
         auth: Option<String>,
+        /// Verbatim headers added to the request (e.g. `anthropic-version`).
+        #[serde(default)]
+        extra_headers: HashMap<String, String>,
         #[serde(default)]
         success_when: Option<String>,
         #[serde(default = "default_timeout")]

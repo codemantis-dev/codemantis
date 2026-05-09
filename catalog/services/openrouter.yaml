@@ -1,0 +1,51 @@
+schema_version: "1.0"
+catalog_ref: openrouter.api_key
+display_name: OpenRouter API Key
+service:
+  name: OpenRouter
+  category: llm_provider
+  homepage: https://openrouter.ai
+  icon: openrouter.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  OpenRouter gives you access to 200+ models from many providers under
+  one API key — including free tiers. A good "starter" option if you
+  don't already have an Anthropic or OpenAI account.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://openrouter.ai/api/v1/auth/key
+  auth: bearer
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^sk-or-v1-[a-f0-9]{40,}$"
+  hint: "OpenRouter keys start with sk-or-v1-"
+  example_format: "sk-or-v1-… (hexadecimal)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 2
+  steps:
+    - id: 1
+      title: "Sign in to OpenRouter"
+      body: |
+        Sign-up is free and works with Google, GitHub, or email. Many
+        OpenRouter models are completely free — no card required.
+      action:
+        kind: open_url
+        url: https://openrouter.ai/keys
+        label: "Open OpenRouter keys"
+    - id: 2
+      title: "Click ‘Create Key’"
+      body: |
+        Give the key any name (e.g. "CodeMantis") and copy the value.
+        You'll only see it once.
+    - id: 3
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

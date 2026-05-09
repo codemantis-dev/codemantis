@@ -1,0 +1,51 @@
+schema_version: "1.0"
+catalog_ref: gemini.api_key
+display_name: Google Gemini API Key
+service:
+  name: Google AI Studio (Gemini)
+  category: llm_provider
+  homepage: https://ai.google.dev
+  icon: gemini.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  API key for Google's Gemini models. The free tier covers a generous
+  daily quota, which is enough for most CodeMantis Changelog and
+  Assistant usage.
+
+verification_recipe:
+  kind: api_probe
+  method: GET
+  url: https://generativelanguage.googleapis.com/v1beta/models
+  auth: "query_param:key"
+  success_when: "status == 200"
+  timeout_ms: 5000
+
+value_validation:
+  kind: regex
+  pattern: "^[A-Za-z0-9_-]{30,50}$"
+  hint: "Google API keys are ~39 characters of letters, digits, and dashes"
+  example_format: "AIzaSy… (39 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 2
+  steps:
+    - id: 1
+      title: "Open Google AI Studio"
+      body: |
+        Sign in with any Google account. Gemini's free tier doesn't
+        require billing setup for most use.
+      action:
+        kind: open_url
+        url: https://aistudio.google.com/app/apikey
+        label: "Open API key page"
+    - id: 2
+      title: "Click ‘Create API key’"
+      body: |
+        Choose any project (or let Google create a new one). Copy the
+        key when it appears.
+    - id: 3
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

@@ -1,0 +1,47 @@
+schema_version: "1.0"
+catalog_ref: system.node.20
+display_name: Node.js 20 or newer
+service:
+  name: Node.js
+  category: runtime
+  homepage: https://nodejs.org
+  icon: node.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  JavaScript runtime needed by most modern web frameworks (Next.js, Vite,
+  Astro, etc.). Version 20 is the current Long-Term-Support release.
+
+verification_recipe:
+  kind: shell_command
+  command: "node --version"
+  success_when: "stdout matches '^v(2[0-9]|[3-9][0-9])'"
+  timeout_ms: 3000
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 4
+  steps:
+    - id: 1
+      title: "Install Node.js"
+      body: |
+        We recommend using the official installer — it's the simplest path.
+        If you already use a version manager like nvm or fnm, install
+        Node 20 there instead.
+      action:
+        kind: open_url
+        url: https://nodejs.org/en/download
+        label: "Download Node.js"
+    - id: 2
+      title: "Run the installer"
+      body: |
+        Double-click the downloaded `.pkg` and follow the prompts. The
+        installer sets up `node` and `npm` automatically.
+    - id: 3
+      title: "Verify the installation"
+      body: |
+        After installing, click **Verify** to check that Node 20+ is now
+        available on your system.
+      action:
+        kind: manual_confirm
+        label: "I've installed it"

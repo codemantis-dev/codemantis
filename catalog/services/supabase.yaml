@@ -1,0 +1,55 @@
+schema_version: "1.0"
+catalog_ref: supabase.anon_key
+display_name: Supabase Project Anon Key
+service:
+  name: Supabase
+  category: backend
+  homepage: https://supabase.com
+  icon: supabase.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  The public "anon" key for your Supabase project. Used by the frontend
+  to talk to your database, auth, and storage. Safe to embed in client
+  code (it's row-level-security that protects your data, not this key).
+
+verification_recipe:
+  # Live verification needs your project URL too, which lives in a sibling
+  # capability. Once both are set, CodeMantis will smoke-test them together.
+  # Until then, verification is "value is stored and matches expected format".
+  kind: secret_present
+  key: supabase_anon_key
+
+value_validation:
+  kind: regex
+  pattern: "^eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}$"
+  hint: "Supabase anon keys are JWTs (three dot-separated segments starting with eyJ)"
+  example_format: "eyJhbGciOi… (≈ 200 characters)"
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 2
+  steps:
+    - id: 1
+      title: "Open your Supabase project"
+      body: |
+        If you don't have a project yet, create one — the free tier covers
+        most early-stage projects.
+      action:
+        kind: open_url
+        url: https://supabase.com/dashboard
+        label: "Open Supabase Dashboard"
+    - id: 2
+      title: "Go to Project Settings → API"
+      body: |
+        In the left sidebar, click the gear icon, then **API**. You'll see
+        your Project URL and two keys.
+    - id: 3
+      title: "Copy the anon (public) key"
+      body: |
+        Use the **anon** key, not the service_role key. The service_role
+        key has full access and should never leave your server.
+    - id: 4
+      title: "Paste it here"
+      action:
+        kind: paste_and_verify

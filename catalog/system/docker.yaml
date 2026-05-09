@@ -1,0 +1,43 @@
+schema_version: "1.0"
+catalog_ref: system.docker
+display_name: Docker Desktop
+service:
+  name: Docker
+  category: containerization
+  homepage: https://www.docker.com
+  icon: docker.svg
+  trust_tier: curated
+  last_verified: "2026-05-09"
+description: |
+  Containerization runtime. Needed by projects that ship as Docker
+  images, run a local Postgres/Redis, or deploy to container platforms.
+
+verification_recipe:
+  kind: shell_command
+  command: "docker --version"
+  success_when: "exit_code == 0"
+  timeout_ms: 5000
+
+remediation:
+  kind: guided_steps
+  estimated_minutes: 5
+  steps:
+    - id: 1
+      title: "Download Docker Desktop"
+      body: |
+        Pick the right build for your Mac (Apple silicon vs Intel).
+        It's free for personal and small-team use.
+      action:
+        kind: open_url
+        url: https://www.docker.com/products/docker-desktop
+        label: "Download Docker Desktop"
+    - id: 2
+      title: "Install and launch"
+      body: |
+        Drag Docker.app into Applications, then open it. Docker Desktop
+        needs to be running for the `docker` command to work.
+    - id: 3
+      title: "Verify"
+      action:
+        kind: manual_confirm
+        label: "I've installed it"
