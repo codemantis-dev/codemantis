@@ -7,5 +7,11 @@
 // `_guidance/requirements/CodeMantis_SPEC-Preflight-System-v1.md.md`.
 
 pub mod catalog;
+pub mod commands;
+pub mod detection;
+pub mod events;
+pub mod installer;
 pub mod manifest;
 pub mod secrets;
+pub mod status;
+pub mod verification;

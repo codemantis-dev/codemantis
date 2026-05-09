@@ -10,6 +10,13 @@ import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
 import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult, ProjectAnalysis } from "../types/project-templates";
+import type {
+  CapabilityStatus,
+  DetectionHit,
+  InstallResult,
+  Manifest,
+  PreflightStatus,
+} from "../types/preflight";
 
 // --- Startup ---
 
@@ -1033,4 +1040,54 @@ export function listenOpenUpdateModal(
   callback: () => void,
 ): Promise<UnlistenFn> {
   return listen<void>("open-update-modal", () => callback());
+}
+
+// ── Preflight System ──
+
+export async function preflightLoadManifest(projectPath: string): Promise<Manifest> {
+  return invoke<Manifest>("preflight_load_manifest", { projectPath });
+}
+
+export async function preflightStatus(projectPath: string): Promise<PreflightStatus> {
+  return invoke<PreflightStatus>("preflight_status", { projectPath });
+}
+
+export async function preflightVerifyOne(
+  projectPath: string,
+  capabilityId: string,
+): Promise<CapabilityStatus> {
+  return invoke<CapabilityStatus>("preflight_verify_one", {
+    projectPath,
+    capabilityId,
+  });
+}
+
+export async function preflightVerifyAll(
+  projectPath: string,
+): Promise<CapabilityStatus[]> {
+  return invoke<CapabilityStatus[]>("preflight_verify_all", { projectPath });
+}
+
+export async function preflightStoreSecret(
+  projectPath: string,
+  capabilityId: string,
+  value: string,
+): Promise<void> {
+  return invoke("preflight_store_secret", { projectPath, capabilityId, value });
+}
+
+export async function preflightRunAutoInstall(
+  projectPath: string,
+  capabilityId: string,
+): Promise<InstallResult> {
+  return invoke<InstallResult>("preflight_run_auto_install", {
+    projectPath,
+    capabilityId,
+  });
+}
+
+export async function preflightDetectExisting(
+  projectPath: string,
+): Promise<DetectionHit[]> {
+  return invoke<DetectionHit[]>("preflight_detect_existing", { projectPath });
 }

@@ -163,3 +163,25 @@ CREATE TABLE IF NOT EXISTS self_drive_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_self_drive_runs_updated ON self_drive_runs(updated_at);
 "#;
+
+// Preflight System — last-known verification state per (project, capability).
+// Cached so the UI can render an at-a-glance "ready / needs setup" status
+// without re-running every probe on each launch. Fresh verification still
+// runs in the background when the project is opened.
+pub const MIGRATE_PREFLIGHT_CAPABILITIES: &str = r#"
+CREATE TABLE IF NOT EXISTS preflight_capabilities (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    capability_id TEXT NOT NULL,
+    catalog_ref TEXT,
+    state TEXT NOT NULL,
+    last_checked INTEGER NOT NULL,
+    last_message TEXT,
+    last_error TEXT,
+    detection_source TEXT,
+    user_acknowledged_optional_skip INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_preflight_capabilities_project ON preflight_capabilities(project_id);
+"#;

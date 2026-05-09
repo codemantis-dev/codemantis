@@ -42,6 +42,20 @@ pub struct Capability {
     pub required: bool,
     #[serde(default = "default_true")]
     pub blocks_self_drive: bool,
+    /// Hints for the pre-existing detection scanner. Only consulted when
+    /// `category == pre_existing_detection`.
+    #[serde(default)]
+    pub detection_hints: DetectionHints,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DetectionHints {
+    /// Process environment variables that commonly hold this capability's
+    /// value (e.g. `["OPENAI_API_KEY", "OPENAI_API_TOKEN"]`). Detection only
+    /// notes their presence — never reads or stores their content.
+    #[serde(default)]
+    pub env_vars: Vec<String>,
 }
 
 fn default_true() -> bool {

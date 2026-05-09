@@ -115,6 +115,13 @@ pub struct PersistedSession {
 }
 
 impl Database {
+    /// Crate-private accessor used by feature modules (e.g. `preflight::status`)
+    /// that want to keep their CRUD code in their own file rather than
+    /// inflating database.rs. Hold the mutex briefly — never across awaits.
+    pub(crate) fn conn(&self) -> &Mutex<Connection> {
+        &self.conn
+    }
+
     pub fn new(db_path: &str) -> Result<Self, AppError> {
         let conn = Connection::open(db_path)
             .map_err(|e| AppError::DatabaseError(format!("Failed to open database: {}", e)))?;
@@ -174,6 +181,9 @@ impl Database {
 
         // Self-Drive run state table (restart recovery)
         let _ = conn.execute_batch(migrations::MIGRATE_SELF_DRIVE_RUNS);
+
+        // Preflight System — cached capability verification state per project.
+        let _ = conn.execute_batch(migrations::MIGRATE_PREFLIGHT_CAPABILITIES);
 
         // Always drop planning_messages if it exists.
         // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
