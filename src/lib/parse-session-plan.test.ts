@@ -245,6 +245,93 @@ Polish.
       { action: "record_metric", handler: "services/metrics/consumer.ts::recordMetric" },
     ]);
   });
+
+  it("leaves `wire` undefined on rows with no wire field — backward compatible", () => {
+    const s = `### Session 1: A
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+
+**Cross-system actions introduced:**
+- action: \`insert_note\` → handler: \`functions/notes.py\`
+
+**Verify before next session:**
+- [ ] paired [integration]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    const actions = result!.sessions[0].crossSystemActions;
+    expect(actions).toHaveLength(1);
+    expect(actions![0]).toEqual({
+      action: "insert_note",
+      handler: "functions/notes.py",
+    });
+    expect(actions![0].wire).toBeUndefined();
+  });
+
+  it("captures the optional inline (wire: `x`) field between action and arrow", () => {
+    const s = `### Session 1: A
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+
+**Cross-system actions introduced:**
+- action: \`resolve_checkpoint\` (wire: \`hitl-respond\`) → handler: \`functions/hitl-respond/index.ts::resolveCheckpoint\`
+
+**Verify before next session:**
+- [ ] paired [integration]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    const actions = result!.sessions[0].crossSystemActions;
+    expect(actions).toHaveLength(1);
+    expect(actions![0]).toEqual({
+      action: "resolve_checkpoint",
+      handler: "functions/hitl-respond/index.ts::resolveCheckpoint",
+      wire: "hitl-respond",
+    });
+  });
+
+  it("ignores a malformed wire token and still parses action + handler", () => {
+    // The parenthetical is parsed separately for `wire:`; a malformed
+    // token (no colon, no backticked value) degrades gracefully — the row
+    // is still captured with wire undefined rather than being dropped.
+    const s = `### Session 1: A
+**Prompt for Claude Code:**
+\`\`\`
+Do.
+\`\`\`
+
+**Cross-system actions introduced:**
+- action: \`foo\` (wire ) → handler: \`bar.ts\`
+
+**Verify before next session:**
+- [ ] paired [integration]
+
+### Session 2: Polish
+**Prompt for Claude Code:**
+\`\`\`
+Polish.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(s));
+    const actions = result!.sessions[0].crossSystemActions;
+    expect(actions).toHaveLength(1);
+    expect(actions![0]).toEqual({ action: "foo", handler: "bar.ts" });
+    expect(actions![0].wire).toBeUndefined();
+  });
 });
 
 describe("parseSessionPlan", () => {

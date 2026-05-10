@@ -682,10 +682,27 @@ When implementing a spec from docs/specs/:
 pub struct ActionParityRequest {
     /// The action name issued by the caller (e.g. "insert_note_classification").
     pub action: String,
-    /// Path the caller code lives under (file or directory). Absolute or relative to project root.
+    /// Single caller path (legacy field). Either this OR `caller_paths` must
+    /// be set; both being non-empty is allowed and the two are unioned at
+    /// check time. Empty string means "use caller_paths only".
+    #[serde(default)]
     pub caller_path: String,
+    /// Multiple caller paths — preferred. The action/wire is considered
+    /// found if it appears in ANY of these (file or directory). Self-Drive
+    /// populates this with every distinct directory across the session's
+    /// declared files so the gate doesn't false-positive when the call
+    /// site lives in a sibling directory.
+    #[serde(default)]
+    pub caller_paths: Vec<String>,
     /// Path the handler code lives under (file or directory). Absolute or relative to project root.
     pub handler_path: String,
+    /// Optional on-the-wire identifier. When present and non-empty, the
+    /// grep needle becomes this value instead of `action` — useful when
+    /// the JS function name and the URL slug / edge-function name differ
+    /// (e.g. `action: "resolve_checkpoint"` but the actual wire string is
+    /// `"hitl-respond"`). Defaults to `action` when None or empty.
+    #[serde(default)]
+    pub wire: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -708,10 +725,13 @@ pub struct ActionParityResult {
 
 /// Run a static handshake-parity check across declared cross-system actions.
 ///
-/// For each declared `(action, caller_path, handler_path)`, this command:
-///   1. ripgreps `caller_path` for the action string — must match.
-///   2. ripgreps `handler_path` for the action string — must match.
+/// For each declared row, this command:
+///   1. ripgreps every caller path (`caller_path` and/or `caller_paths`)
+///      for the needle — PASS if at least one path contains it.
+///   2. ripgreps `handler_path` for the needle — must match.
 ///   3. ripgreps `handler_path` for stub markers — must NOT match.
+///
+/// The needle is `wire` when present and non-empty, otherwise `action`.
 ///
 /// Returns one `ActionParityResult` per input, in the same order. The
 /// caller (Self-Drive) decides whether to block session completion; this
@@ -734,11 +754,50 @@ pub async fn verify_action_parity(
 }
 
 fn check_one_action(root: &Path, req: &ActionParityRequest) -> ActionParityResult {
-    let caller_path = resolve_under(root, &req.caller_path);
-    let handler_path = resolve_under(root, &req.handler_path);
+    // Needle: wire when set and non-empty, else action. This lets the spec
+    // declare a friendly action label distinct from the on-the-wire string
+    // — important because the static grep is fixed-substring and the actual
+    // call site may only carry the URL slug, not the verb name.
+    let has_wire = req
+        .wire
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let needle: String = req
+        .wire
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(req.action.as_str())
+        .to_string();
 
-    let caller_present = rg_has_match(&caller_path, &req.action);
-    let handler_present = rg_has_match(&handler_path, &req.action);
+    // Union the two caller-path inputs, dedup, drop empties. The legacy
+    // single field is kept so older callers / DB rows / Tauri shims still
+    // work without modification; new callers populate `caller_paths`.
+    let mut caller_inputs: Vec<String> = Vec::new();
+    if !req.caller_path.trim().is_empty() {
+        caller_inputs.push(req.caller_path.clone());
+    }
+    for p in &req.caller_paths {
+        let trimmed = p.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !caller_inputs.iter().any(|existing| existing == p) {
+            caller_inputs.push(p.clone());
+        }
+    }
+    // Last-resort: no caller paths declared at all → scan project root.
+    // Expensive but correct, and matches the prior fallback behaviour.
+    if caller_inputs.is_empty() {
+        caller_inputs.push(".".to_string());
+    }
+
+    let caller_present = caller_inputs
+        .iter()
+        .any(|p| rg_has_match(&resolve_under(root, p), &needle));
+
+    let handler_path = resolve_under(root, &req.handler_path);
+    let handler_present = rg_has_match(&handler_path, &needle);
 
     // Stub scan only matters when the handler path actually exists.
     // An absent handler is already a fail; no point searching its files.
@@ -751,21 +810,30 @@ fn check_one_action(root: &Path, req: &ActionParityRequest) -> ActionParityResul
         false
     };
 
+    let needle_label = if has_wire { "wire" } else { "action" };
+    let wire_suffix = if has_wire {
+        format!(" (wire for action '{}')", req.action)
+    } else {
+        String::new()
+    };
+
     let pass = caller_present && handler_present && handler_stub_free;
     let detail = if pass {
         format!(
-            "caller + handler both reference '{}' and handler is stub-free",
-            req.action
+            "caller + handler both reference '{}' and handler is stub-free{}",
+            needle, wire_suffix
         )
     } else if !caller_present {
         format!(
-            "caller path '{}' does not reference action '{}'",
-            req.caller_path, req.action
+            "no caller path in [{}] references {} '{}'",
+            caller_inputs.join(", "),
+            needle_label,
+            needle
         )
     } else if !handler_present {
         format!(
-            "handler path '{}' does not reference action '{}' — the other side of this call has not been implemented",
-            req.handler_path, req.action
+            "handler path '{}' does not reference {} '{}' — the other side of this call has not been implemented",
+            req.handler_path, needle_label, needle
         )
     } else {
         format!(
@@ -1367,7 +1435,9 @@ mod tests {
         let actions = vec![ActionParityRequest {
             action: "insert_note_classification".to_string(),
             caller_path: "workers/notes".to_string(),
+            caller_paths: vec![],
             handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+            wire: None,
         }];
 
         let results = verify_action_parity(
@@ -1406,7 +1476,9 @@ mod tests {
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
                 caller_path: "workers/notes".to_string(),
+                caller_paths: vec![],
                 handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+                wire: None,
             }],
         )
         .await
@@ -1435,7 +1507,9 @@ mod tests {
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
                 caller_path: "workers/notes".to_string(),
+                caller_paths: vec![],
                 handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+                wire: None,
             }],
         )
         .await
@@ -1470,7 +1544,9 @@ mod tests {
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
                 caller_path: "workers/notes".to_string(),
+                caller_paths: vec![],
                 handler_path: "functions/worker-data-write/actions/notes.py".to_string(),
+                wire: None,
             }],
         )
         .await
@@ -1506,7 +1582,9 @@ mod tests {
             vec![ActionParityRequest {
                 action: "emit_audit_log".to_string(),
                 caller_path: "producers/audit.ts".to_string(),
+                caller_paths: vec![],
                 handler_path: "services/audit/sink.ts::recordAudit".to_string(),
+                wire: None,
             }],
         )
         .await
@@ -1535,12 +1613,16 @@ mod tests {
                 ActionParityRequest {
                     action: "a".to_string(),
                     caller_path: "caller.ts".to_string(),
+                    caller_paths: vec![],
                     handler_path: "handler.ts".to_string(),
+                    wire: None,
                 },
                 ActionParityRequest {
                     action: "b".to_string(),
                     caller_path: "caller.ts".to_string(),
+                    caller_paths: vec![],
                     handler_path: "handler.ts".to_string(),
+                    wire: None,
                 },
             ],
         )
@@ -1553,6 +1635,162 @@ mod tests {
         assert_eq!(results[1].action, "b");
         assert_eq!(results[1].status, "FAIL");
         assert!(!results[1].handler_present);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_passes_with_legacy_single_caller_path() {
+        // Back-compat: callers that only fill `caller_path` (old shape)
+        // must still PASS when the action is found there. No `caller_paths`,
+        // no `wire`.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+        write(
+            &root.join("src/api/notes.ts"),
+            "call('write', 'insert_note', {});\n",
+        );
+        write(
+            &root.join("functions/handler.ts"),
+            "switch (action) { case 'insert_note': return ok(); }\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "insert_note".to_string(),
+                caller_path: "src/api/notes.ts".to_string(),
+                caller_paths: vec![],
+                handler_path: "functions/handler.ts".to_string(),
+                wire: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results[0].status, "PASS");
+        assert!(results[0].caller_present);
+        assert!(results[0].handler_present);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_passes_when_action_is_in_second_of_multi_caller_paths() {
+        // Regression test for the rustling-wind false-positive: session
+        // declares files spanning multiple directories; the action string
+        // lives in a sibling dir of the "first" one. With the old single-
+        // path scan this FAIL'd; with multi-path union it PASSes.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+        // `src/hooks/` has NO mention of the action…
+        write(
+            &root.join("src/hooks/useResolve.ts"),
+            "export function useResolve() { return resolveCheckpoint(); }\n",
+        );
+        // …but `src/lib/api/` does.
+        write(
+            &root.join("src/lib/api/notes.ts"),
+            "fetch('/api', { body: JSON.stringify({ action: 'insert_note' }) });\n",
+        );
+        write(
+            &root.join("functions/handler.ts"),
+            "switch (action) { case 'insert_note': return ok(); }\n",
+        );
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "insert_note".to_string(),
+                caller_path: "".to_string(),
+                caller_paths: vec!["src/hooks".to_string(), "src/lib/api".to_string()],
+                handler_path: "functions/handler.ts".to_string(),
+                wire: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results[0].status, "PASS", "detail was: {}", results[0].detail);
+        assert!(results[0].caller_present);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_uses_wire_string_when_present_not_action_name() {
+        // The spec author uses a snake_case action label that the actual
+        // call site doesn't carry — the wire string is a kebab-case URL
+        // slug instead. With `wire` set, the gate searches for the wire;
+        // without it, the same setup FAILs (control case).
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+        write(
+            &root.join("src/hooks/useResolve.ts"),
+            // The literal action label `resolve_checkpoint` appears
+            // nowhere — only the wire string `hitl-respond` does.
+            "fetch('/functions/hitl-respond', { method: 'POST' });\n",
+        );
+        write(
+            &root.join("functions/hitl-respond/index.ts"),
+            "export function handler() { /* hitl-respond handler */ }\n",
+        );
+
+        // With wire — PASSes
+        let with_wire = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "resolve_checkpoint".to_string(),
+                caller_path: "src/hooks".to_string(),
+                caller_paths: vec![],
+                handler_path: "functions/hitl-respond/index.ts".to_string(),
+                wire: Some("hitl-respond".to_string()),
+            }],
+        )
+        .await
+        .unwrap();
+        assert_eq!(with_wire[0].status, "PASS", "detail: {}", with_wire[0].detail);
+        assert!(with_wire[0].detail.contains("wire"));
+
+        // Without wire — control: same fixture FAILs because the literal
+        // action name is nowhere to be found.
+        let no_wire = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "resolve_checkpoint".to_string(),
+                caller_path: "src/hooks".to_string(),
+                caller_paths: vec![],
+                handler_path: "functions/hitl-respond/index.ts".to_string(),
+                wire: None,
+            }],
+        )
+        .await
+        .unwrap();
+        assert_eq!(no_wire[0].status, "FAIL");
+        assert!(!no_wire[0].caller_present);
+    }
+
+    #[tokio::test]
+    async fn verify_action_parity_fails_when_no_caller_path_contains_wire() {
+        // When the gate FAILs, the detail message must list every scanned
+        // caller path so the recovery prompt can pin-point what was checked.
+        let dir = temp_dir();
+        let root = dir.path().to_path_buf();
+        write(&root.join("src/a/file.ts"), "noop\n");
+        write(&root.join("src/b/file.ts"), "noop\n");
+        write(&root.join("functions/handler.ts"), "switch (a) { case 'foo': }\n");
+
+        let results = verify_action_parity(
+            root.to_string_lossy().to_string(),
+            vec![ActionParityRequest {
+                action: "foo".to_string(),
+                caller_path: "".to_string(),
+                caller_paths: vec!["src/a".to_string(), "src/b".to_string()],
+                handler_path: "functions/handler.ts".to_string(),
+                wire: None,
+            }],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results[0].status, "FAIL");
+        assert!(!results[0].caller_present);
+        assert!(results[0].detail.contains("src/a"));
+        assert!(results[0].detail.contains("src/b"));
     }
 
     // ── detect_framework ─────────────────────────────────────────────────

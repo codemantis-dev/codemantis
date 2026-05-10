@@ -45,7 +45,9 @@ interface ParityCallResult {
 interface ParityCallRequest {
   action: string;
   callerPath: string;
+  callerPaths?: string[];
   handlerPath: string;
+  wire?: string;
 }
 const mockVerifyActionParity = vi.hoisted(() =>
   vi.fn<
@@ -102,6 +104,7 @@ import {
   toggleVerifyCheckForSession,
   markPromptSentForSession,
   markVerifyRequestedForSession,
+  deriveCallerPaths,
 } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
@@ -2343,7 +2346,7 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     checks: { id: string; label: string; checked: boolean }[];
     status?: "pending" | "active" | "done";
     files?: string[];
-    crossSystemActions?: { action: string; handler: string }[];
+    crossSystemActions?: { action: string; handler: string; wire?: string }[];
   }): ImplementationGuide["sessions"][number] {
     return {
       index: overrides.index,
@@ -2732,6 +2735,126 @@ describe("attemptMarkSessionComplete — cross-system parity gate", () => {
     expect((outcome as { reason: string }).reason).toBe("checks-incomplete");
     expect(mockVerifyActionParity).not.toHaveBeenCalled();
     expect(useSelfDriveStore.getState().guide!.sessions[0].status).toBe("active");
+  });
+
+  it("passes every distinct directory from session.files as callerPaths (multi-dir scan)", async () => {
+    // Regression for the rustling-wind false-positive: the prior
+    // deriveCallerPath used files[0]'s directory only, so callers in any
+    // other declared directory got missed. The fix: every distinct dir
+    // becomes a callerPath, and Rust unions them.
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "insert_note",
+        callerPresent: true,
+        handlerPresent: true,
+        handlerStubFree: true,
+        status: "PASS",
+        detail: "ok",
+      },
+    ]);
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: [
+              "src/components/Foo.tsx",
+              "src/components/Bar.tsx", // dedup target — same dir as Foo
+              "src/hooks/useFoo.ts",
+              "src/lib/api/notes.ts",
+            ],
+            crossSystemActions: [
+              { action: "insert_note", handler: "functions/handler.ts" },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const outcome = await attemptMarkSessionComplete(1);
+    expect(outcome.ok).toBe(true);
+    const [, requests] = mockVerifyActionParity.mock.calls[0];
+    expect(requests).toHaveLength(1);
+    const req = requests[0] as {
+      callerPaths: string[];
+      callerPath: string;
+      wire?: string;
+    };
+    // All three distinct dirs collected (Foo + Bar collapse to one)
+    expect(req.callerPaths.sort()).toEqual(
+      ["src/components", "src/hooks", "src/lib/api"].sort(),
+    );
+    // Legacy field intentionally empty — Rust unions the two.
+    expect(req.callerPath).toBe("");
+    expect(req.wire).toBeUndefined();
+  });
+
+  it("forwards the action.wire field to verifyActionParity when set on the session", async () => {
+    mockVerifyActionParity.mockResolvedValueOnce([
+      {
+        action: "resolve_checkpoint",
+        callerPresent: true,
+        handlerPresent: true,
+        handlerStubFree: true,
+        status: "PASS",
+        detail: "ok",
+      },
+    ]);
+    seed(
+      makeGuide({
+        sessions: [
+          makeSession({
+            index: 1,
+            checks: [{ id: "a", label: "paired", checked: true }],
+            files: ["src/hooks/useResolve.ts"],
+            crossSystemActions: [
+              {
+                action: "resolve_checkpoint",
+                handler: "functions/hitl-respond/index.ts",
+                wire: "hitl-respond",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await attemptMarkSessionComplete(1);
+    const [, requests] = mockVerifyActionParity.mock.calls[0];
+    expect((requests[0] as { wire?: string }).wire).toBe("hitl-respond");
+  });
+});
+
+describe("deriveCallerPaths", () => {
+  it("returns '.' when files list is empty", () => {
+    expect(deriveCallerPaths([])).toEqual(["."]);
+  });
+
+  it("dedupes overlapping directories", () => {
+    expect(
+      deriveCallerPaths([
+        "src/components/Foo.tsx",
+        "src/components/Bar.tsx",
+        "src/hooks/useFoo.ts",
+      ]),
+    ).toEqual(expect.arrayContaining(["src/components", "src/hooks"]));
+    expect(
+      deriveCallerPaths([
+        "src/components/Foo.tsx",
+        "src/components/Bar.tsx",
+      ]),
+    ).toEqual(["src/components"]);
+  });
+
+  it("strips leading ./ and skips blank entries", () => {
+    expect(
+      deriveCallerPaths(["./src/hooks/a.ts", "", "  ", "./src/lib/b.ts"]),
+    ).toEqual(expect.arrayContaining(["src/hooks", "src/lib"]));
+  });
+
+  it("returns top-level filename when there is no slash", () => {
+    expect(deriveCallerPaths(["README.md"])).toEqual(["README.md"]);
   });
 });
 

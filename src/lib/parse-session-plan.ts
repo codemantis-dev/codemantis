@@ -7,6 +7,8 @@ export type ParsedCheckKind = "static" | "side-effect" | "behavioral" | "integra
 export interface ParsedCrossSystemAction {
   action: string;
   handler: string;
+  /** Optional on-the-wire identifier — see CrossSystemAction.wire. */
+  wire?: string;
 }
 
 export interface ParsedSession {
@@ -51,13 +53,19 @@ function extractCheckKind(raw: string): { label: string; kind?: ParsedCheckKind 
  *   - action: `name` → handler: `path::symbol`
  * or the looser form:
  *   - `name` → `path`
- * Returns an empty array if the block is absent or malformed.
+ * Optionally an inline `(wire: \`x\`)` metadata token may appear between
+ * the action and the arrow to declare an on-the-wire identifier that
+ * differs from the action name:
+ *   - action: `resolve_checkpoint` (wire: `hitl-respond`) → handler: `…`
+ * Returns an empty array if the block is absent.
  *
  * Why this is a first-class parse: Self-Drive uses the list to run a
  * ripgrep-based parity check before marking a session done. A session
  * that ships a caller without a matching handler will be blocked by the
  * check — even if the verifier text claimed PASS — which is the whole
- * point of this feature.
+ * point of this feature. The `wire` field lets the gate search for the
+ * real on-the-wire string when the spec's action label is a friendlier
+ * synonym (e.g. snake_case API verb vs. kebab-case URL slug).
  */
 function extractCrossSystemActions(chunk: string): ParsedCrossSystemAction[] {
   const block = chunk.match(
@@ -65,11 +73,19 @@ function extractCrossSystemActions(chunk: string): ParsedCrossSystemAction[] {
   );
   if (!block) return [];
   const actions: ParsedCrossSystemAction[] = [];
-  const rowRegex = /^\s*-\s*(?:action:\s*)?`?([^`\s→]+)`?\s*(?:→|->)\s*(?:handler:\s*)?`?([^`\n]+?)`?\s*$/gim;
+  // Captures: 1=action, 2=optional parenthetical between action and arrow,
+  // 3=handler. The parenthetical is parsed for `wire:` separately so a
+  // malformed token (e.g. `(wire )`) degrades to "no wire" rather than
+  // dropping the whole row.
+  const rowRegex = /^\s*-\s*(?:action:\s*)?`?([^`\s→]+)`?\s*(?:\(([^)]*)\))?\s*(?:→|->)\s*(?:handler:\s*)?`?([^`\n]+?)`?\s*$/gim;
   for (const m of block[1].matchAll(rowRegex)) {
     const action = m[1].trim();
-    const handler = m[2].trim();
-    if (action && handler) actions.push({ action, handler });
+    const parenContent = (m[2] ?? "").trim();
+    const handler = m[3].trim();
+    if (!action || !handler) continue;
+    const wireMatch = parenContent.match(/wire\s*:\s*`?([^`\s)]+)`?/i);
+    const wire = wireMatch ? wireMatch[1].trim() : undefined;
+    actions.push(wire ? { action, handler, wire } : { action, handler });
   }
   return actions;
 }

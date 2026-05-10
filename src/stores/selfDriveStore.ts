@@ -15,6 +15,7 @@ import type {
   Blocker,
   BlockerKind,
   ImplementationGuide,
+  CrossSystemAction,
 } from "../types/implementation-guide";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
 import type { SessionMode } from "../types/session";
@@ -35,6 +36,10 @@ import {
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
+import {
+  buildParityRecoveryPrompt,
+  parseDeferredParityRows,
+} from "../lib/parity-recovery-prompt";
 import { wrapBuildPrompt } from "../lib/build-mode-preamble";
 import { formatDuration } from "../lib/format-utils";
 import {
@@ -136,6 +141,16 @@ interface SelfDriveState {
   recheckResponses: string[];
   /** Per-item verdict carried forward across recheck rounds so unaffected items don't get lost. */
   pinnedCheckResults: { label: string; passed: boolean; skipped?: boolean; reason?: string; evidence?: string }[];
+  /**
+   * The assembled Claude Code response from the most recent turn — the
+   * same text fed into the orchestrator as `claudeCodeResponse`. Used by
+   * the parity-recovery flow to honour `DEFERRED: <action> — <reason>`
+   * lines Claude Code emits in reply to a parity-recovery prompt. Always
+   * the latest turn's response regardless of phase, so a DEFERRED line
+   * is honoured whether it came back on a fix-, verify-, or
+   * advance-evaluated turn.
+   */
+  lastClaudeResponse: string | null;
 
   /**
    * ID of the most recent user message that Self-Drive itself sent
@@ -268,6 +283,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   originalVerifierResponse: null,
   recheckResponses: [],
   pinnedCheckResults: [],
+  lastClaudeResponse: null,
   lastSelfDrivePromptMessageId: null,
   runLog: [],
   startedAt: null,
@@ -1068,10 +1084,15 @@ export async function attemptMarkSessionComplete(
   }
 
   if (!opts.skipParityGate && actions.length > 0 && projectPath && !handlerAuthoring) {
+    const callerPaths = deriveCallerPaths(target.files);
     const actionInputs = actions.map((a) => ({
       action: a.action,
-      callerPath: deriveCallerPath(target.files, a.action),
+      // Legacy field kept empty — Rust unions callerPath + callerPaths.
+      callerPath: "",
+      callerPaths,
       handlerPath: a.handler,
+      // undefined → Rust falls back to action; only set when present.
+      wire: a.wire,
     }));
 
     // Transient I/O (missing rg binary, permissions blip, transient fs
@@ -1115,30 +1136,30 @@ export async function attemptMarkSessionComplete(
 }
 
 /**
- * Best-effort caller-path inference. The spec's
- * `**Cross-system actions introduced:**` block names the handler path
- * explicitly but not the caller path — the caller is implicit: it's
- * one of the session's declared Files. For parity, we pass the whole
- * files list as a pseudo-caller-path: the Rust scan walks each entry.
+ * Collect every distinct directory referenced by a session's declared
+ * files. Self-Drive's parity gate scans each of these for the action/wire
+ * — the call site can live in any one of them.
  *
- * Joining with a comma is deliberate: Rust's `resolve_under` gets the
- * first path via `Path::new`, which treats the whole string as one
- * path. So we pass ONLY the first file here and rely on directory
- * scanning for broader coverage. If the session has no Files list, we
- * fall back to the project root (expensive but correct).
+ * Why all dirs and not just `files[0]`: limiting to the first file's
+ * directory (the prior behaviour) caused false-positive halts whenever
+ * the action happened to be in a sibling directory of the session — a
+ * common shape, since most sessions touch components + hooks + services
+ * in parallel.
  *
- * NOTE: we do not currently have richer metadata tying a specific
- * caller line to a specific action — that would be an enhancement.
- * For now, if the action string appears anywhere in the session's
- * declared files, the caller side is considered present.
+ * Falls back to project root when the session has no Files list — same
+ * "expensive but correct" last resort as before.
  */
-function deriveCallerPath(files: string[], _action: string): string {
-  // Use the first declared file's directory if multiple files exist;
-  // the Rust scan walks directories recursively.
-  if (files.length === 0) return ".";
-  const first = files[0];
-  const slash = first.lastIndexOf("/");
-  return slash > 0 ? first.slice(0, slash) : first;
+export function deriveCallerPaths(files: string[]): string[] {
+  if (files.length === 0) return ["."];
+  const dirs = new Set<string>();
+  for (const raw of files) {
+    const f = raw.replace(/^\.\//, "").trim();
+    if (!f) continue;
+    const slash = f.lastIndexOf("/");
+    dirs.add(slash > 0 ? f.slice(0, slash) : f);
+  }
+  if (dirs.size === 0) return ["."];
+  return Array.from(dirs);
 }
 
 /**
@@ -1284,6 +1305,12 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     // can re-merge. Cleared on advance/stop/fix.
     useSelfDriveStore.setState({ originalVerifierResponse: currentResponse });
   }
+
+  // Always stash the latest assembled response so the parity-recovery
+  // flow can scan it for `DEFERRED:` lines on the NEXT advance attempt.
+  // Unlike originalVerifierResponse this is overwritten every turn and
+  // is not phase-gated.
+  useSelfDriveStore.setState({ lastClaudeResponse: assembledResponse });
 
   const orchestratorInput = {
     currentPhase: mapPhaseForOrchestrator(state.currentPhase),
@@ -1871,21 +1898,44 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   const outcome = await attemptMarkSessionComplete(sessionIndex);
   if (!outcome.ok) {
     if (outcome.reason === "parity-failed") {
-      const failedActions = outcome.results
-        .filter((r) => r.status !== "PASS")
-        .map((r) => `${r.action}: ${r.detail}`)
-        .join(" | ");
-      addLogEntry(
-        sessionIndex,
-        "verifying",
-        `Advance blocked by parity gate — ${failedActions}`,
-      );
-      handlePause(
-        `Self-Drive halted: cross-system action parity check failed. ${failedActions}`,
-      );
-      return;
-    }
-    if (outcome.reason === "parity-errored") {
+      // Honour DEFERRED:<action> lines Claude Code emitted on the prior
+      // turn (typically in response to a previous parity-recovery prompt).
+      // Any failing row whose action appears in a DEFERRED line is treated
+      // as explicitly waived; if every failure is waived, advance the
+      // session via the bypass path. Otherwise, route the remaining rows
+      // through the parity-recovery loop instead of halting outright.
+      const state = useSelfDriveStore.getState();
+      const deferred = parseDeferredParityRows(state.lastClaudeResponse ?? "");
+      const allFailed = outcome.results.filter((r) => r.status !== "PASS");
+      const stillFailing = allFailed.filter((r) => !deferred.has(r.action));
+
+      if (stillFailing.length === 0 && allFailed.length > 0) {
+        addLogEntry(
+          sessionIndex,
+          "advancing",
+          `Parity gate satisfied via DEFERRED — ${[...deferred].join(", ")}`,
+        );
+        const bypassOutcome = await attemptMarkSessionComplete(sessionIndex, {
+          skipParityGate: true,
+        });
+        if (!bypassOutcome.ok) {
+          handlePause(
+            `Self-Drive halted: parity DEFERRED but session could not be marked complete (${bypassOutcome.reason})`,
+          );
+          return;
+        }
+        // Fall through to the normal post-complete tail of handleAdvance.
+      } else {
+        const freshSession = guide?.sessions.find((s) => s.index === sessionIndex);
+        await handleParityRecovery(
+          sessionIndex,
+          stillFailing,
+          deriveCallerPaths(freshSession?.files ?? []),
+          freshSession?.crossSystemActions ?? [],
+        );
+        return;
+      }
+    } else if (outcome.reason === "parity-errored") {
       const erroredActions = outcome.results
         .map((r) => `${r.action}: ${r.detail}`)
         .join(" | ");
@@ -2027,6 +2077,76 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
 
   showToast(`${isRecovering ? "Retrying recovery" : "Fix applied, re-checking"}... (${fixAttempt}/${state.maxFixAttempts})`, "info");
   await sendMessageToSession(wrapBuildPrompt(decision.fixPrompt!, "fix"));
+}
+
+/**
+ * Run one round of parity-failure recovery. Mirrors `handleFix` — same
+ * fixAttempt counter, same maxFixAttempts ceiling, same chat envelope —
+ * so a session that burns one attempt on a build fix and two on parity
+ * still tops out at the configured budget. The recovery prompt is built
+ * client-side here (not by the orchestrator) because the orchestrator
+ * never sees the parity result; the gate runs after it approves advance.
+ *
+ * When the ceiling is hit, halt with the same shape the gate used to
+ * fire on the first FAIL — preserves today's halt copy at the boundary.
+ *
+ * Note: this function intentionally does NOT reset originalVerifierResponse
+ * the way handleFix does. The recovery prompt is a build-mode fix, but
+ * the goal is for the NEXT turn to be a re-verify (orchestrator decides),
+ * and if it is, the prior verifier text is still relevant context.
+ */
+async function handleParityRecovery(
+  sessionIndex: number,
+  failed: ActionParityResult[],
+  callerPaths: string[],
+  actions: CrossSystemAction[],
+): Promise<void> {
+  const state = useSelfDriveStore.getState();
+  const fixAttempt = state.fixAttempt + 1;
+
+  if (fixAttempt > state.maxFixAttempts) {
+    const summary = failed.map((r) => `${r.action}: ${r.detail}`).join(" | ");
+    addLogEntry(
+      sessionIndex,
+      "verifying",
+      `Parity recovery exhausted (${state.maxFixAttempts}/${state.maxFixAttempts}) — ${summary}`,
+    );
+    handlePause(
+      `Self-Drive halted: cross-system action parity check failed after ${state.maxFixAttempts} recovery attempts. ${summary}`,
+    );
+    return;
+  }
+
+  const recoveryPrompt = buildParityRecoveryPrompt({
+    failed,
+    callerPaths,
+    actions,
+  });
+
+  useSelfDriveStore.setState({
+    currentPhase: "fixing",
+    fixAttempt,
+    previousFixPrompts: [...state.previousFixPrompts, recoveryPrompt],
+    originalVerifierResponse: null,
+    recheckResponses: [],
+    recheckRoundsUsed: 0,
+    rechecksPerItem: {},
+    pinnedCheckResults: [],
+  });
+
+  const failedLabels = failed.map((r) => r.action).join(", ");
+  addLogEntry(
+    sessionIndex,
+    "fixing",
+    `Parity-recovery attempt ${fixAttempt}/${state.maxFixAttempts}: ${failedLabels}`,
+    undefined,
+    recoveryPrompt,
+  );
+  showToast(
+    `Parity recovery (${fixAttempt}/${state.maxFixAttempts})...`,
+    "info",
+  );
+  await sendMessageToSession(wrapBuildPrompt(recoveryPrompt, "fix"));
 }
 
 /**

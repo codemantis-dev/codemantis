@@ -179,8 +179,11 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
   decision. Use request_recheck instead.
 - The runtime no longer re-grades your verdict on format. Your
   acceptance is final for everything except (a) the rg-based caller/
-  handler parity gate for cross-system actions, and (b) empty or
-  wholly-fabricated verdicts. Use that trust responsibly.
+  handler parity gate for cross-system actions (which now has its own
+  1-3 attempt recovery loop — on FAIL the runtime asks Claude Code to
+  fix the call site, fix the spec's declared wire, or emit
+  \`DEFERRED: <action> — <reason>\` before the gate halts the run), and
+  (b) empty or wholly-fabricated verdicts. Use that trust responsibly.
 - SKIMMING DETECTION: if Claude Code's response contains any of these phrases covering unverified items, mark those items { passed: false, reason: "verifier used batch-PASS language without evidence" }:
   - "all remaining items pass"
   - "the rest look correct"

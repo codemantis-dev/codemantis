@@ -396,7 +396,20 @@ describe("prompt constants", () => {
       expect(prompt).toMatch(/action:\s*`[^`]+`\s*→\s*handler:/);
       // The runtime enforcement (may wrap across lines in the prompt text).
       expect(prompt).toMatch(/ripgrep-based parity\s+check/);
-      expect(prompt).toContain("CANNOT advance");
+      // The gate now has a recovery loop instead of an immediate halt —
+      // the prompt explains the loop so authors know FAILs aren't fatal.
+      expect(prompt).toMatch(/parity-recovery loop/);
+      expect(prompt).toContain("DEFERRED:");
+    }
+  });
+
+  it("session plan rules document the optional (wire: `x`) field", () => {
+    for (const prompt of [NEW_APP_PROMPT, FEATURE_MODE_PROMPT]) {
+      // Mention the syntax and explain when to use it.
+      expect(prompt).toMatch(/\(wire:\s*\\`x\\`\)/);
+      expect(prompt).toContain("on-the-wire identifier");
+      // Concrete example with the resolve_checkpoint/hitl-respond pair.
+      expect(prompt).toMatch(/wire:\s*`hitl-respond`/);
     }
   });
 

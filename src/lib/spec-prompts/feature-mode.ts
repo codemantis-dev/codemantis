@@ -689,13 +689,30 @@ RULES:
   check before marking the session \`done\`: for each declared action it
   greps the caller files for the action string AND greps the handler
   path for the same action string. If either side is missing, the
-  session CANNOT advance — regardless of what the verifier text says.
-  This is the primary gate that catches "handlers land in a later
-  session — until then these calls will fail at runtime" shipping green.
-  If a session ships a caller whose handler is scheduled for a LATER
-  session, the caller session's verify list MUST contain an [integration]
-  item asserting the handler exists — the session does not complete
-  until the handler actually lands in code.
+  session enters a parity-recovery loop (up to 3 attempts) that asks
+  Claude Code to fix the call site, correct the spec, or emit a
+  \`DEFERRED: <action> — <reason>\` line; the run halts only if every
+  attempt fails. This is the primary gate that catches "handlers land
+  in a later session — until then these calls will fail at runtime"
+  shipping green. If a session ships a caller whose handler is
+  scheduled for a LATER session, the caller session's verify list MUST
+  contain an [integration] item asserting the handler exists — the
+  session does not complete until the handler actually lands in code.
+
+  When the on-the-wire identifier differs from the action label — e.g.
+  a JS function called \`resolveCheckpoint\` POSTs to an edge function
+  named \`hitl-respond\`, or an action labelled \`insert_note\` is sent
+  as the kebab-case slug \`insert-note\` in the URL — declare the wire
+  string with the optional \`(wire: \\\`x\\\`)\` field so the parity
+  gate searches for the real on-the-wire token instead of the friendly
+  label:
+
+    - action: \`resolve_checkpoint\` (wire: \`hitl-respond\`) → handler: \`supabase/functions/hitl-respond/index.ts::resolveCheckpoint\`
+
+  Omit \`(wire: ...)\` when the action label IS the on-the-wire string
+  (the common case). Never invent a wire just to silence the gate —
+  the gate is supposed to fire when the call site genuinely lacks the
+  declared identifier.
 - Do NOT use alternative formats (numbered lists, >, etc.)
 - Do NOT omit the prompt code block for any session
 - The LAST session's verify section may use "**Verify (full audit):**"

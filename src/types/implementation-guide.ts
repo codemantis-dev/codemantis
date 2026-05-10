@@ -49,10 +49,21 @@ export interface CrossSystemAction {
   action: string;
   /**
    * Path (and optional ::symbol) of the handler expected to dispatch this
-   * action. The file portion is grep-searched for the action string; if
-   * not found, the session cannot transition to done.
+   * action. The file portion is grep-searched for the action/wire string;
+   * if not found, the session cannot transition to done.
    */
   handler: string;
+  /**
+   * Optional on-the-wire identifier when it differs from `action` — e.g.
+   * the JS function name is `resolveCheckpoint` but the edge-function URL
+   * is `hitl-respond`, or the action label is `insert_note` but the
+   * request-body field carries `note.insert`. The parity gate searches
+   * caller + handler files for `wire` when present, falling back to
+   * `action` otherwise. Defaulting happens at consumption time, not at
+   * parse/serialization time, so the AST stays minimal and existing
+   * persisted guides (which never had this field) deserialize unchanged.
+   */
+  wire?: string;
 }
 
 export interface VerifyCheck {

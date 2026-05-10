@@ -883,8 +883,28 @@ export async function addVerificationWorkflowToClaudeMd(
 
 export interface ActionParityRequest {
   action: string;
+  /**
+   * Single caller path (legacy). Either this or `callerPaths` (preferred)
+   * must carry the search location; both being set is fine — Rust unions
+   * them. Passing `""` is treated as unset.
+   */
   callerPath: string;
+  /**
+   * Multiple caller paths. The action/wire string is considered found if
+   * it appears in ANY listed path (file or directory). Self-Drive
+   * populates this with every distinct directory across the session's
+   * declared files so the gate doesn't false-positive when the call site
+   * lives in a sibling directory.
+   */
+  callerPaths?: string[];
   handlerPath: string;
+  /**
+   * Optional on-the-wire identifier when it differs from `action` — e.g.
+   * the JS function is `resolveCheckpoint` but the URL slug / edge-function
+   * name is `hitl-respond`. Rust uses this as the grep needle when set
+   * (non-empty); otherwise it falls back to `action`.
+   */
+  wire?: string;
 }
 
 export interface ActionParityResult {
