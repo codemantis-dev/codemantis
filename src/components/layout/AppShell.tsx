@@ -28,6 +28,8 @@ import { useProjectPreflight } from "../../hooks/useProjectPreflight";
 import { usePreflightStore } from "../../stores/preflightStore";
 import PreflightTray from "../preflight/PreflightTray";
 import MissionControl from "../preflight/MissionControl";
+import { logBreadcrumb } from "../../lib/wake-debug";
+import AppErrorBoundary from "../shared/AppErrorBoundary";
 
 function ResizeHandle({ onDrag }: { onDrag: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -110,6 +112,18 @@ export default function AppShell() {
   const preflightStatus = usePreflightStore((s) => s.status);
   const [showMissionControl, setShowMissionControl] = useState(false);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+
+  // White-screen diagnostics: record state transitions that bracket the
+  // wake/unlock window. Lines land in ~/Library/Logs/CodeMantis/appshell.log
+  // so they survive a force-quit. Keep the payload tiny — this fires on
+  // every relevant render.
+  useEffect(() => {
+    logBreadcrumb("appshell", "state", {
+      project: activeProjectPath ?? "null",
+      manifest: preflightManifest ? "loaded" : "null",
+      mc_open: showMissionControl,
+    });
+  }, [activeProjectPath, preflightManifest, showMissionControl]);
 
   // Subscribe to preview console entries → Activity Feed + toast on errors
   useEffect(() => {
@@ -275,15 +289,21 @@ export default function AppShell() {
               </button>
             </div>
             <div className="flex-1 min-h-0">
-              <MissionControl
-                manifest={preflightManifest}
-                status={preflightStatus}
-                onSetUp={(cap) => {
-                  usePreflightStore.getState().startSetupFlow(cap.id);
-                }}
-                onStartBuilding={() => setShowMissionControl(false)}
-                resolveCatalog={() => null /* Phase 5: hook into bundled catalog */}
-              />
+              {/* Wrapped in its own boundary so a render error inside Mission
+                  Control surfaces the recovery card instead of leaving the
+                  fixed-inset overlay as an empty white panel covering the
+                  whole window. */}
+              <AppErrorBoundary>
+                <MissionControl
+                  manifest={preflightManifest}
+                  status={preflightStatus}
+                  onSetUp={(cap) => {
+                    usePreflightStore.getState().startSetupFlow(cap.id);
+                  }}
+                  onStartBuilding={() => setShowMissionControl(false)}
+                  resolveCatalog={() => null /* Phase 5: hook into bundled catalog */}
+                />
+              </AppErrorBoundary>
             </div>
           </div>
         </div>

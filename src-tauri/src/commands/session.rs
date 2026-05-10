@@ -623,12 +623,26 @@ pub async fn list_crashed_sessions(
 /// After the user dismisses the recovery banner (or closes a paused-recovered tab
 /// without resuming), clear the was_open flag for these IDs so we don't keep
 /// reporting them as crash candidates on subsequent launches.
+///
+/// Also promote each acknowledged session to `status='closed'` if it was still
+/// in a non-terminal state. This makes the recovered session visible in the
+/// Resume Session list — the user explicitly chose not to resume right now,
+/// but they should still be able to find it later.
 #[tauri::command]
 pub async fn acknowledge_crashed_sessions(
     state: State<'_, AppState>,
     session_ids: Vec<String>,
 ) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
     for id in &session_ids {
+        match state.database.mark_session_closed_if_stale(id, &now) {
+            Ok(true) => log::info!(
+                "[acknowledge_crashed_sessions] Promoted {} to closed for Resume list",
+                id
+            ),
+            Ok(false) => {}
+            Err(e) => log::warn!("Failed to promote stale session {}: {}", id, e),
+        }
         if let Err(e) = state.database.set_session_was_open(id, false) {
             log::warn!("Failed to clear was_open for {}: {}", id, e);
         }
@@ -746,6 +760,25 @@ pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
 }
 
 // ── Session Messages (Session Logs) ─────────────────────────────────
+
+/// Snapshot-tick reconciliation: promote a "stale-open" session to
+/// `status='closed'` so it appears in the Resume Session list.
+///
+/// The frontend calls this from `useCrashRecoverySnapshot.tick` for any
+/// session whose tab has been removed from the workspace but whose row on
+/// disk is still in a non-terminal state. Idempotent — already-closed rows
+/// are left alone (returns `false`).
+#[tauri::command]
+pub async fn mark_session_closed_if_stale(
+    state: State<'_, AppState>,
+    session_id: String,
+    closed_at: String,
+) -> Result<bool, String> {
+    state
+        .database
+        .mark_session_closed_if_stale(&session_id, &closed_at)
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn save_session_messages(

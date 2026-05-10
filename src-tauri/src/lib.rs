@@ -387,6 +387,7 @@ pub fn run() {
             commands::preview::get_preview_console_logs,
             commands::preview::capture_preview_screenshot,
             commands::session::save_session_messages,
+            commands::session::mark_session_closed_if_stale,
             commands::session::load_session_messages,
             commands::session::search_session_messages,
             commands::session::cleanup_expired_session_logs,
@@ -430,6 +431,7 @@ pub fn run() {
             commands::menu::enable_update_menu_item,
             commands::menu::disable_update_menu_item,
             commands::lifecycle::wake_pong,
+            commands::lifecycle::append_diagnostic_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -449,6 +451,19 @@ pub fn run() {
                             proc.shutdown().await;
                         }
                         processes.clear();
+                        // Promote any session that was still open (never explicitly
+                        // closed by the user) to status='closed' so it appears in
+                        // the Resume Session list on next launch. Must happen
+                        // BEFORE clearing was_open so the WHERE clause matches.
+                        let now = chrono::Utc::now().to_rfc3339();
+                        match state.database.promote_open_sessions_to_closed(&now) {
+                            Ok(n) if n > 0 => info!(
+                                "[exit] Promoted {} open session(s) to closed for Resume list",
+                                n
+                            ),
+                            Ok(_) => {}
+                            Err(e) => warn!("[exit] Failed to promote open sessions: {}", e),
+                        }
                         // Crash-recovery: graceful shutdown, so wipe all was_open flags.
                         // Anything still set after this means the next exit was violent.
                         if let Err(e) = state.database.clear_all_session_was_open() {

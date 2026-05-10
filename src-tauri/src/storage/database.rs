@@ -315,6 +315,53 @@ impl Database {
         Ok(sessions)
     }
 
+    /// Persist the CLI's session id (returned in the first `system/init` event)
+    /// to the `sessions` row immediately, instead of waiting for `close_session`.
+    ///
+    /// Without this, a session that the user never explicitly closed before a
+    /// force-quit would land on disk with `cli_session_id = NULL`, making it
+    /// invisible to both `list_crashed_sessions` (skips NULL ids) and
+    /// `list_recent_closed_sessions` (filters them out).
+    pub fn set_cli_session_id(&self, id: &str, cli_session_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "UPDATE sessions SET cli_session_id = ?1 WHERE id = ?2",
+            rusqlite::params![cli_session_id, id],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Set cli_session_id failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Promote a session row to `status='closed'` with the given timestamp,
+    /// but only if the row is still in a non-terminal state (not already
+    /// `'closed'` or `'errored'`). Used by the periodic snapshot tick to
+    /// reconcile sessions whose tab was removed from the workspace without
+    /// going through the explicit close path. Idempotent and race-safe.
+    ///
+    /// Returns `true` if a row was actually updated, `false` if no matching
+    /// row existed or the row was already terminal.
+    pub fn mark_session_closed_if_stale(
+        &self,
+        id: &str,
+        closed_at: &str,
+    ) -> Result<bool, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let updated = conn
+            .execute(
+                "UPDATE sessions SET status = 'closed', closed_at = ?1 \
+                 WHERE id = ?2 AND status NOT IN ('closed', 'errored')",
+                rusqlite::params![closed_at, id],
+            )
+            .map_err(|e| {
+                AppError::DatabaseError(format!("mark_session_closed_if_stale failed: {}", e))
+            })?;
+        Ok(updated > 0)
+    }
+
     /// Mark a session as currently open in the workspace, used for crash detection.
     /// Set on session create/restore, cleared on session close or graceful shutdown.
     pub fn set_session_was_open(&self, id: &str, was_open: bool) -> Result<(), AppError> {
@@ -338,6 +385,35 @@ impl Database {
         conn.execute("UPDATE sessions SET was_open = 0 WHERE was_open = 1", [])
             .map_err(|e| AppError::DatabaseError(format!("Clear was_open failed: {}", e)))?;
         Ok(())
+    }
+
+    /// Promote every `was_open=1` session that is still in a non-terminal
+    /// state to `status='closed'` with the given timestamp. Returns the number
+    /// of rows promoted. The was_open flag itself is NOT cleared here — call
+    /// `clear_all_session_was_open` (graceful exit) or `set_session_was_open`
+    /// (crash-recovery ack) afterwards. Idempotent — already-closed rows are
+    /// left alone, including their original closed_at timestamp.
+    ///
+    /// This is the persistence-side guarantee that lets the Resume Session
+    /// list ("WHERE status='closed' AND cli_session_id IS NOT NULL") surface
+    /// sessions that the user kept open but never explicitly closed.
+    pub fn promote_open_sessions_to_closed(
+        &self,
+        closed_at: &str,
+    ) -> Result<usize, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let updated = conn
+            .execute(
+                "UPDATE sessions SET status = 'closed', closed_at = ?1 \
+                 WHERE was_open = 1 AND status NOT IN ('closed', 'errored')",
+                rusqlite::params![closed_at],
+            )
+            .map_err(|e| {
+                AppError::DatabaseError(format!("promote_open_sessions_to_closed failed: {}", e))
+            })?;
+        Ok(updated)
     }
 
     /// Return the IDs of every session currently flagged was_open=1. On startup,
@@ -1238,6 +1314,113 @@ mod tests {
 
         db.set_session_was_open("s1", false).unwrap();
         assert!(db.list_was_open_session_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_set_cli_session_id_persists_independently_of_close() {
+        // Regression guard: before this fix, cli_session_id was only written
+        // to disk inside close_session_with_details. A session that received
+        // init but was never explicitly closed would have NULL on disk and
+        // thus be invisible to crash-recovery and the Resume Session list.
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+            .unwrap();
+
+        // Pre-condition: column is NULL.
+        let before = db
+            .list_sessions()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == "s1")
+            .unwrap();
+        assert!(before.cli_session_id.is_none());
+
+        db.set_cli_session_id("s1", "cli-abc-123").unwrap();
+
+        let after = db
+            .list_sessions()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == "s1")
+            .unwrap();
+        assert_eq!(after.cli_session_id.as_deref(), Some("cli-abc-123"));
+        // Status must NOT have flipped to 'closed' as a side effect.
+        assert_eq!(after.status, "connected");
+        assert!(after.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_set_cli_session_id_overwrites_prior_value() {
+        // Defensive: if the CLI somehow re-emits init with a different sid
+        // (e.g. resume path), the latest write wins.
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+            .unwrap();
+        db.set_cli_session_id("s1", "cli-first").unwrap();
+        db.set_cli_session_id("s1", "cli-second").unwrap();
+        let row = db
+            .list_sessions()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == "s1")
+            .unwrap();
+        assert_eq!(row.cli_session_id.as_deref(), Some("cli-second"));
+    }
+
+    #[test]
+    fn test_set_cli_session_id_unknown_id_is_noop() {
+        let db = Database::new(":memory:").unwrap();
+        // No session exists; UPDATE matches zero rows. We don't surface this
+        // as an error because the message router shouldn't crash on a stale
+        // session id (the session may already have been removed).
+        db.set_cli_session_id("does-not-exist", "cli-x").unwrap();
+    }
+
+    #[test]
+    fn test_mark_session_closed_if_stale_promotes_connected() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+            .unwrap();
+        db.set_cli_session_id("s1", "cli-1").unwrap();
+
+        let updated = db
+            .mark_session_closed_if_stale("s1", "2026-05-10T01:00:00Z")
+            .unwrap();
+        assert!(updated, "should report a row was promoted");
+
+        let row = db
+            .list_sessions()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == "s1")
+            .unwrap();
+        assert_eq!(row.status, "closed");
+        assert_eq!(row.closed_at.as_deref(), Some("2026-05-10T01:00:00Z"));
+        // cli_session_id must survive the promotion.
+        assert_eq!(row.cli_session_id.as_deref(), Some("cli-1"));
+    }
+
+    #[test]
+    fn test_mark_session_closed_if_stale_idempotent_on_already_closed() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+            .unwrap();
+        db.close_session_with_details("s1", Some("cli-1"), None, "2026-05-10T00:30:00Z")
+            .unwrap();
+
+        // Second call must NOT overwrite closed_at and must report no change.
+        let updated = db
+            .mark_session_closed_if_stale("s1", "2026-05-10T05:00:00Z")
+            .unwrap();
+        assert!(!updated, "should be a no-op for already-closed rows");
+
+        let row = db
+            .list_sessions()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == "s1")
+            .unwrap();
+        assert_eq!(row.closed_at.as_deref(), Some("2026-05-10T00:30:00Z"));
     }
 
     #[test]

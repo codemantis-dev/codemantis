@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { wakePong } from "./tauri-commands";
+import { logBreadcrumb } from "./wake-debug";
 
 /**
  * Backend → frontend liveness handshake.
@@ -57,15 +58,27 @@ export function installWakeRecovery(
   let unlistenWake: UnlistenFn | null = null;
 
   const ready = listen(WAKE_EVENT, () => {
-    void d.pong().catch((e) => {
-      console.warn("[wake-recovery] wake_pong failed:", e);
-    });
+    const t0 = performance.now();
+    logBreadcrumb("wake", "wake-event-recv");
+    void d
+      .pong()
+      .then(() => {
+        logBreadcrumb("wake", "pong-sent", {
+          duration_ms: Math.round(performance.now() - t0),
+        });
+      })
+      .catch((e) => {
+        console.warn("[wake-recovery] wake_pong failed:", e);
+        logBreadcrumb("wake", "pong-failed", { error: String(e) });
+      });
   }).then(
     (fn) => {
       unlistenWake = fn;
+      logBreadcrumb("wake", "listener-registered");
     },
     (e) => {
       console.warn("[wake-recovery] failed to register wake-from-sleep listener:", e);
+      logBreadcrumb("wake", "listener-register-failed", { error: String(e) });
     }
   );
 

@@ -100,11 +100,26 @@ async fn update_session_model(app_handle: &AppHandle, session_id: &str, model: &
     }
 }
 
-/// Helper: store the CLI-reported session_id in AppState.
+/// Helper: store the CLI-reported session_id in AppState and persist it to disk.
+///
+/// Crash-recovery requires `cli_session_id` to survive a force-quit. The
+/// in-memory map alone is lost when the app dies, which previously stranded
+/// every active session: `list_crashed_sessions` skips rows with NULL
+/// `cli_session_id`, and `list_recent_closed_sessions` filters them out too.
+/// We persist on first observation so a session that received init becomes
+/// resumable from that moment on.
 async fn store_cli_session_id(app_handle: &AppHandle, session_id: &str, cli_sid: &str) {
     if let Some(state) = app_handle.try_state::<AppState>() {
-        let mut cli_ids = state.cli_session_ids.lock().await;
-        cli_ids.insert(session_id.to_string(), cli_sid.to_string());
+        {
+            let mut cli_ids = state.cli_session_ids.lock().await;
+            cli_ids.insert(session_id.to_string(), cli_sid.to_string());
+        }
+        if let Err(e) = state.database.set_cli_session_id(session_id, cli_sid) {
+            warn!(
+                "[message-router] Failed to persist cli_session_id for {}: {}",
+                session_id, e
+            );
+        }
     }
 }
 

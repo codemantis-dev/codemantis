@@ -91,19 +91,32 @@ async fn run_loop(app: AppHandle) {
                 "[lifecycle] wall-clock gap of {}s detected — system likely woke from sleep",
                 elapsed.as_secs()
             );
+            crate::commands::lifecycle::write_diagnostic_log(
+                "wake",
+                &format!("rs:long-gap | gap_s={}", elapsed.as_secs()),
+            );
         }
 
         match check_once(&app, &counter).await {
-            CheckResult::Alive => {}
+            CheckResult::Alive => {
+                crate::commands::lifecycle::write_diagnostic_log("wake", "rs:check-alive");
+            }
             CheckResult::Stale => {
                 info!(
                     "[lifecycle] no {} reply within {}s — nudging webview to repaint",
                     crate::commands::lifecycle::WAKE_PONG_COMMAND,
                     PONG_TIMEOUT.as_secs()
                 );
+                crate::commands::lifecycle::write_diagnostic_log(
+                    "wake",
+                    &format!("rs:stale-pong | timeout_s={}", PONG_TIMEOUT.as_secs()),
+                );
                 super::repaint::force_repaint_main(&app);
+                crate::commands::lifecycle::write_diagnostic_log("wake", "rs:repaint-issued");
             }
-            CheckResult::WindowClosed => {}
+            CheckResult::WindowClosed => {
+                crate::commands::lifecycle::write_diagnostic_log("wake", "rs:window-closed");
+            }
         }
     }
 }

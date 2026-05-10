@@ -222,6 +222,19 @@ export async function saveSessionMessages(
   return invoke("save_session_messages", { sessionId, messages });
 }
 
+/**
+ * Snapshot-tick reconciliation: promote a session whose tab is gone from the
+ * workspace (so its in-memory status is "Closed") but whose row on disk is
+ * still in a non-terminal state. Resolves to `true` if a row was actually
+ * promoted, `false` if it was already closed/errored. Safe to call repeatedly.
+ */
+export async function markSessionClosedIfStale(
+  sessionId: string,
+  closedAt: string
+): Promise<boolean> {
+  return invoke<boolean>("mark_session_closed_if_stale", { sessionId, closedAt });
+}
+
 export async function loadSessionMessages(
   sessionId: string
 ): Promise<SessionMessagePayload[]> {
