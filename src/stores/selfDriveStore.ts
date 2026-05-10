@@ -1743,7 +1743,16 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // as such, the checks would never get ticked on the recheck path and
   // attemptMarkSessionComplete would reject with "checks-incomplete",
   // surfacing as a confusing "unexpected state" pause to the user.
-  const fromVerifyClass = previousPhase === "verifying" || previousPhase === "rechecking";
+  //
+  // "fixing" is also verify-class when the orchestrator returns advance
+  // with checkResults: a post-fix advance carries the orchestrator's
+  // judgment of every verify item against the fixed code. Same logic —
+  // without ticking, attemptMarkSessionComplete fails on checks-incomplete
+  // and the user sees the catch-all pause even though every check passed.
+  const fromVerifyClass =
+    previousPhase === "verifying" ||
+    previousPhase === "rechecking" ||
+    (previousPhase === "fixing" && (decision.checkResults?.length ?? 0) > 0);
   if (session && fromVerifyClass) {
     const assessment = assessVerifyAdvance(session, decision);
 
@@ -1952,7 +1961,27 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
     const alreadyDone = guide?.sessions
       .find((s) => s.index === sessionIndex)?.status === "done";
     if (!alreadyDone) {
-      handlePause(`Could not mark Session ${sessionIndex} complete — unexpected state`);
+      // Surface the real `reason` from attemptMarkSessionComplete instead of
+      // the historical "unexpected state" catch-all — that string told the
+      // user nothing and the structured reason was being silently discarded.
+      // The only paths that reach here now are `checks-incomplete` (most
+      // common: handleAdvance was entered from a non-verify-class phase, so
+      // verifyChecks were never auto-ticked) and `session-not-found`.
+      const freshSession = useSelfDriveStore.getState().guide?.sessions
+        .find((s) => s.index === sessionIndex);
+      let detail: string;
+      if (outcome.reason === "checks-incomplete") {
+        const unchecked = (freshSession?.verifyChecks ?? [])
+          .filter((c) => !c.checked)
+          .map((c) => c.label);
+        const fromPhase = previousPhase ?? "unknown";
+        detail = unchecked.length > 0
+          ? `${unchecked.length} verify check(s) not ticked (entered handleAdvance from phase "${fromPhase}"): ${unchecked.join(", ")}`
+          : `attemptMarkSessionComplete returned checks-incomplete but every check is ticked — internal state drift (phase "${fromPhase}")`;
+      } else {
+        detail = `${outcome.reason} (phase "${previousPhase ?? "unknown"}")`;
+      }
+      handlePause(`Could not mark Session ${sessionIndex} complete — ${detail}`);
       return;
     }
   }
@@ -2324,6 +2353,19 @@ async function startNextSession(): Promise<void> {
 
 function handlePause(reason: string, decision?: OrchestratorDecision): void {
   const state = useSelfDriveStore.getState();
+
+  // Pauses are otherwise invisible outside the running app — the run-log
+  // is in-memory only. Routing through console.warn lets Tauri's webview
+  // bridge mirror the line into the app log file so post-mortem analysis
+  // can see what actually halted a run.
+  console.warn(
+    "[selfDrive] pause:",
+    reason,
+    {
+      sessionIndex: state.currentSessionIndex,
+      phase: state.currentPhase,
+    },
+  );
 
   // Build a structured Blocker from the orchestrator's decision when
   // one is attached. Falls back to an "unknown" blocker so Resume still

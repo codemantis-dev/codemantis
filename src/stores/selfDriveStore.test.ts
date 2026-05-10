@@ -3346,6 +3346,97 @@ describe("handleRecheck — request_recheck loop", () => {
     expect(useSelfDriveStore.getState().pauseReason).toMatch(/session labels have no match/);
   });
 
+  it("ticks checks and advances when orchestrator returns advance after a fix round (Fix #5 — post-fix verify-class)", async () => {
+    // Regression for the user-reported "Could not mark Session 3 complete —
+    // unexpected state" pause. After a fix round (orchestrator returned
+    // action=fix on an earlier turn), the next orchestrator decision arrives
+    // with previousPhase="fixing". Without the post-fix verify-class
+    // expansion, the auto-tick block was skipped, attemptMarkSessionComplete
+    // returned checks-incomplete, and the user saw the catch-all pause
+    // immediately after "All checks pass".
+    setupReadyState();
+
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "All 2 checks pass after fix",
+      confidence: "high",
+      checkResults: [
+        { label: "Check A", passed: true, evidence: "src/a.ts:1 — `export const A = 1`" },
+        { label: "Check B", passed: true, evidence: "src/b.ts:5 — `export function b() {}`" },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+    // The screenshot scenario: previousPhase landed as "fixing" because
+    // the orchestrator was invoked to re-evaluate the fix response.
+    useSelfDriveStore.setState({ currentPhase: "fixing", fixAttempt: 1 });
+
+    const emit = captureListenCallback();
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().status).toBe("running");
+      expect(useSelfDriveStore.getState().currentSessionIndex).toBeGreaterThan(1);
+    });
+
+    const s1 = useSelfDriveStore.getState().guide!.sessions[0];
+    expect(s1.status).toBe("done");
+    expect(s1.verifyChecks.every((c) => c.checked)).toBe(true);
+    expect(useSelfDriveStore.getState().pauseReason).toBeNull();
+  });
+
+  it("surfaces unticked labels and originating phase when checks-incomplete fallback fires (Fix #1)", async () => {
+    // Even with Fix #5, the catch-all fallback can still fire from phases
+    // that are NOT verify-class (e.g. "building" — orchestrator decides
+    // advance without ever evaluating verify checks, or returns no
+    // checkResults). In that case the user must see WHICH checks are
+    // unticked and WHICH phase produced the bad call — not the historical
+    // "unexpected state" string that told them nothing.
+    setupReadyState();
+
+    // No checkResults → fromVerifyClass also won't fire (post-fix branch
+    // gates on checkResults.length > 0). Orchestrator simply says advance
+    // from a non-verify phase.
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "advance",
+      summary: "build looks good",
+      confidence: "high",
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({ currentPhase: "building" });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const emit = captureListenCallback();
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    try {
+      await vi.waitFor(() => {
+        expect(useSelfDriveStore.getState().status).toBe("paused");
+      });
+
+      const pauseReason = useSelfDriveStore.getState().pauseReason ?? "";
+      // Fix #1: message must name the unticked checks and the phase.
+      expect(pauseReason).toMatch(/verify check\(s\) not ticked/);
+      expect(pauseReason).toContain("Check A");
+      expect(pauseReason).toContain("Check B");
+      expect(pauseReason).toContain('phase "building"');
+      // And it must NOT be the historical opaque catch-all.
+      expect(pauseReason).not.toMatch(/unexpected state/);
+
+      // Fix #3: the pause must be routed through console.warn so it lands
+      // in the Tauri app log file.
+      const selfDriveWarnCalls = warnSpy.mock.calls.filter(
+        (call) => typeof call[0] === "string" && call[0].startsWith("[selfDrive] pause:"),
+      );
+      expect(selfDriveWarnCalls.length).toBeGreaterThan(0);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("resets recheck state when a session advances", async () => {
     setupReadyState();
     // First verifying turn → advance
