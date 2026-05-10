@@ -11,7 +11,7 @@ pub fn check(secret: Option<&str>, validation: Option<&ValueValidation>) -> Veri
         None => VerifyOutcome::Missing {
             reason: "No value has been entered yet".into(),
         },
-        Some(value) if value.is_empty() => VerifyOutcome::Missing {
+        Some("") => VerifyOutcome::Missing {
             reason: "The stored value is empty".into(),
         },
         Some(value) => {

@@ -1,10 +1,13 @@
-#[cfg(test)]
-mod tests {
-    use crate::claude::event_types::*;
-    use crate::commands::files::{read_file_content, read_file_tree};
-    use crate::utils::claude_detection::detect_claude;
-    use std::fs;
-    use std::path::PathBuf;
+// `#[cfg(test)]` already applied by the parent `claude::mod`'s
+// `#[cfg(test)] mod tests;` declaration — no inner wrapper module
+// needed (avoids the `module_inception` clippy lint).
+#![cfg(test)]
+
+use crate::claude::event_types::*;
+use crate::commands::files::{read_file_content, read_file_tree};
+use crate::utils::claude_detection::detect_claude;
+use std::fs;
+use std::path::PathBuf;
 
     // ──────────────────────────────────────────────────────────
     // NDJSON PARSING — every event type the CLI can emit
@@ -1433,4 +1436,3 @@ mod tests {
 
         assert_eq!(events.len(), 2, "Malformed line should be skipped, valid ones kept");
     }
-}

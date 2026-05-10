@@ -154,7 +154,7 @@ fn build_user_prompt(request: &ExtractionRequest) -> String {
         let mut body = sess.body.clone();
         if body.len() > 1500 {
             body.truncate(1500);
-            body.push_str("…");
+            body.push('…');
         }
         if !body.is_empty() {
             s.push_str("    ");

@@ -187,7 +187,7 @@ fn get_next_icon_index_cycles() {
             "connected",
             &format!("2026-01-{:02}T00:00:00Z", i + 1),
             None,
-            (i % 10) as i32,
+            i % 10,
         )
         .unwrap();
     }

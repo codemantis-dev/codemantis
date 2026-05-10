@@ -531,8 +531,10 @@ mod tests {
 
     #[test]
     fn default_thinking_effort_serializes_camel_case() {
-        let mut settings = AppSettings::default();
-        settings.default_thinking_effort = Some("low".into());
+        let settings = AppSettings {
+            default_thinking_effort: Some("low".into()),
+            ..AppSettings::default()
+        };
         let json = serde_json::to_string(&settings).unwrap();
         // Setting must serialize under the camelCase key the frontend uses.
         assert!(
@@ -730,10 +732,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
 
-        let mut settings = AppSettings::default();
-        settings.theme = "midnight".to_string();
-        settings.font_size = 18;
-        settings.changelog_enabled = true;
+        let settings = AppSettings {
+            theme: "midnight".to_string(),
+            font_size: 18,
+            changelog_enabled: true,
+            ..AppSettings::default()
+        };
 
         let json = serde_json::to_string_pretty(&settings).unwrap();
         fs::write(&path, &json).unwrap();
@@ -921,7 +925,7 @@ mod tests {
         // The plaintext field on disk must be empty after migration.
         let plaintext_field = parsed.get("apiKeys").and_then(|v| v.as_object());
         assert!(
-            plaintext_field.map_or(true, |o| o.is_empty()),
+            plaintext_field.is_none_or(|o| o.is_empty()),
             "apiKeys must be empty/absent on disk after migration, got: {}",
             on_disk
         );
@@ -954,8 +958,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
 
-        let mut original = AppSettings::default();
-        original.theme = "midnight".into();
+        let mut original = AppSettings {
+            theme: "midnight".into(),
+            ..AppSettings::default()
+        };
         original.api_keys.insert("openai".into(), "sk-foo".into());
         original.api_keys.insert("gemini".into(), "key-bar".into());
 

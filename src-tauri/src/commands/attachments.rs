@@ -162,6 +162,27 @@ pub fn cleanup_old_attachments(project_path: String, max_age_days: u64) -> Resul
     Ok(removed)
 }
 
+fn ensure_gitignore(project_path: &str) {
+    let gitignore_path = Path::new(project_path).join(".gitignore");
+    let entry = ".codemantis/";
+
+    if gitignore_path.exists() {
+        if let Ok(content) = fs::read_to_string(&gitignore_path) {
+            if content.lines().any(|l| l.trim() == entry) {
+                return; // Already present
+            }
+            // Append to existing .gitignore
+            let separator = if content.ends_with('\n') { "" } else { "\n" };
+            let new_content = format!("{}{}{}\n", content, separator, entry);
+            if let Err(e) = fs::write(&gitignore_path, new_content) {
+                warn!("Failed to update .gitignore: {}", e);
+            }
+        }
+    } else if let Err(e) = fs::write(&gitignore_path, format!("{}\n", entry)) {
+        warn!("Failed to create .gitignore: {}", e);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,25 +573,3 @@ mod tests {
     }
 }
 
-fn ensure_gitignore(project_path: &str) {
-    let gitignore_path = Path::new(project_path).join(".gitignore");
-    let entry = ".codemantis/";
-
-    if gitignore_path.exists() {
-        if let Ok(content) = fs::read_to_string(&gitignore_path) {
-            if content.lines().any(|l| l.trim() == entry) {
-                return; // Already present
-            }
-            // Append to existing .gitignore
-            let separator = if content.ends_with('\n') { "" } else { "\n" };
-            let new_content = format!("{}{}{}\n", content, separator, entry);
-            if let Err(e) = fs::write(&gitignore_path, new_content) {
-                warn!("Failed to update .gitignore: {}", e);
-            }
-        }
-    } else {
-        if let Err(e) = fs::write(&gitignore_path, format!("{}\n", entry)) {
-            warn!("Failed to create .gitignore: {}", e);
-        }
-    }
-}

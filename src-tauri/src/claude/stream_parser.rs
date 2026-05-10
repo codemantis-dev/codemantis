@@ -175,7 +175,7 @@ mod tests {
 
         let mut child = tokio::process::Command::new("printf")
             .arg("%s")
-            .arg(ndjson.to_string())
+            .arg(ndjson)
             .stdout(std::process::Stdio::piped())
             .spawn()
             .expect("Failed to spawn printf");

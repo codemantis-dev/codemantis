@@ -152,7 +152,7 @@ mod tests {
             AppError::ClaudeCliError("x".into()),
             AppError::SessionNotFound("x".into()),
             AppError::ProcessNotRunning("x".into()),
-            AppError::from(std::io::Error::new(std::io::ErrorKind::Other, "x")),
+            AppError::from(std::io::Error::other("x")),
             AppError::SendFailed("x".into()),
             AppError::FileSystem("x".into()),
             AppError::DatabaseError("x".into()),
