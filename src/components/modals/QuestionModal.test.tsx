@@ -6,6 +6,7 @@ import { useUiStore } from "../../stores/uiStore";
 
 vi.mock("../../lib/tauri-commands", () => ({
   resolveToolApproval: vi.fn().mockResolvedValue(undefined),
+  submitQuestionAnswer: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../../lib/error-handler", () => ({ handleError: vi.fn() }));
 // Radix Dialog mock: forwards onEscapeKeyDown so settling-window tests can
@@ -206,8 +207,17 @@ describe("QuestionModal", () => {
     nowSpy.mockRestore();
   });
 
-  it("sends full question text (not just header) with the answer to Claude", async () => {
-    const { resolveToolApproval } = await import("../../lib/tauri-commands");
+  it("delivers the answer via submitQuestionAnswer (not resolveToolApproval)", async () => {
+    // Regression: CLI 2.1.126 ignores PreToolUse hook reasons for
+    // AskUserQuestion (always synthesises a denial), so we must inject the
+    // answer as a user message — submitQuestionAnswer does both. Asserting
+    // resolveToolApproval here would be a false-green: the answer would
+    // never reach Claude. See docs/internal/cli-2.1.126-protocol-report.md
+    // §S09 and src-tauri/tests/captures/S09-AskUserQuestion.jsonl.
+    const { resolveToolApproval, submitQuestionAnswer } = await import(
+      "../../lib/tauri-commands"
+    );
+    const submitMock = vi.mocked(submitQuestionAnswer);
     const resolveMock = vi.mocked(resolveToolApproval);
 
     useActivityStore.setState({
@@ -234,9 +244,45 @@ describe("QuestionModal", () => {
     // Single-select submits immediately on click
     screen.getByText("Report only").click();
 
-    await vi.waitFor(() => expect(resolveMock).toHaveBeenCalled());
-    const [, , payload] = resolveMock.mock.calls[0];
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalled());
+    const [sessionId, requestId, payload] = submitMock.mock.calls[0];
+    expect(sessionId).toBe("s1");
+    expect(requestId).toBe("req-xyz");
     expect(payload).toContain("How should we handle invalid roadmaps?");
     expect(payload).toContain("report");
+    // The hook resolution path must NOT be the carrier for the answer.
+    expect(resolveMock).not.toHaveBeenCalled();
+  });
+
+  it("text-question submit also routes through submitQuestionAnswer", async () => {
+    const { submitQuestionAnswer, resolveToolApproval } = await import(
+      "../../lib/tauri-commands"
+    );
+    const submitMock = vi.mocked(submitQuestionAnswer);
+    const resolveMock = vi.mocked(resolveToolApproval);
+
+    useActivityStore.setState({
+      sessionQuestions: new Map([
+        ["sess-A", {
+          toolUseId: "tu-A",
+          requestId: "req-A",
+          sessionId: "sess-A",
+          question: "What is the project name?",
+        }],
+      ]),
+    });
+    useUiStore.setState({ showQuestionModal: true });
+    render(<QuestionModal />);
+
+    const textarea = screen.getByPlaceholderText("Type your answer...") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "MyProject" } });
+    screen.getByText("Submit").click();
+
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalled());
+    const [sessionId, requestId, payload] = submitMock.mock.calls[0];
+    expect(sessionId).toBe("sess-A");
+    expect(requestId).toBe("req-A");
+    expect(payload).toContain("MyProject");
+    expect(resolveMock).not.toHaveBeenCalled();
   });
 });

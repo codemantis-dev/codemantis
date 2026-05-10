@@ -369,8 +369,23 @@ async fn handle_tool_approval(
     .await
     .unwrap_or_else(|| "unknown".to_string());
 
-    // ── Enforce session mode at the Rust level ──
-    if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
+    // ── AskUserQuestion always surfaces a modal ──
+    //
+    // It is the model's interactive UI tool — the mode-based auto-approve
+    // branches below would silently allow it, which makes the QuestionModal
+    // never appear and the CLI synthesise its own denial (see
+    // docs/internal/cli-2.1.126-protocol-report.md §S09 — Claude's response
+    // to a silent allow is verbatim "It looks like the question prompt was
+    // dismissed."). Skip the mode check entirely so the modal always opens.
+    if tool_name == "AskUserQuestion" {
+        info!(
+            "[approval-server] AskUserQuestion: surfacing QuestionModal regardless of session mode (session: {})",
+            forge_session_id
+        );
+    } else if let Some(app_state) =
+        app_handle.try_state::<crate::claude::session::AppState>()
+    {
+        // ── Enforce session mode at the Rust level ──
         let modes = app_state.session_modes.lock().await;
         if let Some(mode) = modes.get(&forge_session_id) {
             match mode {
@@ -867,6 +882,17 @@ mod tests {
 
     #[test]
     fn ask_user_question_requires_approval_in_plan_mode() {
+        assert!(!PLAN_MODE_ALLOWED_TOOLS.contains(&"AskUserQuestion"));
+    }
+
+    #[test]
+    fn ask_user_question_never_auto_approved() {
+        // Regression: AskUserQuestion is the model's interactive UI tool —
+        // it must reach the QuestionModal regardless of session mode. If it
+        // ever lands in either auto-approve list, the modal stops surfacing
+        // and Claude responds "the question prompt was dismissed" (per the
+        // S09 capture in src-tauri/tests/captures/S09-AskUserQuestion.jsonl).
+        assert!(!AUTO_APPROVED_TOOLS.contains(&"AskUserQuestion"));
         assert!(!PLAN_MODE_ALLOWED_TOOLS.contains(&"AskUserQuestion"));
     }
 

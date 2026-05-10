@@ -142,6 +142,20 @@ export async function resolveToolApproval(
   return invoke("resolve_tool_approval", { requestId, approved, reason });
 }
 
+/**
+ * Deliver an AskUserQuestion answer. CLI 2.1.126 ignores the PreToolUse
+ * hook's reason for AskUserQuestion (always synthesises a denial), so the
+ * Rust side resolves the hook AND injects `answer` as a normal user message
+ * — that's the only path that actually surfaces the answer to Claude.
+ */
+export async function submitQuestionAnswer(
+  sessionId: string,
+  requestId: string,
+  answer: string
+): Promise<void> {
+  return invoke("submit_question_answer", { sessionId, requestId, answer });
+}
+
 export async function closeSession(sessionId: string): Promise<void> {
   return invoke("close_session", { sessionId });
 }

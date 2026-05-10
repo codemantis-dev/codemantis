@@ -345,6 +345,58 @@ pub async fn resolve_tool_approval(
     }
 }
 
+/// Deliver an `AskUserQuestion` answer to Claude.
+///
+/// CLI 2.1.126 always synthesises `tool_result(is_error=true,
+/// content="Answer questions?")` for AskUserQuestion regardless of the
+/// PreToolUse hook's allow/deny decision (see
+/// docs/internal/cli-2.1.126-protocol-report.md §S09 — captured response is
+/// the literal "It looks like the question prompt was dismissed."). The hook
+/// `reason` field never reaches the model, so to actually deliver the user's
+/// answer we must:
+///   1. resolve the hook (decision is irrelevant — pick `allow` to keep the
+///      transcript truthful: the host did not block the tool).
+///   2. inject `answer` as a normal user message via the same path
+///      `send_message` uses, so Claude sees it on the next turn.
+#[tauri::command]
+pub async fn submit_question_answer(
+    state: State<'_, AppState>,
+    session_id: String,
+    request_id: String,
+    answer: String,
+) -> Result<(), String> {
+    info!(
+        "[submit_question_answer] session_id={}, request_id={}, answer_len={}",
+        session_id,
+        request_id,
+        answer.len()
+    );
+
+    // Step 1 — release the still-blocked PreToolUse hook so the CLI can
+    // continue its turn. The CLI will synthesise its own denial regardless;
+    // we pick `allow` to truthfully reflect that the host did not block.
+    let resolved = state
+        .approval_state
+        .resolve(&request_id, true, None)
+        .await;
+    if !resolved {
+        warn!(
+            "[submit_question_answer] No pending approval for request_id={} (hook may have already timed out)",
+            request_id
+        );
+    }
+
+    // Step 2 — inject the answer as a regular user message.
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()).to_string())?;
+    if !process.is_running() {
+        return Err(AppError::ProcessNotRunning(session_id).to_string());
+    }
+    process.send_message(&answer).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn close_session(
     state: State<'_, AppState>,

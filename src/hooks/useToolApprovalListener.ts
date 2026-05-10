@@ -85,6 +85,12 @@ export function useToolApprovalListener(): void {
 
       // Route AskUserQuestion to the QuestionModal instead of the approval modal
       if (toolName === "AskUserQuestion") {
+        if (import.meta.env.DEV) {
+          console.debug(
+            "[QuestionModal] tool-approval-request received",
+            { requestId, forgeSessionId, hasInput: !!toolInput },
+          );
+        }
         const pq = parseAskUserQuestion(toolInput, requestId, forgeSessionId);
         activityStore.setPendingQuestion(forgeSessionId, pq);
         uiStore.setShowQuestionModal(true);

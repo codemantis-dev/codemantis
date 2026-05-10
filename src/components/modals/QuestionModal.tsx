@@ -3,7 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { MessageCircleQuestion, Check, X } from "lucide-react";
 import { useActivityStore, type QuestionItem } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
-import { resolveToolApproval } from "../../lib/tauri-commands";
+import { resolveToolApproval, submitQuestionAnswer } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
 import { useModalSettle } from "../../hooks/useModalSettle";
 
@@ -292,7 +292,7 @@ export default function QuestionModal() {
       if (pendingQuestion.question || !pendingQuestion.questions) {
         try {
           const formatted = formatAnswerForClaude([answer]);
-          await resolveToolApproval(pendingQuestion.requestId, false, formatted);
+          await submitQuestionAnswer(questionSessionId, pendingQuestion.requestId, formatted);
         } catch (e) {
           handleError("Failed to send answer", e);
         }
@@ -311,7 +311,7 @@ export default function QuestionModal() {
         // All questions answered
         try {
           const formatted = formatAnswerForClaude(newAnswers);
-          await resolveToolApproval(pendingQuestion.requestId, false, formatted);
+          await submitQuestionAnswer(questionSessionId, pendingQuestion.requestId, formatted);
         } catch (e) {
           handleError("Failed to send answers", e);
         }
