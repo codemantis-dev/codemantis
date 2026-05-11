@@ -1,5 +1,54 @@
 # CodeMantis Releases
 
+## 1.1.10
+
+Major feature release: introduces the **Preflight System** (Mission Control for project capabilities), encrypts AI provider keys at rest, fixes the AskUserQuestion flow on CLI 2.1.126, hardens crash-recovery and graduated wake-recovery, and tightens the Self-Drive parity gate with a recovery loop instead of a hard halt.
+
+### Preflight System (new)
+A first-class capability gate for projects, surfaced as **Mission Control** in the workspace overlay and an always-visible **PreflightTray** with green/yellow/red status:
+- **Bundled catalog**: 13 capability recipes ship in the app bundle (`catalog/system/*` for git/node/pnpm/docker, `catalog/services/*` for Anthropic, OpenAI, Gemini, OpenRouter, Stripe, Stripe webhook, Resend, Supabase, Google OAuth). Each entry declares `requires:`, verification steps, and setup hints. Loaded via `serde_yml` with a memoized cache
+- **Verification engine** (Rust): four kinds — `shell_command`, `env_var_present`, `secret_present`, `api_probe`. Probes run in parallel via `futures::join_all`. Results emit five Tauri events for live UI updates
+- **Project-scoped encrypted secret store**: `preflight_secrets.json` per project, AES-GCM via the new `secret_box` module
+- **Detection**: scans `~/.zshrc`, `~/.bashrc`, `~/.profile`, project `.env` for hint variable definitions (presence-only — values are never read into memory). DetectionPrompt asks for explicit consent on first project open
+- **Setup flows**: stepper modal with four step kinds — `open-url`, `paste-and-verify` (inline regex validation), `confirm-install` (full-command transparency), `manual-confirm`. Skip-for-now is always available; users are never trapped
+- **AI fallback** for long-tail capabilities: fixed prompt + `RawEntry` schema. Forces `secret_present` verification so the model can never invent an API probe for a security-sensitive service. Regex from the model must compile or the entry is rejected. Cached on disk under `catalog-cache/<slug>.yaml`; bundled entries always take priority
+- **Self-Drive pre-run gate**: refuses to start if any blocking capability is unsatisfied; legacy projects without `preflight.yaml` fall through cleanly. PF-001..PF-004 audit rules wire into the run flow. New `MidRunPauseModal` shows context; `SetupFlowModal` opens in a separate dialog so two Radix dialogs never nest
+- **Auto-generation on spec finalization (Phase 4.5)**: SpecWriter's spec save calls the user's selected LLM to extract capability requirements, resolves them against the catalog, and writes `preflight.yaml` automatically. `system.*` refs become `AutoResolvable+EnvVar`; service refs become `GuidedHuman+SecretBox`
+
+### Settings — encryption at rest
+- **AI provider API keys are now encrypted at rest** with AES-GCM (`secret_box`) and per-user key material. Ciphertext lives in `settings.json` as `api_keys_encrypted`; the wire shape (`api_keys`) is decrypted on read. Legacy plaintext keys are migrated opportunistically on next save. The AI Providers tab UI clarifies the new encryption guarantee
+- **Stale provider/model auto-reconcile**: Settings now auto-corrects Self-Drive / Super-Bro provider+model when the saved provider no longer has an API key configured. Regression coverage added for both tabs
+- **Spec prompts modularized**: `spec-prompts.ts` split into a barrel + per-mode files (`feature-mode.ts`, `new-app-mode.ts`, `build-claude-code-prompt.ts`, `build-system-prompt.ts`, `spec-detection.ts`) for maintainability
+
+### Claude CLI Integration — AskUserQuestion fix (CLI 2.1.126)
+- **Bypass-mode auto-approve no longer eats AskUserQuestion**: CLI 2.1.126 ignores PreToolUse hook payloads for AskUserQuestion, so `resolve_tool_approval` cannot carry the user's reply. New `submit_question_answer` resolves the hook (allow) and follows up with `send_message` carrying the formatted answer. Approval server now skips session-mode auto-approve specifically for AskUserQuestion so QuestionModal always opens. QuestionModal + IPC fully wired
+
+### Self-Drive — parity gate + recovery loop
+- **Smarter cross-system action parity gate**: Rust `verify_action_parity` now unions caller paths and accepts an optional wire-needle. Frontend derives caller paths across session file dirs and passes the wire signal through. `Cross-system actions` block parses `(wire: x)` for tighter signal
+- **Recovery instead of hard halt**: parity failures now produce a `parity-recovery` prompt (with `DEFERRED:` waiver parsing); `lastClaudeResponse` is stashed; `handleAdvance` takes a recovery / DEFERRED bypass route instead of refusing to advance
+- **Tick checks after fix-round advance**: `fixing+checkResults` is now treated as verify-class so post-fix advances auto-tick verify items before mark-complete. Opaque "unexpected state" pause replaced with a `checks-incomplete` detail (labels + phase) and mirrored to Tauri logs via `console.warn`
+- **Per-session verify prompt scoped** without triggering a global audit
+
+### Crash Recovery
+- **CLI session id persisted to SQLite** on first system/init event so force-quit sessions stay resumable. New `mark_session_closed_if_stale` IPC + DB helpers, graceful-exit promotion of open sessions to closed, and snapshot-tick reconciliation from the frontend
+- **Integration test** `crash_recovery_resume.rs` covers the full restore flow
+
+### Lifecycle — graduated wake recovery
+- **Stale wake_pong streak handling**: tracks consecutive misses. Repaint only on first miss; repaint + webview eval at ticks 2–4 to nudge WebContent; full reload after 5+ misses as a last resort (streak resets after reload). `wake.log` breadcrumbs include the streak. New unit tests cover `recovery_action_for` thresholds. Internal wake-soak runbook added in `docs/internal/wake-soak.md`
+
+### UI Polish
+- **Shared modal settling**: `useModalSettle` extracted and reused for destructive and plan-complete dialogs alongside the approval/question flows
+- **Crash-recovery toast** now reflects restored vs failed sessions accurately
+- **Duplicate AskUserQuestion activity entries** suppressed in the activity feed
+
+### Documentation
+- Super-Bro persona feature list adds File Viewer
+- Internal `docs/internal/wake-soak.md` runbook for the May 2026 wake incident
+
+### Code Quality
+- Rust clippy/style cleanups across `claude`, `settings`, and `preflight` (module_inception flatten, `is_none_or`, `io::Error::other`, ellipsis char, inline format-arg cleanups)
+- Test count floors raised: TS unit ≥3,585 (+158), TS integration ≥135 (+3), Rust unit ≥1,438 (+182), Rust integration ≥19 (+9)
+
 ## 1.1.9
 
 Hotfix release: early detection of CLI protocol/version mismatches, friendlier error guidance for unprefixed 401s, modal key-press guard, and a changelog summarizer regression that broke OpenAI GPT-5 / Opus 4.7 / OpenRouter.
