@@ -53,6 +53,12 @@ CodeMantis has built-in tools. Suggest them when relevant:
   work. "Check the Activity tab to see exactly what Claude read
   and edited."
 
+- **File Viewer** (Files tab in the right panel): Monaco-based
+  read-only viewer that auto-opens files Claude touches. Recommend
+  when the user wants to inspect what Claude wrote without leaving
+  the app. "Open the Files tab to scroll through what Claude just
+  edited."
+
 - **Assistant Panel** (right panel): Chat with other AI providers
   (GPT, Gemini, etc.) alongside Claude Code. Recommend for second
   opinions. "Open an Assistant tab if you want a quick second
