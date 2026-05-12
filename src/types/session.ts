@@ -39,6 +39,19 @@ export type SessionMode =
  */
 export type ThinkingEffort = string;
 
+/**
+ * Kinds of prompts Self-Drive injects directly (not orchestrator-emitted).
+ * Used to tag chat messages so the orchestrator can distinguish
+ * worker-initiated turns from system-gated ones.
+ */
+export type SelfDriveInjectionKind =
+  | "test-gate"      // pnpm test between sessions after advance
+  | "test-dispatch"  // orchestrator emitted action:"test" (handleTest)
+  | "commit-gate"    // auto-commit between sessions
+  | "build-check"    // pnpm tsc --noEmit after build/fix
+  | "recovery"       // recovery-verification prompt
+  | "parity-recovery"; // cross-system action parity recovery
+
 
 export interface TurnStats {
   durationMs: number | null;
@@ -65,6 +78,14 @@ export interface Message {
   thinkingContent?: string;
   isRestored?: boolean;
   isSelfDrive?: boolean;
+  /**
+   * Marks a chat message that Self-Drive itself injected (test gate, commit
+   * gate, recovery prompt, etc.) — distinct from a verify/build/fix prompt
+   * the orchestrator emitted in response to Claude's work. The orchestrator
+   * uses this to skip ACTIVITY-EVIDENCE detectors on the worker's reply,
+   * because the worker didn't author the prompt being responded to.
+   */
+  selfDriveInjection?: SelfDriveInjectionKind;
   selfDriveEvent?: {
     action: string;
     summary: string;

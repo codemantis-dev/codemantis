@@ -201,6 +201,25 @@ export interface OrchestratorInput {
   activeBlocker: Blocker | null;
   /** Summaries of the last few pauses — gives the orchestrator memory across resumes. */
   recentPauseSummaries: string[];
+  /**
+   * When set, the prompt the worker was reacting to in `claudeCodeResponse`
+   * was a Self-Drive system injection (test gate, commit gate, recovery
+   * prompt, etc.) — NOT something the orchestrator emitted to drive the
+   * code-of-record forward, and NOT something the worker self-initiated.
+   *
+   * The orchestrator MUST suppress ACTIVITY-EVIDENCE detectors (Detector
+   * A/B/C — "claimed work without edit tools") and "skipped commands"
+   * style flags when this is non-null. Reasoning: the worker didn't
+   * author the prompt being responded to; running pnpm test in response
+   * to `Run the test suite: pnpm test` is not defiance, it's compliance.
+   *
+   * - "test-gate" / "test-dispatch": pnpm test run
+   * - "commit-gate": git commit
+   * - "build-check": pnpm tsc --noEmit run
+   * - "recovery": recovery-verification turn
+   * - "parity-recovery": cross-system action parity loop
+   */
+  lastTurnInjection?: string | null;
 }
 
 export type OrchestratorAction =

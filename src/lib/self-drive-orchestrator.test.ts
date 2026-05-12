@@ -245,6 +245,32 @@ describe("buildUserMessage", () => {
     expect(userMessage).toContain("PREVIOUS FIX PROMPTS ALREADY TRIED");
   });
 
+  it("includes LAST TURN INJECTION when system-injected (Phase A.2)", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const input = makeInput({ lastTurnInjection: "test-gate" } as Partial<OrchestratorInput>);
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).toContain("LAST TURN INJECTION: test-gate");
+  });
+
+  it("emits LAST TURN INJECTION: none when the worker authored the turn (Phase A.2)", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const input = makeInput();
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).toContain("LAST TURN INJECTION: none");
+  });
+
   it("includes techStack, buildCommand, testCommand", async () => {
     const { sendAssistantChat } = await import("./tauri-commands");
 

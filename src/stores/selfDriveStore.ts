@@ -18,7 +18,7 @@ import type {
   CrossSystemAction,
 } from "../types/implementation-guide";
 import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
-import type { SessionMode } from "../types/session";
+import type { SessionMode, SelfDriveInjectionKind } from "../types/session";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -163,6 +163,15 @@ interface SelfDriveState {
    */
   lastSelfDrivePromptMessageId: string | null;
 
+  /**
+   * Injection kind of the prompt the worker is currently responding to,
+   * or null if the orchestrator authored it. Passed to the orchestrator
+   * as `lastTurnInjection` so it can skip ACTIVITY-EVIDENCE detectors
+   * when the worker was reacting to a system-gated prompt (test run,
+   * commit, recovery, etc.) — see plan Issue 6 / Phase A.2.
+   */
+  lastSelfDrivePromptInjection: SelfDriveInjectionKind | null;
+
   runLog: RunLogEntry[];
 
   startedAt: number | null;
@@ -285,6 +294,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   pinnedCheckResults: [],
   lastClaudeResponse: null,
   lastSelfDrivePromptMessageId: null,
+  lastSelfDrivePromptInjection: null,
   runLog: [],
   startedAt: null,
   sessionStartedAt: null,
@@ -1333,6 +1343,7 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     auditFilename: guide.auditFilename,
     activeBlocker: state.activeBlocker,
     recentPauseSummaries: state.recentPauseSummaries,
+    lastTurnInjection: state.lastSelfDrivePromptInjection,
   };
 
   let decision: OrchestratorDecision;
@@ -2015,15 +2026,41 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   // Re-read config from settings (user may have toggled options mid-run)
   const liveConfig = getConfigFromSettings();
 
-  // Optional: run tests between sessions (skip if coming from test/commit phase)
-  if (liveConfig.runTests && getTestCommand() && previousPhase !== "testing" && previousPhase !== "committing") {
+  // Snapshot pre-advance activity counters BEFORE the recheck/fix bookkeeping
+  // reset above clobbers them. If this session needed any fix attempts or
+  // verify-rechecks to get here, the inter-session test gate is suppressed —
+  // Claude Code already validated the fixes; an injected pnpm test run would
+  // (a) be redundant and (b) confuse the orchestrator on the next turn (it
+  // would see "pnpm test ran" without knowing the system injected it, and
+  // may flag it as evidence-skipping behavior — see plan A.1).
+  const preAdvanceState = useSelfDriveStore.getState();
+  const sessionHadFixActivity =
+    preAdvanceState.fixAttempt > 0 || preAdvanceState.recheckRoundsUsed > 0;
+
+  // Optional: run tests between sessions. Skip if:
+  //  - we're coming from a test/commit phase (existing dedup)
+  //  - the session needed fix attempts or rechecks (Claude already verified)
+  if (
+    liveConfig.runTests &&
+    getTestCommand() &&
+    previousPhase !== "testing" &&
+    previousPhase !== "committing" &&
+    !sessionHadFixActivity
+  ) {
     useSelfDriveStore.setState({ currentPhase: "testing" });
     const testPrompt =
       `Run the test suite: \`${getTestCommand()}\` to completion in the foreground (do NOT use run_in_background — wait for the command to exit). ` +
       `When it finishes, report the exit code and which tests passed or failed.`;
     addLogEntry(sessionIndex, "testing", `Running test suite: ${getTestCommand()}`, undefined, testPrompt);
-    await sendMessageToSession(testPrompt);
+    await sendMessageToSession(testPrompt, "test-gate");
     return; // wait for turn_complete → orchestrator evaluates
+  }
+  if (sessionHadFixActivity && liveConfig.runTests && getTestCommand()) {
+    addLogEntry(
+      sessionIndex,
+      "advancing",
+      `Inter-session test gate skipped (session had ${preAdvanceState.fixAttempt} fix attempt(s), ${preAdvanceState.recheckRoundsUsed} recheck round(s)) — Claude already validated`,
+    );
   }
 
   // Optional: git commit between sessions (skip if coming from commit phase)
@@ -2032,7 +2069,7 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
     const plan = getCurrentSessionPlan(sessionIndex, useSelfDriveStore.getState().guide);
     const commitPrompt = `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`;
     addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`, undefined, commitPrompt);
-    await sendMessageToSession(commitPrompt);
+    await sendMessageToSession(commitPrompt, "commit-gate");
     return; // wait for turn_complete → then advance
   }
 
@@ -2175,7 +2212,7 @@ async function handleParityRecovery(
     `Parity recovery (${fixAttempt}/${state.maxFixAttempts})...`,
     "info",
   );
-  await sendMessageToSession(wrapBuildPrompt(recoveryPrompt, "fix"));
+  await sendMessageToSession(wrapBuildPrompt(recoveryPrompt, "fix"), "parity-recovery");
 }
 
 /**
@@ -2290,7 +2327,7 @@ async function handleBuildCheck(decision: OrchestratorDecision): Promise<void> {
   const cmd = decision.buildCommand || getBuildCommand() || "pnpm tsc --noEmit";
   const buildPrompt = `Run \`${cmd}\` and report any errors. If there are zero errors, say "Build clean."`;
   addLogEntry(state.currentSessionIndex!, "build-checking", `Build check: ${cmd}`, undefined, buildPrompt);
-  await sendMessageToSession(buildPrompt);
+  await sendMessageToSession(buildPrompt, "build-check");
 }
 
 async function handleTest(decision: OrchestratorDecision): Promise<void> {
@@ -2301,7 +2338,7 @@ async function handleTest(decision: OrchestratorDecision): Promise<void> {
     `Run \`${cmd}\` to completion in the foreground (do NOT use run_in_background — wait for the command to exit). ` +
     `When it finishes, report the exit code and which tests passed or failed.`;
   addLogEntry(state.currentSessionIndex!, "testing", `Running tests: ${cmd}`, undefined, testPrompt);
-  await sendMessageToSession(testPrompt);
+  await sendMessageToSession(testPrompt, "test-dispatch");
 }
 
 async function handleCommit(): Promise<void> {
@@ -2511,7 +2548,7 @@ async function enterRecoveryPhase(blocker: Blocker): Promise<void> {
     prompt,
     verifyingBlocker,
   );
-  await sendMessageToSession(prompt);
+  await sendMessageToSession(prompt, "recovery");
 }
 
 /**
@@ -2717,7 +2754,10 @@ function addLogEntry(
   persistRunState();
 }
 
-async function sendMessageToSession(prompt: string): Promise<void> {
+async function sendMessageToSession(
+  prompt: string,
+  injection?: SelfDriveInjectionKind,
+): Promise<void> {
   // Always read from the pinned state — never from the UI's "active" session.
   const sessionId = useSelfDriveStore.getState().sessionId;
   if (!sessionId) {
@@ -2735,13 +2775,20 @@ async function sendMessageToSession(prompt: string): Promise<void> {
     activityIds: [],
     isStreaming: false,
     isSelfDrive: true,
+    selfDriveInjection: injection,
   });
   // Record the prompt's message id so handleTurnComplete can scan forward
   // from it and collect ALL subsequent assistant messages — not just the
   // last one. Fixes the "verifier response truncated — only item 5 visible"
   // bug: verifiers often emit one assistant message per item (each wrapped
   // around a tool-use call), so `lastAssistant` alone loses items 1..N-1.
-  useSelfDriveStore.setState({ lastSelfDrivePromptMessageId: msgId });
+  // The injection kind (if any) is also stashed so the orchestrator on the
+  // next turn knows the worker was reacting to a system-gated prompt and
+  // can suppress ACTIVITY-EVIDENCE detectors accordingly (Phase A.2).
+  useSelfDriveStore.setState({
+    lastSelfDrivePromptMessageId: msgId,
+    lastSelfDrivePromptInjection: injection ?? null,
+  });
   useSessionStore.getState().setSessionBusy(sessionId, true);
 
   try {

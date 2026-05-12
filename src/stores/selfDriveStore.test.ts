@@ -688,6 +688,80 @@ describe("selfDriveStore", () => {
       });
     });
 
+    it("skips inter-session test gate when the session had fix activity (Phase A.1)", async () => {
+      setupWithCheckedSession();
+      useSettingsStore.setState((prev) => ({
+        settings: { ...prev.settings, selfDriveRunTests: true },
+      }));
+
+      mockCallOrchestrator.mockResolvedValue({
+        action: "advance",
+        summary: "All checks pass",
+        confidence: "high",
+        checkResults: [
+          { label: "Check A", passed: true, evidence: "src/a.ts:1 — `const a = 1`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:1 — `const b = 2`" },
+        ],
+      });
+
+      await useSelfDriveStore.getState().start();
+
+      // Simulate: this session needed a fix to get to advance
+      useSelfDriveStore.setState({ currentPhase: "verifying", fixAttempt: 2 });
+
+      // Drop any test-gate messages sent during start()
+      mockSendMessage.mockClear();
+
+      const emit = captureListenCallback();
+      emit(makeTurnCompleteEvent());
+
+      await vi.waitFor(() => {
+        // Should NOT enter testing phase — Claude already validated via fix
+        const phase = useSelfDriveStore.getState().currentPhase;
+        expect(phase).not.toBe("testing");
+      });
+
+      // Confirm no test prompt was injected
+      const sentTextWithTest = mockSendMessage.mock.calls.find(
+        (c) => typeof c[1] === "string" && c[1].includes("Run the test suite"),
+      );
+      expect(sentTextWithTest).toBeUndefined();
+    });
+
+    it("skips inter-session test gate when the session had recheck activity (Phase A.1)", async () => {
+      setupWithCheckedSession();
+      useSettingsStore.setState((prev) => ({
+        settings: { ...prev.settings, selfDriveRunTests: true },
+      }));
+
+      mockCallOrchestrator.mockResolvedValue({
+        action: "advance",
+        summary: "All checks pass",
+        confidence: "high",
+        checkResults: [
+          { label: "Check A", passed: true, evidence: "src/a.ts:1 — `const a = 1`" },
+          { label: "Check B", passed: true, evidence: "src/b.ts:1 — `const b = 2`" },
+        ],
+      });
+
+      await useSelfDriveStore.getState().start();
+      useSelfDriveStore.setState({ currentPhase: "verifying", recheckRoundsUsed: 1 });
+      mockSendMessage.mockClear();
+
+      const emit = captureListenCallback();
+      emit(makeTurnCompleteEvent());
+
+      await vi.waitFor(() => {
+        const phase = useSelfDriveStore.getState().currentPhase;
+        expect(phase).not.toBe("testing");
+      });
+
+      const sentTextWithTest = mockSendMessage.mock.calls.find(
+        (c) => typeof c[1] === "string" && c[1].includes("Run the test suite"),
+      );
+      expect(sentTextWithTest).toBeUndefined();
+    });
+
     it("skips tests when previousPhase is 'committing'", async () => {
       setupWithCheckedSession();
       useSettingsStore.setState((prev) => ({

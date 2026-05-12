@@ -5,6 +5,7 @@
 
 import type { OrchestratorInput, OrchestratorDecision } from "../types/implementation-guide";
 import { sendAssistantChat, listenAssistantStream, cancelAssistantChat } from "./tauri-commands";
+import { applyDetectorSuppressors } from "./self-drive-detector-suppressors";
 
 const ORCHESTRATOR_ASSISTANT_ID = "__self-drive-orchestrator__";
 // Stall timeout — resets on every streaming delta. Only fires when the
@@ -203,6 +204,8 @@ AFTER A VERIFICATION PHASE (currentPhase = "verifying"):
     "I see a workaround at {location} that dodges a root-cause fix. The session scope includes upstream files when they block this session's deliverables — that's the Senior-Engineer Quality Contract, not optional. Suggested next step: read the upstream definition, identify what's actually wrong, and fix it directly — then remove the workaround. If a hard constraint genuinely prevents the proper fix, emit the DEFERRED: line specified in the build-mode preamble. If the constraint is structural (cross-repo, missing access), pause with a structured blocker explaining the constraint."
 - ACTIVITY-EVIDENCE DETECTION: cross-check the turn's claims against the tools it actually used and the time/tokens it spent. The CONTEXT block exposes \`TOOLS USED THIS TURN\`, \`TURN DURATION\`, and \`TURN TOKENS USED\` — use all three. NEVER use \`pause + Blocker\` as the response to a detection — always route through \`fix\` with a verify-evidence prompt (Role 1).
 
+  HARD SUPPRESSION — \`LAST TURN INJECTION\`: if the CONTEXT block shows \`LAST TURN INJECTION\` is one of \`test-gate\`, \`test-dispatch\`, \`commit-gate\`, \`build-check\`, \`recovery\`, or \`parity-recovery\`, ALL of the detectors below (A, B, C) are SUPPRESSED for this turn. The prompt the worker was reacting to was authored by Self-Drive itself (a system gate), not by you and not by the worker. Running \`pnpm test\` in response to \`Run the test suite: pnpm test\` is COMPLIANCE, not defiance — do NOT flag it as "ran tests instead of the requested evidence." Likewise, a build-check response \`Build clean.\` is the expected reply to a Self-Drive build-check gate; do NOT demand additional evidence for the previous (orchestrator-authored) verify items unless this turn was actually verify-authored. Evaluate the turn ONLY against whatever the injected prompt asked for.
+
   Each detector requires ALL of its conditions to fire — if any condition is unmet, the rule does NOT trigger and you treat the turn as legitimate.
 
   DETECTOR A — claimed file change without an edit tool, on a short turn:
@@ -365,6 +368,7 @@ ${input.claudeCodeToolsUsed.join(", ") || "none"}
 
 TURN DURATION: ${Math.round(input.turnDurationMs / 1000)}s
 TURN TOKENS USED: ${input.turnTokensUsed > 0 ? input.turnTokensUsed.toLocaleString() : "unknown"}
+LAST TURN INJECTION: ${input.lastTurnInjection ?? "none"}
 
 CLAUDE CODE'S RESPONSE:
 ${input.claudeCodeResponse}${previousFixes}${blockerBlock}${pauseHistory}`;
@@ -424,7 +428,22 @@ export async function callOrchestrator(
         const content = event.content ?? fullContent;
         try {
           const decision = parseOrchestratorResponse(content);
-          resolve(decision);
+          // Phase A.3 — sanity guard above the orchestrator's heuristic
+          // detectors. If a "fabrication" or "skipped commands" decision
+          // fires but the worker's response actually contains substantial
+          // concrete evidence covering the failed labels, downgrade to a
+          // request_recheck so Self-Drive doesn't loop on a false signal.
+          const guarded = applyDetectorSuppressors(decision, input);
+          if (guarded.suppressorsApplied.length > 0) {
+            // eslint-disable-next-line no-console
+            console.info(
+              "[self-drive] detector suppressors fired",
+              guarded.suppressorsApplied,
+              "coverage=",
+              guarded.coverage,
+            );
+          }
+          resolve(guarded.decision);
         } catch (e) {
           resolve({
             action: "pause",
