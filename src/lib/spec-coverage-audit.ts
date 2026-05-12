@@ -280,6 +280,265 @@ function lastHeadingBefore(text: string, end: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// UI-completeness checks (run regardless of input docs)
+//
+// Hybrid strictness:
+//   - Strict (labeled-field) checks: every entity H3 in §Data Model has
+//     `Screens:`; every endpoint H3 in §API has `Triggered by:`; every
+//     session in §Session Plan has `User-visible outcome:` (plus
+//     `Foundation justification:` when tagged (foundation)).
+//   - Prose checks: §Error Handling contains at least one UI-surface
+//     keyword; forms have validation language; lists have state language.
+// ─────────────────────────────────────────────────────────────────────
+
+const UI_SURFACE_KEYWORDS = /\b(toast|banner|inline|modal|full[- ]page)\b/i;
+
+/**
+ * Locate an H2 section by predicate and return its body line range plus the
+ * absolute starting line index. Returns null when no matching section exists.
+ */
+function findH2Section(
+  output: string,
+  matcher: (title: string) => boolean,
+): { body: string[]; startLine: number } | null {
+  const sections = parseSections(output);
+  const lines = output.split('\n');
+  const idx = sections.findIndex((s) => s.level === 2 && matcher(s.title));
+  if (idx < 0) return null;
+  const start = sections[idx].line + 1;
+  const next = sections.slice(idx + 1).find((s) => s.level === 2);
+  const end = next ? next.line : lines.length;
+  return { body: lines.slice(start, end), startLine: start };
+}
+
+/** Split a section body into its H3 sub-sections (entities, endpoints, etc.). */
+function splitH3SubSections(
+  body: string[],
+): Array<{ title: string; body: string[] }> {
+  const result: Array<{ title: string; body: string[] }> = [];
+  const indices: Array<{ line: number; title: string }> = [];
+  let inFence = false;
+  for (let i = 0; i < body.length; i++) {
+    const line = body[i];
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = /^###\s+(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    indices.push({ line: i, title: m[1] });
+  }
+  for (let k = 0; k < indices.length; k++) {
+    const { line, title } = indices[k];
+    const nextLine = k + 1 < indices.length ? indices[k + 1].line : body.length;
+    result.push({ title, body: body.slice(line + 1, nextLine) });
+  }
+  return result;
+}
+
+/** Split the Session Plan body into its individual session blocks. */
+function splitSessionPlanBlocks(
+  body: string[],
+): Array<{ title: string; body: string[] }> {
+  const result: Array<{ title: string; body: string[] }> = [];
+  const indices: Array<{ line: number; title: string }> = [];
+  let inFence = false;
+  for (let i = 0; i < body.length; i++) {
+    const line = body[i];
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = /^###\s+(Session\s+\d+[^\n]*)$/.exec(line.trim());
+    if (!m) continue;
+    indices.push({ line: i, title: m[1].trim() });
+  }
+  for (let k = 0; k < indices.length; k++) {
+    const { line, title } = indices[k];
+    const nextLine = k + 1 < indices.length ? indices[k + 1].line : body.length;
+    result.push({ title, body: body.slice(line + 1, nextLine) });
+  }
+  return result;
+}
+
+/** Check: every H3 entity in §Data Model has a `Screens:` labeled field. */
+function checkOrphanEntities(output: string): AuditFailure[] {
+  const dm = findH2Section(
+    output,
+    (t) => /data model(\s+changes)?/i.test(t) && !/api|endpoints/i.test(t),
+  );
+  if (!dm) return [];
+  const entities = splitH3SubSections(dm.body);
+  const failures: AuditFailure[] = [];
+  for (const e of entities) {
+    const hasScreens = e.body.some((l) => /\bScreens:\s*\S/i.test(l));
+    if (!hasScreens) {
+      failures.push({ kind: 'ui-orphan-entity', entity: e.title });
+    }
+  }
+  return failures;
+}
+
+/** Check: every H3 endpoint in §API has a `Triggered by:` labeled field. */
+function checkUntriggeredEndpoints(output: string): AuditFailure[] {
+  const api = findH2Section(
+    output,
+    (t) =>
+      (/\bapi\b/i.test(t) || /data layer/i.test(t)) && !/pages|routes/i.test(t),
+  );
+  if (!api) return [];
+  const endpoints = splitH3SubSections(api.body);
+  const failures: AuditFailure[] = [];
+  for (const e of endpoints) {
+    const hasTrigger = e.body.some((l) => /\bTriggered by:\s*\S/i.test(l));
+    if (!hasTrigger) {
+      failures.push({ kind: 'ui-untriggered-endpoint', endpoint: e.title });
+    }
+  }
+  return failures;
+}
+
+/** Check: §Error Handling mentions at least one UI surface keyword. */
+function checkInvisibleErrors(output: string): AuditFailure[] {
+  const err = findH2Section(output, (t) => /error handling/i.test(t));
+  if (!err) return [];
+  const text = err.body.join('\n');
+  // Only flag if the section has substantive content (avoid noise on empty sections).
+  if (text.trim().length < 40) return [];
+  if (UI_SURFACE_KEYWORDS.test(text)) return [];
+  return [{ kind: 'ui-invisible-errors' }];
+}
+
+/**
+ * Check session-plan blocks for User-visible outcome / Foundation justification.
+ * Foundation sessions must be contiguous from the first session.
+ */
+function checkSessionOutcomes(output: string): AuditFailure[] {
+  const sp = findH2Section(output, (t) => /session plan/i.test(t));
+  if (!sp) return [];
+  const sessions = splitSessionPlanBlocks(sp.body);
+  if (sessions.length === 0) return [];
+
+  const failures: AuditFailure[] = [];
+  let foundationContiguityBroken = false;
+  let sawNonFoundation = false;
+
+  for (const s of sessions) {
+    const outcomeLine = s.body.find((l) =>
+      /\*\*\s*User[- ]visible outcome:\s*\*\*/i.test(l),
+    );
+    if (!outcomeLine) {
+      failures.push({ kind: 'ui-session-no-outcome', session: s.title });
+      continue;
+    }
+
+    const outcomeValue = outcomeLine
+      .replace(/^[^*]*\*\*\s*User[- ]visible outcome:\s*\*\*\s*/i, '')
+      .trim();
+    const isFoundation = /^\(foundation\)/i.test(outcomeValue);
+
+    if (isFoundation) {
+      if (sawNonFoundation && !foundationContiguityBroken) {
+        failures.push({ kind: 'ui-foundation-non-contiguous', session: s.title });
+        foundationContiguityBroken = true;
+      }
+      const justificationLine = s.body.find((l) =>
+        /\*\*\s*Foundation justification:\s*\*\*/i.test(l),
+      );
+      const hasJustification =
+        !!justificationLine &&
+        justificationLine
+          .replace(/^[^*]*\*\*\s*Foundation justification:\s*\*\*\s*/i, '')
+          .trim().length > 0;
+      if (!hasJustification) {
+        failures.push({
+          kind: 'ui-foundation-missing-justification',
+          session: s.title,
+        });
+      }
+    } else if (outcomeValue.length > 0) {
+      sawNonFoundation = true;
+    } else {
+      // Field present but empty — treat as missing outcome.
+      failures.push({ kind: 'ui-session-no-outcome', session: s.title });
+    }
+  }
+
+  return failures;
+}
+
+/** Remove fenced code blocks so SQL/code keywords don't trip prose checks. */
+function stripFencedBlocks(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, '');
+}
+
+/**
+ * The prose checks (forms/lists) only make sense for UI-bearing specs.
+ * A spec without any §Pages / §Routes / §Components H2 is either a
+ * minimal fixture or a backend-only spec — skip rather than over-flag.
+ */
+function hasUISection(output: string): boolean {
+  const sections = parseSections(output);
+  return sections.some(
+    (s) => s.level === 2 && /\b(pages|routes|components|ui\/ux)\b/i.test(s.title),
+  );
+}
+
+/**
+ * Prose check: if the spec mentions forms but contains no validation
+ * language, flag once. Only runs on UI-bearing specs.
+ */
+function checkFormValidation(output: string): AuditFailure[] {
+  if (!hasUISection(output)) return [];
+  const prose = stripFencedBlocks(output);
+  const mentionsForm =
+    /\bforms?\b/i.test(prose) ||
+    /\bform\s+fields?\b/i.test(prose) ||
+    /\b[A-Z]\w*Form\b/.test(prose);
+  if (!mentionsForm) return [];
+  const hasValidation = /\bvalidat(ion|e|ed)\b/i.test(prose);
+  if (hasValidation) return [];
+  return [{ kind: 'ui-form-no-validation' }];
+}
+
+/**
+ * Prose check: if the spec describes a UI list/table view but is missing
+ * empty/loading/error state language, flag once. UI-specific phrasing is
+ * required to avoid matching `CREATE TABLE` in SQL or "a list of items"
+ * in prose. Only runs on UI-bearing specs.
+ */
+function checkListStates(output: string): AuditFailure[] {
+  if (!hasUISection(output)) return [];
+  const prose = stripFencedBlocks(output);
+  const mentionsList =
+    /\b(list|table)\s+(view|page|component|grid)\b/i.test(prose) ||
+    /\bdata\s+table\b/i.test(prose) ||
+    /\b[A-Z]\w*(List|Table)\w*\b/.test(prose);
+  if (!mentionsList) return [];
+  const hasEmpty =
+    /\bempty[- ]state\b/i.test(prose) ||
+    /\bno (data|items|results)\b/i.test(prose);
+  const hasLoading = /\bloading\b/i.test(prose);
+  const hasError = /\berror[- ](state|handling|display|banner|message)\b/i.test(prose);
+  if (hasEmpty && hasLoading && hasError) return [];
+  return [{ kind: 'ui-list-no-states' }];
+}
+
+/** Run every UI-completeness check and return aggregated failures. */
+export function runUICompletenessChecks(output: string): AuditFailure[] {
+  return [
+    ...checkOrphanEntities(output),
+    ...checkUntriggeredEndpoints(output),
+    ...checkInvisibleErrors(output),
+    ...checkSessionOutcomes(output),
+    ...checkFormValidation(output),
+    ...checkListStates(output),
+  ];
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // The audit
 // ─────────────────────────────────────────────────────────────────────
 
@@ -440,6 +699,11 @@ export function auditCoverage(
     }
   }
 
+  // UI-completeness checks (run in both modes unless explicitly disabled).
+  if (!options.skipUIChecks) {
+    report.failures.push(...runUICompletenessChecks(output));
+  }
+
   if (report.failures.length > 0) {
     report.status = 'fail';
     report.recheckPrompts = buildRecheckPrompts(report.failures);
@@ -574,6 +838,82 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
     );
   }
 
+  const orphanEntities = failures.filter(isOrphanEntity);
+  if (orphanEntities.length > 0) {
+    lines.push(
+      'Orphan entities — these entities in §Data Model have no `Screens:` field, so no UI surfaces them. Emit a `<!-- patch:replace-section heading="### {EntityName}" -->` block per entity (or one block on the parent §Data Model section) that adds a `Screens: ScreenA, ScreenB` labeled field naming the screens that create/view/edit/delete the entity. If the entity is intentionally backend-only, declare `Screens: (backend-only — {reason})`:',
+    );
+    for (const f of orphanEntities.slice(0, 25)) {
+      lines.push(`- \`${f.entity}\``);
+    }
+    lines.push('');
+  }
+
+  const untriggered = failures.filter(isUntriggeredEndpoint);
+  if (untriggered.length > 0) {
+    lines.push(
+      'Untriggered endpoints — these endpoints in §API have no `Triggered by:` field, so it is unclear what UI element fires them. Emit a `<!-- patch:replace-section heading="### {endpoint}" -->` block per endpoint adding a `Triggered by: {UI element}` line. For system-only endpoints (cron / webhook / worker), declare `Triggered by: (system — {reason})`:',
+    );
+    for (const f of untriggered.slice(0, 25)) {
+      lines.push(`- \`${f.endpoint}\``);
+    }
+    lines.push('');
+  }
+
+  if (failures.some(isInvisibleErrors)) {
+    lines.push(
+      'Error Handling section names no UI surface — every error class must declare where it appears using one of `toast`, `banner`, `inline`, `modal`, `full-page`. Emit a `<!-- patch:replace-section heading="…Error Handling…" -->` block where each error uses the format `Error: <class> → Surface: <keyword> → Copy: "<text>" → Recovery: <action>`.',
+      '',
+    );
+  }
+
+  const noOutcome = failures.filter(isSessionNoOutcome);
+  if (noOutcome.length > 0) {
+    lines.push(
+      'Sessions missing `User-visible outcome:` — every session in §Session Plan must declare what the user can see and do after the session. Emit a `<!-- patch:replace-section heading="### {Session N: ...}" -->` block per session adding the field. If the session is a true foundation phase, declare `User-visible outcome: (foundation)` plus `Foundation justification: {reason}`:',
+    );
+    for (const f of noOutcome.slice(0, 25)) {
+      lines.push(`- \`${f.session}\``);
+    }
+    lines.push('');
+  }
+
+  const noJustification = failures.filter(isFoundationMissingJustification);
+  if (noJustification.length > 0) {
+    lines.push(
+      'Foundation sessions missing justification — sessions tagged `(foundation)` must include a non-empty `Foundation justification:` line. Emit `<!-- patch:replace-section heading="### {Session N: ...}" -->` blocks adding the justification:',
+    );
+    for (const f of noJustification.slice(0, 25)) {
+      lines.push(`- \`${f.session}\``);
+    }
+    lines.push('');
+  }
+
+  const nonContiguous = failures.filter(isFoundationNonContiguous);
+  if (nonContiguous.length > 0) {
+    lines.push(
+      'Foundation sessions out of order — `(foundation)` sessions must be contiguous from Session 1. These sessions are tagged foundation but appear after a user-visible session. Emit `<!-- patch:replace-section heading="### {Session N: ...}" -->` blocks that either give the session a real `User-visible outcome:` value or reorganize the session plan so foundation sessions run first:',
+    );
+    for (const f of nonContiguous.slice(0, 25)) {
+      lines.push(`- \`${f.session}\``);
+    }
+    lines.push('');
+  }
+
+  if (failures.some(isFormNoValidation)) {
+    lines.push(
+      'Forms mentioned but no validation specs — every form must specify validation rules + error display. Emit `<!-- patch:replace-section heading="…" -->` blocks on the sections that introduce forms, adding per-field validation rules, exact error messages, and the timing (blur / submit).',
+      '',
+    );
+  }
+
+  if (failures.some(isListNoStates)) {
+    lines.push(
+      'List/table mentioned without complete state coverage — every list must specify empty state (with CTA), loading state, and error state. Emit `<!-- patch:replace-section heading="…" -->` blocks on the sections that introduce lists/tables, adding all three states with exact copy.',
+      '',
+    );
+  }
+
   return [lines.join('\n').trimEnd()];
 }
 
@@ -611,6 +951,46 @@ function isPlaceholder(
 function isByteRatio(f: AuditFailure): f is Extract<AuditFailure, { kind: 'byte-ratio-low' }> {
   return f.kind === 'byte-ratio-low';
 }
+function isOrphanEntity(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-orphan-entity' }> {
+  return f.kind === 'ui-orphan-entity';
+}
+function isUntriggeredEndpoint(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-untriggered-endpoint' }> {
+  return f.kind === 'ui-untriggered-endpoint';
+}
+function isInvisibleErrors(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-invisible-errors' }> {
+  return f.kind === 'ui-invisible-errors';
+}
+function isSessionNoOutcome(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-session-no-outcome' }> {
+  return f.kind === 'ui-session-no-outcome';
+}
+function isFoundationMissingJustification(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-foundation-missing-justification' }> {
+  return f.kind === 'ui-foundation-missing-justification';
+}
+function isFoundationNonContiguous(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-foundation-non-contiguous' }> {
+  return f.kind === 'ui-foundation-non-contiguous';
+}
+function isFormNoValidation(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-form-no-validation' }> {
+  return f.kind === 'ui-form-no-validation';
+}
+function isListNoStates(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-list-no-states' }> {
+  return f.kind === 'ui-list-no-states';
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Human-readable summary (for the inline assistant message after audit)
@@ -635,6 +1015,22 @@ export function describeFailure(f: AuditFailure): string {
       return `placeholder leaked: "${f.quote}"`;
     case 'byte-ratio-low':
       return `byte ratio ${(f.ratio * 100).toFixed(0)}% below floor ${(f.floor * 100).toFixed(0)}%`;
+    case 'ui-orphan-entity':
+      return `orphan entity: \`${f.entity}\` has no \`Screens:\` field — no screen surfaces this entity`;
+    case 'ui-untriggered-endpoint':
+      return `untriggered endpoint: \`${f.endpoint}\` has no \`Triggered by:\` field — no UI element fires this`;
+    case 'ui-invisible-errors':
+      return `error handling section names no UI surface (toast / banner / inline / modal / full-page)`;
+    case 'ui-session-no-outcome':
+      return `session \`${f.session}\` missing \`User-visible outcome:\` field`;
+    case 'ui-foundation-missing-justification':
+      return `session \`${f.session}\` tagged (foundation) but \`Foundation justification:\` is missing or empty`;
+    case 'ui-foundation-non-contiguous':
+      return `session \`${f.session}\` is tagged (foundation) but appears after a session with user-visible work`;
+    case 'ui-form-no-validation':
+      return `spec mentions forms but contains no validation specifications`;
+    case 'ui-list-no-states':
+      return `spec mentions a list/table but is missing empty / loading / error state coverage`;
   }
 }
 
@@ -657,6 +1053,23 @@ export function summarizeReport(report: CoverageAuditReport): string {
   if (counts.placeholder > 0) parts.push('placeholder leaked');
   if (counts.byteRatio > 0)
     parts.push(`byte ratio ${(report.ratios.byteRatio * 100).toFixed(0)}% < floor`);
+  if (counts.uiOrphanEntity > 0)
+    parts.push(`${counts.uiOrphanEntity} orphan entity(ies) without Screens:`);
+  if (counts.uiUntriggeredEndpoint > 0)
+    parts.push(`${counts.uiUntriggeredEndpoint} endpoint(s) without Triggered by:`);
+  if (counts.uiInvisibleErrors > 0) parts.push('error section names no UI surface');
+  if (counts.uiSessionNoOutcome > 0)
+    parts.push(`${counts.uiSessionNoOutcome} session(s) without User-visible outcome:`);
+  if (counts.uiFoundationMissingJustification > 0)
+    parts.push(
+      `${counts.uiFoundationMissingJustification} foundation session(s) without justification`,
+    );
+  if (counts.uiFoundationNonContiguous > 0)
+    parts.push(
+      `${counts.uiFoundationNonContiguous} non-contiguous foundation session(s)`,
+    );
+  if (counts.uiFormNoValidation > 0) parts.push('forms mentioned without validation');
+  if (counts.uiListNoStates > 0) parts.push('list/table mentioned without empty/loading/error states');
   return `Coverage audit: FAIL — ${parts.join(', ')}.`;
 }
 
@@ -669,6 +1082,14 @@ interface FailureCounts {
   truncation: number;
   placeholder: number;
   byteRatio: number;
+  uiOrphanEntity: number;
+  uiUntriggeredEndpoint: number;
+  uiInvisibleErrors: number;
+  uiSessionNoOutcome: number;
+  uiFoundationMissingJustification: number;
+  uiFoundationNonContiguous: number;
+  uiFormNoValidation: number;
+  uiListNoStates: number;
 }
 
 function countFailures(failures: AuditFailure[]): FailureCounts {
@@ -681,6 +1102,14 @@ function countFailures(failures: AuditFailure[]): FailureCounts {
     truncation: 0,
     placeholder: 0,
     byteRatio: 0,
+    uiOrphanEntity: 0,
+    uiUntriggeredEndpoint: 0,
+    uiInvisibleErrors: 0,
+    uiSessionNoOutcome: 0,
+    uiFoundationMissingJustification: 0,
+    uiFoundationNonContiguous: 0,
+    uiFormNoValidation: 0,
+    uiListNoStates: 0,
   };
   for (const f of failures) {
     switch (f.kind) {
@@ -707,6 +1136,30 @@ function countFailures(failures: AuditFailure[]): FailureCounts {
         break;
       case 'byte-ratio-low':
         c.byteRatio++;
+        break;
+      case 'ui-orphan-entity':
+        c.uiOrphanEntity++;
+        break;
+      case 'ui-untriggered-endpoint':
+        c.uiUntriggeredEndpoint++;
+        break;
+      case 'ui-invisible-errors':
+        c.uiInvisibleErrors++;
+        break;
+      case 'ui-session-no-outcome':
+        c.uiSessionNoOutcome++;
+        break;
+      case 'ui-foundation-missing-justification':
+        c.uiFoundationMissingJustification++;
+        break;
+      case 'ui-foundation-non-contiguous':
+        c.uiFoundationNonContiguous++;
+        break;
+      case 'ui-form-no-validation':
+        c.uiFormNoValidation++;
+        break;
+      case 'ui-list-no-states':
+        c.uiListNoStates++;
         break;
     }
   }

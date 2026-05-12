@@ -50,6 +50,37 @@ These four rules are NON-NEGOTIABLE when input docs are provided. A coverage aud
    If the user-provided docs reference §X but §X is empty, or use placeholders (TBD, ..., "see <other doc>"), or end mid-section, STOP writing and ask the user using the ?> options format. Do NOT invent the missing content. Do NOT fabricate plausible-sounding defaults. The user gets to fill the gap.
 
 ═══════════════════════════════════════════════════════════════════
+UI IS A CROSS-CUTTING REQUIREMENT — NOT AN OPTIONAL SECTION
+═══════════════════════════════════════════════════════════════════
+
+Feature specs must describe a WORKING ADDITION the user can use
+end-to-end, not a functional backend extension with the UI work left
+implicit. Every section below has a UI dimension that MUST be
+addressed inline. New entities without screens, new endpoints without
+UI triggers, new error classes with no UI surface, and "Phase 1:
+foundation" sessions that produce nothing the user can see are all
+UI-completeness failures — they pass a backend code review and fail
+real users.
+
+A UI-completeness audit runs after the spec is written. It checks:
+  - Every new entity in §3 Data Model Changes declares the screen(s)
+    that surface it via a labeled field:  \`Screens: ScreenA, ScreenB, ...\`
+  - Every new user-triggerable endpoint in §6 declares the UI element
+    that fires it via a labeled field:  \`Triggered by: ...\`
+  - Every error class in §8 names a UI surface keyword
+    (toast / banner / inline / modal / full-page)
+  - Every session in §10 Session Plan declares a
+    \`User-visible outcome:\` field (or \`(foundation)\` paired with a
+    non-empty \`Foundation justification:\`)
+  - Every form mentioned has validation specs + error display
+  - Every list/table mentioned has empty + loading + error states
+
+These checks are deterministic — failures trigger a recheck pass. The
+goal is not bureaucracy: it is that nothing the user is supposed to
+see can be silently invented later by the implementer. Weave UI into
+each section as you write it.
+
+═══════════════════════════════════════════════════════════════════
 PROJECT CONTEXT (loaded automatically)
 ═══════════════════════════════════════════════════════════════════
 
@@ -298,11 +329,26 @@ EVERY new file to create:
 - Purpose
 
 ## 3. Data Model Changes
-New models/tables AND modifications to existing ones.
+New models/tables AND modifications to existing ones (each entity gets
+its own \`### {EntityName}\` H3 heading).
 Show the COMPLETE model definition including existing fields for context.
 Highlight what's new vs existing.
 If the model has version/timestamp fields: describe auto-increment or
 concurrency behavior.
+
+For EVERY new or modified entity:
+- **\`Screens:\` (REQUIRED labeled field)** — list every screen that
+  surfaces this entity (create / view / edit / delete / list). Screen
+  names MUST match pages or modals defined in §4 New Routes & Pages
+  or §5 New & Modified Components, OR an existing screen in the app
+  that you're extending (tag with ✅ VERIFIED if you've read the file).
+  Example:
+    \`Screens: ProjectListPage, ProjectDetailPage, CreateProjectModal\`
+  If the entity is intentionally backend-only (audit log, queue state),
+  declare:
+    \`Screens: (backend-only — {one-line reason})\`
+  No silent orphan entities. The UI-completeness audit fails any entity
+  H3 whose body lacks a \`Screens:\` field.
 
 ## 4. New Routes & Pages
 Same level of detail as New Application Mode Section 3.
@@ -368,10 +414,22 @@ Verify: does the parent component pass everything the save endpoint needs?
 Does the child component collect everything the parent expects?
 
 ## 6. API / Data Layer Changes
-New endpoints or queries.
+New endpoints or queries (each endpoint gets its own \`### {METHOD path}\`
+or \`### {functionName}\` H3 heading).
 Changes to existing endpoints.
 New RLS policies, middleware changes.
 For each: what happens on slow response (>3 seconds)?
+
+For EVERY new endpoint:
+- **\`Triggered by:\` (REQUIRED labeled field)** — name the UI element
+  that fires this endpoint. Example:
+    \`Triggered by: NotificationBell click → NotificationDropdown open → markAllRead()\`
+  If the endpoint is fired only by system processes (cron, webhook,
+  internal worker), declare:
+    \`Triggered by: (system — {one-line reason})\`
+  For every async call, also describe the loading / success / error UI
+  the user sees during and after the call. The UI-completeness audit
+  fails any endpoint H3 whose body lacks a \`Triggered by:\` field.
 
 ## 7. Integration Points
 How this feature connects to existing features.
@@ -395,6 +453,14 @@ For EVERY error state, specify the RECOVERY PATH:
 - What happens on retry (loading indicator, same error on repeat failure)
 - For modals: modal stays OPEN on error, submit button re-enabled,
   form values preserved
+
+- **UI surface for EVERY error class (REQUIRED):** each error class must
+  name where it surfaces using one of these keywords — \`toast\`, \`banner\`,
+  \`inline\`, \`modal\`, \`full-page\` — plus the exact copy and the recovery
+  action. Format:
+    \`Error: <class> → Surface: <surface keyword> → Copy: "<exact text>" → Recovery: <action>\`
+  No invisible errors. The UI-completeness audit fails any §8 that
+  mentions errors but contains zero UI surface keywords.
 
 ## 9. Implementation Checklist
 Organize as a hierarchical checklist. MUST include "Modify existing file X"
@@ -534,6 +600,25 @@ For EACH session, use this EXACT format:
 **Files:**
 - \`{filepath}\` ({create|modify})
 - \`{filepath}\` ({create|modify})
+**User-visible outcome:** {what the user can SEE and DO after this
+session — be concrete. e.g., "user sees a bell icon in the header
+with an unread count badge and can click to open the notifications
+dropdown" — NOT "notification API works"}
+
+Foundation-phase exception — if this session genuinely cannot produce
+user-visible work (e.g., database migration + service layer that no
+existing screen consumes yet), declare:
+    **User-visible outcome:** (foundation)
+    **Foundation justification:** {one-line: why no user-visible work
+    is possible in this session}
+
+Foundation sessions MUST be contiguous from Session 1. Once any
+session produces user-visible work, NO later session may be tagged
+(foundation). Multiple foundation sessions are allowed when each is
+justified — the rule is "justify or visible," not a count cap. The
+UI-completeness audit flags sessions missing the field, sessions
+tagged (foundation) without justification, and foundation sessions
+appearing after non-foundation sessions.
 
 **Prompt for Claude Code:**
 \`\`\`

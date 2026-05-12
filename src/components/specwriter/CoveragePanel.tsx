@@ -108,6 +108,14 @@ function CoverageReportSection({ report }: { report: CoverageAuditReport }) {
           {failureCounts.truncation > 0 && <CountBadge label="truncation" count={failureCounts.truncation} severity="block" />}
           {failureCounts.placeholder > 0 && <CountBadge label="placeholder leaked" count={failureCounts.placeholder} severity="warn" />}
           {failureCounts.byteRatio > 0 && <CountBadge label="byte ratio low" count={failureCounts.byteRatio} severity="warn" />}
+          {failureCounts.uiOrphanEntity > 0 && <CountBadge label="orphan entity" count={failureCounts.uiOrphanEntity} severity="block" />}
+          {failureCounts.uiUntriggeredEndpoint > 0 && <CountBadge label="untriggered endpoint" count={failureCounts.uiUntriggeredEndpoint} severity="block" />}
+          {failureCounts.uiInvisibleErrors > 0 && <CountBadge label="invisible errors" count={failureCounts.uiInvisibleErrors} severity="warn" />}
+          {failureCounts.uiSessionNoOutcome > 0 && <CountBadge label="session w/o outcome" count={failureCounts.uiSessionNoOutcome} severity="block" />}
+          {failureCounts.uiFoundationMissingJustification > 0 && <CountBadge label="foundation w/o justification" count={failureCounts.uiFoundationMissingJustification} severity="warn" />}
+          {failureCounts.uiFoundationNonContiguous > 0 && <CountBadge label="foundation out of order" count={failureCounts.uiFoundationNonContiguous} severity="warn" />}
+          {failureCounts.uiFormNoValidation > 0 && <CountBadge label="form w/o validation" count={failureCounts.uiFormNoValidation} severity="warn" />}
+          {failureCounts.uiListNoStates > 0 && <CountBadge label="list w/o states" count={failureCounts.uiListNoStates} severity="warn" />}
         </div>
       )}
 
@@ -298,12 +306,20 @@ function severityOf(f: AuditFailure): 'block' | 'warn' | 'info' {
     case 'missing-section':
     case 'schema-rename':
     case 'truncation':
+    case 'ui-orphan-entity':
+    case 'ui-untriggered-endpoint':
+    case 'ui-session-no-outcome':
       return 'block';
     case 'unmapped-section':
     case 'fidelity-drift':
     case 'missing-numeric':
     case 'placeholder-leaked':
     case 'byte-ratio-low':
+    case 'ui-invisible-errors':
+    case 'ui-foundation-missing-justification':
+    case 'ui-foundation-non-contiguous':
+    case 'ui-form-no-validation':
+    case 'ui-list-no-states':
       return 'warn';
   }
 }
@@ -317,6 +333,14 @@ interface FailureCounts {
   truncation: number;
   placeholder: number;
   byteRatio: number;
+  uiOrphanEntity: number;
+  uiUntriggeredEndpoint: number;
+  uiInvisibleErrors: number;
+  uiSessionNoOutcome: number;
+  uiFoundationMissingJustification: number;
+  uiFoundationNonContiguous: number;
+  uiFormNoValidation: number;
+  uiListNoStates: number;
 }
 
 function countByKind(failures: AuditFailure[]): FailureCounts {
@@ -329,6 +353,14 @@ function countByKind(failures: AuditFailure[]): FailureCounts {
     truncation: 0,
     placeholder: 0,
     byteRatio: 0,
+    uiOrphanEntity: 0,
+    uiUntriggeredEndpoint: 0,
+    uiInvisibleErrors: 0,
+    uiSessionNoOutcome: 0,
+    uiFoundationMissingJustification: 0,
+    uiFoundationNonContiguous: 0,
+    uiFormNoValidation: 0,
+    uiListNoStates: 0,
   };
   for (const f of failures) {
     switch (f.kind) {
@@ -340,6 +372,14 @@ function countByKind(failures: AuditFailure[]): FailureCounts {
       case 'truncation': c.truncation++; break;
       case 'placeholder-leaked': c.placeholder++; break;
       case 'byte-ratio-low': c.byteRatio++; break;
+      case 'ui-orphan-entity': c.uiOrphanEntity++; break;
+      case 'ui-untriggered-endpoint': c.uiUntriggeredEndpoint++; break;
+      case 'ui-invisible-errors': c.uiInvisibleErrors++; break;
+      case 'ui-session-no-outcome': c.uiSessionNoOutcome++; break;
+      case 'ui-foundation-missing-justification': c.uiFoundationMissingJustification++; break;
+      case 'ui-foundation-non-contiguous': c.uiFoundationNonContiguous++; break;
+      case 'ui-form-no-validation': c.uiFormNoValidation++; break;
+      case 'ui-list-no-states': c.uiListNoStates++; break;
     }
   }
   return c;

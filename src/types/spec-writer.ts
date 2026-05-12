@@ -116,7 +116,20 @@ export type AuditFailure =
   | { kind: 'missing-numeric'; what: 'cost' | 'timeout' | 'rate' | 'retention'; sample: string }
   | { kind: 'truncation'; lastHeading: string; tail: string }
   | { kind: 'placeholder-leaked'; quote: string }
-  | { kind: 'byte-ratio-low'; ratio: number; floor: number };
+  | { kind: 'byte-ratio-low'; ratio: number; floor: number }
+  // UI-completeness checks. Strict (labeled-field) failures are
+  // per-instance: each orphan entity / untriggered endpoint / session
+  // missing the User-visible outcome field gets its own failure.
+  // Prose (fuzzy) failures are global: one failure when an entire
+  // section signals it never wove UI in.
+  | { kind: 'ui-orphan-entity'; entity: string }
+  | { kind: 'ui-untriggered-endpoint'; endpoint: string }
+  | { kind: 'ui-invisible-errors' }
+  | { kind: 'ui-session-no-outcome'; session: string }
+  | { kind: 'ui-foundation-missing-justification'; session: string }
+  | { kind: 'ui-foundation-non-contiguous'; session: string }
+  | { kind: 'ui-form-no-validation' }
+  | { kind: 'ui-list-no-states' };
 
 export interface CoverageAuditReport {
   status: 'pass' | 'fail';
@@ -134,6 +147,8 @@ export interface CoverageAuditOptions {
   byteRatioFloor?: number;
   /** Set true for new-application mode (no input doc to compare against). */
   skipForNewApp?: boolean;
+  /** Set true to skip the UI-completeness checks (default: false — checks run by default). */
+  skipUIChecks?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import {
   extractInputDocs,
   parseCoverageMap,
   parseSections,
+  runUICompletenessChecks,
   summarizeReport,
   summarizeInput,
   type InputDoc,
@@ -390,6 +391,233 @@ describe("summarizeReport / describeFailure", () => {
     expect(describeFailure({ kind: "truncation", lastHeading: "H", tail: "" })).toContain("truncated");
     expect(describeFailure({ kind: "placeholder-leaked", quote: "TBD" })).toContain("TBD");
     expect(describeFailure({ kind: "byte-ratio-low", ratio: 0.3, floor: 0.6 })).toContain("30%");
+    expect(describeFailure({ kind: "ui-orphan-entity", entity: "User" })).toContain("User");
+    expect(
+      describeFailure({ kind: "ui-untriggered-endpoint", endpoint: "POST /api/x" }),
+    ).toContain("POST /api/x");
+    expect(describeFailure({ kind: "ui-invisible-errors" })).toMatch(/UI surface/i);
+    expect(
+      describeFailure({ kind: "ui-session-no-outcome", session: "Session 1: X" }),
+    ).toContain("Session 1: X");
+    expect(
+      describeFailure({
+        kind: "ui-foundation-missing-justification",
+        session: "Session 1: X",
+      }),
+    ).toContain("Session 1: X");
+    expect(
+      describeFailure({
+        kind: "ui-foundation-non-contiguous",
+        session: "Session 2: X",
+      }),
+    ).toContain("Session 2: X");
+    expect(describeFailure({ kind: "ui-form-no-validation" })).toMatch(/validation/i);
+    expect(describeFailure({ kind: "ui-list-no-states" })).toMatch(/empty/i);
+  });
+
+  it("buildRecheckPrompts surfaces UI failures with actionable patch guidance", () => {
+    const prompts = buildRecheckPrompts([
+      { kind: "ui-orphan-entity", entity: "User" },
+      { kind: "ui-untriggered-endpoint", endpoint: "POST /api/projects" },
+      { kind: "ui-invisible-errors" },
+      { kind: "ui-session-no-outcome", session: "Session 1: Scaffold" },
+      { kind: "ui-foundation-missing-justification", session: "Session 2: Auth" },
+      { kind: "ui-foundation-non-contiguous", session: "Session 3: DB" },
+      { kind: "ui-form-no-validation" },
+      { kind: "ui-list-no-states" },
+    ]);
+    expect(prompts).toHaveLength(1);
+    const p = prompts[0];
+    expect(p).toContain("AUDIT-PATCH");
+    expect(p).toContain("User");
+    expect(p).toContain("POST /api/projects");
+    expect(p).toContain("toast");
+    expect(p).toContain("Session 1: Scaffold");
+    expect(p).toContain("Session 2: Auth");
+    expect(p).toContain("Session 3: DB");
+    expect(p).toMatch(/validation/i);
+    expect(p).toMatch(/empty/i);
+  });
+});
+
+// ─── runUICompletenessChecks ──────────────────────────────────────────
+
+describe("runUICompletenessChecks", () => {
+  describe("orphan entities", () => {
+    it("flags Data Model entities missing the Screens: field", () => {
+      const spec = `# Spec\n\n## 2. Data Model\n\n### User\n- id, email, name\n\n### Project\n- id, name\nScreens: ProjectListPage, ProjectDetailPage\n`;
+      const failures = runUICompletenessChecks(spec);
+      const orphan = failures.filter((f) => f.kind === "ui-orphan-entity");
+      expect(orphan).toHaveLength(1);
+      expect(orphan[0]).toMatchObject({ kind: "ui-orphan-entity", entity: "User" });
+    });
+
+    it("accepts a backend-only declaration", () => {
+      const spec = `# Spec\n\n## 2. Data Model\n\n### AuditLog\n- id, event, ts\nScreens: (backend-only — internal audit trail)\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-orphan-entity")).toBe(false);
+    });
+
+    it("does not run when Data Model section is absent", () => {
+      const spec = `# Spec\n\n## Overview\ntext.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-orphan-entity")).toBe(false);
+    });
+  });
+
+  describe("untriggered endpoints", () => {
+    it("flags API endpoints missing the Triggered by: field", () => {
+      const spec = `# Spec\n\n## 6. API\n\n### POST /api/projects\n- creates a project\n\n### GET /api/projects\n- lists projects\nTriggered by: ProjectListPage on mount\n`;
+      const failures = runUICompletenessChecks(spec);
+      const ut = failures.filter((f) => f.kind === "ui-untriggered-endpoint");
+      expect(ut).toHaveLength(1);
+      expect(ut[0]).toMatchObject({
+        kind: "ui-untriggered-endpoint",
+        endpoint: "POST /api/projects",
+      });
+    });
+
+    it("accepts a system-only declaration", () => {
+      const spec = `# Spec\n\n## 6. API\n\n### POST /api/cron/cleanup\nTriggered by: (system — daily cleanup cron)\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-untriggered-endpoint")).toBe(false);
+    });
+
+    it("ignores Pages & Routes section headings (UI section, not API section)", () => {
+      const spec = `# Spec\n\n## 3. Pages & Routes\n\n### /dashboard\n- shows the dashboard\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-untriggered-endpoint")).toBe(false);
+    });
+  });
+
+  describe("invisible errors", () => {
+    it("flags an Error Handling section that names no UI surface", () => {
+      const spec = `# Spec\n\n## 7. Error Handling & Edge Cases\nWhen the API fails the request fails. The user retries. Errors include 500, 404, network errors, and validation problems.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-invisible-errors")).toBe(true);
+    });
+
+    it("passes when a UI surface keyword appears", () => {
+      const spec = `# Spec\n\n## 7. Error Handling\nOn API failure show a toast: "Failed to load lists. Please try again."\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-invisible-errors")).toBe(false);
+    });
+
+    it("does not run when Error Handling section is absent", () => {
+      const spec = `# Spec\n\n## Overview\ntext.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-invisible-errors")).toBe(false);
+    });
+  });
+
+  describe("session outcomes", () => {
+    it("flags sessions missing the User-visible outcome: field", () => {
+      const spec = `# Spec\n\n## 10. Session Plan\n\n### Session 1: Scaffold\n**Scope:** initial setup\n\n### Session 2: Build the dashboard\n**Scope:** dashboard work\n**User-visible outcome:** user sees /dashboard with a 3-card grid\n`;
+      const failures = runUICompletenessChecks(spec);
+      const noOutcome = failures.filter((f) => f.kind === "ui-session-no-outcome");
+      expect(noOutcome).toHaveLength(1);
+      expect(noOutcome[0]).toMatchObject({
+        kind: "ui-session-no-outcome",
+        session: "Session 1: Scaffold",
+      });
+    });
+
+    it("accepts (foundation) when paired with Foundation justification:", () => {
+      const spec = `# Spec\n\n## 10. Session Plan\n\n### Session 1: Foundation\n**User-visible outcome:** (foundation)\n**Foundation justification:** DB schema + auth scaffolding required before any route is reachable\n\n### Session 2: Dashboard\n**User-visible outcome:** user can navigate to /dashboard and see a card grid\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-session-no-outcome")).toBe(false);
+      expect(failures.some((f) => f.kind === "ui-foundation-missing-justification")).toBe(false);
+      expect(failures.some((f) => f.kind === "ui-foundation-non-contiguous")).toBe(false);
+    });
+
+    it("flags (foundation) without justification", () => {
+      const spec = `# Spec\n\n## 10. Session Plan\n\n### Session 1: Foundation\n**User-visible outcome:** (foundation)\n\n### Session 2: Dashboard\n**User-visible outcome:** user sees /dashboard\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(
+        failures.some(
+          (f) =>
+            f.kind === "ui-foundation-missing-justification" &&
+            f.session === "Session 1: Foundation",
+        ),
+      ).toBe(true);
+    });
+
+    it("flags foundation sessions appearing after user-visible sessions", () => {
+      const spec = `# Spec\n\n## 10. Session Plan\n\n### Session 1: Dashboard\n**User-visible outcome:** user sees /dashboard with a card grid\n\n### Session 2: Backend scaffold\n**User-visible outcome:** (foundation)\n**Foundation justification:** internal worker pipeline\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(
+        failures.some(
+          (f) =>
+            f.kind === "ui-foundation-non-contiguous" &&
+            f.session === "Session 2: Backend scaffold",
+        ),
+      ).toBe(true);
+    });
+
+    it("accepts multiple contiguous foundation sessions when each is justified", () => {
+      const spec = `# Spec\n\n## 10. Session Plan\n\n### Session 1: DB schema\n**User-visible outcome:** (foundation)\n**Foundation justification:** schema needed before any UI\n\n### Session 2: Auth scaffold\n**User-visible outcome:** (foundation)\n**Foundation justification:** auth required before protected routes\n\n### Session 3: Dashboard\n**User-visible outcome:** user navigates to /dashboard, sees card grid\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-session-no-outcome")).toBe(false);
+      expect(failures.some((f) => f.kind === "ui-foundation-missing-justification")).toBe(false);
+      expect(failures.some((f) => f.kind === "ui-foundation-non-contiguous")).toBe(false);
+    });
+
+    it("does not run when Session Plan section is absent", () => {
+      const spec = `# Spec\n\n## Overview\ntext.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-session-no-outcome")).toBe(false);
+    });
+  });
+
+  describe("prose checks (form / list)", () => {
+    it("does not run when no UI section is present (minimal spec)", () => {
+      const spec = `# Spec\n\n## Overview\nThis app has a form for submitting data and shows a list of results.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-form-no-validation")).toBe(false);
+      expect(failures.some((f) => f.kind === "ui-list-no-states")).toBe(false);
+    });
+
+    it("does not match SQL `CREATE TABLE` inside code blocks", () => {
+      const spec = `# Spec\n\n## 3. Pages & Routes\n/dashboard with a UserListView\n\n## 2. Data Model\n\`\`\`sql\nCREATE TABLE users (id uuid);\n\`\`\`\n`;
+      const failures = runUICompletenessChecks(spec);
+      // The only UI element mentioned is UserListView. With no states the check should fire.
+      expect(failures.some((f) => f.kind === "ui-list-no-states")).toBe(true);
+    });
+
+    it("flags forms without validation language (UI spec)", () => {
+      const spec = `# Spec\n\n## 3. Pages & Routes\n/signup page renders a SignupForm.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-form-no-validation")).toBe(true);
+    });
+
+    it("passes when forms have validation specs", () => {
+      const spec = `# Spec\n\n## 3. Pages & Routes\n/signup page renders a SignupForm with email and password fields and validation on submit.\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-form-no-validation")).toBe(false);
+    });
+
+    it("passes a list view with all three states named", () => {
+      const spec = `# Spec\n\n## 3. Pages & Routes\nProjectListView shows projects. Empty state: "No projects yet". Loading skeleton renders 6 cards. Error banner: "Failed to load."\n`;
+      const failures = runUICompletenessChecks(spec);
+      expect(failures.some((f) => f.kind === "ui-list-no-states")).toBe(false);
+    });
+  });
+});
+
+// ─── auditCoverage UI checks integration ──────────────────────────────
+
+describe("auditCoverage — UI-completeness integration", () => {
+  it("includes UI failures in the overall failures list by default", () => {
+    const spec = `# Spec\n\n## 2. Data Model\n\n### User\n- id, email\n\n## 3. Pages & Routes\n- /dashboard\n`;
+    const report = auditCoverage([], spec, { skipForNewApp: true });
+    expect(report.status).toBe("fail");
+    expect(report.failures.some((f) => f.kind === "ui-orphan-entity")).toBe(true);
+  });
+
+  it("skipUIChecks=true suppresses UI failures", () => {
+    const spec = `# Spec\n\n## 2. Data Model\n\n### User\n- id, email\n\n## 3. Pages & Routes\n- /dashboard\n`;
+    const report = auditCoverage([], spec, { skipForNewApp: true, skipUIChecks: true });
+    expect(report.failures.some((f) => f.kind === "ui-orphan-entity")).toBe(false);
   });
 });
 

@@ -50,6 +50,35 @@ These four rules are NON-NEGOTIABLE when input docs are provided. A coverage aud
    If the user-provided docs reference §X but §X is empty, or use placeholders (TBD, ..., "see <other doc>"), or end mid-section, STOP writing and ask the user using the ?> options format. Do NOT invent the missing content. Do NOT fabricate plausible-sounding defaults. The user gets to fill the gap.
 
 ═══════════════════════════════════════════════════════════════════
+UI IS A CROSS-CUTTING REQUIREMENT — NOT AN OPTIONAL SECTION
+═══════════════════════════════════════════════════════════════════
+
+Specs must describe a WORKING APP THE USER CAN USE END-TO-END, not a
+functional backend with a UI bolted on at the end. Every section
+below has a UI dimension that MUST be addressed inline. Orphan
+entities (modeled but unreachable), invisible auth states,
+untriggered endpoints, and unrendered errors are all UI-completeness
+failures — they pass a backend code review and fail real users.
+
+A UI-completeness audit runs after the spec is written. It checks:
+  - Every entity in §2 Data Model declares the screen(s) that surface
+    it via a labeled field:  \`Screens: ScreenA, ScreenB, ...\`
+  - Every user-triggerable endpoint in §6 API declares the UI element
+    that fires it via a labeled field:  \`Triggered by: ...\`
+  - Every error class in §7 names a UI surface keyword
+    (toast / banner / inline / modal / full-page)
+  - Every session in §10 Session Plan declares a
+    \`User-visible outcome:\` field (or \`(foundation)\` paired with a
+    non-empty \`Foundation justification:\`)
+  - Every form mentioned in the spec has validation specs + error display
+  - Every list/table mentioned has empty + loading + error states
+
+These checks are deterministic — failures trigger a recheck pass. The
+goal is not bureaucracy: it is that nothing the user is supposed to
+see can be silently invented later by the implementer. Weave UI into
+each section as you write it.
+
+═══════════════════════════════════════════════════════════════════
 CONVERSATION PHASE (gather requirements before writing ANYTHING)
 ═══════════════════════════════════════════════════════════════════
 
@@ -175,13 +204,22 @@ Every section is MANDATORY. Do not skip or merge sections.
 - Template recommendation: {template_id from catalog} or explain why none fits
 
 ## 2. Data Model
-For EVERY entity:
+For EVERY entity (each entity gets its own \`### {EntityName}\` H3 heading):
 - Entity name
 - Every field with: name, type, constraints (required, unique, default, min/max)
 - Relationships (FK references, cascade behavior)
 - Indexes (which fields need them and why)
 - If the model has a version/timestamp field: describe the behavior
   (auto-increment on save? optimistic concurrency? audit trail?)
+- **\`Screens:\` (REQUIRED labeled field)** — list every screen that surfaces
+  this entity (create / view / edit / delete / list). Screen names MUST match
+  pages or modals defined in §3 Pages & Routes or §4 Components. Example:
+    \`Screens: ProjectListPage, ProjectDetailPage, CreateProjectModal, DeleteConfirmModal\`
+  If the entity is intentionally backend-only (audit log, queue state,
+  internal counter), declare:
+    \`Screens: (backend-only — {one-line reason})\`
+  No silent orphan entities. The UI-completeness audit fails any entity
+  H3 whose body lacks a \`Screens:\` field.
 Use code blocks with actual schema syntax (Prisma, SQL, or TypeScript interfaces).
 
 ## 3. Pages & Routes
@@ -296,9 +334,20 @@ A missing mockup means the implementer guesses the layout.
 - Session management (tokens, cookies, duration, refresh)
 - Route protection rules (which routes require auth, which roles)
 - UI behavior when unauthorized (redirect, toast, error page)
+- **UI surface for EVERY auth state (REQUIRED):** enumerate each state
+  and the concrete screen / modal / inline component that renders it.
+  No auth state may be silently invisible. Use this format:
+    - signed-out → /login (sign-in form)
+    - signing-in → button shows spinner, fields disabled
+    - sign-in error → inline error below form: "{exact message}"
+    - session-expired → SessionExpiredModal + redirect to /login
+    - password reset → /reset-password screen
+    - MFA challenge → MFAChallengeModal (when enabled)
+  Each state must map to a real UI surface in §3 or §4.
 
 ## 6. API / Data Layer
-For every endpoint or query:
+For every endpoint or query (each endpoint gets its own \`### {METHOD path}\` or
+\`### {functionName}\` H3 heading):
 - Method + path (for REST) or function name (for server actions)
 - Request shape (body, params, query)
 - Response shape (success and error cases)
@@ -306,6 +355,15 @@ For every endpoint or query:
 - Authorization checks
 - Rate limiting (if applicable)
 - What happens on slow response (>3 seconds)
+- **\`Triggered by:\` (REQUIRED labeled field)** — name the UI element that
+  fires this endpoint. Example:
+    \`Triggered by: ProjectListPage "Delete" button → DeleteConfirmModal "Confirm"\`
+  If the endpoint is fired only by system processes (cron, webhook,
+  internal worker) — not the user — declare:
+    \`Triggered by: (system — {one-line reason: cron / webhook / worker})\`
+  For every async call, also describe the loading / success / error UI
+  the user sees during and after the call. The UI-completeness audit
+  fails any endpoint H3 whose body lacks a \`Triggered by:\` field.
 
 ## 7. Error Handling & Edge Cases
 For EVERY page and EVERY user interaction:
@@ -314,6 +372,13 @@ For EVERY page and EVERY user interaction:
 - What happens when data is empty
 - What happens when the user's session expires mid-action
 - What happens on slow connections (>3 seconds: loading indicator stays)
+- **UI surface for EVERY error class (REQUIRED):** each error class must
+  name where it surfaces using one of these keywords — \`toast\`, \`banner\`,
+  \`inline\`, \`modal\`, \`full-page\` — plus the exact copy and the recovery
+  action. Format:
+    \`Error: <class> → Surface: <surface keyword> → Copy: "<exact text>" → Recovery: <action>\`
+  No invisible errors. The UI-completeness audit fails any §7 that
+  mentions errors but contains zero UI surface keywords.
 
 CRITICAL: For every error state, specify the RECOVERY PATH — not just
 what the error looks like, but what the user does next.
@@ -509,6 +574,25 @@ For EACH session, use this EXACT format:
 **Files:**
 - \`{filepath}\` ({create|modify})
 - \`{filepath}\` ({create|modify})
+**User-visible outcome:** {what the user can SEE and DO after this
+session — be concrete. e.g., "user can navigate to /dashboard and see
+a placeholder card grid with their projects (empty state if none)" —
+NOT "auth works", NOT "database migrated"}
+
+Foundation-phase exception — if this session genuinely cannot produce
+user-visible work (e.g., DB schema setup + auth scaffolding before any
+route is reachable), declare:
+    **User-visible outcome:** (foundation)
+    **Foundation justification:** {one-line: why no user-visible work
+    is possible in this session}
+
+Foundation sessions MUST be contiguous from Session 1. Once any
+session produces user-visible work, NO later session may be tagged
+(foundation). Multiple foundation sessions are allowed when each is
+justified — the rule is "justify or visible," not a count cap. The
+UI-completeness audit flags sessions missing the field, sessions
+tagged (foundation) without justification, and foundation sessions
+appearing after non-foundation sessions.
 
 **Prompt for Claude Code:**
 \`\`\`
