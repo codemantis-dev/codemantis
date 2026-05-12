@@ -31,7 +31,12 @@ export interface FileReadResult {
 
 export interface SpecAttachment {
   id: string;
-  type: 'image' | 'document';
+  /**
+   * 'image' / 'document' — content is inlined into the prompt at send time.
+   * 'project-ref' — only the file_path (relative to the project root) is sent
+   * as a reference; Claude Code reads it on demand via REQUEST_FILES.
+   */
+  type: 'image' | 'document' | 'project-ref';
   name: string;
   size: number;
   mime_type: string;

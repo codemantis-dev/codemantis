@@ -288,8 +288,11 @@ export function useSpecConversation(): {
             // If message has file attachments, build multimodal content parts
             if (m.attachments && m.attachments.length > 0) {
               const parts: ContentPart[] = [{ type: "text", text: m.content }];
+              const refs: string[] = [];
               for (const att of m.attachments) {
-                if (att.type === "image" && att.preview_url) {
+                if (att.type === "project-ref") {
+                  if (att.file_path) refs.push(att.file_path);
+                } else if (att.type === "image" && att.preview_url) {
                   const base64 = att.preview_url.split(",")[1] ?? att.preview_url;
                   parts.push({ type: "image", mime_type: att.mime_type, data: base64 });
                 } else if (att.type === "document" && isTextMime(att.mime_type)) {
@@ -310,6 +313,12 @@ export function useSpecConversation(): {
                 } else if (att.type === "document" && att.text_content) {
                   parts.push({ type: "text", text: `--- ${att.name} ---\n${att.text_content}` });
                 }
+              }
+              if (refs.length > 0) {
+                const block =
+                  "[Referenced project files — paths are relative to the project root]\n" +
+                  refs.map((p) => `- ${p}`).join("\n");
+                parts.splice(1, 0, { type: "text", text: block });
               }
               return { role: apiRole, content: parts };
             }

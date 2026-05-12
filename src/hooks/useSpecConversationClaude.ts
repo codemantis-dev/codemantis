@@ -190,18 +190,29 @@ export function useSpecConversationClaude(): {
         store.initConversation(projectPath, "claude-code", model, mode, templateCatalog);
       }
 
-      // Build prompt with inlined file content (Claude Code receives text only via stdin)
+      // Build prompt with inlined file content (Claude Code receives text only via stdin).
+      // project-ref attachments are not inlined — they're announced as a reference
+      // block so the CLI can fetch them on demand via its read_project_files path.
       let prompt = content;
       if (attachments && attachments.length > 0) {
         const parts: string[] = [];
+        const refs: string[] = [];
         for (const att of attachments) {
-          if (att.type === "image") {
+          if (att.type === "project-ref") {
+            if (att.file_path) refs.push(att.file_path);
+          } else if (att.type === "image") {
             parts.push(`[Attached image: ${att.file_path ?? att.name}]`);
           } else if (att.text_content) {
             parts.push(`--- ${att.name} ---\n${att.text_content}`);
           } else {
             parts.push(`[Attached file: ${att.file_path ?? att.name}]`);
           }
+        }
+        if (refs.length > 0) {
+          const block =
+            "[Referenced project files — read these with the Read tool as needed; paths are relative to the project root]\n" +
+            refs.map((p) => `- ${p}`).join("\n");
+          parts.unshift(block);
         }
         prompt = parts.join("\n\n") + (content ? "\n\n" + content : "");
       }

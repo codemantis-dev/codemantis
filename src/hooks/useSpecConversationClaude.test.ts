@@ -269,6 +269,86 @@ describe("useSpecConversationClaude", () => {
       );
     });
 
+    it("emits a reference block for project-ref attachments and does not inline content", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+
+      const attachments = [
+        {
+          id: "ref-1",
+          type: "project-ref" as const,
+          name: "App.tsx",
+          size: 0,
+          mime_type: "text/plain",
+          file_path: "src/App.tsx",
+        },
+        {
+          id: "ref-2",
+          type: "project-ref" as const,
+          name: "store.ts",
+          size: 0,
+          mime_type: "text/plain",
+          file_path: "src/stores/store.ts",
+        },
+      ];
+
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Explain these", attachments);
+      });
+
+      const calls = mockSendMessage.mock.calls as unknown as string[][];
+      const sentPrompt = calls[0][1];
+      expect(sentPrompt).toContain("[Referenced project files");
+      expect(sentPrompt).toContain("- src/App.tsx");
+      expect(sentPrompt).toContain("- src/stores/store.ts");
+      expect(sentPrompt).toContain("Explain these");
+      // project-ref content must NOT be inlined as a document
+      expect(sentPrompt).not.toContain("--- App.tsx ---");
+      expect(sentPrompt).not.toContain("--- store.ts ---");
+    });
+
+    it("places the reference block before any inlined document content", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+
+      const attachments = [
+        {
+          id: "doc-1",
+          type: "document" as const,
+          name: "notes.md",
+          size: 100,
+          mime_type: "text/markdown",
+          text_content: "# Notes",
+          file_path: "/tmp/notes.md",
+        },
+        {
+          id: "ref-1",
+          type: "project-ref" as const,
+          name: "App.tsx",
+          size: 0,
+          mime_type: "text/plain",
+          file_path: "src/App.tsx",
+        },
+      ];
+
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Look at these", attachments);
+      });
+
+      const calls = mockSendMessage.mock.calls as unknown as string[][];
+      const sentPrompt = calls[0][1];
+      const refIdx = sentPrompt.indexOf("[Referenced project files");
+      const docIdx = sentPrompt.indexOf("--- notes.md ---");
+      expect(refIdx).toBeGreaterThanOrEqual(0);
+      expect(docIdx).toBeGreaterThan(refIdx);
+    });
+
     it("adds description text for image attachments", async () => {
       useSpecWriterStore.getState().initConversation(
         PROJECT, "claude-code", "claude-sonnet-4-6", "feature",

@@ -14,6 +14,15 @@ vi.mock("../../lib/file-utils", () => ({
   processDroppedPathsForSpec: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("../../lib/tauri-commands", () => ({
+  readFileTree: vi.fn().mockResolvedValue([
+    { name: "src", path: "/tmp/project/src", is_dir: true, children: [
+      { name: "App.tsx", path: "/tmp/project/src/App.tsx", is_dir: false, extension: "tsx" },
+    ]},
+    { name: "README.md", path: "/tmp/project/README.md", is_dir: false, extension: "md" },
+  ]),
+}));
+
 const PROJECT_PATH = "/tmp/project";
 
 function renderInput(overrides?: Partial<React.ComponentProps<typeof SpecChatInput>>) {
@@ -223,5 +232,75 @@ describe("SpecChatInput", () => {
     const textarea = screen.getByPlaceholderText("Describe what you want to build...");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  // ── Textarea size + project-folder picker ──────────────────
+
+  it("renders the taller textarea (rows=9, maxHeight=375)", () => {
+    renderInput();
+    const textarea = screen.getByPlaceholderText("Describe what you want to build...") as HTMLTextAreaElement;
+    expect(textarea.rows).toBe(9);
+    expect(textarea.style.maxHeight).toBe("375px");
+  });
+
+  it("renders the Select-from-project-folder toolbar button", () => {
+    renderInput();
+    expect(screen.getByTitle("Select from project folder")).toBeInTheDocument();
+  });
+
+  it("opens the project file picker when the folder button is clicked", async () => {
+    renderInput();
+    fireEvent.click(screen.getByTitle("Select from project folder"));
+    expect(await screen.findByText("Select files from project")).toBeInTheDocument();
+  });
+
+  it("confirming the picker adds project-ref attachments to the draft", async () => {
+    renderInput();
+    fireEvent.click(screen.getByTitle("Select from project folder"));
+    // README.md is a top-level file; pick it
+    fireEvent.click(await screen.findByLabelText("Select README.md"));
+    fireEvent.click(screen.getByRole("button", { name: /Add/i }));
+
+    const refs = useSpecWriterStore.getState().draftAttachments.get(PROJECT_PATH) ?? [];
+    expect(refs).toHaveLength(1);
+    expect(refs[0].type).toBe("project-ref");
+    expect(refs[0].file_path).toBe("README.md");
+    expect(refs[0].name).toBe("README.md");
+  });
+
+  it("renders project-ref chips with the relative path label", () => {
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT_PATH, [
+      {
+        id: "ref-1",
+        type: "project-ref",
+        name: "App.tsx",
+        size: 0,
+        mime_type: "text/plain",
+        file_path: "src/App.tsx",
+      },
+    ]);
+    renderInput();
+    expect(screen.getByText("src/App.tsx")).toBeInTheDocument();
+  });
+
+  it("does not duplicate project-ref entries when the same path is picked twice", async () => {
+    useSpecWriterStore.getState().setDraftAttachments(PROJECT_PATH, [
+      {
+        id: "ref-existing",
+        type: "project-ref",
+        name: "README.md",
+        size: 0,
+        mime_type: "text/plain",
+        file_path: "README.md",
+      },
+    ]);
+    renderInput();
+    fireEvent.click(screen.getByTitle("Select from project folder"));
+    fireEvent.click(await screen.findByLabelText("Select README.md"));
+    fireEvent.click(screen.getByRole("button", { name: /Add/i }));
+
+    const refs = (useSpecWriterStore.getState().draftAttachments.get(PROJECT_PATH) ?? [])
+      .filter((a) => a.type === "project-ref");
+    expect(refs).toHaveLength(1);
   });
 });

@@ -1,11 +1,12 @@
-import { useRef, useCallback, useEffect } from "react";
-import { Send, Square, Paperclip } from "lucide-react";
+import { useRef, useCallback, useEffect, useState, useMemo } from "react";
+import { Send, Square, Paperclip, FolderTree } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import type { SpecAttachment } from "../../types/spec-writer";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { processDroppedPathsForSpec } from "../../lib/file-utils";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { shouldSend, sendShortcutHint, sendShortcutLabel } from "../../lib/keyboard";
+import ProjectFilePicker from "../modals/ProjectFilePicker";
 
 interface Props {
   projectPath: string;
@@ -64,6 +65,12 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const alreadyRefPaths = useMemo(
+    () => attachments.filter((a) => a.type === "project-ref").map((a) => a.file_path),
+    [attachments]
+  );
 
   // Convenience wrappers that support the updater-function pattern
   const setText = useCallback(
@@ -198,6 +205,31 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, [setAttachments]);
 
+  const handlePickerConfirm = useCallback(
+    (relPaths: string[]) => {
+      setAttachments((prev) => {
+        const existing = new Set(
+          prev.filter((a) => a.type === "project-ref").map((a) => a.file_path)
+        );
+        const additions: SpecAttachment[] = [];
+        for (const p of relPaths) {
+          if (existing.has(p)) continue;
+          const name = p.split("/").pop() || p;
+          additions.push({
+            id: `ref-${Date.now()}-${additions.length}`,
+            type: "project-ref",
+            name,
+            size: 0,
+            mime_type: "text/plain",
+            file_path: p,
+          });
+        }
+        return additions.length === 0 ? prev : [...prev, ...additions];
+      });
+    },
+    [setAttachments]
+  );
+
   return (
     <div
       ref={containerRef}
@@ -210,39 +242,55 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
       {/* Attachments preview */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {attachments.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-1 px-2 py-1 rounded text-ui"
-              style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
-            >
-              {att.type === "image" && att.preview_url && (
-                <img src={att.preview_url} alt="" className="w-6 h-6 rounded object-cover" />
-              )}
-              {att.type === "document" && <Paperclip size={12} />}
-              <span className="truncate max-w-[100px]">{att.name}</span>
-              <button
-                onClick={() => removeAttachment(att.id)}
-                className="ml-1 hover:opacity-70"
-                style={{ color: "var(--text-ghost)" }}
+          {attachments.map((att) => {
+            const isRef = att.type === "project-ref";
+            const label = isRef ? att.file_path : att.name;
+            return (
+              <div
+                key={att.id}
+                className="flex items-center gap-1 px-2 py-1 rounded text-ui"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
+                title={isRef ? `Project reference: ${att.file_path}` : att.name}
               >
-                ×
-              </button>
-            </div>
-          ))}
+                {att.type === "image" && att.preview_url && (
+                  <img src={att.preview_url} alt="" className="w-6 h-6 rounded object-cover" />
+                )}
+                {att.type === "document" && <Paperclip size={12} />}
+                {isRef && <FolderTree size={12} />}
+                <span className={`truncate ${isRef ? "max-w-[200px]" : "max-w-[100px]"}`}>{label}</span>
+                <button
+                  onClick={() => removeAttachment(att.id)}
+                  className="ml-1 hover:opacity-70"
+                  style={{ color: "var(--text-ghost)" }}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Input area */}
       <div className="flex items-end gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="Attach file"
-          className="p-1.5 rounded hover:bg-bg-elevated transition-colors shrink-0"
-          style={{ color: "var(--text-ghost)" }}
-        >
-          <Paperclip size={14} />
-        </button>
+        <div className="flex flex-col gap-1 shrink-0">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach file"
+            className="p-1.5 rounded hover:bg-bg-elevated transition-colors"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            <Paperclip size={14} />
+          </button>
+          <button
+            onClick={() => setPickerOpen(true)}
+            title="Select from project folder"
+            className="p-1.5 rounded hover:bg-bg-elevated transition-colors"
+            style={{ color: "var(--text-ghost)" }}
+          >
+            <FolderTree size={14} />
+          </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -259,13 +307,13 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Describe what you want to build..."
-          rows={6}
+          rows={9}
           className="flex-1 resize-none rounded-md px-3 py-2 text-chat outline-none"
           style={{
             background: "var(--bg-elevated)",
             color: "var(--text-primary)",
             border: "1px solid var(--border)",
-            maxHeight: 250,
+            maxHeight: 375,
           }}
           disabled={isStreaming}
         />
@@ -303,6 +351,14 @@ export default function SpecChatInput({ projectPath, isOpen, sendMessage, cancel
         <span>{sendShortcutHint(sendShortcut)}</span>
         {isStreaming && <span>Esc to stop</span>}
       </div>
+
+      <ProjectFilePicker
+        open={pickerOpen}
+        projectPath={projectPath}
+        alreadySelectedPaths={alreadyRefPaths}
+        onClose={() => setPickerOpen(false)}
+        onConfirm={handlePickerConfirm}
+      />
     </div>
   );
 }
