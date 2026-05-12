@@ -185,6 +185,18 @@ function LogLine({ entry }: { entry: RunLogEntry }) {
           </button>
         )}
       </div>
+      {entry.diagnostics && entry.diagnostics.length > 0 && (
+        <ul
+          className="ml-[80px] mr-2 mt-0.5 mb-0.5 text-detail list-disc list-inside"
+          style={{ color: "var(--text-ghost)" }}
+        >
+          {entry.diagnostics.map((d, i) => (
+            <li key={i} className="leading-tight">
+              {d}
+            </li>
+          ))}
+        </ul>
+      )}
       {expanded && entry.prompt && (
         <pre
           className="ml-[80px] mr-2 mt-0.5 mb-1 p-2 rounded text-detail overflow-x-auto whitespace-pre-wrap max-h-[200px] overflow-y-auto"

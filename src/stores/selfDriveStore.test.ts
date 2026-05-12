@@ -3149,10 +3149,10 @@ describe("handleRecheck — request_recheck loop", () => {
     });
 
     await useSelfDriveStore.getState().start();
-    // Simulate Check A was rechecked in a prior round.
+    // Simulate Check A has hit the MAX_RECHECKS_PER_ITEM cap (2 after Phase B.2).
     useSelfDriveStore.setState({
       currentPhase: "verifying",
-      rechecksPerItem: { "Check A": 1 },
+      rechecksPerItem: { "Check A": 2 },
     });
 
     const emit = captureListenCallback();
@@ -3167,6 +3167,59 @@ describe("handleRecheck — request_recheck loop", () => {
     const reason = useSelfDriveStore.getState().pauseReason ?? "";
     expect(reason).toMatch(/already rechecked/i);
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("force-accepts an item via loop guard when it has been asked + answered with evidence ≥2 times (Phase B.1/B.2)", async () => {
+    setupReadyState();
+    // Worker has already provided evidence for "Check A" twice. The
+    // orchestrator demands a recheck a third time. The loop guard should
+    // intercept and convert the verdict to a forced PASS without sending
+    // another recheck prompt.
+    mockCallOrchestrator.mockResolvedValueOnce({
+      action: "request_recheck",
+      summary: "still want Check A",
+      confidence: "medium",
+      recheckItems: ["Check A"],
+      recheckPrompt: "Quote evidence for Check A yet again",
+      checkResults: [{ label: "Check A", passed: false, reason: "format" }],
+    });
+
+    await useSelfDriveStore.getState().start();
+    useSelfDriveStore.setState({
+      currentPhase: "verifying",
+      // 2 prior prompts naming Check A, 2 prior responses with $ blocks for it
+      previousFixPrompts: [
+        "Recheck Check A please",
+        "Re-quote Check A again",
+      ],
+      originalVerifierResponse:
+        "Check A — PASS — $ ls -la src/a.ts → 100 bytes",
+      recheckResponses: [
+        "Check A — PASS — ```\nresult: present\n```",
+      ],
+      lastClaudeResponse:
+        "Check A — confirmed — $ cat src/a.ts → content here",
+    });
+
+    const emit = captureListenCallback();
+    mockSendMessage.mockClear();
+    emit(makeTurnCompleteEvent());
+
+    // The loop guard short-circuits to re-evaluation (handleVerify is
+    // called). The orchestrator decision contained no genuine recheck
+    // worth sending, so sendMessage should not have been called with a
+    // recheck prompt.
+    await vi.waitFor(() => {
+      const state = useSelfDriveStore.getState();
+      const forced = state.pinnedCheckResults.find((r) => r.label === "Check A");
+      expect(forced).toBeDefined();
+      expect(forced?.passed).toBe(true);
+      expect(forced?.evidence).toMatch(/loop-guard force-accept/);
+    });
+    const recheckSent = mockSendMessage.mock.calls.find(
+      (c) => typeof c[1] === "string" && c[1].includes("Quote evidence for Check A yet again"),
+    );
+    expect(recheckSent).toBeUndefined();
   });
 
   it("falls back to pause when settings.selfDriveEnableRecheckLoop is false", async () => {

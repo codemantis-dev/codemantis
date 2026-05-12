@@ -258,6 +258,39 @@ describe("buildUserMessage", () => {
     expect(userMessage).toContain("LAST TURN INJECTION: test-gate");
   });
 
+  it("includes USER INTERJECTIONS block when interjections are present (Phase D.2)", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const input = makeInput({
+      userInterjections: [
+        { ts: 1_700_000_000_000, text: "We use MCP, not psql." },
+        { ts: 1_700_000_060_000, text: "Stop demanding DATABASE_URL." },
+      ],
+    } as Partial<OrchestratorInput>);
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).toContain("USER INTERJECTIONS");
+    expect(userMessage).toContain("We use MCP, not psql.");
+    expect(userMessage).toContain("Stop demanding DATABASE_URL.");
+  });
+
+  it("omits USER INTERJECTIONS block when no interjections (Phase D.2)", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+
+    const input = makeInput();
+    const promise = callOrchestrator(input, "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const userMessage = vi.mocked(sendAssistantChat).mock.calls[0][0].messages[0].content as string;
+    expect(userMessage).not.toContain("USER INTERJECTIONS");
+  });
+
   it("emits LAST TURN INJECTION: none when the worker authored the turn (Phase A.2)", async () => {
     const { sendAssistantChat } = await import("./tauri-commands");
 
@@ -356,6 +389,45 @@ describe("parseOrchestratorResponse", () => {
     expect(decision.action).toBe("pause");
     expect(decision.summary).toContain("pause");
     expect(decision.summary).toContain("no summary provided");
+  });
+
+  it("coerces blocker kind 'unknown' to 'orchestrator-uncertain' with canonical options (Phase D.1)", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        action: "pause",
+        pauseReason: "couldn't classify",
+        summary: "Self-Drive uncertain",
+        confidence: "low",
+        blocker: {
+          kind: "unknown",
+          summary: "Something is off",
+          optionsOffered: [],
+          resolutionCriteria: "ls -la src/foo.ts shows the file",
+        },
+      }),
+    );
+    expect(decision.blocker?.kind).toBe("orchestrator-uncertain");
+    expect(decision.blocker?.optionsOffered.length).toBeGreaterThanOrEqual(3);
+    expect(decision.blocker?.orchestratorReasoning).toBeTruthy();
+  });
+
+  it("preserves explicit reasoning string from orchestrator blocker (Phase D.1)", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        action: "pause",
+        summary: "Stuck",
+        confidence: "low",
+        blocker: {
+          kind: "infra-state-drift",
+          summary: "Migration mismatch",
+          optionsOffered: ["repair", "ignore"],
+          resolutionCriteria: "supabase migration list shows alignment",
+          orchestratorReasoning: "Local file 0042 exists but remote has 0043 with same name; suggesting rename to align.",
+        },
+      }),
+    );
+    expect(decision.blocker?.kind).toBe("infra-state-drift");
+    expect(decision.blocker?.orchestratorReasoning).toMatch(/suggesting rename to align/);
   });
 
   it("handles all 8 valid actions", async () => {

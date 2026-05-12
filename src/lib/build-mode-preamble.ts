@@ -169,17 +169,63 @@ FIX PROMPT (the specific failure the orchestrator caught):
 `;
 
 /**
+ * Compact reference used on turns 2+ of a session — the worker has
+ * already received the full senior-engineer contract on turn 1; here we
+ * just remind them which mode applies and that the contract still binds.
+ * Saves ~180 lines of prompt budget per turn and keeps Sonnet from
+ * drifting into format-compliance mode after several iterations of
+ * re-reading the same wall of rules. Phase C.3.
+ */
+export const SHORT_BUILD_REFERENCE = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BUILD MODE (cont.) — Senior-Engineer Quality Contract from turn 1 applies
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Key rule this turn: fix the root cause, not the symptom. No workarounds,
+no \`as any\`, no \`@ts-ignore\`, no skipped tests. If a hard constraint
+genuinely blocks you, emit \`DEFERRED: {one-line} | reason: {…} | follow-up: {…}\`
+or pause with a structured blocker.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION PROMPT (the actual work for this turn):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+
+export const SHORT_FIX_REFERENCE = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX MODE (cont.) — Senior-Engineer Quality Contract from turn 1 applies
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+State your understanding in one line, apply the smallest correct fix,
+no drive-by refactors, no workarounds. If the test is right and the
+code fails, fix the code. If the code is right and the test asserts the
+wrong thing, fix the test deliberately and explain why.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX PROMPT (the specific failure the orchestrator caught):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+
+/**
  * Wrap a build-phase or fix-phase prompt with the appropriate preamble
  * before sending it to Claude Code.
  *
  * Used by selfDriveStore for every `building`/`fixing` turn. Verify and
  * recovery phases have their own preamble builders and must not be
  * routed through this helper.
+ *
+ * `firstTurnOfSession=true` (default) → full preamble.
+ * `firstTurnOfSession=false` → compressed reference (Phase C.3).
  */
 export function wrapBuildPrompt(
   prompt: string,
   kind: "build" | "fix",
+  firstTurnOfSession: boolean = true,
 ): string {
-  const preamble = kind === "build" ? BUILD_MODE_PREAMBLE : FIX_MODE_PREAMBLE;
-  return `${preamble}${prompt}`;
+  if (firstTurnOfSession) {
+    const preamble = kind === "build" ? BUILD_MODE_PREAMBLE : FIX_MODE_PREAMBLE;
+    return `${preamble}${prompt}`;
+  }
+  const ref = kind === "build" ? SHORT_BUILD_REFERENCE : SHORT_FIX_REFERENCE;
+  return `${ref}${prompt}`;
 }

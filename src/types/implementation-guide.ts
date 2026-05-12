@@ -99,6 +99,15 @@ export type BlockerKind =
   | "user-decision"       // Claude asked a question with multiple valid options
   | "external-failure"    // third-party outage / rate limit
   | "capability-missing"  // a preflight.yaml capability isn't satisfied
+  /**
+   * The orchestrator paused without being able to classify the cause.
+   * Surfaces the model's reasoning to the user with three canonical
+   * options: investigate, resume (override), or stop. Phase D.1 — replaces
+   * "unknown" as the default fallback so users always see WHY Self-Drive
+   * paused. "unknown" is retained for backwards compatibility with
+   * persisted runs but new pauses must use "orchestrator-uncertain".
+   */
+  | "orchestrator-uncertain"
   | "unknown";
 
 export interface Blocker {
@@ -112,6 +121,14 @@ export interface Blocker {
   resolutionCriteria: string;  // what must be true for "resolved"
   status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
   userResolution?: string;     // free text / chosen option label
+  /**
+   * 1–2 sentences from the orchestrator explaining WHY it paused. Phase
+   * D.1 — surfaced in the SelfDriveDecisionCard so users don't see an
+   * unexplained "UNKNOWN" badge. Optional for backward compatibility
+   * with persisted runs; the orchestrator now populates it on every
+   * pause.
+   */
+  orchestratorReasoning?: string;
   /**
    * ID of the last non-self-drive chat message at the moment the pause
    * was taken. On Resume, Self-Drive reads messages AFTER this id as the
@@ -220,6 +237,22 @@ export interface OrchestratorInput {
    * - "parity-recovery": cross-system action parity loop
    */
   lastTurnInjection?: string | null;
+  /**
+   * Pre-rendered evidence-vocabulary hint for this project (see
+   * `src/lib/self-drive-evidence-vocab.ts`). Injected into the
+   * orchestrator's context block so it knows which command shapes are
+   * appropriate to demand for SQL/migration/deploy evidence. Empty/null
+   * = no hint, orchestrator falls back to generic guidance.
+   */
+  evidenceVocabHint?: string | null;
+  /**
+   * Non-Self-Drive user messages sent into the chat since the orchestrator
+   * was last consulted (Phase D.2). Each entry is `{ ts, text }`. Lets the
+   * orchestrator see clarifications / overrides the user typed mid-session
+   * — without this, user feedback only reached the worker (Claude Code)
+   * and the orchestrator kept grading against its prior assumptions.
+   */
+  userInterjections?: Array<{ ts: number; text: string }>;
 }
 
 export type OrchestratorAction =
@@ -288,6 +321,8 @@ export interface OrchestratorDecision {
     summary: string;
     optionsOffered: string[];
     resolutionCriteria: string;
+    /** Phase D.1 — model's reasoning, surfaced in the UI. */
+    orchestratorReasoning?: string;
   };
 }
 
@@ -305,4 +340,14 @@ export interface RunLogEntry {
   prompt?: string;
   /** Attached when phase is one of the blocker-* lifecycle entries. */
   blocker?: Blocker;
+  /**
+   * One-line tags about WHY the orchestrator made this decision (Phase D.3).
+   * Surfaced in the RunLogViewer to give users visibility into:
+   *   - which suppressors fired (fabrication-detector, skipped-commands)
+   *   - which items the loop guard force-accepted
+   *   - whether a system-injected prompt was being graded
+   *   - the user interjection count forwarded this turn
+   *   - whether the project's evidence-vocab hint was active
+   */
+  diagnostics?: string[];
 }

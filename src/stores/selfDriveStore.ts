@@ -36,6 +36,13 @@ import {
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
+import { classifyRecheckBatch } from "../lib/self-drive-loop-guard";
+import {
+  inferVocab,
+  renderVocabHint,
+  type EvidenceDetectionInputs,
+} from "../lib/self-drive-evidence-vocab";
+import { readFileContent } from "../lib/tauri-commands";
 import {
   buildParityRecoveryPrompt,
   parseDeferredParityRows,
@@ -78,11 +85,17 @@ const MAX_RECHECK_ROUNDS = 2;
 
 /**
  * How many times the SAME verify-item can be rechecked per session.
- * 1 means "one recheck per item, then pause". If Claude Code's first
- * re-statement still isn't enough, repeating the request usually won't
- * help — it's time for the user to look.
+ *
+ * Raised to 2 once Phase B.1 landed the deterministic loop guard
+ * (`src/lib/self-drive-loop-guard.ts`). The guard now terminates
+ * recheck loops based on the SEMANTIC observation that the orchestrator
+ * has re-asked + the worker has re-answered with concrete evidence —
+ * regardless of paraphrase. With the guard in place, this hard cap is a
+ * safety net rather than the primary termination mechanism, so we can
+ * afford one extra round for the common case where the first recheck
+ * actually does surface an evidence-shape issue that needs another nudge.
  */
-const MAX_RECHECKS_PER_ITEM = 1;
+const MAX_RECHECKS_PER_ITEM = 2;
 
 // ── Store interface ─────────────────────────────────────────────────
 
@@ -171,6 +184,35 @@ interface SelfDriveState {
    * commit, recovery, etc.) — see plan Issue 6 / Phase A.2.
    */
   lastSelfDrivePromptInjection: SelfDriveInjectionKind | null;
+
+  /**
+   * Pre-rendered evidence-vocabulary hint for this project (Phase C.1).
+   * Computed once at start() by gathering detection inputs from the
+   * project's .env.local / supabase/config.toml / mcp config. Plumbed
+   * into every orchestrator call so the model sees the project's
+   * canonical SQL/migrate/deploy command shapes and doesn't fabricate
+   * commands the project can't run (e.g. psql for a cloud-only project).
+   */
+  evidenceVocabHint: string | null;
+
+  /**
+   * Per-(session, kind) flag: has the full senior-engineer preamble been
+   * sent yet during this run? Phase C.3 — first turn gets the full
+   * preamble; subsequent turns of the SAME kind (build / fix) within
+   * the same session get the compressed reference instead.
+   * Format keys: "build:1", "fix:1", "build:2", "fix:2", ...
+   * Stored as string[] for clean (de)serialization with PersistedRunState.
+   */
+  preambleSent: string[];
+
+  /**
+   * Watermark message id used by Phase D.2 user-interjections plumbing.
+   * Captured each time the orchestrator is consulted; on the next call
+   * we read every non-Self-Drive user message AFTER this id and forward
+   * them as `userInterjections` so the orchestrator sees what the user
+   * said mid-session.
+   */
+  orchestratorLastUserMessageId: string | null;
 
   runLog: RunLogEntry[];
 
@@ -295,6 +337,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   lastClaudeResponse: null,
   lastSelfDrivePromptMessageId: null,
   lastSelfDrivePromptInjection: null,
+  evidenceVocabHint: null,
+  preambleSent: [],
+  orchestratorLastUserMessageId: null,
   runLog: [],
   startedAt: null,
   sessionStartedAt: null,
@@ -415,6 +460,20 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     // Start event listeners
     await startListeners(sessionId);
 
+    // Phase C.1 — gather the project's evidence vocabulary once. Plumbed
+    // into every subsequent orchestrator call so the model sees the right
+    // SQL/migrate/deploy command shapes for THIS project. Best-effort: a
+    // detection failure leaves the hint as null (orchestrator falls back
+    // to generic guidance).
+    try {
+      const hint = await gatherEvidenceVocabHint(projectPath);
+      if (hint) {
+        useSelfDriveStore.setState({ evidenceVocabHint: hint });
+      }
+    } catch (e) {
+      console.warn("[Self-Drive] evidence vocab detection failed:", e);
+    }
+
     addLogEntry(firstActive.index, "started", `Self-Drive started (${guide.sessions.filter((s) => s.status !== "done").length} sessions remaining)`);
 
     // Persist the initial run row so a restart can recover us.
@@ -427,7 +486,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     try {
       // Add user message to chat so the prompt is visible
       const msgId = `sd-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const wrappedPrompt = wrapBuildPrompt(firstActive.prompt, "build");
+      const wrappedPrompt = wrapWithPreambleTracking("build", firstActive.index, firstActive.prompt);
       useSessionStore.getState().addMessage(sessionId, {
         id: msgId,
         role: "user",
@@ -594,7 +653,9 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       addLogEntry(session.index, "building",
         `Resuming: sending creation prompt for Session ${session.index}`,
         undefined, session.prompt);
-      await sendMessageToSession(wrapBuildPrompt(session.prompt, "build"));
+      await sendMessageToSession(
+        wrapWithPreambleTracking("build", session.index, session.prompt),
+      );
       markPromptSentForSession(session.index);
     } else if (!session.verifyRequested) {
       // Build was attempted but verification hasn't started — re-check build
@@ -1344,6 +1405,8 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     activeBlocker: state.activeBlocker,
     recentPauseSummaries: state.recentPauseSummaries,
     lastTurnInjection: state.lastSelfDrivePromptInjection,
+    evidenceVocabHint: state.evidenceVocabHint,
+    userInterjections: gatherUserInterjections(),
   };
 
   let decision: OrchestratorDecision;
@@ -1360,7 +1423,22 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     return;
   }
 
-  addLogEntry(state.currentSessionIndex!, "decision", decision.summary, decision);
+  // Phase D.3 — compute diagnostics tags for the run-log surface.
+  const interjectionCount = orchestratorInput.userInterjections?.length ?? 0;
+  const diagnosticsTags = buildDecisionDiagnostics(
+    decision,
+    useSelfDriveStore.getState(),
+    interjectionCount,
+  );
+  addLogEntry(
+    state.currentSessionIndex!,
+    "decision",
+    decision.summary,
+    decision,
+    undefined,
+    undefined,
+    diagnosticsTags.length > 0 ? diagnosticsTags : undefined,
+  );
 
   // Inject decision card into the chat
   injectDecisionMessage(decision, state.currentSessionIndex!, state.currentPhase ?? "evaluating");
@@ -2142,7 +2220,9 @@ async function handleFix(decision: OrchestratorDecision): Promise<void> {
   );
 
   showToast(`${isRecovering ? "Retrying recovery" : "Fix applied, re-checking"}... (${fixAttempt}/${state.maxFixAttempts})`, "info");
-  await sendMessageToSession(wrapBuildPrompt(decision.fixPrompt!, "fix"));
+  await sendMessageToSession(
+    wrapWithPreambleTracking("fix", state.currentSessionIndex!, decision.fixPrompt!),
+  );
 }
 
 /**
@@ -2212,7 +2292,10 @@ async function handleParityRecovery(
     `Parity recovery (${fixAttempt}/${state.maxFixAttempts})...`,
     "info",
   );
-  await sendMessageToSession(wrapBuildPrompt(recoveryPrompt, "fix"), "parity-recovery");
+  await sendMessageToSession(
+    wrapWithPreambleTracking("fix", sessionIndex, recoveryPrompt),
+    "parity-recovery",
+  );
 }
 
 /**
@@ -2270,6 +2353,92 @@ async function handleRecheck(decision: OrchestratorDecision): Promise<void> {
     }
   }
 
+  // Phase B.1 — deterministic loop guard. Before sending another recheck
+  // prompt, ask the guard whether each requested label has already been
+  // re-asked + re-answered enough times to short-circuit:
+  //   - "accept": orchestrator looped; worker provided evidence ≥2 times;
+  //     force-credit the item rather than asking yet again
+  //   - "pause": orchestrator looped; worker has produced NO concrete
+  //     evidence; genuine impasse, pause for user
+  //   - "fresh"/"proceed": let the normal recheck round run
+  const draftPrompt = (decision.recheckPrompt ?? "").trim();
+  const priorResponses = [
+    state.originalVerifierResponse ?? "",
+    ...state.recheckResponses,
+    state.lastClaudeResponse ?? "",
+  ].filter((s) => s.length > 0);
+  const loopReport = classifyRecheckBatch(
+    eligible,
+    state.previousFixPrompts,
+    priorResponses,
+    draftPrompt,
+  );
+
+  // Apply the guard verdicts:
+  //  - drop "accept" items from eligible; we'll surface them in
+  //    pinnedCheckResults as forced-PASS for the advance gate.
+  //  - if any "pause" items remain, halt the recheck and pause.
+  if (loopReport.pause.length > 0) {
+    const pausedLabels = loopReport.pause.map((x) => x.label).join(", ");
+    handlePause(
+      `Loop-guard detected genuine impasse on: ${pausedLabels}. ` +
+        loopReport.pause.map((x) => x.report.reason).join(" / "),
+      decision,
+    );
+    return;
+  }
+
+  const forcedAccept = loopReport.accept;
+  const proceedLabels = loopReport.proceed.map((x) => x.label);
+
+  if (forcedAccept.length > 0) {
+    // Synthesize PASS verdicts for force-accepted items and merge into
+    // pinnedCheckResults so the next orchestrator round sees them as
+    // already-decided. This avoids the "ask again, paraphrased" loop.
+    const forcedResults = forcedAccept.map((x) => ({
+      label: x.label,
+      passed: true,
+      skipped: false,
+      reason: undefined,
+      evidence: `loop-guard force-accept (asks=${x.report.askCount}, evidenceProvisions=${x.report.evidenceSignalsForLabel})`,
+    }));
+    const mergedPinned = [
+      ...state.pinnedCheckResults.filter(
+        (r) => !forcedAccept.some((x) => x.label === r.label),
+      ),
+      ...forcedResults,
+    ];
+    useSelfDriveStore.setState({ pinnedCheckResults: mergedPinned });
+    for (const x of forcedAccept) {
+      addLogEntry(
+        sessionIndex,
+        "verifying",
+        `Loop-guard force-accept: ${x.label} — ${x.report.reason}`,
+      );
+    }
+  }
+
+  if (proceedLabels.length === 0 && forcedAccept.length > 0) {
+    // Every requested label was force-accepted by the loop guard. There's
+    // no real recheck to send — re-evaluate the orchestrator decision
+    // from the original verifier response with the pinned forced passes.
+    showToast(
+      `Loop-guard accepted ${forcedAccept.length} item${forcedAccept.length === 1 ? "" : "s"}; re-evaluating`,
+      "success",
+    );
+    // Treat as if the recheck round completed instantly with no new
+    // worker output — leave the assembled response untouched and trigger
+    // a fresh orchestrator pass on the next event tick by re-using the
+    // verify path. The simplest re-entry: directly evaluate the current
+    // (now augmented) pinnedCheckResults via handleVerify.
+    await handleVerify();
+    return;
+  }
+
+  // Replace eligible with proceedLabels for the remainder of the function.
+  eligible.length = 0;
+  for (const l of proceedLabels) eligible.push(l);
+
   if (eligible.length === 0) {
     const detail = alreadyRechecked.length > 0
       ? `items already rechecked once: ${alreadyRechecked.join(", ")}`
@@ -2281,7 +2450,7 @@ async function handleRecheck(decision: OrchestratorDecision): Promise<void> {
     return;
   }
 
-  const prompt = (decision.recheckPrompt ?? "").trim();
+  const prompt = draftPrompt;
   if (prompt === "") {
     handlePause(
       `Recheck refused: orchestrator supplied no prompt text. ${decision.summary}`,
@@ -2382,7 +2551,9 @@ async function startNextSession(): Promise<void> {
   });
 
   addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`, undefined, nextSession.prompt);
-  await sendMessageToSession(wrapBuildPrompt(nextSession.prompt, "build"));
+  await sendMessageToSession(
+    wrapWithPreambleTracking("build", nextSession.index, nextSession.prompt),
+  );
   markPromptSentForSession(nextSession.index);
 }
 
@@ -2480,6 +2651,7 @@ function buildBlockerFromDecision(
     resolutionCriteria: decisionBlocker.resolutionCriteria,
     status: "open",
     prePauseLastMessageId,
+    orchestratorReasoning: decisionBlocker.orchestratorReasoning,
   };
 }
 
@@ -2623,7 +2795,9 @@ async function continueAfterRecovery(sessionIndex: number): Promise<void> {
     addLogEntry(session.index, "building",
       `Post-recovery: sending creation prompt for Session ${session.index}`,
       undefined, session.prompt);
-    await sendMessageToSession(wrapBuildPrompt(session.prompt, "build"));
+    await sendMessageToSession(
+      wrapWithPreambleTracking("build", session.index, session.prompt),
+    );
     markPromptSentForSession(session.index);
   } else if (!session.verifyRequested) {
     await handleBuildCheck({ action: "build_check", summary: "Post-recovery build check", confidence: "high" });
@@ -2734,6 +2908,7 @@ function addLogEntry(
   decision?: OrchestratorDecision,
   prompt?: string,
   blocker?: Blocker,
+  diagnostics?: string[],
 ): void {
   const entry: RunLogEntry = {
     timestamp: Date.now(),
@@ -2744,6 +2919,7 @@ function addLogEntry(
     decision,
     prompt,
     blocker,
+    diagnostics,
   };
   useSelfDriveStore.setState((prev) => ({
     runLog: [...prev.runLog, entry],
@@ -2752,6 +2928,187 @@ function addLogEntry(
   // part of the snapshot, so this also captures phase changes, blockers,
   // decisions, etc. Debounced inside persistRunState().
   persistRunState();
+}
+
+/**
+ * Phase D.3 — collect one-line diagnostic tags for a decision so the
+ * RunLogViewer surfaces *why* the orchestrator chose this action. Pure
+ * helper over the current state + decision.
+ */
+function buildDecisionDiagnostics(
+  decision: OrchestratorDecision,
+  state: SelfDriveState,
+  interjectionCount: number,
+): string[] {
+  const out: string[] = [];
+
+  // System-injected prompt context.
+  if (state.lastSelfDrivePromptInjection) {
+    out.push(`Graded a system-injected turn (${state.lastSelfDrivePromptInjection}) — Detectors A/B/C suppressed by HARD SUPPRESSION rule`);
+  }
+
+  // User interjections forwarded.
+  if (interjectionCount > 0) {
+    out.push(`Forwarded ${interjectionCount} user interjection(s) to orchestrator`);
+  }
+
+  // Evidence vocab active.
+  if (state.evidenceVocabHint) {
+    const firstLine = state.evidenceVocabHint.split("\n")[0];
+    out.push(`Project evidence vocab active: ${firstLine.slice(0, 90)}`);
+  }
+
+  // Loop-guard force-accepts in this session.
+  const forced = state.pinnedCheckResults.filter(
+    (r) => typeof r.evidence === "string" && r.evidence.includes("loop-guard force-accept"),
+  );
+  if (forced.length > 0) {
+    out.push(`Loop guard force-accepted ${forced.length} item(s): ${forced.map((r) => r.label).join(", ")}`);
+  }
+
+  // Recheck loop state.
+  if (state.recheckRoundsUsed > 0) {
+    out.push(`Recheck rounds used: ${state.recheckRoundsUsed}/2`);
+  }
+
+  // Blocker reasoning.
+  if (decision.blocker?.orchestratorReasoning) {
+    out.push(`Why paused: ${decision.blocker.orchestratorReasoning.slice(0, 200)}`);
+  }
+
+  // Low-confidence flag.
+  if (decision.confidence === "low") {
+    out.push(`Low confidence (lowCount=${state.lowConfidenceCount + 1}/3)`);
+  }
+
+  return out;
+}
+
+/**
+ * Phase C.1 — gather detection inputs to choose the right evidence
+ * vocabulary for this project. Best-effort: any individual probe failure
+ * just leaves the corresponding flag `false`. The caller renders the
+ * vocab hint once at session start and feeds it into every orchestrator
+ * input on this run.
+ */
+async function gatherEvidenceVocabHint(projectPath: string): Promise<string | null> {
+  const envPath = `${projectPath}/.env.local`;
+  const supabaseConfigPath = `${projectPath}/supabase/config.toml`;
+
+  const detection: EvidenceDetectionInputs = {
+    hasSupabaseCloudUrl: false,
+    hasLocalSupabaseConfig: false,
+    hasDatabaseUrl: false,
+    hasMcpSupabase: false,
+    supabaseCliLinked: false,
+  };
+
+  // .env.local — look for VITE_SUPABASE_URL / SUPABASE_URL / DATABASE_URL.
+  try {
+    const envContent = await readFileContent(envPath);
+    if (/^(VITE_)?SUPABASE_URL\s*=\s*\S+/m.test(envContent)) {
+      detection.hasSupabaseCloudUrl = true;
+    }
+    if (/^(POSTGRES_URL|DATABASE_URL|SUPABASE_DB_URL)\s*=\s*\S+/m.test(envContent)) {
+      detection.hasDatabaseUrl = true;
+    }
+  } catch {
+    // No .env.local — leave flags false.
+  }
+
+  // supabase/config.toml — presence implies local stack.
+  try {
+    const cfg = await readFileContent(supabaseConfigPath);
+    if (cfg.length > 0) detection.hasLocalSupabaseConfig = true;
+  } catch {
+    // No local config — fine.
+  }
+
+  // MCP Supabase: best-effort — check for a `.mcp.json` or
+  // `.claude/settings.local.json` reference. Either presence is a soft
+  // signal; absence doesn't disprove anything.
+  try {
+    const mcpJson = await readFileContent(`${projectPath}/.mcp.json`);
+    if (mcpJson.includes("supabase")) detection.hasMcpSupabase = true;
+  } catch {
+    /* ignore */
+  }
+
+  // Supabase CLI linked: presence of `.supabase` dir at repo root.
+  try {
+    const linkFile = await readFileContent(`${projectPath}/supabase/.temp/project-ref`);
+    if (linkFile.trim().length > 0) detection.supabaseCliLinked = true;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const vocab = inferVocab(detection);
+    return renderVocabHint(vocab);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Phase D.2 — collect non-Self-Drive user messages that arrived since the
+ * orchestrator's last consultation. Bumps the watermark to the most
+ * recent user message id seen so the next call won't re-forward the
+ * same interjections. Returns at most the last 5 to keep the prompt
+ * size bounded.
+ */
+function gatherUserInterjections(): Array<{ ts: number; text: string }> {
+  const state = useSelfDriveStore.getState();
+  const sessionId = state.sessionId;
+  if (!sessionId) return [];
+  const msgs = useSessionStore.getState().sessionMessages.get(sessionId) ?? [];
+
+  const watermark = state.orchestratorLastUserMessageId;
+  let startIdx = 0;
+  if (watermark) {
+    const wmIdx = msgs.findIndex((m) => m.id === watermark);
+    if (wmIdx >= 0) startIdx = wmIdx + 1;
+  }
+
+  const interjections: Array<{ ts: number; text: string }> = [];
+  let newestSeen: string | null = null;
+  for (let i = startIdx; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m.role === "user" && !m.isSelfDrive && (m.content ?? "").trim().length > 0) {
+      interjections.push({
+        ts: Date.parse(m.timestamp) || Date.now(),
+        text: m.content,
+      });
+      newestSeen = m.id;
+    }
+  }
+  if (newestSeen) {
+    useSelfDriveStore.setState({ orchestratorLastUserMessageId: newestSeen });
+  }
+  return interjections.slice(-5);
+}
+
+/**
+ * Phase C.3 — wrap a build/fix prompt with the right preamble for the
+ * current point in the session. First turn of a (kind, sessionIndex)
+ * pair gets the FULL senior-engineer contract; subsequent turns get the
+ * compressed reference. Records the pairing in state so next call sees
+ * "already sent". Idempotent.
+ */
+function wrapWithPreambleTracking(
+  kind: "build" | "fix",
+  sessionIndex: number,
+  prompt: string,
+): string {
+  const key = `${kind}:${sessionIndex}`;
+  const state = useSelfDriveStore.getState();
+  const isFirst = !state.preambleSent.includes(key);
+  if (isFirst) {
+    useSelfDriveStore.setState({
+      preambleSent: [...state.preambleSent, key],
+    });
+  }
+  return wrapBuildPrompt(prompt, kind, isFirst);
 }
 
 async function sendMessageToSession(
@@ -2853,6 +3210,7 @@ function injectBlockerCard(blocker: Blocker, sessionIndex: number): void {
         optionsOffered: blocker.optionsOffered,
         resolutionCriteria: blocker.resolutionCriteria,
         status: blocker.status,
+        orchestratorReasoning: blocker.orchestratorReasoning,
       },
     },
   });

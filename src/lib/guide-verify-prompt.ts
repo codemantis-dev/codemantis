@@ -81,6 +81,28 @@ OUTPUT FORMAT — one line per item, exactly this shape:
                           OR {test}:{line} — {quoted assert} · mocks={list}   (behavioral)
                           OR caller={file}:{lines} · handler={file}:{lines} · $ {cmd} → {output}  (integration)
 
+ALTERNATIVE EVIDENCE SHAPES (all accepted — Phase C.2):
+The shapes above are CANONICAL but not the only accepted forms. The
+verifier (you) may present concrete evidence in ANY of these equivalent
+shapes, and the orchestrator will credit them:
+
+  A) Inline form: \`$ {command} → {quoted output}\` on one line.
+  B) Code-block form: a fenced \`\`\` block immediately following the item
+     line, containing the command (with leading \`$ \` or \`> \`) and its
+     output.
+  C) Markdown-table form: a small table with columns (command | output)
+     when grouping multiple commands for one item.
+  D) Prose form: a paragraph that contains BOTH the command (anywhere)
+     AND the observable result (anywhere) for the same item. Required
+     elements: the literal command string OR a clear reference to it,
+     and the output / status / row count.
+
+Whatever shape you use, KEEP the per-item line ("{N}. {label} —
+PASS|FAIL|SKIPPED|N/A — …") so the orchestrator can locate each verdict.
+The orchestrator's semantic evidence parser scans for command markers,
+file:line citations, fenced blocks, and label proximity — it does NOT
+require the exact \`$ cmd → output\` literal shape.
+
 PACING (prevents context rushing):
 - Process items in BATCHES OF 10.
 - After each batch of 10, emit a running tally:

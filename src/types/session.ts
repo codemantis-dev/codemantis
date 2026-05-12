@@ -104,6 +104,8 @@ export interface Message {
       optionsOffered: string[];
       resolutionCriteria: string;
       status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
+      /** Phase D.1 — surfaced in the BlockerCard. */
+      orchestratorReasoning?: string;
     };
   };
 }

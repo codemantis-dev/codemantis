@@ -144,4 +144,23 @@ describe("wrapBuildPrompt", () => {
     const wrapped = wrapBuildPrompt("", "build");
     expect(wrapped).toBe(BUILD_MODE_PREAMBLE);
   });
+
+  it("uses the compressed reference on subsequent turns (Phase C.3)", () => {
+    const fullBuild = wrapBuildPrompt(sessionPrompt, "build", true);
+    const shortBuild = wrapBuildPrompt(sessionPrompt, "build", false);
+    expect(fullBuild.length).toBeGreaterThan(shortBuild.length);
+    // Senior-Engineer rules header appears in both forms but only the full
+    // form ships the entire contract body.
+    expect(fullBuild).toContain("RULE 1");
+    expect(shortBuild).not.toContain("RULE 1");
+    expect(shortBuild).toContain("Senior-Engineer Quality Contract from turn 1");
+    expect(shortBuild).toContain(sessionPrompt);
+  });
+
+  it("uses the compressed FIX reference on subsequent fix turns (Phase C.3)", () => {
+    const shortFix = wrapBuildPrompt(sessionPrompt, "fix", false);
+    expect(shortFix).toContain("FIX MODE (cont.)");
+    expect(shortFix).not.toContain("RULE 1 — FIX ROOT CAUSES");
+    expect(shortFix).toContain(sessionPrompt);
+  });
 });

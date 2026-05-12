@@ -3,9 +3,10 @@
 // Makes structured API calls to decide the next step in autonomous mode.
 // ═══════════════════════════════════════════════════════════════════════
 
-import type { OrchestratorInput, OrchestratorDecision } from "../types/implementation-guide";
+import type { OrchestratorInput, OrchestratorDecision, BlockerKind } from "../types/implementation-guide";
 import { sendAssistantChat, listenAssistantStream, cancelAssistantChat } from "./tauri-commands";
 import { applyDetectorSuppressors } from "./self-drive-detector-suppressors";
+import { rewriteBlockerIfNeeded } from "./self-drive-blocker-validator";
 
 const ORCHESTRATOR_ASSISTANT_ID = "__self-drive-orchestrator__";
 // Stall timeout — resets on every streaming delta. Only fires when the
@@ -318,6 +319,7 @@ RULES:
 - Keep summaries under 100 characters — they appear in the run log
 - checkResults must include a { label, passed, reason?, evidence? } for each verify check. Labels must match the session's VerifyCheck labels verbatim.
 - For verification phases, "passed: true" REQUIRES an "evidence" field containing a ":" and a quoted snippet. Advancing is forbidden without full per-check coverage — the system will pause Self-Drive if you try.
+- USER INTERJECTIONS (Phase D.2): if the USER INTERJECTIONS block appears in the context, the user has typed guidance/clarifications into the chat since you last graded. APPLY THAT GUIDANCE. The user's word OVERRIDES your prior decisions — if they say "yes, accept this and move on", you do; if they correct a factual assumption you made ("we don't use psql, we use MCP"), you adjust the next decision accordingly. Acknowledge user interjections in your \`summary\` field so the run log shows the user's input was honored. NEVER ignore a user interjection.
 - CO-PILOT REMINDER: every concern you raise must come with a path forward Claude Code can take. A pause without a clear "what would resolve this" is a half-feature. A fix prompt that says "you got it wrong" without saying "here's what to try next" is a half-feature. You are helping Claude Code finish the session — not auditing it from a distance.`;
 }
 
@@ -349,6 +351,16 @@ function buildUserMessage(input: OrchestratorInput): string {
     ? `\n\nRECENT PAUSE HISTORY (oldest → newest):\n${input.recentPauseSummaries.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
     : "";
 
+  const userInterjectionsBlock = input.userInterjections && input.userInterjections.length > 0
+    ? `\n\nUSER INTERJECTIONS (typed in chat since you last graded — apply this guidance, oldest → newest):\n${input.userInterjections
+        .map((u, i) => {
+          const ts = new Date(u.ts).toISOString();
+          const text = u.text.length > 500 ? u.text.slice(0, 500) + " …" : u.text;
+          return `${i + 1}. [${ts}] ${text}`;
+        })
+        .join("\n")}`
+    : "";
+
   return `CONTEXT:
 - Phase: ${input.currentPhase}
 - Session: ${input.sessionPlan.index} — ${input.sessionPlan.name}
@@ -369,9 +381,10 @@ ${input.claudeCodeToolsUsed.join(", ") || "none"}
 TURN DURATION: ${Math.round(input.turnDurationMs / 1000)}s
 TURN TOKENS USED: ${input.turnTokensUsed > 0 ? input.turnTokensUsed.toLocaleString() : "unknown"}
 LAST TURN INJECTION: ${input.lastTurnInjection ?? "none"}
+${input.evidenceVocabHint ? input.evidenceVocabHint + "\n" : ""}
 
 CLAUDE CODE'S RESPONSE:
-${input.claudeCodeResponse}${previousFixes}${blockerBlock}${pauseHistory}`;
+${input.claudeCodeResponse}${previousFixes}${blockerBlock}${pauseHistory}${userInterjectionsBlock}`;
 }
 
 /**
@@ -435,7 +448,6 @@ export async function callOrchestrator(
           // request_recheck so Self-Drive doesn't loop on a false signal.
           const guarded = applyDetectorSuppressors(decision, input);
           if (guarded.suppressorsApplied.length > 0) {
-            // eslint-disable-next-line no-console
             console.info(
               "[self-drive] detector suppressors fired",
               guarded.suppressorsApplied,
@@ -622,20 +634,56 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
     const b = parsed.blocker;
     const validKinds = [
       "infra-state-drift", "permissions", "missing-deps", "credentials",
-      "env-config", "user-decision", "external-failure", "unknown",
+      "env-config", "user-decision", "external-failure", "capability-missing",
+      "orchestrator-uncertain", "unknown",
     ];
     if (
       typeof b.kind === "string" && validKinds.includes(b.kind) &&
       typeof b.summary === "string" &&
       typeof b.resolutionCriteria === "string"
     ) {
-      parsed.blocker = {
-        kind: b.kind,
-        summary: b.summary,
-        optionsOffered: Array.isArray(b.optionsOffered)
-          ? b.optionsOffered.filter((o: unknown): o is string => typeof o === "string")
-          : [],
+      // Phase B.3 — run the blocker through the satisfiability validator.
+      const { blocker: validated, report } = rewriteBlockerIfNeeded({
         resolutionCriteria: b.resolutionCriteria,
+      });
+      if (!report.ok && report.rewriteCodes.length > 0) {
+        console.info(
+          "[self-drive] blocker satisfiability validator rewrote criteria",
+          { codes: report.rewriteCodes, original: b.resolutionCriteria, rewritten: validated.resolutionCriteria },
+        );
+      }
+
+      // Phase D.1 — kill "unknown" as a final classification. If the
+      // orchestrator couldn't pick a kind, route to "orchestrator-
+      // uncertain" with a canonical 3-option menu so users always see a
+      // path forward. Reasoning is sourced from the orchestrator if
+      // provided, otherwise synthesized from summary + pauseReason.
+      let kind = b.kind as BlockerKind;
+      let optionsOffered = Array.isArray(b.optionsOffered)
+        ? b.optionsOffered.filter((o: unknown): o is string => typeof o === "string")
+        : [];
+      const reasoning =
+        typeof b.orchestratorReasoning === "string" && b.orchestratorReasoning.trim().length > 0
+          ? b.orchestratorReasoning.trim()
+          : `${b.summary}${parsed.pauseReason ? " — " + parsed.pauseReason : ""}`;
+
+      if (kind === "unknown") {
+        kind = "orchestrator-uncertain";
+        if (optionsOffered.length === 0) {
+          optionsOffered = [
+            "Investigate manually (Self-Drive will stay paused)",
+            "Resume — orchestrator was wrong, continue from here",
+            "Stop the Self-Drive run",
+          ];
+        }
+      }
+
+      parsed.blocker = {
+        kind,
+        summary: b.summary,
+        optionsOffered,
+        resolutionCriteria: validated.resolutionCriteria,
+        orchestratorReasoning: reasoning,
       };
     } else {
       delete parsed.blocker;

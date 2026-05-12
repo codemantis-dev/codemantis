@@ -33,6 +33,8 @@ interface SelfDriveEventData {
     optionsOffered: string[];
     resolutionCriteria: string;
     status: "open" | "user-decided" | "verifying" | "resolved" | "abandoned";
+    /** Phase D.1 — surfaced in the BlockerCard. */
+    orchestratorReasoning?: string;
   };
 }
 
@@ -218,6 +220,12 @@ function BlockerCard({ blocker, timestamp }: BlockerCardProps) {
             <p className="mt-1" style={{ color: "var(--text-primary)" }}>
               {blocker.summary}
             </p>
+            {blocker.orchestratorReasoning && blocker.orchestratorReasoning !== blocker.summary && (
+              <p className="mt-1 text-detail italic" style={{ color: "var(--text-secondary)" }}>
+                <span className="opacity-70">Why Self-Drive paused:</span>{" "}
+                {blocker.orchestratorReasoning}
+              </p>
+            )}
             <p className="mt-1 text-detail" style={{ color: "var(--text-secondary)" }}>
               <span className="opacity-70">Resolution criteria:</span>{" "}
               {blocker.resolutionCriteria}
