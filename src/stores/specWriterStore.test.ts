@@ -617,9 +617,39 @@ describe("specWriterStore", () => {
       recheckPrompts: [],
     });
     store.setInputAnalysisReport(PROJECT, { docs: [], findings: [], clarifications: [], report: "" });
+    store.setLastPatchOutcome(PROJECT, {
+      timestamp: new Date().toISOString(),
+      status: "applied",
+      appliedOps: ["replace-section"],
+      warnings: [],
+      errors: [],
+      remainingFindings: 0,
+    });
     store.clearConversation(PROJECT);
     expect(useSpecWriterStore.getState().coverageReports.has(PROJECT)).toBe(false);
     expect(useSpecWriterStore.getState().inputAnalysisReports.has(PROJECT)).toBe(false);
+    expect(useSpecWriterStore.getState().lastPatchOutcomes.has(PROJECT)).toBe(false);
+  });
+
+  it("setLastPatchOutcome stores, overwrites, and clears per project", () => {
+    const store = useSpecWriterStore.getState();
+    const outcome = {
+      timestamp: new Date().toISOString(),
+      status: "applied" as const,
+      appliedOps: ["replace-section" as const, "append-section" as const],
+      warnings: [],
+      errors: [],
+      remainingFindings: 3,
+    };
+    store.setLastPatchOutcome(PROJECT, outcome);
+    expect(useSpecWriterStore.getState().lastPatchOutcomes.get(PROJECT)).toBe(outcome);
+
+    const next = { ...outcome, status: "failed" as const, appliedOps: [], errors: ["nope"] };
+    store.setLastPatchOutcome(PROJECT, next);
+    expect(useSpecWriterStore.getState().lastPatchOutcomes.get(PROJECT)).toBe(next);
+
+    store.setLastPatchOutcome(PROJECT, null);
+    expect(useSpecWriterStore.getState().lastPatchOutcomes.has(PROJECT)).toBe(false);
   });
 
   // ─── Stage 4: stream stats storage ─────────────────────────────────

@@ -7,6 +7,7 @@ import type {
   SpecConversation,
   SpecMessage,
   SpecAttachment,
+  SpecPatchOutcome,
   SpecPreviewTab,
   SpecWriterUIState,
   SpecDocumentInfo,
@@ -58,6 +59,13 @@ interface SpecWriterState {
   // Stage 3: Latest coverage-audit report per project (runtime-only).
   // Populated by useSpecConversation after each spec turn; read by CoveragePanel.
   coverageReports: Map<string, CoverageAuditReport>;
+
+  // Outcome of the most recent AUDIT-PATCH splice per project (runtime-only).
+  // Set whenever a recheck reply with the `<!-- AUDIT-PATCH -->` marker is
+  // processed — whether the merge applied or was rejected fail-closed. Read by
+  // the Coverage panel so the user can see — without scrolling chat — that
+  // their "Patch spec & re-audit" click actually rewrote the spec.
+  lastPatchOutcomes: Map<string, SpecPatchOutcome>;
 
   // Stage 3: Latest input-analyzer report per project (runtime-only).
   // Populated by useSpecConversation when input docs are first analyzed.
@@ -135,6 +143,9 @@ interface SpecWriterState {
   setCoverageReport: (projectPath: string, report: CoverageAuditReport | null) => void;
   setInputAnalysisReport: (projectPath: string, report: InputAnalysis | null) => void;
 
+  // Actions - Patch outcome (post-AUDIT-PATCH splice)
+  setLastPatchOutcome: (projectPath: string, outcome: SpecPatchOutcome | null) => void;
+
   // Actions - Stream stats (Stage 4)
   setStreamStats: (projectPath: string, stats: StreamStats | null) => void;
 
@@ -189,6 +200,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   draftAttachments: new Map(),
   cliSessionIds: new Map(),
   coverageReports: new Map(),
+  lastPatchOutcomes: new Map(),
   inputAnalysisReports: new Map(),
   streamStats: new Map(),
   compactionInfo: new Map(),
@@ -331,6 +343,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const draftText = new Map(state.draftText);
       const draftAttachments = new Map(state.draftAttachments);
       const coverageReports = new Map(state.coverageReports);
+      const lastPatchOutcomes = new Map(state.lastPatchOutcomes);
       const inputAnalysisReports = new Map(state.inputAnalysisReports);
       const streamStats = new Map(state.streamStats);
       const compactionInfo = new Map(state.compactionInfo);
@@ -341,10 +354,11 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       draftText.delete(projectPath);
       draftAttachments.delete(projectPath);
       coverageReports.delete(projectPath);
+      lastPatchOutcomes.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
       streamStats.delete(projectPath);
       compactionInfo.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats, compactionInfo };
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, lastPatchOutcomes, inputAnalysisReports, streamStats, compactionInfo };
     });
   },
 
@@ -537,6 +551,17 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { inputAnalysisReports };
     }),
 
+  setLastPatchOutcome: (projectPath, outcome) =>
+    set((state) => {
+      const lastPatchOutcomes = new Map(state.lastPatchOutcomes);
+      if (outcome === null) {
+        lastPatchOutcomes.delete(projectPath);
+      } else {
+        lastPatchOutcomes.set(projectPath, outcome);
+      }
+      return { lastPatchOutcomes };
+    }),
+
   // Stream stats (Stage 4)
   setStreamStats: (projectPath, stats) =>
     set((state) => {
@@ -644,6 +669,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const draftText = new Map(s.draftText);
       const draftAttachments = new Map(s.draftAttachments);
       const coverageReports = new Map(s.coverageReports);
+      const lastPatchOutcomes = new Map(s.lastPatchOutcomes);
       const inputAnalysisReports = new Map(s.inputAnalysisReports);
       const streamStats = new Map(s.streamStats);
       const compactionInfo = new Map(s.compactionInfo);
@@ -654,10 +680,11 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       draftText.delete(projectPath);
       draftAttachments.delete(projectPath);
       coverageReports.delete(projectPath);
+      lastPatchOutcomes.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
       streamStats.delete(projectPath);
       compactionInfo.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, inputAnalysisReports, streamStats, compactionInfo };
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, lastPatchOutcomes, inputAnalysisReports, streamStats, compactionInfo };
     });
   },
 

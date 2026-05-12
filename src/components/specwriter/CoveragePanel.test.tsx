@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import CoveragePanel from "./CoveragePanel";
-import type { CoverageAuditReport, InputAnalysis, StreamStats } from "../../types/spec-writer";
+import type { CoverageAuditReport, InputAnalysis, SpecPatchOutcome, StreamStats } from "../../types/spec-writer";
 
 function makeReport(overrides: Partial<CoverageAuditReport> = {}): CoverageAuditReport {
   return {
@@ -67,22 +67,27 @@ describe("CoveragePanel", () => {
     const passReport = makeReport({ status: "pass", failures: [], recheckPrompts: [] });
     render(<CoveragePanel report={passReport} analysis={null} onRecheck={() => {}} />);
     expect(screen.getByText(/PASS/)).toBeInTheDocument();
-    expect(screen.queryByText(/Run another recheck/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Patch spec/)).not.toBeInTheDocument();
   });
 
-  it("calls onRecheck when the recheck button is clicked", () => {
+  it("calls onRecheck when the patch button is clicked", () => {
     const spy = vi.fn();
     render(<CoveragePanel report={makeReport()} analysis={null} onRecheck={spy} />);
-    fireEvent.click(screen.getByRole("button", { name: /Run another recheck/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Patch spec & re-audit/ }));
     expect(spy).toHaveBeenCalledOnce();
   });
 
-  it("disables the recheck button while recheck is in flight", () => {
+  it("disables the patch button while a recheck is in flight and shows the patching label", () => {
     render(
       <CoveragePanel report={makeReport()} analysis={null} onRecheck={() => {}} recheckInFlight />,
     );
-    const btn = screen.getByRole("button", { name: /Recheck/ });
+    const btn = screen.getByRole("button", { name: /Patching spec/ });
     expect(btn).toBeDisabled();
+  });
+
+  it("uses helper copy that signals the spec will be patched, not just re-audited", () => {
+    render(<CoveragePanel report={makeReport()} analysis={null} onRecheck={() => {}} />);
+    expect(screen.getByText(/patch the spec to fix them/)).toBeInTheDocument();
   });
 
   it("renders input analysis findings + fidelity-zone summary", () => {
@@ -115,7 +120,74 @@ describe("CoveragePanel", () => {
         onRecheck={() => {}}
       />,
     );
-    expect(screen.queryByText(/Run another recheck/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Patch spec/)).not.toBeInTheDocument();
+  });
+
+  // ─── Patch outcome banner ──────────────────────────────────────────
+
+  function makeOutcome(overrides: Partial<SpecPatchOutcome> = {}): SpecPatchOutcome {
+    return {
+      timestamp: new Date().toISOString(),
+      status: "applied",
+      appliedOps: ["replace-section", "replace-section", "append-section"],
+      warnings: [],
+      errors: [],
+      remainingFindings: 5,
+      ...overrides,
+    };
+  }
+
+  it("renders a success banner after the spec is patched, with op counts and remaining findings", () => {
+    render(
+      <CoveragePanel
+        report={makeReport({ failures: makeReport().failures.slice(0, 1), recheckPrompts: [] })}
+        analysis={null}
+        patchOutcome={makeOutcome()}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Spec patched/i)).toBeInTheDocument();
+    // op counts
+    expect(screen.getByText(/2× replace-section/)).toBeInTheDocument();
+    expect(screen.getByText(/1× append-section/)).toBeInTheDocument();
+    // remaining-findings count appears in a <strong>
+    const banner = screen.getByText(/Spec patched/i).closest('section');
+    expect(banner).not.toBeNull();
+    expect(banner!.querySelector('strong')!.textContent).toBe('5');
+    // follow-up signal that the user is now looking at the new content
+    expect(screen.getByText(/Specification tab is now showing the updated content/i)).toBeInTheDocument();
+  });
+
+  it("renders a fail-closed banner when the patch could not be applied", () => {
+    render(
+      <CoveragePanel
+        report={makeReport()}
+        analysis={null}
+        patchOutcome={makeOutcome({
+          status: "failed",
+          appliedOps: [],
+          errors: ["no recognizable patch ops in reply"],
+          remainingFindings: 12,
+        })}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Patch rejected/i)).toBeInTheDocument();
+    expect(screen.getByText(/original content was kept untouched/i)).toBeInTheDocument();
+    expect(screen.getByText(/no recognizable patch ops in reply/)).toBeInTheDocument();
+  });
+
+  it("renders the outcome banner even when the report has been cleared", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        patchOutcome={makeOutcome()}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/Coverage panel/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Spec patched/i)).toBeInTheDocument();
   });
 
   // ─── Stage 4: stream stats section ─────────────────────────────────

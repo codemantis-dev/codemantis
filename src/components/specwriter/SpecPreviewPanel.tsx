@@ -6,7 +6,7 @@ import { useSpecWriterStore } from "../../stores/specWriterStore";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 import CoveragePanel from "./CoveragePanel";
-import type { CoverageAuditReport, InputAnalysis, StreamStats } from "../../types/spec-writer";
+import type { CoverageAuditReport, InputAnalysis, SpecPatchOutcome, StreamStats } from "../../types/spec-writer";
 
 interface Props {
   activeProjectPath: string;
@@ -33,6 +33,8 @@ interface Props {
   coverageReport?: CoverageAuditReport | null;
   /** Stage 3: latest input analysis on the user-attached input docs (if any). */
   inputAnalysis?: InputAnalysis | null;
+  /** Outcome of the most recent AUDIT-PATCH splice (if any). */
+  patchOutcome?: SpecPatchOutcome | null;
   /** Stage 3: re-dispatch the recheck prompt. */
   onRecheck?: () => void;
   /** Stage 4: most recent stream metadata. */
@@ -60,6 +62,7 @@ export default function SpecPreviewPanel({
   onRecognizeGuide,
   coverageReport = null,
   inputAnalysis = null,
+  patchOutcome = null,
   onRecheck,
   streamStats = null,
 }: Props) {
@@ -80,7 +83,7 @@ export default function SpecPreviewPanel({
   const prevHadAuditByProject = useRef<Map<string, boolean>>(new Map());
   const prevCoverageStatusByProject = useRef<Map<string, 'pass' | 'fail' | null>>(new Map());
 
-  const hasCoverage = !!coverageReport || !!inputAnalysis || !!streamStats;
+  const hasCoverage = !!coverageReport || !!inputAnalysis || !!streamStats || !!patchOutcome;
   const coverageFailureCount =
     (coverageReport?.failures.length ?? 0) +
     (inputAnalysis?.findings.filter((f) => f.severity === 'block').length ?? 0) +
@@ -146,6 +149,7 @@ export default function SpecPreviewPanel({
               report={coverageReport}
               analysis={inputAnalysis}
               streamStats={streamStats}
+              patchOutcome={patchOutcome}
               onRecheck={onRecheck ?? (() => {})}
               recheckInFlight={isStreaming}
             />

@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { CheckCircle2, AlertTriangle, XCircle, Info, RefreshCw, ChevronDown, ChevronRight, Activity } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Info, Wand2, ChevronDown, ChevronRight, Activity, FileEdit, FileX2 } from "lucide-react";
 import type {
   AnalysisFinding,
   AuditFailure,
   CoverageAuditReport,
   InputAnalysis,
+  SpecPatchOutcome,
   StreamStats,
 } from "../../types/spec-writer";
 import { describeFailure } from "../../lib/spec-coverage-audit";
@@ -17,6 +18,12 @@ interface Props {
   analysis: InputAnalysis | null;
   /** Stage 4: most recent stream metadata (chunks/bytes/duration/status). */
   streamStats?: StreamStats | null;
+  /**
+   * Outcome of the most recent AUDIT-PATCH splice (if any). Rendered as a
+   * banner at the top of the panel so users know — at a glance — that the
+   * "Patch spec & re-audit" button actually rewrote the spec.
+   */
+  patchOutcome?: SpecPatchOutcome | null;
   /**
    * Trigger another recheck pass against the model. The button only renders
    * when the latest report has a usable recheckPrompt.
@@ -31,8 +38,8 @@ const STATUS_LABEL: Record<CoverageAuditReport['status'], string> = {
   fail: 'FAIL',
 };
 
-export default function CoveragePanel({ report, analysis, streamStats = null, onRecheck, recheckInFlight = false }: Props) {
-  if (!report && !analysis && !streamStats) {
+export default function CoveragePanel({ report, analysis, streamStats = null, patchOutcome = null, onRecheck, recheckInFlight = false }: Props) {
+  if (!report && !analysis && !streamStats && !patchOutcome) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">🛡️</div>
@@ -51,6 +58,7 @@ export default function CoveragePanel({ report, analysis, streamStats = null, on
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        {patchOutcome && <PatchOutcomeBanner outcome={patchOutcome} />}
         {analysis && <InputAnalysisSection analysis={analysis} />}
         {report && <CoverageReportSection report={report} />}
         {streamStats && <StreamStatsSection stats={streamStats} />}
@@ -62,21 +70,88 @@ export default function CoveragePanel({ report, analysis, streamStats = null, on
           style={{ borderColor: "var(--border)" }}
         >
           <div className="text-ui" style={{ color: "var(--text-dim)" }}>
-            {report.failures.length} finding{report.failures.length === 1 ? '' : 's'} — re-prompt the model to fill the gaps?
+            {report.failures.length} finding{report.failures.length === 1 ? '' : 's'} — patch the spec to fix them?
           </div>
           <button
             onClick={onRecheck}
             disabled={recheckInFlight}
-            title="Send another recheck pass to the model"
+            title="Ask the model for an AUDIT-PATCH and splice it into the existing spec, then re-run the coverage audit."
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-ui font-medium transition-colors hover:opacity-90 disabled:opacity-40"
             style={{ background: "var(--accent)", color: "white" }}
           >
-            <RefreshCw size={13} className={recheckInFlight ? 'animate-spin' : ''} />
-            {recheckInFlight ? 'Rechecking…' : 'Run another recheck'}
+            <Wand2 size={13} className={recheckInFlight ? 'animate-pulse' : ''} />
+            {recheckInFlight ? 'Patching spec…' : 'Patch spec & re-audit'}
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Patch outcome banner ─────────────────────────────────────────────
+
+function PatchOutcomeBanner({ outcome }: { outcome: SpecPatchOutcome }) {
+  const applied = outcome.status === 'applied';
+  const counts = new Map<SpecPatchOutcome['appliedOps'][number], number>();
+  for (const k of outcome.appliedOps) counts.set(k, (counts.get(k) ?? 0) + 1);
+  const opParts = [...counts.entries()].map(([k, n]) => `${n}× ${k}`);
+
+  const accent = applied ? 'var(--success, #22c55e)' : 'var(--destructive, #ef4444)';
+  const bg = applied ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+
+  return (
+    <section
+      className="rounded-md p-3 border"
+      style={{ background: bg, borderColor: accent }}
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-0.5">
+          {applied
+            ? <FileEdit size={14} style={{ color: accent }} />
+            : <FileX2 size={14} style={{ color: accent }} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-chat font-medium" style={{ color: "var(--text-primary)" }}>
+            {applied ? 'Spec patched' : 'Patch rejected — spec preserved'}
+          </div>
+          {applied ? (
+            <div className="text-ui mt-1" style={{ color: "var(--text-dim)" }}>
+              {opParts.length > 0
+                ? `Splicer applied ${opParts.join(', ')} to the spec.`
+                : 'No structural changes were applied.'}
+              {' '}
+              Re-audit found <strong style={{ color: "var(--text-secondary)" }}>{outcome.remainingFindings}</strong>{' '}
+              remaining finding{outcome.remainingFindings === 1 ? '' : 's'}.{' '}
+              <span style={{ color: "var(--text-secondary)" }}>
+                The Specification tab is now showing the updated content.
+              </span>
+            </div>
+          ) : (
+            <div className="text-ui mt-1" style={{ color: "var(--text-dim)" }}>
+              The model's reply could not be safely spliced into the spec — the original content was kept untouched.
+              {outcome.errors.length > 0 && (
+                <ul className="mt-1 ml-4 list-disc">
+                  {outcome.errors.slice(0, 3).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+          {outcome.warnings.length > 0 && (
+            <details className="mt-2">
+              <summary
+                className="cursor-pointer text-detail select-none"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {outcome.warnings.length} warning{outcome.warnings.length === 1 ? '' : 's'}
+              </summary>
+              <ul className="mt-1 ml-4 list-disc text-detail" style={{ color: "var(--text-dim)" }}>
+                {outcome.warnings.slice(0, 5).map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </details>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

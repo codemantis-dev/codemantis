@@ -4,7 +4,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { sendAssistantChat, listenAssistantStream, cancelAssistantChat, listTemplates, gatherSpecContext, readFileContent } from "../lib/tauri-commands";
 import { getProviderForModel, DEFAULT_SPEC_MODEL, isSpecModelAvailable, autoSelectSpecModel } from "../types/assistant-provider";
 import { useOpenRouterStore } from "../stores/openRouterStore";
-import type { SpecMessage, SpecAttachment } from "../types/spec-writer";
+import type { SpecMessage, SpecAttachment, SpecPatchOutcome } from "../types/spec-writer";
 import type { ContentPart } from "../lib/tauri-commands";
 import { SPEC_READY_PATTERNS, SPEC_START_PATTERN, AUDIT_START_PATTERN, AUDIT_FILE_PATTERN, isLikelySpecDocument, buildSystemPrompt } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
@@ -163,9 +163,12 @@ export function useSpecConversation(): {
     ) => {
       // User-initiated turns reset the recheck-round counter so the next
       // automatic recheck cycle starts fresh. Auto-recheck dispatches do NOT
-      // reset (otherwise the cap would never bite).
+      // reset (otherwise the cap would never bite). They also wipe the last
+      // patch-outcome banner — it describes the previous recheck cycle and
+      // shouldn't linger after the user has moved on.
       if (!meta?.isAutoRecheck) {
         recheckRoundRef.current.set(projectPath, 0);
+        useSpecWriterStore.getState().setLastPatchOutcome(projectPath, null);
       }
 
       const store = useSpecWriterStore.getState();
@@ -466,6 +469,11 @@ export function useSpecConversation(): {
           let mergedSpecContent: string | null = null;
           let patchFailureReasons: string[] | null = null;
           let patchAppliedSummary: string | null = null;
+          // Draft patch-outcome record. Finalized + persisted to the store
+          // AFTER the re-audit so remainingFindings is meaningful. Without this
+          // the Coverage panel would have no way to surface "your patch click
+          // rewrote N sections" beyond a fleeting chat message.
+          let patchOutcomeDraft: Omit<SpecPatchOutcome, 'remainingFindings'> | null = null;
           if (state.isAutoRecheck && finalContent.includes(AUDIT_PATCH_MARKER)) {
             const { ops, warnings: parseWarnings } = parseAuditPatch(finalContent);
             const apply = applyAuditPatch(state.preStreamSpec ?? '', ops);
@@ -477,11 +485,25 @@ export function useSpecConversation(): {
                 ...apply,
                 warnings: allWarnings,
               });
+              patchOutcomeDraft = {
+                timestamp: new Date().toISOString(),
+                status: 'applied',
+                appliedOps: apply.appliedOps,
+                warnings: allWarnings,
+                errors: [],
+              };
             } else {
               // Fail-closed: preserve preStreamSpec, mark this turn as
               // non-spec so completeTurn does NOT touch currentSpecContent.
               isSpec = false;
               patchFailureReasons = apply.errors.length > 0 ? apply.errors : ['no recognizable patch ops in reply'];
+              patchOutcomeDraft = {
+                timestamp: new Date().toISOString(),
+                status: 'failed',
+                appliedOps: [],
+                warnings: allWarnings,
+                errors: patchFailureReasons,
+              };
             }
           }
           const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
@@ -519,6 +541,7 @@ export function useSpecConversation(): {
 
           // ─── Stage 1: Coverage audit + auto-recheck loop ───
           let auditTriggeredRecheck = false;
+          let postAuditFailureCount: number | null = null;
           if (isSpec) {
             const convNow = useSpecWriterStore.getState().getActiveConversation(projectPath);
             if (convNow) {
@@ -532,6 +555,7 @@ export function useSpecConversation(): {
               });
               // Stage 3: persist the structured report so the Coverage panel can render it.
               currentStore.setCoverageReport(projectPath, report);
+              postAuditFailureCount = report.failures.length;
               const round = recheckRoundRef.current.get(projectPath) ?? 0;
               const summary = summarizeReport(report);
 
@@ -568,6 +592,25 @@ export function useSpecConversation(): {
                   timestamp: new Date().toISOString(),
                 });
               }
+            }
+          }
+
+          // Finalize the patch outcome for the Coverage panel banner. We do
+          // this AFTER the re-audit so `remainingFindings` reflects the audit
+          // of the merged spec. For a fail-closed patch we already have the
+          // previous report on the store; reuse its failure count.
+          if (patchOutcomeDraft) {
+            const remaining = postAuditFailureCount ??
+              useSpecWriterStore.getState().coverageReports.get(projectPath)?.failures.length ?? 0;
+            currentStore.setLastPatchOutcome(projectPath, {
+              ...patchOutcomeDraft,
+              remainingFindings: remaining,
+            });
+            // After a SUCCESSFUL patch, switch the user back to the Spec tab so
+            // they see the rewritten document instead of staring at the
+            // Coverage panel and wondering whether anything happened.
+            if (patchOutcomeDraft.status === 'applied') {
+              currentStore.setSpecPreviewTab(projectPath, 'spec');
             }
           }
 

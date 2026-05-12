@@ -146,6 +146,26 @@ export interface CoverageAuditReport {
   recheckPrompts: string[];
 }
 
+/**
+ * Outcome of the most recent AUDIT-PATCH splice. Surfaced in the Coverage panel
+ * so the user can see — without scrolling chat — that "Patch spec & re-audit"
+ * actually rewrote the spec (or fail-closed kept the original).
+ */
+export interface SpecPatchOutcome {
+  /** ISO timestamp of when the splice ran. */
+  timestamp: string;
+  /** `applied` = merged into the spec. `failed` = preStreamSpec preserved. */
+  status: 'applied' | 'failed';
+  /** Op kinds the splicer applied, in order. Empty when status === 'failed'. */
+  appliedOps: Array<'replace-section' | 'insert-after' | 'append-section'>;
+  /** Non-fatal warnings from the parser/applier (e.g. missing close tags). */
+  warnings: string[];
+  /** Reasons the splice was rejected. Empty when status === 'applied'. */
+  errors: string[];
+  /** Coverage findings remaining after re-audit of the merged (or original) spec. */
+  remainingFindings: number;
+}
+
 /** Mode-aware audit configuration. */
 export interface CoverageAuditOptions {
   /** Floor for output_bytes / input_bytes. Default 0.6. Set 0 to disable. */
