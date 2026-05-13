@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { auditCoverage, summarizeReport, describeFailure } from "../../lib/spec-coverage-audit";
+import { parseAuditPatch, applyAuditPatch } from "../../lib/spec-audit-patch";
 
 const UI_INCOMPLETE_SPEC = `---
 
@@ -195,5 +196,108 @@ describe("spec UI-completeness audit — integration", () => {
     });
     const uiFailures = report.failures.filter((f) => f.kind.startsWith("ui-"));
     expect(uiFailures).toEqual([]);
+  });
+
+  // ─── ui-session-too-large → recheck → AUDIT-PATCH round trip ────────
+  // This is the full pipeline for the Session 7 failure mode: the audit
+  // flags the oversized session, the recheck prompt asks for a split using
+  // suffix numbering, and the resulting AUDIT-PATCH cleanly merges into the
+  // existing spec without renumbering later sessions.
+
+  const OVERSIZED_SESSION_SPEC = [
+    "# Acme — Spec",
+    "",
+    "## Session Plan",
+    "",
+    "### Session 6: Tiny prep",
+    "**Scope:** schema only",
+    "**Files:**",
+    "- `migrations/001.sql` (create)",
+    "**User-visible outcome:** schema in place.",
+    "",
+    "### Session 7: Notes-sync surfaces",
+    "**Scope:** spans worker + edge fn + frontend + deploys",
+    "**User-visible outcome:** everything at once.",
+    "**Prompt:**",
+    "1. Extend note_proactive_analysis.py with 2 new contradiction checks.",
+    "2. Extend notes_sync_preview.py for ui_surface_diff.",
+    "3. Extend notes_sync_apply.py to invoke apply_ui_note_targets_atomic.",
+    "4. Add insert_ui_note_target worker action.",
+    "5. Create NoteTargetSelector.tsx.",
+    "6. Modify NoteCapturePanel.",
+    "7. Modify SyncPreviewDialog.",
+    "8. Create surfaces-regenerate edge function.",
+    "9. Create RegenerationInbox page.",
+    "10. Register route.",
+    "11. Tests.",
+    "12. Deploy worker.",
+    "13. Deploy edge functions.",
+    "14. Run pnpm check:worker-actions.",
+    "",
+    "### Session 8: Polish",
+    "**Scope:** final pass",
+    "**Files:**",
+    "- `src/components/Dashboard.tsx` (modify)",
+    "**User-visible outcome:** dashboard looks finished.",
+    "",
+  ].join("\n");
+
+  it("flags the oversized session and emits an actionable split recheck prompt", () => {
+    const report = auditCoverage([], OVERSIZED_SESSION_SPEC, { skipForNewApp: true });
+    const tooLarge = report.failures.filter(
+      (f): f is Extract<typeof f, { kind: "ui-session-too-large" }> =>
+        f.kind === "ui-session-too-large",
+    );
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].session).toContain("Session 7");
+    expect(report.recheckPrompts).toHaveLength(1);
+    expect(report.recheckPrompts[0]).toContain("AUDIT-PATCH");
+    expect(report.recheckPrompts[0]).toContain("suffix numbering");
+    expect(report.recheckPrompts[0]).toContain("Session 7: Notes-sync surfaces");
+  });
+
+  it("accepts a model-shaped AUDIT-PATCH reply that splits Session 7 into 7a/7b/7c", () => {
+    // The model is expected to reply with this kind of envelope after seeing
+    // the recheck prompt. Simulate it and run the splicer end-to-end.
+    const reply = [
+      "<!-- AUDIT-PATCH -->",
+      '<!-- patch:replace-section heading="### Session 7: Notes-sync surfaces" -->',
+      "### Session 7a: Worker contradictions + sync",
+      "**Scope:** Worker-side changes only.",
+      "**Files:**",
+      "- `note_proactive_analysis.py` (modify)",
+      "- `notes_sync_preview.py` (modify)",
+      "- `notes_sync_apply.py` (modify)",
+      "**User-visible outcome:** worker computes new contradiction kinds.",
+      "",
+      "### Session 7b: Frontend NoteTargetSelector",
+      "**Scope:** Frontend-only changes.",
+      "**Files:**",
+      "- `src/components/NoteTargetSelector.tsx` (create)",
+      "- `src/components/NoteCapturePanel.tsx` (modify)",
+      "**User-visible outcome:** PM can pick a target when capturing.",
+      "",
+      "### Session 7c: Deploys",
+      "**Scope:** Deploy worker + edge functions.",
+      "**User-visible outcome:** all changes live in staging.",
+      "**Prompt:**",
+      "1. Deploy worker.",
+      "2. Deploy edge functions.",
+      "<!-- /patch -->",
+    ].join("\n");
+
+    const parsed = parseAuditPatch(reply);
+    expect(parsed.ops).toHaveLength(1);
+    const apply = applyAuditPatch(OVERSIZED_SESSION_SPEC, parsed.ops);
+    expect(apply.errors).toEqual([]);
+    expect(apply.merged).not.toBeNull();
+    const merged = apply.merged!;
+    expect(merged).not.toContain("### Session 7: Notes-sync surfaces");
+    expect(merged).toContain("### Session 7a:");
+    expect(merged).toContain("### Session 7b:");
+    expect(merged).toContain("### Session 7c:");
+    // Session 6 and Session 8 are still intact (no renumbering).
+    expect(merged).toContain("### Session 6: Tiny prep");
+    expect(merged).toContain("### Session 8: Polish");
   });
 });

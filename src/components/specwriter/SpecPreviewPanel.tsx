@@ -6,7 +6,7 @@ import { useSpecWriterStore } from "../../stores/specWriterStore";
 import SpecPreview from "./SpecPreview";
 import SavedSpecsList from "./SavedSpecsList";
 import CoveragePanel from "./CoveragePanel";
-import type { CoverageAuditReport, InputAnalysis, SpecPatchOutcome, StreamStats } from "../../types/spec-writer";
+import type { CoverageAuditReport, InputAnalysis, SpecCreationLog, SpecPatchOutcome, StreamStats } from "../../types/spec-writer";
 
 interface Props {
   activeProjectPath: string;
@@ -35,6 +35,8 @@ interface Props {
   inputAnalysis?: InputAnalysis | null;
   /** Outcome of the most recent AUDIT-PATCH splice (if any). */
   patchOutcome?: SpecPatchOutcome | null;
+  /** Per-section streaming progress (creation log). */
+  creationLog?: SpecCreationLog | null;
   /** Stage 3: re-dispatch the recheck prompt. */
   onRecheck?: () => void;
   /** Stage 4: most recent stream metadata. */
@@ -63,6 +65,7 @@ export default function SpecPreviewPanel({
   coverageReport = null,
   inputAnalysis = null,
   patchOutcome = null,
+  creationLog = null,
   onRecheck,
   streamStats = null,
 }: Props) {
@@ -83,7 +86,12 @@ export default function SpecPreviewPanel({
   const prevHadAuditByProject = useRef<Map<string, boolean>>(new Map());
   const prevCoverageStatusByProject = useRef<Map<string, 'pass' | 'fail' | null>>(new Map());
 
-  const hasCoverage = !!coverageReport || !!inputAnalysis || !!streamStats || !!patchOutcome;
+  const hasCoverage =
+    !!coverageReport ||
+    !!inputAnalysis ||
+    !!streamStats ||
+    !!patchOutcome ||
+    !!(creationLog && creationLog.entries.length > 0);
   const coverageFailureCount =
     (coverageReport?.failures.length ?? 0) +
     (inputAnalysis?.findings.filter((f) => f.severity === 'block').length ?? 0) +
@@ -150,6 +158,7 @@ export default function SpecPreviewPanel({
               analysis={inputAnalysis}
               streamStats={streamStats}
               patchOutcome={patchOutcome}
+              creationLog={creationLog}
               onRecheck={onRecheck ?? (() => {})}
               recheckInFlight={isStreaming}
             />

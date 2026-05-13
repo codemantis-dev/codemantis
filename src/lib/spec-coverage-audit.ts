@@ -39,6 +39,18 @@ export interface InputDoc {
 /** Minimum body length for a pasted message to be considered a "spec input doc" rather than chat noise. */
 const MIN_PASTED_INPUT_BYTES = 1500;
 
+// ─── Session-size thresholds (see ui-session-too-large failure) ───────
+//
+// These map to the prompt-template guidance in
+// `src/lib/spec-prompts/{new-app-mode,feature-mode}.ts`. If you change them
+// here, update the prompt copy too — otherwise the audit will keep flagging
+// sessions the model thought were within bounds, and the recheck loop will
+// burn rounds without converging.
+export const MAX_WORK_ITEMS_PER_SESSION = 12;
+export const MAX_FILES_PER_SESSION = 10;
+export const MAX_PHASES_REFERENCED = 2;
+export const MAX_SURFACES_PER_SESSION = 2;
+
 /**
  * Extract InputDocs from the conversation history. Input docs are:
  *   1. user-message attachments with `text_content` (markdown, txt, pdf-extracted)
@@ -526,13 +538,321 @@ function checkListStates(output: string): AuditFailure[] {
   return [{ kind: 'ui-list-no-states' }];
 }
 
+/**
+ * Aggregate weight metrics for a single session block, used by
+ * `checkSessionSizes`. Counts everything OUTSIDE fenced code so a long SQL
+ * fence inside a session doesn't inflate the work-item or file count.
+ *
+ * Counters:
+ *  - `workItems` — checkboxes (`- [ ]`) + numbered (`1.` / `1)`) + bulleted
+ *    items inside a `Deliverables:` / `Tasks:` / `Implementation Checklist:`
+ *    / `Prompt for Claude Code:` block. A bullet in a `Files:` block is NOT
+ *    a work item (we count it separately).
+ *  - `files` — files in a structured `Files:` block PLUS files mentioned
+ *    inline in prose (paths matching a recognized extension), deduped.
+ *  - `phases` — distinct `Section 9, Phase N` references.
+ *  - `surfaces` — distinct production surfaces touched (`worker`, `edge-fn`,
+ *    `frontend`, `migration`, `deploy`).
+ *  - `hasDeployStep` — true when a top-level deliverable line begins with
+ *    "Deploy". Inline mentions like "after deploy you should…" do NOT count.
+ *  - `sqlFenceRatio` — bytes inside ```sql fences over total body bytes;
+ *    drives the migration-session carve-out.
+ *  - `hasIndivisibleMarker` — `**Indivisible:** {reason}` in body → model
+ *    explicitly declined a split; suppresses the flag.
+ */
+interface SessionWeight {
+  workItems: number;
+  files: number;
+  phases: number;
+  surfaces: string[];
+  hasDeployStep: boolean;
+  sqlFenceRatio: number;
+  hasIndivisibleMarker: boolean;
+}
+
+const KNOWN_FILE_EXTS = /\.(?:py|ts|tsx|js|jsx|sql|md|rs|toml|yaml|yml|json|css|html|sh)\b/;
+const PROSE_FILE_PATTERN = new RegExp(
+  `\\b([\\w./-]+${KNOWN_FILE_EXTS.source})`,
+  'g',
+);
+
+/**
+ * Section-block-aware bulleted-item counter. A `- foo` bullet only counts
+ * as a work item when it lives inside one of the deliverable block headers
+ * below; under `Files:` (file list) or `Read sections:` (just a list of
+ * reading targets) it does NOT.
+ */
+const DELIVERABLE_BLOCK_HEADERS = [
+  /^\s*\*\*\s*Implementation Checklist:\s*\*\*/i,
+  /^\s*\*\*\s*Deliverables:\s*\*\*/i,
+  /^\s*\*\*\s*Tasks:\s*\*\*/i,
+  /^\s*\*\*\s*Prompt(?:\s+for\s+Claude\s+Code)?:\s*\*\*/i,
+  /^\s*\*\*\s*Steps:\s*\*\*/i,
+];
+const FILES_BLOCK_HEADER = /^\s*\*\*\s*Files:\s*\*\*/i;
+const ANY_LABELED_BLOCK_HEADER = /^\s*\*\*\s*[A-Z][\w -]+:\s*\*\*/;
+
+export function countSessionWeight(body: string[]): SessionWeight {
+  // Build a parallel "in-fence" mask so all regex passes share fence state.
+  const inFence: boolean[] = [];
+  let fenceState = false;
+  let fenceTag = '';
+  let sqlFenceBytes = 0;
+  let totalBytes = 0;
+  for (const line of body) {
+    if (/^\s*```/.test(line)) {
+      if (!fenceState) {
+        // opening fence
+        fenceState = true;
+        fenceTag = line.trim().replace(/^```/, '').trim().toLowerCase();
+      } else {
+        // closing fence
+        fenceState = false;
+        fenceTag = '';
+      }
+      inFence.push(true);
+      continue;
+    }
+    inFence.push(fenceState);
+    totalBytes += line.length + 1;
+    if (fenceState && (fenceTag === 'sql' || fenceTag.startsWith('sql'))) {
+      sqlFenceBytes += line.length + 1;
+    }
+  }
+
+  // Track which deliverable-block (or other) we're currently inside. A new
+  // `**Header:**` line switches context; a blank line ends the block.
+  let currentBlock: 'deliverable' | 'files' | 'other' | 'none' = 'none';
+  const checkboxLines = new Set<number>();
+  const numberedLines = new Set<number>();
+  const bulletDeliverableLines = new Set<number>();
+  let hasDeployStep = false;
+  let hasIndivisibleMarker = false;
+
+  for (let i = 0; i < body.length; i++) {
+    if (inFence[i]) continue;
+    const line = body[i];
+
+    // Indivisible waiver — checked first so the line's header status doesn't
+    // short-circuit the rest of the loop without us noticing the marker.
+    if (/\*\*\s*Indivisible:\s*\*\*/i.test(line)) {
+      hasIndivisibleMarker = true;
+    }
+
+    // Block-context tracking. A blank line ends a block (back to `none`).
+    if (line.trim().length === 0) {
+      currentBlock = 'none';
+      continue;
+    }
+    if (DELIVERABLE_BLOCK_HEADERS.some((re) => re.test(line))) {
+      currentBlock = 'deliverable';
+      continue;
+    }
+    if (FILES_BLOCK_HEADER.test(line)) {
+      currentBlock = 'files';
+      continue;
+    }
+    if (ANY_LABELED_BLOCK_HEADER.test(line)) {
+      currentBlock = 'other';
+      continue;
+    }
+
+    if (/^\s*-\s*\[\s*[ xX]?\s*\]/.test(line)) {
+      checkboxLines.add(i);
+    } else if (/^\s*\d+[.)]\s+\S/.test(line)) {
+      // Numbered items are always work items — they only show up in
+      // deliverable contexts in practice (or as a numbered Session Plan
+      // itself, which we never count here because we're already inside
+      // a single session body).
+      numberedLines.add(i);
+    } else if (
+      currentBlock === 'deliverable' &&
+      /^\s*[-*]\s+\S/.test(line)
+    ) {
+      bulletDeliverableLines.add(i);
+    }
+
+    // Deploy-step detection: top-level deliverable line whose first word is
+    // "Deploy". Must be either a numbered or bulleted top-level item, not a
+    // sub-bullet (so we require <=2 leading spaces).
+    if (/^[ ]{0,2}(?:\d+[.)]|[-*])\s+Deploy\b/i.test(line)) {
+      hasDeployStep = true;
+    }
+  }
+
+  const workItems =
+    checkboxLines.size + numberedLines.size + bulletDeliverableLines.size;
+
+  // File counting — structured (Files: block) + prose mentions, deduped.
+  // The structured pass uses `currentBlock` to know when we're in a Files: block.
+  // The prose pass runs on EVERY non-fenced line (including labeled-header lines
+  // like `**Scope:** Touches a.py and b.py`) so files mentioned inline are picked up.
+  const fileSet = new Set<string>();
+  currentBlock = 'none';
+  for (let i = 0; i < body.length; i++) {
+    if (inFence[i]) continue;
+    const line = body[i];
+
+    // Block-context tracking for the structured matcher only.
+    if (line.trim().length === 0) {
+      currentBlock = 'none';
+    } else if (FILES_BLOCK_HEADER.test(line)) {
+      currentBlock = 'files';
+      // The Files: line itself usually has no content after the `:`, but if
+      // it does (e.g. `**Files:** worker/foo.py`) we still want the prose
+      // scan below to pick it up.
+    } else if (ANY_LABELED_BLOCK_HEADER.test(line)) {
+      currentBlock = 'other';
+    }
+
+    // Structured: ``- `path/to/file.ts` (create)`` inside a Files: block.
+    if (currentBlock === 'files') {
+      const m = /^\s*[-*]\s*`([^`]+)`/.exec(line);
+      if (m) {
+        fileSet.add(m[1].trim());
+        // Still fall through to prose scan — harmless, dedupes via Set.
+      }
+    }
+
+    // Prose: anything that looks like a file path. Strip backticks first to
+    // dedupe with the structured matches (which kept the path verbatim).
+    const proseClean = line.replace(/`([^`]+)`/g, '$1');
+    let match: RegExpExecArray | null;
+    PROSE_FILE_PATTERN.lastIndex = 0;
+    while ((match = PROSE_FILE_PATTERN.exec(proseClean)) !== null) {
+      const candidate = match[1].trim();
+      // Skip URLs, version strings, and bare extension matches (".py").
+      if (/^https?:\/\//.test(candidate)) continue;
+      if (/^\d/.test(candidate)) continue;
+      if (candidate.startsWith('.')) continue;
+      fileSet.add(candidate);
+    }
+  }
+  const files = fileSet.size;
+
+  // Phases — distinct N from "Section 9, Phase N" references.
+  const phaseSet = new Set<string>();
+  for (let i = 0; i < body.length; i++) {
+    if (inFence[i]) continue;
+    const phaseRe = /Section\s*9,?\s*Phase\s*(\d+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = phaseRe.exec(body[i])) !== null) {
+      phaseSet.add(m[1]);
+    }
+  }
+  const phases = phaseSet.size;
+
+  // Surfaces — detect by keyword groups, outside fenced code. "deploy" is
+  // tracked separately via hasDeployStep and counted as its own surface.
+  const surfaceHits = new Set<string>();
+  const proseOutsideFence = body
+    .filter((_, i) => !inFence[i])
+    .join('\n');
+  if (/\bworker\b/i.test(proseOutsideFence) || /\.py\b/.test(proseOutsideFence)) {
+    surfaceHits.add('worker');
+  }
+  if (
+    /\bedge\s*(?:function|fn)\b/i.test(proseOutsideFence) ||
+    /\bEF\b/.test(proseOutsideFence) ||
+    /supabase\/functions\//.test(proseOutsideFence)
+  ) {
+    surfaceHits.add('edge-fn');
+  }
+  if (
+    /\b(?:component|page|hook|route)\b/i.test(proseOutsideFence) ||
+    /\.(?:tsx|jsx)\b/.test(proseOutsideFence)
+  ) {
+    surfaceHits.add('frontend');
+  }
+  if (
+    /\bmigration\b/i.test(proseOutsideFence) ||
+    /\.sql\b/.test(proseOutsideFence) ||
+    /\bCREATE\s+(?:TABLE|INDEX)/i.test(proseOutsideFence)
+  ) {
+    surfaceHits.add('migration');
+  }
+  if (hasDeployStep) {
+    surfaceHits.add('deploy');
+  }
+
+  return {
+    workItems,
+    files,
+    phases,
+    surfaces: [...surfaceHits].sort(),
+    hasDeployStep,
+    sqlFenceRatio: totalBytes > 0 ? sqlFenceBytes / totalBytes : 0,
+    hasIndivisibleMarker,
+  };
+}
+
+/**
+ * Check: every session in §Session Plan must fit inside one Claude Code run.
+ * See `countSessionWeight` for axis definitions and the carve-outs.
+ */
+function checkSessionSizes(output: string): AuditFailure[] {
+  const sp = findH2Section(output, (t) => /session plan/i.test(t));
+  if (!sp) return [];
+  const sessions = splitSessionPlanBlocks(sp.body);
+  if (sessions.length === 0) return [];
+
+  const failures: AuditFailure[] = [];
+  for (const s of sessions) {
+    const w = countSessionWeight(s.body);
+
+    // Explicit waiver from the model — skip.
+    if (w.hasIndivisibleMarker) continue;
+
+    // Atomic-migration carve-out — a session that's mostly SQL with ≤3 files
+    // and only the `migration` surface (or `migration`+`deploy`) is allowed.
+    const onlyMigrationSurfaces =
+      w.surfaces.every((s_) => s_ === 'migration' || s_ === 'deploy');
+    if (
+      w.sqlFenceRatio > 0.5 &&
+      w.files <= 3 &&
+      onlyMigrationSurfaces &&
+      !w.hasDeployStep
+    ) {
+      continue;
+    }
+
+    const reasons: Array<
+      'work-items' | 'files' | 'phases' | 'surfaces' | 'deploy-step'
+    > = [];
+    if (w.workItems > MAX_WORK_ITEMS_PER_SESSION) reasons.push('work-items');
+    if (w.files > MAX_FILES_PER_SESSION) reasons.push('files');
+    if (w.phases >= MAX_PHASES_REFERENCED + 1) reasons.push('phases');
+    if (w.surfaces.length >= MAX_SURFACES_PER_SESSION + 1) reasons.push('surfaces');
+    if (w.hasDeployStep) reasons.push('deploy-step');
+
+    if (reasons.length === 0) continue;
+
+    failures.push({
+      kind: 'ui-session-too-large',
+      session: s.title,
+      workItems: w.workItems,
+      files: w.files,
+      phases: w.phases,
+      surfaces: w.surfaces,
+      hasDeployStep: w.hasDeployStep,
+      reasons,
+    });
+  }
+
+  return failures;
+}
+
 /** Run every UI-completeness check and return aggregated failures. */
-export function runUICompletenessChecks(output: string): AuditFailure[] {
+export function runUICompletenessChecks(
+  output: string,
+  options: { skipSessionSizeCheck?: boolean } = {},
+): AuditFailure[] {
   return [
     ...checkOrphanEntities(output),
     ...checkUntriggeredEndpoints(output),
     ...checkInvisibleErrors(output),
     ...checkSessionOutcomes(output),
+    ...(options.skipSessionSizeCheck ? [] : checkSessionSizes(output)),
     ...checkFormValidation(output),
     ...checkListStates(output),
   ];
@@ -701,7 +1021,11 @@ export function auditCoverage(
 
   // UI-completeness checks (run in both modes unless explicitly disabled).
   if (!options.skipUIChecks) {
-    report.failures.push(...runUICompletenessChecks(output));
+    report.failures.push(
+      ...runUICompletenessChecks(output, {
+        skipSessionSizeCheck: options.skipSessionSizeCheck,
+      }),
+    );
   }
 
   if (report.failures.length > 0) {
@@ -914,6 +1238,30 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
     );
   }
 
+  const oversizedSessions = failures.filter(isSessionTooLarge);
+  if (oversizedSessions.length > 0) {
+    lines.push(
+      'Sessions too large for one Claude Code run — these sessions exceed the per-session size limits ' +
+        `(max ${MAX_WORK_ITEMS_PER_SESSION} work items, ${MAX_FILES_PER_SESSION} files, ${MAX_PHASES_REFERENCED} phases, ${MAX_SURFACES_PER_SESSION} surfaces; deploy steps must live in their own session).`,
+      'Emit a `<!-- patch:replace-section heading="### {Session N: …}" -->` block per oversized session that REPLACES it with 2–4 sibling H3 sessions using **suffix numbering** (`### Session {N}a: …`, `### Session {N}b: …`). Do NOT renumber later sessions — leave `### Session {N+1}` and downstream untouched so the heading-inventory gate passes.',
+      'Each sub-session must keep the full Session Plan template (Scope / Read sections / Files / User-visible outcome / Prompt for Claude Code / Verify before next session / NOT).',
+      'Splitting boundary priority: (1) user-visible outcome — one outcome per sub-session, (2) production surface — never mix worker code + edge-fn + frontend in one sub-session, (3) deploy steps always get their own sub-session, (4) file-group fallback (frontend vs API vs migration).',
+      'If a session truly cannot be split (e.g., a single atomic migration), reply with a `replace-section` that keeps the heading and adds a `**Indivisible:** {reason}` line in the body — the auditor accepts that as an explicit waiver.',
+      '',
+    );
+    for (const f of oversizedSessions.slice(0, 25)) {
+      const bits: string[] = [];
+      if (f.reasons.includes('work-items')) bits.push(`${f.workItems} work items`);
+      if (f.reasons.includes('files')) bits.push(`${f.files} files`);
+      if (f.reasons.includes('phases')) bits.push(`${f.phases} phases`);
+      if (f.reasons.includes('surfaces'))
+        bits.push(`${f.surfaces.length} surfaces (${f.surfaces.join(', ')})`);
+      if (f.reasons.includes('deploy-step')) bits.push('contains a Deploy step');
+      lines.push(`- \`${f.session}\` — ${bits.join('; ')}`);
+    }
+    lines.push('');
+  }
+
   return [lines.join('\n').trimEnd()];
 }
 
@@ -991,6 +1339,11 @@ function isListNoStates(
 ): f is Extract<AuditFailure, { kind: 'ui-list-no-states' }> {
   return f.kind === 'ui-list-no-states';
 }
+function isSessionTooLarge(
+  f: AuditFailure,
+): f is Extract<AuditFailure, { kind: 'ui-session-too-large' }> {
+  return f.kind === 'ui-session-too-large';
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Human-readable summary (for the inline assistant message after audit)
@@ -1031,6 +1384,16 @@ export function describeFailure(f: AuditFailure): string {
       return `spec mentions forms but contains no validation specifications`;
     case 'ui-list-no-states':
       return `spec mentions a list/table but is missing empty / loading / error state coverage`;
+    case 'ui-session-too-large': {
+      const bits: string[] = [];
+      if (f.reasons.includes('work-items')) bits.push(`${f.workItems} work items`);
+      if (f.reasons.includes('files')) bits.push(`${f.files} files`);
+      if (f.reasons.includes('phases')) bits.push(`${f.phases} phases`);
+      if (f.reasons.includes('surfaces'))
+        bits.push(`${f.surfaces.length} surfaces (${f.surfaces.join(', ')})`);
+      if (f.reasons.includes('deploy-step')) bits.push('contains a Deploy step');
+      return `session \`${f.session}\` is too large for a single Claude Code run — ${bits.join('; ')}`;
+    }
   }
 }
 
@@ -1070,6 +1433,10 @@ export function summarizeReport(report: CoverageAuditReport): string {
     );
   if (counts.uiFormNoValidation > 0) parts.push('forms mentioned without validation');
   if (counts.uiListNoStates > 0) parts.push('list/table mentioned without empty/loading/error states');
+  if (counts.uiSessionTooLarge > 0)
+    parts.push(
+      `${counts.uiSessionTooLarge} session(s) too large for one Claude Code run`,
+    );
   return `Coverage audit: FAIL — ${parts.join(', ')}.`;
 }
 
@@ -1090,6 +1457,7 @@ interface FailureCounts {
   uiFoundationNonContiguous: number;
   uiFormNoValidation: number;
   uiListNoStates: number;
+  uiSessionTooLarge: number;
 }
 
 function countFailures(failures: AuditFailure[]): FailureCounts {
@@ -1110,6 +1478,7 @@ function countFailures(failures: AuditFailure[]): FailureCounts {
     uiFoundationNonContiguous: 0,
     uiFormNoValidation: 0,
     uiListNoStates: 0,
+    uiSessionTooLarge: 0,
   };
   for (const f of failures) {
     switch (f.kind) {
@@ -1160,6 +1529,9 @@ function countFailures(failures: AuditFailure[]): FailureCounts {
         break;
       case 'ui-list-no-states':
         c.uiListNoStates++;
+        break;
+      case 'ui-session-too-large':
+        c.uiSessionTooLarge++;
         break;
     }
   }

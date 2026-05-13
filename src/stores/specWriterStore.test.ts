@@ -29,6 +29,8 @@ describe("specWriterStore", () => {
       draftText: new Map(),
       draftAttachments: new Map(),
       coverageReports: new Map(),
+      lastPatchOutcomes: new Map(),
+      creationLogs: new Map(),
       inputAnalysisReports: new Map(),
       streamStats: new Map(),
       compactionInfo: new Map(),
@@ -773,6 +775,119 @@ describe("specWriterStore", () => {
       const state = useSpecWriterStore.getState();
       expect(state.auditPending.get("/project-a")).toBe(true);
       expect(state.auditPending.get("/project-b")).toBeUndefined();
+    });
+  });
+
+  // ─── Creation log (per-section streaming progress) ─────────────────
+
+  describe("creationLogs", () => {
+    it("appendCreationEntry adds an entry and seeds the log when none exists", () => {
+      const store = useSpecWriterStore.getState();
+      store.appendCreationEntry(PROJECT, {
+        startedAt: "t0",
+        closedAt: null,
+        level: 2,
+        title: "Overview",
+        bytes: 0,
+        postCompaction: false,
+      });
+      const log = useSpecWriterStore.getState().creationLogs.get(PROJECT);
+      expect(log).toBeDefined();
+      expect(log!.entries).toHaveLength(1);
+      expect(log!.entries[0].title).toBe("Overview");
+      expect(log!.compactedAt).toBeNull();
+    });
+
+    it("markCreationEntryClosed flips closedAt + bytes only on an open entry", () => {
+      const store = useSpecWriterStore.getState();
+      store.appendCreationEntry(PROJECT, {
+        startedAt: "t0",
+        closedAt: null,
+        level: 1,
+        title: "Title",
+        bytes: 0,
+        postCompaction: false,
+      });
+      store.markCreationEntryClosed(PROJECT, 0, "t1", 412);
+      const e = useSpecWriterStore.getState().creationLogs.get(PROJECT)!.entries[0];
+      expect(e.closedAt).toBe("t1");
+      expect(e.bytes).toBe(412);
+
+      // Calling again does NOT overwrite a closed entry.
+      store.markCreationEntryClosed(PROJECT, 0, "t2", 999);
+      const e2 = useSpecWriterStore.getState().creationLogs.get(PROJECT)!.entries[0];
+      expect(e2.closedAt).toBe("t1");
+      expect(e2.bytes).toBe(412);
+    });
+
+    it("markCreationEntryClosed is a no-op when the index is out of range", () => {
+      const store = useSpecWriterStore.getState();
+      store.markCreationEntryClosed(PROJECT, 0, "t1", 100);
+      expect(useSpecWriterStore.getState().creationLogs.has(PROJECT)).toBe(false);
+    });
+
+    it("markPostCompactionFromNow stamps compactedAt without touching entries", () => {
+      const store = useSpecWriterStore.getState();
+      store.appendCreationEntry(PROJECT, {
+        startedAt: "t0",
+        closedAt: "t1",
+        level: 2,
+        title: "Before",
+        bytes: 100,
+        postCompaction: false,
+      });
+      store.markPostCompactionFromNow(PROJECT, "2026-05-12T11:55:00.000Z");
+      const log = useSpecWriterStore.getState().creationLogs.get(PROJECT)!;
+      expect(log.compactedAt).toBe("2026-05-12T11:55:00.000Z");
+      expect(log.entries[0].postCompaction).toBe(false); // existing entries unchanged
+    });
+
+    it("caps the log to the last 100 entries on append", () => {
+      const store = useSpecWriterStore.getState();
+      // Add 101 entries — oldest should be dropped.
+      for (let i = 0; i < 101; i++) {
+        store.appendCreationEntry(PROJECT, {
+          startedAt: `t${i}`,
+          closedAt: `t${i + 1}`,
+          level: 2,
+          title: `Section ${i}`,
+          bytes: 10,
+          postCompaction: false,
+        });
+      }
+      const log = useSpecWriterStore.getState().creationLogs.get(PROJECT)!;
+      expect(log.entries).toHaveLength(100);
+      expect(log.entries[0].title).toBe("Section 1"); // Section 0 dropped
+      expect(log.entries[99].title).toBe("Section 100");
+    });
+
+    it("clearCreationLog wipes the entry for a project", () => {
+      const store = useSpecWriterStore.getState();
+      store.appendCreationEntry(PROJECT, {
+        startedAt: "t0",
+        closedAt: null,
+        level: 1,
+        title: "Title",
+        bytes: 0,
+        postCompaction: false,
+      });
+      store.clearCreationLog(PROJECT);
+      expect(useSpecWriterStore.getState().creationLogs.has(PROJECT)).toBe(false);
+    });
+
+    it("clearConversation removes the creation log too", () => {
+      const store = useSpecWriterStore.getState();
+      store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+      store.appendCreationEntry(PROJECT, {
+        startedAt: "t0",
+        closedAt: null,
+        level: 1,
+        title: "Title",
+        bytes: 0,
+        postCompaction: false,
+      });
+      store.clearConversation(PROJECT);
+      expect(useSpecWriterStore.getState().creationLogs.has(PROJECT)).toBe(false);
     });
   });
 });

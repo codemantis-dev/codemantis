@@ -134,7 +134,26 @@ export type AuditFailure =
   | { kind: 'ui-foundation-missing-justification'; session: string }
   | { kind: 'ui-foundation-non-contiguous'; session: string }
   | { kind: 'ui-form-no-validation' }
-  | { kind: 'ui-list-no-states' };
+  | { kind: 'ui-list-no-states' }
+  // Session is too large to implement in a single Claude Code run. Triggered
+  // when ANY of the per-session axis thresholds is exceeded OR the session
+  // contains an explicit "Deploy ..." deliverable line. See
+  // `checkSessionSizes` in `spec-coverage-audit.ts` for the exact heuristics.
+  // Counts the user-facing axes so the recheck prompt can name them and the
+  // Coverage panel can render a meaningful detail line.
+  | {
+      kind: 'ui-session-too-large';
+      session: string;
+      workItems: number;
+      files: number;
+      phases: number;
+      /** Distinct production surfaces touched. e.g. ['worker','edge-fn','frontend']. */
+      surfaces: string[];
+      /** True iff the body contains a top-level deliverable line starting with "Deploy". */
+      hasDeployStep: boolean;
+      /** Which axis (or axes) tripped the threshold. */
+      reasons: Array<'work-items' | 'files' | 'phases' | 'surfaces' | 'deploy-step'>;
+    };
 
 export interface CoverageAuditReport {
   status: 'pass' | 'fail';
@@ -174,6 +193,43 @@ export interface CoverageAuditOptions {
   skipForNewApp?: boolean;
   /** Set true to skip the UI-completeness checks (default: false — checks run by default). */
   skipUIChecks?: boolean;
+  /** Set true to skip the session-size check (default: false). Used by older
+   *  fixtures whose sessions are intentionally large and don't need to round-trip
+   *  through the splitter. */
+  skipSessionSizeCheck?: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Creation log — per-section streaming progress, used to give the model
+// programmatic memory across CLI auto-compaction events. Headings are
+// detected as they stream by; on compact_complete the entries written
+// after that timestamp get postCompaction=true. The next non-recheck
+// user turn prepends a recap of this log to the prompt so the model
+// knows what it already wrote.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface SpecCreationEntry {
+  /** ISO timestamp when the heading was first detected in the stream. */
+  startedAt: string;
+  /** ISO timestamp when the NEXT heading started (i.e. this one's body ended).
+   *  Null while the entry is still in progress — signals "RESUME HERE" if the
+   *  stream gets compacted. */
+  closedAt: string | null;
+  /** Heading level — 1, 2, or 3. */
+  level: 1 | 2 | 3;
+  /** Raw heading text (without leading #s). */
+  title: string;
+  /** Approximate body bytes between this heading and the next (or end of stream). */
+  bytes: number;
+  /** True when this entry was opened after a compact_complete event on this run. */
+  postCompaction: boolean;
+}
+
+export interface SpecCreationLog {
+  entries: SpecCreationEntry[];
+  /** ISO timestamp of the most recent compact_complete. Sticky until the next
+   *  non-recheck user turn clears the log. */
+  compactedAt: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────

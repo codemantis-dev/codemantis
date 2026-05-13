@@ -257,4 +257,96 @@ describe("CoveragePanel", () => {
     expect(screen.queryByText(/Coverage panel/)).not.toBeInTheDocument();
     expect(screen.getByText(/Stream/)).toBeInTheDocument();
   });
+
+  // ─── Session-too-large badge + Creation Log section ─────────────
+
+  it("renders the session-too-large badge with the right count", () => {
+    const report = makeReport({
+      failures: [
+        {
+          kind: "ui-session-too-large",
+          session: "Session 7",
+          workItems: 14,
+          files: 3,
+          phases: 1,
+          surfaces: ["worker", "edge-fn", "frontend", "deploy"],
+          hasDeployStep: true,
+          reasons: ["work-items", "surfaces", "deploy-step"],
+        },
+      ],
+    });
+    render(<CoveragePanel report={report} analysis={null} onRecheck={() => {}} />);
+    expect(screen.getByText(/session too large/i)).toBeInTheDocument();
+    expect(screen.getByText(/Session 7/)).toBeInTheDocument();
+  });
+
+  it("renders the Creation Log section with a RESUME HERE pill on the open entry", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        onRecheck={() => {}}
+        creationLog={{
+          compactedAt: "2026-05-12T11:55:00.000Z",
+          entries: [
+            {
+              startedAt: "2026-05-12T11:00:00.000Z",
+              closedAt: "2026-05-12T11:30:00.000Z",
+              level: 2,
+              title: "Overview",
+              bytes: 1204,
+              postCompaction: false,
+            },
+            {
+              startedAt: "2026-05-12T11:30:00.000Z",
+              closedAt: null,
+              level: 3,
+              title: "Session 2: Auth scaffolding",
+              bytes: 1820,
+              postCompaction: false,
+            },
+            {
+              startedAt: "2026-05-12T12:00:00.000Z",
+              closedAt: "2026-05-12T12:05:00.000Z",
+              level: 3,
+              title: "Session 3: API",
+              bytes: 980,
+              postCompaction: true,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/Creation log/i)).toBeInTheDocument();
+    expect(screen.getByText(/Overview/)).toBeInTheDocument();
+    expect(screen.getByText(/Session 2: Auth scaffolding/)).toBeInTheDocument();
+    expect(screen.getByText(/RESUME HERE/)).toBeInTheDocument();
+    expect(screen.getByText(/post-compact/)).toBeInTheDocument();
+    expect(screen.getByText(/context was compacted at/)).toBeInTheDocument();
+  });
+
+  it("does not render the empty state when only the creation log is populated", () => {
+    render(
+      <CoveragePanel
+        report={null}
+        analysis={null}
+        onRecheck={() => {}}
+        creationLog={{
+          compactedAt: null,
+          entries: [
+            {
+              startedAt: "2026-05-12T11:00:00.000Z",
+              closedAt: null,
+              level: 1,
+              title: "Project Spec",
+              bytes: 412,
+              postCompaction: false,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.queryByText(/Coverage panel/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Creation log/i)).toBeInTheDocument();
+  });
 });

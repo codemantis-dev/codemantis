@@ -13,6 +13,11 @@ import { fileToBase64, isTextMime } from "../lib/file-utils";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
 import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
 import { parseAuditPatch, applyAuditPatch, summarizePatchApplication } from "../lib/spec-audit-patch";
+import {
+  advanceCreationLog,
+  finalizeOpenEntry,
+  renderCreationLogRecap,
+} from "../lib/spec-creation-log";
 
 /** Marker the model emits at the start of an auto-recheck reply per buildRecheckPrompts. */
 const AUDIT_PATCH_MARKER = "<!-- AUDIT-PATCH -->";
@@ -52,6 +57,8 @@ interface PerProjectStreamState {
   stalledNoticed: boolean;
   /** True when this stream is the model's reply to an auto-recheck dispatch. */
   isAutoRecheck: boolean;
+  /** Heading watermark for creation-log advancement — mirrors the Claude hook. */
+  creationLogWatermark: number;
 }
 
 function makeStreamState(): PerProjectStreamState {
@@ -68,6 +75,7 @@ function makeStreamState(): PerProjectStreamState {
     watchdogTimer: null,
     stalledNoticed: false,
     isAutoRecheck: false,
+    creationLogWatermark: 0,
   };
 }
 
@@ -161,14 +169,31 @@ export function useSpecConversation(): {
       attachments?: SpecAttachment[],
       meta?: { isAutoRecheck?: boolean }
     ) => {
+      // Capture the post-compaction recap BEFORE we clear the per-turn state
+      // below. If a prior turn was compacted (only possible today via the
+      // Claude-CLI hook, but the API hook maintains the log too for parity),
+      // prepend this recap to the user's prompt so the model knows what it
+      // already wrote.
+      let compactionRecap = "";
+      if (!meta?.isAutoRecheck) {
+        const pre = useSpecWriterStore.getState();
+        const compaction = pre.compactionInfo.get(projectPath);
+        const log = pre.creationLogs.get(projectPath);
+        if (compaction && log && log.entries.length > 0) {
+          compactionRecap = renderCreationLogRecap(log, compaction);
+        }
+      }
+
       // User-initiated turns reset the recheck-round counter so the next
       // automatic recheck cycle starts fresh. Auto-recheck dispatches do NOT
       // reset (otherwise the cap would never bite). They also wipe the last
       // patch-outcome banner — it describes the previous recheck cycle and
-      // shouldn't linger after the user has moved on.
+      // shouldn't linger after the user has moved on. The creation log is
+      // cleared too (we already captured the recap above).
       if (!meta?.isAutoRecheck) {
         recheckRoundRef.current.set(projectPath, 0);
         useSpecWriterStore.getState().setLastPatchOutcome(projectPath, null);
+        useSpecWriterStore.getState().clearCreationLog(projectPath);
       }
 
       const store = useSpecWriterStore.getState();
@@ -219,6 +244,20 @@ export function useSpecConversation(): {
           timestamp: new Date().toISOString(),
         });
         return;
+      }
+
+      // If a prior turn was compacted, prepend the creation-log recap as a
+      // hidden context-summary system message so the LLM sees it but the
+      // chat UI doesn't show it. Added BEFORE the user message so the model
+      // reads it as context for what the user is about to ask.
+      if (compactionRecap) {
+        store.addMessage(projectPath, {
+          id: `msg-recap-${Date.now()}`,
+          role: "system",
+          content: compactionRecap,
+          message_type: "context_summary",
+          timestamp: new Date().toISOString(),
+        });
       }
 
       // Add user message
@@ -349,6 +388,7 @@ export function useSpecConversation(): {
       state.auditDetected = false;
       state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
       state.isAutoRecheck = !!meta?.isAutoRecheck;
+      state.creationLogWatermark = 0;
       // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
       state.chunkCount = 0;
       state.streamStartMs = Date.now();
@@ -414,6 +454,29 @@ export function useSpecConversation(): {
         if (state.isAutoRecheck && buf.includes(AUDIT_PATCH_MARKER)) {
           return;
         }
+        // Creation-log advancement — append entries for any new spec headings
+        // that have fully streamed in. Gated on non-recheck / non-audit. The
+        // API hook has no native `compact_complete` event (API providers
+        // handle context truncation implicitly), but maintaining the log
+        // unconditionally keeps parity with the Claude-CLI hook and means the
+        // recap injection in `sendMessage` works the moment any signal (a
+        // future provider event, or a manual trigger) sets `compactionInfo`.
+        if (!state.isAutoRecheck && !state.auditDetected) {
+          const log = store.creationLogs.get(projectPath) ?? {
+            entries: [],
+            compactedAt: null,
+          };
+          const adv = advanceCreationLog(buf, log, state.creationLogWatermark);
+          if (adv.toClose.length > 0 || adv.toAppend.length > 0) {
+            for (const c of adv.toClose) {
+              store.markCreationEntryClosed(projectPath, c.idx, c.closedAt, c.bytes);
+            }
+            for (const e of adv.toAppend) {
+              store.appendCreationEntry(projectPath, e);
+            }
+            state.creationLogWatermark = adv.nextWatermark;
+          }
+        }
         if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
           if (!state.auditDetected && state.specDetected) {
@@ -460,6 +523,23 @@ export function useSpecConversation(): {
           const parsed = parseSelectableOptions(finalContent);
           // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
           const isAudit = AUDIT_START_PATTERN.test(finalContent);
+
+          // Close the final open creation-log entry (if any) so its body
+          // bytes are recorded. Skip on audit/recheck turns.
+          if (!state.isAutoRecheck && !isAudit) {
+            const log = currentStore.creationLogs.get(projectPath);
+            if (log) {
+              const close = finalizeOpenEntry(finalContent, log);
+              if (close) {
+                currentStore.markCreationEntryClosed(
+                  projectPath,
+                  close.idx,
+                  close.closedAt,
+                  close.bytes,
+                );
+              }
+            }
+          }
 
           // Auto-recheck path: response is a structured patch envelope, NOT a
           // new spec. Splice it into preStreamSpec; on any failure keep the

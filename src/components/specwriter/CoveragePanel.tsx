@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { CheckCircle2, AlertTriangle, XCircle, Info, Wand2, ChevronDown, ChevronRight, Activity, FileEdit, FileX2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Info, Wand2, ChevronDown, ChevronRight, Activity, FileEdit, FileX2, History } from "lucide-react";
 import type {
   AnalysisFinding,
   AuditFailure,
   CoverageAuditReport,
   InputAnalysis,
+  SpecCreationLog,
   SpecPatchOutcome,
   StreamStats,
 } from "../../types/spec-writer";
@@ -25,6 +26,13 @@ interface Props {
    */
   patchOutcome?: SpecPatchOutcome | null;
   /**
+   * Per-section streaming progress for the current run (heading-level log).
+   * Rendered as a collapsible section showing each section's bytes, with a
+   * "RESUME HERE" pill on the open (in-progress) entry and a "post-compact"
+   * pill on entries appended after a CLI auto-compaction event.
+   */
+  creationLog?: SpecCreationLog | null;
+  /**
    * Trigger another recheck pass against the model. The button only renders
    * when the latest report has a usable recheckPrompt.
    */
@@ -38,8 +46,9 @@ const STATUS_LABEL: Record<CoverageAuditReport['status'], string> = {
   fail: 'FAIL',
 };
 
-export default function CoveragePanel({ report, analysis, streamStats = null, patchOutcome = null, onRecheck, recheckInFlight = false }: Props) {
-  if (!report && !analysis && !streamStats && !patchOutcome) {
+export default function CoveragePanel({ report, analysis, streamStats = null, patchOutcome = null, creationLog = null, onRecheck, recheckInFlight = false }: Props) {
+  const hasCreationLog = !!creationLog && creationLog.entries.length > 0;
+  if (!report && !analysis && !streamStats && !patchOutcome && !hasCreationLog) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
         <div className="text-4xl mb-4">🛡️</div>
@@ -61,6 +70,7 @@ export default function CoveragePanel({ report, analysis, streamStats = null, pa
         {patchOutcome && <PatchOutcomeBanner outcome={patchOutcome} />}
         {analysis && <InputAnalysisSection analysis={analysis} />}
         {report && <CoverageReportSection report={report} />}
+        {hasCreationLog && <CreationLogSection log={creationLog!} />}
         {streamStats && <StreamStatsSection stats={streamStats} />}
       </div>
 
@@ -155,6 +165,86 @@ function PatchOutcomeBanner({ outcome }: { outcome: SpecPatchOutcome }) {
   );
 }
 
+// ─── Creation log section ─────────────────────────────────────────────
+
+function CreationLogSection({ log }: { log: SpecCreationLog }) {
+  const [expanded, setExpanded] = useState(false);
+  const wasCompacted = log.compactedAt !== null;
+  const entries = log.entries;
+  const visible = expanded ? entries : entries.slice(-8);
+  const totalBytes = entries.reduce((sum, e) => sum + e.bytes, 0);
+  return (
+    <section>
+      <SectionHeader
+        icon={
+          <History
+            size={14}
+            style={{ color: wasCompacted ? 'var(--warning, #f59e0b)' : 'var(--text-secondary)' }}
+          />
+        }
+        title="Creation log"
+        subtitle={
+          wasCompacted
+            ? `${entries.length} section(s) recorded · context was compacted at ${new Date(log.compactedAt!).toLocaleTimeString()}`
+            : `${entries.length} section(s) recorded · ${totalBytes.toLocaleString()} bytes total`
+        }
+      />
+      <ul className="mt-2 ml-2 space-y-0.5 text-ui" style={{ color: 'var(--text-dim)' }}>
+        {entries.length > 8 && !expanded && (
+          <li className="text-detail" style={{ color: 'var(--text-secondary)' }}>
+            … {entries.length - 8} earlier section(s) hidden
+          </li>
+        )}
+        {visible.map((e, i) => {
+          const isOpen = e.closedAt === null;
+          const hashes = '#'.repeat(e.level);
+          return (
+            <li key={`${e.startedAt}-${i}`} className="flex items-baseline gap-2 flex-wrap">
+              <span style={{ color: 'var(--text-secondary)' }}>{hashes}</span>
+              <span>{e.title}</span>
+              <span className="text-detail" style={{ color: 'var(--text-ghost)' }}>
+                ({e.bytes.toLocaleString()} bytes)
+              </span>
+              {e.postCompaction && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-detail font-medium"
+                  style={{
+                    background: 'rgba(245,158,11,0.15)',
+                    color: 'var(--warning, #f59e0b)',
+                  }}
+                >
+                  post-compact
+                </span>
+              )}
+              {isOpen && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-detail font-medium animate-pulse"
+                  style={{
+                    background: 'rgba(34,197,94,0.15)',
+                    color: 'var(--success, #22c55e)',
+                  }}
+                >
+                  RESUME HERE
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {entries.length > 8 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-ui flex items-center gap-1 hover:underline"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? 'Show recent only' : `Show all ${entries.length}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
 // ─── Coverage report section ──────────────────────────────────────────
 
 function CoverageReportSection({ report }: { report: CoverageAuditReport }) {
@@ -191,6 +281,7 @@ function CoverageReportSection({ report }: { report: CoverageAuditReport }) {
           {failureCounts.uiFoundationNonContiguous > 0 && <CountBadge label="foundation out of order" count={failureCounts.uiFoundationNonContiguous} severity="warn" />}
           {failureCounts.uiFormNoValidation > 0 && <CountBadge label="form w/o validation" count={failureCounts.uiFormNoValidation} severity="warn" />}
           {failureCounts.uiListNoStates > 0 && <CountBadge label="list w/o states" count={failureCounts.uiListNoStates} severity="warn" />}
+          {failureCounts.uiSessionTooLarge > 0 && <CountBadge label="session too large" count={failureCounts.uiSessionTooLarge} severity="block" />}
         </div>
       )}
 
@@ -384,6 +475,7 @@ function severityOf(f: AuditFailure): 'block' | 'warn' | 'info' {
     case 'ui-orphan-entity':
     case 'ui-untriggered-endpoint':
     case 'ui-session-no-outcome':
+    case 'ui-session-too-large':
       return 'block';
     case 'unmapped-section':
     case 'fidelity-drift':
@@ -416,6 +508,7 @@ interface FailureCounts {
   uiFoundationNonContiguous: number;
   uiFormNoValidation: number;
   uiListNoStates: number;
+  uiSessionTooLarge: number;
 }
 
 function countByKind(failures: AuditFailure[]): FailureCounts {
@@ -436,6 +529,7 @@ function countByKind(failures: AuditFailure[]): FailureCounts {
     uiFoundationNonContiguous: 0,
     uiFormNoValidation: 0,
     uiListNoStates: 0,
+    uiSessionTooLarge: 0,
   };
   for (const f of failures) {
     switch (f.kind) {
@@ -455,6 +549,7 @@ function countByKind(failures: AuditFailure[]): FailureCounts {
       case 'ui-foundation-non-contiguous': c.uiFoundationNonContiguous++; break;
       case 'ui-form-no-validation': c.uiFormNoValidation++; break;
       case 'ui-list-no-states': c.uiListNoStates++; break;
+      case 'ui-session-too-large': c.uiSessionTooLarge++; break;
     }
   }
   return c;

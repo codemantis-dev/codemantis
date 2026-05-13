@@ -631,3 +631,350 @@ describe("summarizeInput", () => {
     expect(summary.sections.filter((s) => s.level === 2)).toHaveLength(2);
   });
 });
+
+// ─── ui-session-too-large ─────────────────────────────────────────────
+//
+// Every test uses a minimal "## Session Plan" wrapper around one or more
+// "### Session N: …" H3 blocks. The audit only fires when `runUICompleteness
+// Checks` runs the new `checkSessionSizes` step.
+
+function makeSessionPlanSpec(sessionBlocks: string[]): string {
+  return [
+    "# Project — Specification",
+    "",
+    "## Session Plan",
+    "",
+    ...sessionBlocks,
+    "",
+  ].join("\n");
+}
+
+function findSessionTooLarge(
+  failures: ReturnType<typeof runUICompletenessChecks>,
+): Array<Extract<typeof failures[number], { kind: "ui-session-too-large" }>> {
+  return failures.filter(
+    (f): f is Extract<typeof f, { kind: "ui-session-too-large" }> =>
+      f.kind === "ui-session-too-large",
+  );
+}
+
+describe("ui-session-too-large — work-item counting", () => {
+  it("counts checkboxes inside a Deliverables block but NOT bullets inside a Files block", () => {
+    const session = [
+      "### Session 1: Many checkboxes",
+      "**Scope:** test",
+      "**Files:**",
+      "- `a.ts` (modify)",
+      "- `b.ts` (modify)",
+      "**User-visible outcome:** feature ships.",
+      "**Implementation Checklist:**",
+      ...Array.from({ length: 13 }, (_, i) => `- [ ] item ${i + 1}`),
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].workItems).toBe(13);
+    expect(tooLarge[0].reasons).toContain("work-items");
+    expect(tooLarge[0].files).toBe(2); // Files block, not the checkboxes
+  });
+
+  it("counts numbered list items as work items even when no checkboxes are present", () => {
+    const items = Array.from({ length: 14 }, (_, i) => `${i + 1}. Extend something ${i}`);
+    const session = [
+      "### Session 7: Numbered deliverables",
+      "**Scope:** Session 7 regression case.",
+      "**User-visible outcome:** everything happens at once.",
+      "**Prompt:**",
+      ...items,
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].workItems).toBe(14);
+    expect(tooLarge[0].reasons).toContain("work-items");
+  });
+
+  it("counts bullets in a Deliverables block but excludes bullets in a Files block", () => {
+    const session = [
+      "### Session 1: Mixed lists",
+      "**Scope:** test",
+      "**Deliverables:**",
+      ...Array.from({ length: 13 }, (_, i) => `- Deliverable ${i + 1}`),
+      "",
+      "**Files:**",
+      "- `a.ts` (modify)",
+      "- `b.ts` (modify)",
+      "- `c.ts` (modify)",
+      "",
+      "**User-visible outcome:** feature ships.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].workItems).toBe(13);
+  });
+
+  it("ignores work-item-shaped lines inside fenced code blocks", () => {
+    const items = Array.from({ length: 14 }, (_, i) => `${i + 1}. fake item ${i}`).join("\n");
+    const session = [
+      "### Session 1: Hidden inside fence",
+      "**Scope:** Numbered list fenced — does not count.",
+      "**User-visible outcome:** only one real outcome.",
+      "**Prompt:**",
+      "```",
+      items,
+      "```",
+      "- [ ] just one real item",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+
+  it("does not flag sessions with zero work items", () => {
+    const session = [
+      "### Session 1: Skeleton",
+      "**Scope:** placeholder",
+      "**User-visible outcome:** (foundation)",
+      "**Foundation justification:** scaffolding only",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+});
+
+describe("ui-session-too-large — file counting", () => {
+  it("counts file mentions in prose even when no Files block exists", () => {
+    const filenames = Array.from({ length: 11 }, (_, i) => `mod_${i}.py`);
+    const session = [
+      "### Session 1: Prose-mentioned files",
+      "**Scope:** Touches " + filenames.join(", "),
+      "**User-visible outcome:** mass refactor.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].files).toBeGreaterThanOrEqual(11);
+    expect(tooLarge[0].reasons).toContain("files");
+  });
+
+  it("dedupes structured Files-block entries against prose mentions", () => {
+    const session = [
+      "### Session 1: Mixed file mentions",
+      "**Scope:** Touches `a.ts` and `b.ts` and `c.ts`.",
+      "**Files:**",
+      "- `a.ts` (modify)",
+      "- `b.ts` (modify)",
+      "- `c.ts` (modify)",
+      "**User-visible outcome:** stuff.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    // Three files total — well under the 10-file threshold, so no flag.
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+});
+
+describe("ui-session-too-large — surfaces & deploy", () => {
+  it("flags a session spanning ≥3 production surfaces", () => {
+    const session = [
+      "### Session 1: Cross-surface bundle",
+      "**Scope:** Touches worker + edge function + frontend.",
+      "**Files:**",
+      "- `worker/foo.py` (modify)",
+      "- `supabase/functions/bar/index.ts` (create)",
+      "- `src/components/Baz.tsx` (create)",
+      "**User-visible outcome:** several things change.",
+      "**Prompt:** Modify the worker, then the edge function, then the frontend route.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].reasons).toContain("surfaces");
+    expect(tooLarge[0].surfaces).toEqual(
+      expect.arrayContaining(["worker", "edge-fn", "frontend"]),
+    );
+  });
+
+  it("flags any top-level `Deploy` deliverable line as a deploy-step", () => {
+    const session = [
+      "### Session 1: Foo with a deploy step",
+      "**Scope:** Update one thing then deploy.",
+      "**User-visible outcome:** stuff shipped.",
+      "**Prompt:**",
+      "1. Touch the worker",
+      "2. Deploy worker",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    expect(tooLarge[0].reasons).toContain("deploy-step");
+    expect(tooLarge[0].hasDeployStep).toBe(true);
+  });
+
+  it("does NOT flag inline 'after deploy' mentions as a deploy-step", () => {
+    const session = [
+      "### Session 1: Foo without a deploy step",
+      "**Scope:** Only worker changes; after the deploy you should be able to call it.",
+      "**Files:**",
+      "- `worker/foo.py` (modify)",
+      "**User-visible outcome:** worker handles new event.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+});
+
+describe("ui-session-too-large — Session 7 regression fixture", () => {
+  // The real failure case from the user's screenshot: 14 numbered deliverables
+  // touching worker + edge functions + frontend + deploys. The fixture trips
+  // work-items + surfaces + deploy-step (file-extension mentions in the real
+  // case were under the 10-file threshold; the surface spread is what makes
+  // the session unimplementable). The recheck prompt must surface all tripped
+  // axes so the model can split sensibly.
+  it("trips work-items, surfaces, and deploy-step axes together for the Session 7 fixture", () => {
+    const session = [
+      "### Session 7: Notes-sync surfaces, contradictions, and regeneration",
+      "**Scope:** End-to-end notes-sync feature spanning worker + edge + frontend + deploys.",
+      "**User-visible outcome:** PM can target notes to surfaces and see regen inbox.",
+      "**Prompt for Claude Code:**",
+      "1. Extend note_proactive_analysis.py: 2 new contradiction checks (element/rule, element/role).",
+      "2. Extend notes_sync_preview.py: compute ui_surface_diff and downstream_impact.",
+      "3. Extend notes_sync_apply.py: invoke apply_ui_note_targets_atomic and mark stale rows.",
+      "4. Add insert_ui_note_target worker action + matching handler.",
+      "5. Create NoteTargetSelector.tsx with the 7-target dropdown.",
+      "6. Modify NoteCapturePanel to render NoteTargetSelector.",
+      "7. Modify SyncPreviewDialog to show ui_surface_diff section.",
+      "8. Create surfaces-regenerate edge function enqueuing processing_jobs for regen.",
+      "9. Create RegenerationInbox page + list component + API + hooks.",
+      "10. Register /projects/:id/regeneration-inbox route.",
+      "11. Tests: contradiction kinds; sync preview UI diff; apply triggers re-derivation.",
+      "12. Deploy worker.",
+      "13. Deploy edge functions: worker-data-write + notes-sync-preview + notes-sync-apply + surfaces-regenerate.",
+      "14. Run `pnpm check:worker-actions`.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    const tooLarge = findSessionTooLarge(failures);
+    expect(tooLarge).toHaveLength(1);
+    const f = tooLarge[0];
+    expect(f.workItems).toBeGreaterThanOrEqual(14);
+    expect(f.reasons).toEqual(
+      expect.arrayContaining(["work-items", "surfaces", "deploy-step"]),
+    );
+    expect(f.surfaces).toEqual(
+      expect.arrayContaining(["worker", "edge-fn", "frontend", "deploy"]),
+    );
+    expect(f.hasDeployStep).toBe(true);
+  });
+});
+
+describe("ui-session-too-large — carve-outs", () => {
+  it("suppresses the flag when the session is mostly a single SQL fence (migration-only)", () => {
+    const sqlBody = Array.from({ length: 30 }, (_, i) => `INSERT INTO foo (col) VALUES (${i});`).join("\n");
+    const session = [
+      "### Session 1: Atomic migration",
+      "**Scope:** Apply a single large migration.",
+      "**Files:**",
+      "- `migrations/001_init.sql` (create)",
+      "**User-visible outcome:** schema is in place.",
+      "",
+      "```sql",
+      sqlBody,
+      "```",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+
+  it("respects the **Indivisible:** waiver line", () => {
+    const session = [
+      "### Session 1: Truly indivisible",
+      "**Scope:** Touches worker + edge fn + frontend by design.",
+      "**Files:**",
+      "- `worker/foo.py` (modify)",
+      "- `supabase/functions/bar/index.ts` (create)",
+      "- `src/components/Baz.tsx` (create)",
+      "**User-visible outcome:** one atomic transition.",
+      "**Indivisible:** rolling forward without all three causes data loss.",
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]));
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+
+  it("does not run the check when skipSessionSizeCheck=true is passed", () => {
+    const items = Array.from({ length: 20 }, (_, i) => `${i + 1}. item ${i}`);
+    const session = [
+      "### Session 1: Big",
+      "**Scope:** big",
+      "**User-visible outcome:** stuff",
+      "**Prompt:**",
+      ...items,
+    ].join("\n");
+    const failures = runUICompletenessChecks(makeSessionPlanSpec([session]), {
+      skipSessionSizeCheck: true,
+    });
+    expect(findSessionTooLarge(failures)).toHaveLength(0);
+  });
+});
+
+describe("buildRecheckPrompts — session-too-large block", () => {
+  it("emits a split directive naming the tripped axes + per-session counts", () => {
+    const failures: Parameters<typeof buildRecheckPrompts>[0] = [
+      {
+        kind: "ui-session-too-large",
+        session: "Session 7: Notes-sync surfaces",
+        workItems: 14,
+        files: 9,
+        phases: 1,
+        surfaces: ["worker", "edge-fn", "frontend", "deploy"],
+        hasDeployStep: true,
+        reasons: ["work-items", "surfaces", "deploy-step"],
+      },
+    ];
+    const prompts = buildRecheckPrompts(failures);
+    expect(prompts).toHaveLength(1);
+    const p = prompts[0];
+    expect(p).toContain("Sessions too large for one Claude Code run");
+    expect(p).toContain("Session 7: Notes-sync surfaces");
+    expect(p).toContain("14 work items");
+    expect(p).toContain("worker, edge-fn, frontend, deploy");
+    expect(p).toContain("contains a Deploy step");
+    expect(p).toContain("suffix numbering");
+    expect(p).toContain("Indivisible");
+    // Heading-inventory contract: NEVER renumber later sessions.
+    expect(p).toContain("Do NOT renumber later sessions");
+  });
+});
+
+describe("describeFailure / summarizeReport — session-too-large", () => {
+  it("describes a too-large session with its tripped axes", () => {
+    const line = describeFailure({
+      kind: "ui-session-too-large",
+      session: "Session 7",
+      workItems: 14,
+      files: 9,
+      phases: 1,
+      surfaces: ["worker", "frontend"],
+      hasDeployStep: true,
+      reasons: ["work-items", "deploy-step"],
+    });
+    expect(line).toContain("too large");
+    expect(line).toContain("14 work items");
+    expect(line).toContain("Deploy step");
+  });
+
+  it("includes too-large counts in summarizeReport", () => {
+    const session = [
+      "### Session 1: Cross-surface",
+      "**Scope:** worker + edge fn + frontend.",
+      "**Files:**",
+      "- `worker/foo.py` (modify)",
+      "- `supabase/functions/bar/index.ts` (create)",
+      "- `src/components/Baz.tsx` (create)",
+      "**User-visible outcome:** stuff.",
+    ].join("\n");
+    const report = auditCoverage([], makeSessionPlanSpec([session]), {
+      skipForNewApp: true,
+    });
+    const summary = summarizeReport(report);
+    expect(summary).toContain("session(s) too large");
+  });
+});

@@ -389,3 +389,135 @@ describe('summarizePatchApplication', () => {
     expect(summary).toContain('size-collapse');
   });
 });
+
+// ─── Multi-sibling H3 replacement — locks in the splitter contract that
+// the session-size recheck prompt depends on. If this test breaks the
+// "Patch spec & re-audit" flow for oversized sessions silently fails. ───
+
+describe('replace-section H3 with multi-sibling body (session splitter)', () => {
+  const SESSION_SPEC = [
+    '# Project — Specification',
+    '',
+    '## §1 Overview',
+    '',
+    'Project overview paragraph kept long enough that the byte-ratio gate has',
+    'headroom on any single-section replacement that follows.',
+    '',
+    '## §10 Session Plan',
+    '',
+    '> ⚠️ This specification is too large for a single Claude Code session.',
+    '',
+    '### Session 1: Foundation',
+    '',
+    '**Scope:** Database schema and auth scaffold.',
+    '**Files:**',
+    '- `migrations/001.sql` (create)',
+    '**User-visible outcome:** (foundation)',
+    '**Foundation justification:** No routes reachable yet — pure schema setup.',
+    '',
+    '### Session 2: Sprawling work',
+    '',
+    '**Scope:** This session originally bundles too much work across surfaces.',
+    '**Files:**',
+    '- `worker/foo.py` (modify)',
+    '- `supabase/functions/bar/index.ts` (create)',
+    '- `src/components/Baz.tsx` (create)',
+    '**User-visible outcome:** user can do everything at once.',
+    '',
+    '### Session 3: Polish',
+    '',
+    '**Scope:** Final UI polish pass on the dashboard.',
+    '**Files:**',
+    '- `src/components/Dashboard.tsx` (modify)',
+    '**User-visible outcome:** dashboard looks finished.',
+    '',
+    '## §11 Conclusion',
+    '',
+    'Closing paragraph kept long enough that the size-collapse gate has',
+    'headroom regardless of which session block above is split.',
+    '',
+  ].join('\n');
+
+  it('replaces Session 2 with two sibling H3 sub-sessions while leaving Session 3 intact', () => {
+    const replacement = [
+      '### Session 2a: Worker bits',
+      '',
+      '**Scope:** Worker-only changes split out of the original Session 2.',
+      '**Files:**',
+      '- `worker/foo.py` (modify)',
+      '**User-visible outcome:** worker processes new event kind.',
+      '',
+      '### Session 2b: Frontend + edge fn',
+      '',
+      '**Scope:** Frontend + edge-function changes split out of the original Session 2.',
+      '**Files:**',
+      '- `supabase/functions/bar/index.ts` (create)',
+      '- `src/components/Baz.tsx` (create)',
+      '**User-visible outcome:** user sees the new Baz component fetch from bar.',
+      '',
+    ].join('\n');
+
+    const result = applyAuditPatch(SESSION_SPEC, [
+      {
+        kind: 'replace-section' as const,
+        heading: '### Session 2: Sprawling work',
+        body: replacement,
+      },
+    ]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.merged).not.toBeNull();
+    const merged = result.merged!;
+
+    // The original H3 is gone, both new siblings are present.
+    expect(merged).not.toContain('### Session 2: Sprawling work');
+    expect(merged).toContain('### Session 2a: Worker bits');
+    expect(merged).toContain('### Session 2b: Frontend + edge fn');
+
+    // Session 1 and Session 3 survive untouched — heading-inventory gate
+    // requires this and so does the user expectation that "we never
+    // renumber later sessions when splitting".
+    expect(merged).toContain('### Session 1: Foundation');
+    expect(merged).toContain('### Session 3: Polish');
+    expect(merged).toContain('dashboard looks finished');
+
+    // Order: 1 < 2a < 2b < 3.
+    const idx1 = merged.indexOf('### Session 1: Foundation');
+    const idx2a = merged.indexOf('### Session 2a:');
+    const idx2b = merged.indexOf('### Session 2b:');
+    const idx3 = merged.indexOf('### Session 3: Polish');
+    expect(idx1).toBeGreaterThan(0);
+    expect(idx2a).toBeGreaterThan(idx1);
+    expect(idx2b).toBeGreaterThan(idx2a);
+    expect(idx3).toBeGreaterThan(idx2b);
+
+    expect(result.appliedOps).toEqual(['replace-section']);
+  });
+
+  it('rejects a session-splitter patch that omits the original H3 inventory entry without replacement', () => {
+    // If the model emits a body that doesn't include the original heading
+    // OR any sibling H3s with `Session 2` lineage, the inventory gate
+    // wouldn't fire (we only require the *replaced* heading to be allowed
+    // missing), but the splice should still preserve Session 3.
+    const replacement = [
+      '### Session 2a: Worker',
+      '',
+      'Replacement body keeping just one sub-session — Session 3 must still survive.',
+      '',
+    ].join('\n');
+
+    const result = applyAuditPatch(SESSION_SPEC, [
+      {
+        kind: 'replace-section' as const,
+        heading: '### Session 2: Sprawling work',
+        body: replacement,
+      },
+    ]);
+
+    expect(result.errors).toEqual([]);
+    const merged = result.merged!;
+    expect(merged).toContain('### Session 2a: Worker');
+    expect(merged).toContain('### Session 3: Polish');
+    expect(merged).not.toContain('Sprawling work');
+  });
+});

@@ -5,6 +5,8 @@ import type {
   CoverageAuditReport,
   InputAnalysis,
   SpecConversation,
+  SpecCreationEntry,
+  SpecCreationLog,
   SpecMessage,
   SpecAttachment,
   SpecPatchOutcome,
@@ -14,12 +16,20 @@ import type {
   StreamStats,
 } from "../types/spec-writer";
 
+/** Hard cap on persisted creation-log entries. Mirrors selfDriveStore's
+ *  runLog cap so long runs don't bloat the persistence row. */
+const CREATION_LOG_PERSIST_CAP = 100;
+
 /** Shape persisted to the database (reuses existing task_plans table) */
 interface PersistedSpecWriterState {
   conversation: SpecConversation | null;
   auditContent?: string | null;
   specContent?: string | null;
   draftText?: string | null;
+  /** Persisted so the creation log survives app restart — gives the model
+   *  programmatic memory of which sections were written even if the user
+   *  closes/reopens the app between turns. */
+  creationLog?: SpecCreationLog | null;
 }
 
 interface SpecWriterState {
@@ -66,6 +76,15 @@ interface SpecWriterState {
   // the Coverage panel so the user can see — without scrolling chat — that
   // their "Patch spec & re-audit" click actually rewrote the spec.
   lastPatchOutcomes: Map<string, SpecPatchOutcome>;
+
+  // Per-section streaming progress for the current run (persisted across
+  // restarts via PersistedSpecWriterState.creationLog). Populated by the
+  // heading detector in flushStreamBuffer in both spec-conversation hooks.
+  // Used to (1) prepend a recap to the next non-recheck user turn after a
+  // compaction event, giving the model programmatic memory of what it
+  // already wrote, and (2) render the "Creation log" section in the
+  // Coverage panel with a "RESUME HERE" pill on the open entry.
+  creationLogs: Map<string, SpecCreationLog>;
 
   // Stage 3: Latest input-analyzer report per project (runtime-only).
   // Populated by useSpecConversation when input docs are first analyzed.
@@ -146,6 +165,17 @@ interface SpecWriterState {
   // Actions - Patch outcome (post-AUDIT-PATCH splice)
   setLastPatchOutcome: (projectPath: string, outcome: SpecPatchOutcome | null) => void;
 
+  // Actions - Creation log (heading-by-heading streaming progress)
+  appendCreationEntry: (projectPath: string, entry: SpecCreationEntry) => void;
+  /** Close the entry at index `idx` with a final `closedAt` + `bytes`. No-op
+   *  if the index is out of range or the entry is already closed. */
+  markCreationEntryClosed: (projectPath: string, idx: number, closedAt: string, bytes: number) => void;
+  /** Stamp the log's `compactedAt` field — subsequent appendCreationEntry
+   *  calls then carry `postCompaction: true`. */
+  markPostCompactionFromNow: (projectPath: string, at: string) => void;
+  /** Clear the entire log for this project (used on user-initiated turns). */
+  clearCreationLog: (projectPath: string) => void;
+
   // Actions - Stream stats (Stage 4)
   setStreamStats: (projectPath: string, stats: StreamStats | null) => void;
 
@@ -201,6 +231,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   cliSessionIds: new Map(),
   coverageReports: new Map(),
   lastPatchOutcomes: new Map(),
+  creationLogs: new Map(),
   inputAnalysisReports: new Map(),
   streamStats: new Map(),
   compactionInfo: new Map(),
@@ -344,6 +375,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const draftAttachments = new Map(state.draftAttachments);
       const coverageReports = new Map(state.coverageReports);
       const lastPatchOutcomes = new Map(state.lastPatchOutcomes);
+      const creationLogs = new Map(state.creationLogs);
       const inputAnalysisReports = new Map(state.inputAnalysisReports);
       const streamStats = new Map(state.streamStats);
       const compactionInfo = new Map(state.compactionInfo);
@@ -355,10 +387,11 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       draftAttachments.delete(projectPath);
       coverageReports.delete(projectPath);
       lastPatchOutcomes.delete(projectPath);
+      creationLogs.delete(projectPath);
       inputAnalysisReports.delete(projectPath);
       streamStats.delete(projectPath);
       compactionInfo.delete(projectPath);
-      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, lastPatchOutcomes, inputAnalysisReports, streamStats, compactionInfo };
+      return { conversations, currentSpecContent, currentAuditContent, cliSessionIds, draftText, draftAttachments, coverageReports, lastPatchOutcomes, creationLogs, inputAnalysisReports, streamStats, compactionInfo };
     });
   },
 
@@ -562,6 +595,65 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       return { lastPatchOutcomes };
     }),
 
+  appendCreationEntry: (projectPath, entry) =>
+    set((state) => {
+      const creationLogs = new Map(state.creationLogs);
+      const existing = creationLogs.get(projectPath) ?? {
+        entries: [],
+        compactedAt: null,
+      };
+      const nextEntries = [...existing.entries, entry];
+      // Soft cap to keep the persisted payload bounded; drop the oldest
+      // entries first (the "RESUME HERE" pointer is always the latest).
+      const trimmed =
+        nextEntries.length > CREATION_LOG_PERSIST_CAP
+          ? nextEntries.slice(nextEntries.length - CREATION_LOG_PERSIST_CAP)
+          : nextEntries;
+      creationLogs.set(projectPath, {
+        entries: trimmed,
+        compactedAt: existing.compactedAt,
+      });
+      return { creationLogs };
+    }),
+
+  markCreationEntryClosed: (projectPath, idx, closedAt, bytes) =>
+    set((state) => {
+      const creationLogs = new Map(state.creationLogs);
+      const existing = creationLogs.get(projectPath);
+      if (!existing) return { creationLogs };
+      if (idx < 0 || idx >= existing.entries.length) return { creationLogs };
+      const target = existing.entries[idx];
+      if (target.closedAt !== null) return { creationLogs };
+      const nextEntries = [...existing.entries];
+      nextEntries[idx] = { ...target, closedAt, bytes };
+      creationLogs.set(projectPath, {
+        entries: nextEntries,
+        compactedAt: existing.compactedAt,
+      });
+      return { creationLogs };
+    }),
+
+  markPostCompactionFromNow: (projectPath, at) =>
+    set((state) => {
+      const creationLogs = new Map(state.creationLogs);
+      const existing = creationLogs.get(projectPath) ?? {
+        entries: [],
+        compactedAt: null,
+      };
+      creationLogs.set(projectPath, {
+        entries: existing.entries,
+        compactedAt: at,
+      });
+      return { creationLogs };
+    }),
+
+  clearCreationLog: (projectPath) =>
+    set((state) => {
+      const creationLogs = new Map(state.creationLogs);
+      creationLogs.delete(projectPath);
+      return { creationLogs };
+    }),
+
   // Stream stats (Stage 4)
   setStreamStats: (projectPath, stats) =>
     set((state) => {
@@ -696,7 +788,14 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
     const auditContent = state.currentAuditContent.get(projectPath) ?? null;
     const specContent = state.currentSpecContent.get(projectPath) ?? null;
     const draftText = state.draftText.get(projectPath) ?? null;
-    const persisted: PersistedSpecWriterState = { conversation, auditContent, specContent, draftText };
+    const creationLog = state.creationLogs.get(projectPath) ?? null;
+    const persisted: PersistedSpecWriterState = {
+      conversation,
+      auditContent,
+      specContent,
+      draftText,
+      creationLog,
+    };
     saveTaskBoardState(projectPath, JSON.stringify(persisted)).catch((e) =>
       console.error("[specWriterStore] Failed to persist state:", e)
     );
@@ -750,7 +849,18 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         if (persisted.draftText) {
           draftText.set(projectPath, persisted.draftText);
         }
-        return { conversations, currentSpecContent, currentAuditContent, draftText };
+        // Restore creation log if persisted — gives the model programmatic
+        // memory across app restarts. Older persisted payloads predate this
+        // field; treat absent/null as "no log."
+        const creationLogs = new Map(state.creationLogs);
+        if (
+          persisted.creationLog &&
+          typeof persisted.creationLog === 'object' &&
+          Array.isArray((persisted.creationLog as SpecCreationLog).entries)
+        ) {
+          creationLogs.set(projectPath, persisted.creationLog);
+        }
+        return { conversations, currentSpecContent, currentAuditContent, draftText, creationLogs };
       });
       return true;
     } catch (e) {

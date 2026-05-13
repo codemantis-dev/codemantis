@@ -576,11 +576,23 @@ new column. Deploy the Edge Function before the frontend calls it.
 
 ## 10. Session Plan — Multi-Session Implementation Breakdown
 
-If the Implementation Checklist in Section 9 has MORE than 15 checkboxes OR spans
-3+ phases, decompose the work into separate Claude Code sessions. Each session is
-one focused conversation with Claude Code that delivers a verifiable slice.
+If the Implementation Checklist in Section 9 has MORE than 12 work items, OR
+touches MORE than 10 files, OR spans 3+ phases, OR mixes 3+ production surfaces
+(worker / edge function / frontend / migration / deploy), decompose the work
+into separate Claude Code sessions. Each session is one focused conversation
+with Claude Code that delivers a verifiable slice.
 
-If the spec is small (< 15 checklist items, ≤ 2 phases), write instead:
+**Hard per-session ceiling — the UI-completeness audit enforces these:**
+One session must NOT exceed **12 work items, 10 files, 2 phases of work, or
+2 production surfaces**. Any explicit \`Deploy …\` step gets its own session
+(deploys cannot share a session with the code being deployed). If a session
+would exceed any ceiling, split into suffix-numbered sub-sessions (\`Session
+{N}a\`, \`Session {N}b\`, …) along the boundary that trips first — outcome >
+surface > deploy > file-group. Do NOT renumber later sessions; the audit's
+splice patcher relies on stable heading inventory.
+
+If the spec is small (≤ 12 work items, ≤ 10 files, ≤ 2 phases, ≤ 2 surfaces,
+no deploy step), write instead:
 "This spec is small enough for a single Claude Code session. No session plan needed."
 and then proceed to Section 11.
 
@@ -880,14 +892,22 @@ RULES for Verification Prompts (MANDATORY EVERY SESSION):
 - No session may omit the Verification Prompt block. Simple sessions
   use the SIMPLE SESSION FORM; complex ones use the COMPLEX SESSION FORM.
 
-SESSION SIZING GUIDANCE:
-- Each session should cover 1-2 phases, not more
-- A session with 20+ checklist items is too large — split it
+SESSION SIZING GUIDANCE (the UI-completeness audit enforces the hard
+ceiling — these are the soft heuristics that should keep you under it):
+- Each session should cover 1 phase, not 2 — fewer phases = smaller blast radius
+- A session with 12+ work items is too large — split it
+- A session touching 10+ files is too large — split it
+- A session crossing 3+ production surfaces (worker / edge fn / frontend /
+  migration / deploy) is too large — split along the surface boundary
+- Any \`Deploy …\` step belongs in its own session, NEVER bundled with
+  the code being deployed
 - The last session should be dedicated to Phase 4 (polish) when
   Phase 4 has 10+ items — it's easy to skip polish items when
   they're bundled with feature work
 - If unsure, prefer more sessions over fewer — each session is
-  a clean context window with focused instructions
+  a clean context window with focused instructions. Suffix sub-sessions
+  (Session 3a / 3b / 3c) are cheap; oversized sessions cost a recheck
+  round and may still ship broken
 
 DEPLOYMENT ACTIONS — MANDATORY IN SESSION PROMPTS:
 If a session creates or modifies any of the following, the session
