@@ -253,6 +253,27 @@ export interface OrchestratorInput {
    * and the orchestrator kept grading against its prior assumptions.
    */
   userInterjections?: Array<{ ts: number; text: string }>;
+  /**
+   * Phase 0 probed project capabilities (from `.claude/project-capabilities.json`).
+   * Rendered into the orchestrator's CONTEXT block so the LLM can:
+   *   - auto-resolve items tagged `[kind capability=X]` to N/A when X.status === "absent"
+   *   - know which capabilities support which evidence shapes (browser-mcp
+   *     enables the `browser-action` shape; db.* enables REST output; etc.)
+   *   - flag staleness when verifyChecks reference capabilities the record
+   *     does not yet contain (orchestrator can request a targeted re-probe).
+   * See plan: ~/.claude/plans/analyse-this-why-refactored-yao.md
+   */
+  projectCapabilities?: {
+    schemaVersion: number;
+    probedAt: string;
+    stalenessWindow: string;
+    capabilities: Array<{
+      id: string;
+      status: string;
+      evidence: string;
+      lastVerifiedAt: string;
+    }>;
+  } | null;
 }
 
 export type OrchestratorAction =

@@ -22,6 +22,8 @@ import type { SessionMode, SelfDriveInjectionKind } from "../types/session";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
+import { useSpecWriterStore } from "./specWriterStore";
+import type { ProbedCapability } from "../types/spec-writer";
 import { showToast } from "./toastStore";
 import {
   sendMessage,
@@ -1407,6 +1409,27 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
     lastTurnInjection: state.lastSelfDrivePromptInjection,
     evidenceVocabHint: state.evidenceVocabHint,
     userInterjections: gatherUserInterjections(),
+    // Phase 0 project capabilities — when present, the orchestrator
+    // auto-resolves items tagged `[kind capability=X]` against this record
+    // (X absent → skipped; X verified → expects evidence shape matching the
+    // capability). See plan: ~/.claude/plans/analyse-this-why-refactored-yao.md
+    projectCapabilities: (() => {
+      const projectPath = state.projectPath;
+      if (!projectPath) return null;
+      const rec = useSpecWriterStore.getState().projectCapabilities.get(projectPath);
+      if (!rec) return null;
+      return {
+        schemaVersion: rec.schemaVersion,
+        probedAt: rec.probedAt,
+        stalenessWindow: rec.stalenessWindow,
+        capabilities: rec.capabilities.map((c: ProbedCapability) => ({
+          id: c.id,
+          status: c.status,
+          evidence: c.evidence,
+          lastVerifiedAt: c.lastVerifiedAt,
+        })),
+      };
+    })(),
   };
 
   let decision: OrchestratorDecision;

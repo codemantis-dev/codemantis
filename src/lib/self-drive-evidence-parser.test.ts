@@ -103,4 +103,53 @@ describe("summarizeParsedEvidence", () => {
     expect(summary).toMatch(/SKIP=1/);
     expect(summary).toMatch(/cite=1/);
   });
+
+  it("captures browser-action evidence and defaults mocks to ['none']", () => {
+    const text = [
+      "1. Click ort-field — PASS —",
+      "   $ browser_navigate http://localhost:5173/crm-companies/abc → ok",
+      "   $ browser_click [data-testid=ort-field] → focus active",
+      "   $ browser_type \"Linz\" + Enter → ok",
+      "   $ browser_snapshot → DOM contains \"Linz\"",
+    ].join("\n");
+
+    const out = parseEvidence(text, ["Click ort-field"]);
+    expect(out[0].verdict).toBe("PASS");
+    expect(out[0].browserActionCalls.sort()).toEqual(
+      ["browser_click", "browser_navigate", "browser_snapshot", "browser_type"].sort(),
+    );
+    // Browser is real → mocks defaults to none when worker didn't supply tag.
+    expect(out[0].mocks).toEqual(["none"]);
+  });
+
+  it("recognises mcp__browsermcp__ fully-qualified tool names", () => {
+    const text =
+      "1. Tab renders — PASS — $ mcp__browsermcp__browser_navigate localhost → snapshot ok";
+    const out = parseEvidence(text, ["Tab renders"]);
+    expect(out[0].browserActionCalls).toContain("browser_navigate");
+  });
+
+  it("respects explicit mocks tag when browser actions are present", () => {
+    const text = [
+      "1. Combined check — PASS — $ browser_snapshot → ok · mocks=httpClient",
+    ].join("\n");
+    const out = parseEvidence(text, ["Combined check"]);
+    expect(out[0].browserActionCalls).toContain("browser_snapshot");
+    // The explicit `mocks=httpClient` tag wins over the implied "none".
+    expect(out[0].mocks).toEqual(["httpClient"]);
+  });
+
+  it("leaves browserActionCalls empty when no browser_* calls are present", () => {
+    const text = "1. Plain check — PASS — $ pnpm tsc → 0 errors";
+    const out = parseEvidence(text, ["Plain check"]);
+    expect(out[0].browserActionCalls).toEqual([]);
+    expect(out[0].mocks).toBeNull();
+  });
+
+  it("dedupes repeated browser_* mentions", () => {
+    const text =
+      "1. Foo — PASS — browser_navigate /a then browser_navigate /b then browser_navigate /c";
+    const out = parseEvidence(text, ["Foo"]);
+    expect(out[0].browserActionCalls).toEqual(["browser_navigate"]);
+  });
 });

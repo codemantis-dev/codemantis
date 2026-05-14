@@ -33,6 +33,16 @@ export interface ParsedEvidence {
   fileLineCitations: string[];
   /** Detected mock list (from `mocks=...`), if any. */
   mocks: string[] | null;
+  /**
+   * Detected BrowserMCP tool calls in the evidence window. Non-empty when
+   * the worker presented a browser-action sequence (`browser_navigate`,
+   * `browser_click`, `browser_type`, `browser_snapshot`, etc.). When this
+   * is non-empty AND `mocks` is null, the parser implies `mocks=["none"]`
+   * because the browser is real — see `[behavioral capability=browser-mcp]`
+   * in the verify-mode preamble. Plan:
+   * ~/.claude/plans/analyse-this-why-refactored-yao.md
+   */
+  browserActionCalls: string[];
 }
 
 const VERDICT_PATTERN =
@@ -45,6 +55,16 @@ const COMMAND_PATTERN = /(?:^|\s)\$\s+([^\n→]+?)(?:\s+→|\s*$)/m;
 const CODE_BLOCK_PATTERN = /```[\w-]*\n([\s\S]+?)```/;
 const FILE_LINE_PATTERN = /\b[\w./@-]+\.(?:ts|tsx|rs|py|sql|md|json|yaml|yml|toml):\d+(?:-\d+)?/g;
 const MOCKS_PATTERN = /mocks\s*=\s*([\w,.\s|/_-]+?)(?:[\s.;)]|$)/i;
+/**
+ * BrowserMCP tool-call detector. Catches the canonical name shapes:
+ *   - `mcp__browsermcp__browser_navigate` (fully-qualified MCP tool name)
+ *   - `browser_navigate(...)`, `browser_click(...)`, etc.
+ *   - plain mentions like `$ browser_snapshot → ok` in the verify-mode preamble's
+ *     browser-action shape (see guide-verify-prompt.ts).
+ * Matches the action verb only — caller need not reproduce arguments.
+ */
+const BROWSER_ACTION_PATTERN =
+  /\b(?:mcp__browsermcp__)?browser_(navigate|click|type|press_key|hover|snapshot|screenshot|select_option|go_back|go_forward|wait|get_console_logs)\b/g;
 
 function normalizeLabelKey(label: string): string {
   return label
@@ -112,6 +132,7 @@ export function parseEvidence(
       codeBlock: null,
       fileLineCitations: [],
       mocks: null,
+      browserActionCalls: [],
     }));
   }
 
@@ -146,6 +167,7 @@ export function parseEvidence(
     let commandText: string | null = null;
     let fileLineCitations: string[] = [];
     let mocks: string[] | null = null;
+    let browserActionCalls: string[] = [];
 
     if (verdictLine) {
       const lineIdx = lines.findIndex((l) => l.trim() === verdictLine);
@@ -181,6 +203,22 @@ export function parseEvidence(
           .map((s) => s.trim())
           .filter((s) => s.length > 0);
       }
+
+      // Detect BrowserMCP tool calls. Reset lastIndex so the /g regex
+      // doesn't carry state across loop iterations.
+      BROWSER_ACTION_PATTERN.lastIndex = 0;
+      const actions = new Set<string>();
+      let bm: RegExpExecArray | null;
+      while ((bm = BROWSER_ACTION_PATTERN.exec(window)) !== null) {
+        actions.add(`browser_${bm[1]}`);
+      }
+      if (actions.size > 0) {
+        browserActionCalls = Array.from(actions);
+        // Browser-action evidence implies `mocks=none` — the browser is
+        // real. Only fill this default when the worker didn't supply an
+        // explicit mocks tag.
+        if (mocks === null) mocks = ["none"];
+      }
     }
 
     out.push({
@@ -192,6 +230,7 @@ export function parseEvidence(
       codeBlock,
       fileLineCitations,
       mocks,
+      browserActionCalls,
     });
   }
 

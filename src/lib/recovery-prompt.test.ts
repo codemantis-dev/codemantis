@@ -49,6 +49,7 @@ describe("recoveryBodyForKind", () => {
     "env-config",
     "user-decision",
     "external-failure",
+    "capability-missing",
     "unknown",
   ];
 
@@ -73,6 +74,15 @@ describe("recoveryBodyForKind", () => {
   it("external-failure requires a minimal live request", () => {
     const body = recoveryBodyForKind("external-failure");
     expect(body).toMatch(/curl|ping|health check/i);
+  });
+
+  it("capability-missing names project-capabilities.json + the live-fire option", () => {
+    const body = recoveryBodyForKind("capability-missing");
+    expect(body).toContain("project-capabilities.json");
+    // Names the substitution escape hatch (browser-mcp) and the DEFER option
+    expect(body).toMatch(/browser-mcp|substitute|DEFER/i);
+    // Disallows "I think it's there now" without a live-fire quote
+    expect(body).toMatch(/NOT-RESOLVED/);
   });
 });
 

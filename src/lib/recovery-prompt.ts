@@ -97,6 +97,14 @@ Missing or wrong key should surface as a clear error in the quoted output.`;
 - Make ONE minimal request (curl, ping, provider-specific health check).
 - Quote the status line / response. Timeouts, 5xx, or rate-limit headers = NOT-RESOLVED.`;
 
+    case "capability-missing":
+      return `Confirm the missing capability is now satisfied:
+- A capability in \`.claude/project-capabilities.json\` is marked \`absent\` (or referenced but not yet probed). Either:
+  1) The required tool / credential / MCP server is now installed → run its live-fire (e.g. \`pnpm exec vitest --version\`, \`curl $SUPABASE_URL/rest/v1/ -H "apikey: …" -i\`, BrowserMCP \`browser_navigate about:blank\` + snapshot). Quote the success line.
+  2) The capability genuinely can't be satisfied → state plainly which capability + what would be needed to satisfy it. The orchestrator will re-route the spec to substitute (e.g. \`browser-mcp\` in place of a missing test runner) or DEFER the dependent items.
+- If you just renamed / replaced a probe key, run \`cat .claude/project-capabilities.json\` (or the equivalent read) and quote the lines that show the new state. The plan that governs this file: \`~/.claude/plans/analyse-this-why-refactored-yao.md\`.
+A vague "I think it's there now" without a live-fire quote is NOT-RESOLVED.`;
+
     case "unknown":
     default:
       return `Confirm the blocker is no longer present:

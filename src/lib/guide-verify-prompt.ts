@@ -65,6 +65,33 @@ THE CONTRACT (evidence form depends on the item's [kind] tag):
   regardless of any passing test. This is the kind that exists to
   catch the "mocked green, production broken" failure mode.
 
+CAPABILITY TAGS — items may carry a \`capability=<id>\` reference, e.g.
+\`[behavioral capability=browser-mcp]\` or \`[integration capability=db.supabase-service-role]\`.
+The capability id resolves against the project's \`.claude/project-capabilities.json\`:
+  - capability \`absent\` → the orchestrator auto-marks the item N/A. Do
+    NOT report PASS for these — the project cannot satisfy the check.
+    If you encounter such an item during a manual pass, emit
+    "N/A — capability X absent" and skip evidence gathering.
+  - capability \`verified\` → demand evidence shaped by the capability:
+    e.g. \`capability=browser-mcp\` items must show \`browser_*\` MCP
+    tool calls (see browser-action shape below); \`capability=db.*\` items
+    must show REST output; \`capability=test-runner.*\` items show test
+    runner PASS lines.
+
+BROWSER-ACTION SHAPE — when an item carries \`capability=browser-mcp\` AND
+the capability is verified, the canonical evidence is a sequence of
+real BrowserMCP tool calls, not a unit-test PASS line. Form:
+    $ browser_navigate <url> → snapshot ok
+    $ browser_click <selector> → focus active
+    $ browser_type "<text>" + Enter → snapshot shows "<expected>"
+The browser is real, so the mock disclosure is \`· mocks=none\`. The
+parser also accepts the compact form \`browser_navigate, browser_click,
+browser_type, browser_snapshot\` listed inline alongside the verdict.
+This shape converts behavioral checks that would otherwise be SKIPPED
+(no test runner installed) into evidenced PASS without any test
+infrastructure install. See plan:
+  ~/.claude/plans/analyse-this-why-refactored-yao.md
+
 COMMON RULES:
 - You may NEVER emit "all X pass", "looks fine", "should work",
   "everything checks out", "LGTM", or any batch-assurance language.
@@ -80,6 +107,7 @@ OUTPUT FORMAT — one line per item, exactly this shape:
                           OR $ {command} → {quoted output}                    (side-effect)
                           OR {test}:{line} — {quoted assert} · mocks={list}   (behavioral)
                           OR caller={file}:{lines} · handler={file}:{lines} · $ {cmd} → {output}  (integration)
+                          OR $ browser_navigate / browser_click / browser_type / browser_snapshot → {final assertion} · mocks=none  (browser-action, behavioral with capability=browser-mcp)
 
 ALTERNATIVE EVIDENCE SHAPES (all accepted — Phase C.2):
 The shapes above are CANONICAL but not the only accepted forms. The

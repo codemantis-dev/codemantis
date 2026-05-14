@@ -361,6 +361,15 @@ function buildUserMessage(input: OrchestratorInput): string {
         .join("\n")}`
     : "";
 
+  const capabilitiesBlock = input.projectCapabilities
+    ? `\n\nPROJECT CAPABILITIES (from .claude/project-capabilities.json — probed ${input.projectCapabilities.probedAt}, staleness ${input.projectCapabilities.stalenessWindow}):
+${input.projectCapabilities.capabilities
+        .map((c) => `- ${c.id}: ${c.status} — ${c.evidence}`)
+        .join("\n")}
+
+CAPABILITY GATING RULE: when a VerifyCheck label contains \`capability=<id>\` and that capability's status is "absent", emit \`{ label, passed: true, skipped: true, reason: "capability <id> absent at spec-write time" }\` — do NOT demand evidence the project cannot produce. When the status is "verified" and id is "browser-mcp", the canonical evidence shape is a sequence of \`browser_navigate / browser_click / browser_type / browser_snapshot\` calls with \`mocks=none\`. Stale "verified" records (older than the staleness window) should be re-probed by the SpecWriter pipeline, not relitigated here.`
+    : "";
+
   return `CONTEXT:
 - Phase: ${input.currentPhase}
 - Session: ${input.sessionPlan.index} — ${input.sessionPlan.name}
@@ -373,7 +382,7 @@ function buildUserMessage(input: OrchestratorInput): string {
 - Has audit document: ${input.sessionPlan.hasAuditDocument}
 
 VERIFY CHECKS FOR THIS SESSION (label [kind]):
-${checks}
+${checks}${capabilitiesBlock}
 
 TOOLS USED THIS TURN:
 ${input.claudeCodeToolsUsed.join(", ") || "none"}
