@@ -494,6 +494,141 @@ describe('replace-section H3 with multi-sibling body (session splitter)', () => 
     expect(result.appliedOps).toEqual(['replace-section']);
   });
 
+  it('walks H4-H6 headings and applies a replace-section targeting an H4', () => {
+    // Spec built from the actual failing case: H2 -> H3 (file) -> H4 (function).
+    // Before extending walkSections to #{1,6}, an H4 was invisible and any
+    // replace-section targeting it failed with "heading not found".
+    const SPEC = [
+      '# Project — Specification',
+      '',
+      '## 6. API / Data Layer',
+      '',
+      'Intro paragraph for the API section so size-collapse has headroom.',
+      'Add more body text to keep the byte-ratio gate happy across edits.',
+      'And one more line of filler so the merged doc remains comfortably above',
+      'the 60% floor relative to the original. And another. And another.',
+      '',
+      '### `src/lib/crm/companyDetail.ts`',
+      '',
+      'File-level overview body. Lorem ipsum filler so the file section has',
+      'meaningful body content that survives across patch operations. Keep',
+      'plenty of words here so the size gate has headroom.',
+      '',
+      '#### `createActivity(payload)`',
+      '',
+      'Original body of the H4 function spec. type-specific fields... }): Promise<void> ',
+      'Plus more text to clear size-collapse.',
+      '',
+      '## 7. Conclusion',
+      '',
+      'Wrap-up content with enough body to keep the size gate happy across edits.',
+      'Padding line one. Padding line two. Padding line three. Padding line four.',
+      '',
+    ].join('\n');
+
+    const result = applyAuditPatch(SPEC, [
+      {
+        kind: 'replace-section' as const,
+        heading: '#### `createActivity(payload)`',
+        body: [
+          '#### `createActivity(payload)`',
+          '',
+          'Replacement body for the H4 function — concrete fields, no placeholder.',
+          '',
+        ].join('\n'),
+      },
+    ]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.merged).not.toBeNull();
+    const merged = result.merged!;
+    expect(merged).toContain('#### `createActivity(payload)`');
+    expect(merged).toContain('Replacement body for the H4 function');
+    expect(merged).not.toContain('type-specific fields');
+    // Sibling H3 must survive.
+    expect(merged).toContain('### `src/lib/crm/companyDetail.ts`');
+    expect(merged).toContain('## 7. Conclusion');
+  });
+
+  it('matches an H4 heading with backticks regardless of how the model spells the heading attribute', () => {
+    const SPEC = [
+      '# Spec',
+      '',
+      '## §A',
+      '',
+      'Body of A with enough padding for size gates. More words to keep things',
+      'comfortably above the 60% size-collapse floor. And another sentence.',
+      '',
+      '#### `createActivity(payload)`',
+      '',
+      'Original H4 body with enough text to survive the size-collapse gate.',
+      'Plus a second line. Plus a third line.',
+      '',
+    ].join('\n');
+
+    // Each variant should resolve to the same H4 section.
+    const variants = [
+      '#### `createActivity(payload)`', // exact
+      '`createActivity(payload)`', // backticks, no level prefix
+      'createActivity(payload)', // plain text
+      'createActivity payload', // de-punctuated
+    ];
+
+    for (const heading of variants) {
+      const result = applyAuditPatch(SPEC, [
+        {
+          kind: 'replace-section' as const,
+          heading,
+          body: [
+            '#### `createActivity(payload)`',
+            '',
+            `Replacement for variant "${heading}". Padding line. Padding line.`,
+            '',
+          ].join('\n'),
+        },
+      ]);
+      expect(result.errors).toEqual([]);
+      expect(result.merged).toContain(`variant "${heading}"`);
+    }
+  });
+
+  it('includes a "Did you mean" suggestion when findSection cannot resolve the heading', () => {
+    const SPEC = [
+      '# Spec',
+      '',
+      '## §1 Overview',
+      '',
+      'Body padding to satisfy the size-collapse gate when applying patches.',
+      'More body to keep things well above the 60% floor.',
+      '',
+      '### `createActivity(payload)`',
+      '',
+      'Body of the createActivity section with enough text to be non-trivial.',
+      '',
+      '### `useCreateActivity`',
+      '',
+      'Body of the useCreateActivity section with enough text to be non-trivial.',
+      '',
+    ].join('\n');
+
+    const result = applyAuditPatch(SPEC, [
+      {
+        kind: 'replace-section' as const,
+        // The model invents a heading that doesn't quite match anything in the spec.
+        heading: 'createActivityForm',
+        body: '### createActivityForm\n\nBody.\n',
+      },
+    ]);
+
+    expect(result.merged).toBeNull();
+    expect(result.errors.length).toBeGreaterThan(0);
+    const msg = result.errors[0];
+    expect(msg).toMatch(/not found in original spec/);
+    expect(msg).toMatch(/Did you mean/);
+    // Suggestions should include the closest neighbour by token overlap.
+    expect(msg).toMatch(/`createActivity\(payload\)`|`useCreateActivity`/);
+  });
+
   it('rejects a session-splitter patch that omits the original H3 inventory entry without replacement', () => {
     // If the model emits a body that doesn't include the original heading
     // OR any sibling H3s with `Session 2` lineage, the inventory gate

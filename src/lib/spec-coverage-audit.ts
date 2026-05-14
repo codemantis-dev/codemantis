@@ -39,6 +39,56 @@ export interface InputDoc {
 /** Minimum body length for a pasted message to be considered a "spec input doc" rather than chat noise. */
 const MIN_PASTED_INPUT_BYTES = 1500;
 
+/**
+ * Walk the spec backward from `offset` to find the nearest enclosing markdown
+ * heading (any level H1–H6). Fence-aware: scans line-by-line and skips lines
+ * inside fenced code blocks. Returns the heading's raw markdown line
+ * (`### \`createActivity(payload)\`` etc.) so it can be quoted verbatim into a
+ * `heading="…"` patch attribute. Returns null if no heading precedes the offset.
+ */
+function locateEnclosingHeading(text: string, offset: number): string | null {
+  if (offset <= 0) return null;
+  const upto = text.slice(0, offset);
+  const lines = upto.split('\n');
+  // Recompute fence state from the start so we don't false-match a `#` line
+  // that lives inside a fenced block.
+  const fenceClosedAt: boolean[] = new Array(lines.length);
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^```/.test(lines[i])) inFence = !inFence;
+    fenceClosedAt[i] = inFence;
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (fenceClosedAt[i]) continue;
+    const m = /^(#{1,6})\s+(.+?)\s*$/.exec(lines[i]);
+    if (m) return lines[i].trimEnd();
+  }
+  return null;
+}
+
+/**
+ * Emit every H1–H6 heading line in document order, fence-aware. Used to build
+ * the heading inventory appended to recheck prompts so the model has the
+ * canonical, verbatim list of valid `heading="…"` values to choose from.
+ */
+function listSpecHeadings(text: string, limit = 100): string[] {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/^#{1,6}\s+\S/.test(line)) {
+      out.push(line.trimEnd());
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
+
 // ─── Session-size thresholds (see ui-session-too-large failure) ───────
 //
 // These map to the prompt-template guidance in
@@ -1003,6 +1053,7 @@ export function auditCoverage(
       report.failures.push({
         kind: 'placeholder-leaked',
         quote: output.slice(start, end).replace(/\s+/g, ' ').trim(),
+        affectedHeading: locateEnclosingHeading(output, m.index),
       });
       break; // one placeholder failure is enough — don't spam.
     }
@@ -1030,7 +1081,7 @@ export function auditCoverage(
 
   if (report.failures.length > 0) {
     report.status = 'fail';
-    report.recheckPrompts = buildRecheckPrompts(report.failures);
+    report.recheckPrompts = buildRecheckPrompts(report.failures, output);
   }
 
   return report;
@@ -1049,7 +1100,7 @@ function escapeRegExp(s: string): string {
  * the missing pieces. Designed to be sent as a user message in the existing
  * conversation, riding on the same prompt context.
  */
-export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
+export function buildRecheckPrompts(failures: AuditFailure[], output?: string): string[] {
   if (failures.length === 0) return [];
   const lines: string[] = [];
   const missingSections = failures.filter(isMissingSection);
@@ -1083,9 +1134,22 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
     '    `<!-- /patch -->`',
     '',
     'Heading attribute rules:',
-    '  - `heading="…"` MUST match a heading that already exists in the spec (e.g. `heading="§4.1 _STAGE_REGISTRY"`).',
-    '  - For `replace-section`, the body MUST keep every existing sub-heading (H3) of the targeted section unless you are deliberately removing it. Dropping a sub-heading without an explicit removal will cause the splice to be rejected and the spec rolled back.',
+    '  - `heading="…"` MUST match a heading that already exists in the spec — copy it VERBATIM, including backticks, slashes, parentheses, and the leading `##`/`###`/`####` markers if present (e.g. `heading="### \\`createActivity(payload)\\`"`). When in doubt, use a value from the Heading inventory at the bottom of this message.',
+    '  - Headings can be H1 through H6 — match the level of the section you are replacing.',
+    '  - For `replace-section`, the body MUST reproduce EVERY existing sub-heading inside the targeted section verbatim. Dropping a sub-heading will be detected and the splice rejected — when in doubt, narrow your patch to the smallest section that contains the issue.',
     '  - Do NOT include the H1 title line. Do not redefine `# ` headings.',
+    '',
+    'Worked example (replace-section on an H2 that contains H3 children — note all sub-headings are reproduced):',
+    '',
+    '  <!-- patch:replace-section heading="## 6. API / Data Layer" -->',
+    '  ## 6. API / Data Layer',
+    '',
+    '  ### `src/lib/crm/companyDetail.ts`',
+    '  …full sub-section body…',
+    '',
+    '  ### `createActivity(payload)`',
+    '  …full sub-section body, with the placeholder replaced by concrete content…',
+    '  <!-- /patch -->',
     '',
     'Now emit the patches. Each item below corresponds to one `replace-section` / `insert-after` / `append-section` block:',
     '',
@@ -1147,10 +1211,11 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
   }
 
   if (placeholders.length > 0) {
-    lines.push(
-      `A placeholder leaked into the output: "${placeholders[0].quote}". Emit a \`<!-- patch:replace-section heading="…" -->\` block on the affected section, replacing the placeholder with concrete content.`,
-      '',
-    );
+    const ph = placeholders[0];
+    const directive = ph.affectedHeading
+      ? `Emit a \`<!-- patch:replace-section heading="${ph.affectedHeading}" -->\` block — use that exact \`heading="…"\` value verbatim (including backticks and the \`${/^(#+)/.exec(ph.affectedHeading)?.[1] ?? '###'}\` prefix). The body must restore the entire section, replacing the placeholder with concrete content. If that section contains sub-headings, reproduce every one of them in the body.`
+      : `Emit a \`<!-- patch:replace-section heading="…" -->\` block on the section containing the placeholder. Pick the heading from the Heading inventory at the bottom of this message — copy it verbatim. The body must restore the entire section with concrete content and reproduce every sub-heading inside it.`;
+    lines.push(`A placeholder leaked into the output: "${ph.quote}". ${directive}`, '');
   }
 
   if (ratio) {
@@ -1260,6 +1325,16 @@ export function buildRecheckPrompts(failures: AuditFailure[]): string[] {
       lines.push(`- \`${f.session}\` — ${bits.join('; ')}`);
     }
     lines.push('');
+  }
+
+  if (output) {
+    const inventory = listSpecHeadings(output);
+    if (inventory.length > 0) {
+      lines.push(
+        '── Heading inventory (use `heading="…"` verbatim from this list) ──',
+        ...inventory,
+      );
+    }
   }
 
   return [lines.join('\n').trimEnd()];

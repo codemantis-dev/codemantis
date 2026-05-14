@@ -120,7 +120,7 @@ export type AuditFailure =
   | { kind: 'schema-rename'; inputName: string; suspectedOutputName?: string }
   | { kind: 'missing-numeric'; what: 'cost' | 'timeout' | 'rate' | 'retention'; sample: string }
   | { kind: 'truncation'; lastHeading: string; tail: string }
-  | { kind: 'placeholder-leaked'; quote: string }
+  | { kind: 'placeholder-leaked'; quote: string; affectedHeading: string | null }
   | { kind: 'byte-ratio-low'; ratio: number; floor: number }
   // UI-completeness checks. Strict (labeled-field) failures are
   // per-instance: each orphan entity / untriggered endpoint / session

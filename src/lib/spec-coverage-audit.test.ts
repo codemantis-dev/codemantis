@@ -354,6 +354,88 @@ describe("buildRecheckPrompts", () => {
   it("returns no prompts when there are no failures", () => {
     expect(buildRecheckPrompts([])).toEqual([]);
   });
+
+  it("threads affectedHeading verbatim into the placeholder directive", () => {
+    const prompts = buildRecheckPrompts([
+      {
+        kind: "placeholder-leaked",
+        quote: 'type-specific fields... }): Promise<void>',
+        affectedHeading: '#### `createActivity(payload)`',
+      },
+    ]);
+    expect(prompts).toHaveLength(1);
+    const p = prompts[0];
+    expect(p).toContain('heading="#### `createActivity(payload)`"');
+    expect(p).toMatch(/verbatim/);
+  });
+
+  it("falls back to inventory-guided wording when affectedHeading is null", () => {
+    const prompts = buildRecheckPrompts([
+      { kind: "placeholder-leaked", quote: "TBD", affectedHeading: null },
+    ]);
+    const p = prompts[0];
+    expect(p).toMatch(/Heading inventory/);
+    expect(p).not.toContain('heading=""');
+  });
+
+  it("appends a heading inventory when output is provided", () => {
+    const output = [
+      "# Spec",
+      "",
+      "## 6. API / Data Layer",
+      "",
+      "### `src/lib/crm/companyDetail.ts`",
+      "",
+      "#### `createActivity(payload)`",
+      "",
+      "body",
+      "",
+    ].join("\n");
+    const prompts = buildRecheckPrompts(
+      [{ kind: "placeholder-leaked", quote: "TBD", affectedHeading: null }],
+      output,
+    );
+    const p = prompts[0];
+    expect(p).toContain("Heading inventory");
+    expect(p).toContain("## 6. API / Data Layer");
+    expect(p).toContain("### `src/lib/crm/companyDetail.ts`");
+    expect(p).toContain("#### `createActivity(payload)`");
+  });
+});
+
+describe("placeholder detection — affectedHeading capture", () => {
+  it("records the enclosing H4 heading when the placeholder is nested deep", () => {
+    const input = [
+      "# Spec",
+      "",
+      "## 6. API / Data Layer",
+      "",
+      "section body padding to satisfy size gates. " + "x".repeat(200),
+      "",
+      "### `src/lib/crm/companyDetail.ts`",
+      "",
+      "file overview body. " + "y".repeat(200),
+      "",
+      "#### `createActivity(payload)`",
+      "",
+      "function body discussing the call. " + "z".repeat(200),
+      "",
+    ].join("\n");
+
+    const output = input.replace(
+      "function body discussing the call. " + "z".repeat(200),
+      // Trailing `...` at end of line — matches PLACEHOLDER_PATTERNS.
+      "Concrete fields:\n- foo\n- type-specific fields...",
+    );
+
+    const report = auditCoverage([{ name: "spec.md", content: input }], output);
+    const ph = report.failures.find(
+      (f): f is Extract<typeof report.failures[number], { kind: "placeholder-leaked" }> =>
+        f.kind === "placeholder-leaked",
+    );
+    expect(ph).toBeDefined();
+    expect(ph!.affectedHeading).toBe("#### `createActivity(payload)`");
+  });
 });
 
 describe("summarizeReport / describeFailure", () => {
@@ -389,7 +471,7 @@ describe("summarizeReport / describeFailure", () => {
     ).toMatch(/drift/);
     expect(describeFailure({ kind: "missing-numeric", what: "cost", sample: "$0" })).toContain("$0");
     expect(describeFailure({ kind: "truncation", lastHeading: "H", tail: "" })).toContain("truncated");
-    expect(describeFailure({ kind: "placeholder-leaked", quote: "TBD" })).toContain("TBD");
+    expect(describeFailure({ kind: "placeholder-leaked", quote: "TBD", affectedHeading: null })).toContain("TBD");
     expect(describeFailure({ kind: "byte-ratio-low", ratio: 0.3, floor: 0.6 })).toContain("30%");
     expect(describeFailure({ kind: "ui-orphan-entity", entity: "User" })).toContain("User");
     expect(

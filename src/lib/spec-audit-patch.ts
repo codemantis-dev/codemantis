@@ -172,7 +172,7 @@ export function parseAuditPatch(text: string): ParseResult {
 // ─────────────────────────────────────────────────────────────────────
 
 interface Section {
-  /** 1-based heading level. */
+  /** 1-based heading level (H1-H6). */
   level: number;
   /** Raw heading text after the `#` markers. */
   rawTitle: string;
@@ -185,7 +185,7 @@ interface Section {
 }
 
 /**
- * Walk the spec and emit every H1/H2/H3, fence-aware. A section ends when the
+ * Walk the spec and emit every H1–H6, fence-aware. A section ends when the
  * next heading of the same or lower level (numerically) is encountered, or at
  * end of document.
  */
@@ -200,7 +200,7 @@ function walkSections(spec: string): { lines: string[]; sections: Section[] } {
       continue;
     }
     if (inFence) continue;
-    const m = /^(#{1,3})\s+(.+?)\s*$/.exec(line);
+    const m = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
     if (!m) continue;
     sections.push({
       level: m[1].length,
@@ -245,6 +245,47 @@ function findSection(sections: Section[], heading: string): Section | null {
   return null;
 }
 
+/**
+ * Rank candidate headings by similarity to the target. Used to produce
+ * "Did you mean: …" suggestions when `findSection` fails — gives the next
+ * recheck attempt a concrete target to retry against.
+ *
+ * Uses character-bigram overlap (Dice coefficient) so close-but-not-exact
+ * matches like `createActivityForm` ↔ `createActivity(payload)` rank above
+ * unrelated sections.
+ */
+function suggestHeadings(sections: Section[], heading: string, limit = 3): string[] {
+  const target = normalizeHeading(heading).replace(/\s+/g, '');
+  if (!target || sections.length === 0) return [];
+  const targetBigrams = bigrams(target);
+  if (targetBigrams.size === 0) return [];
+  const scored = sections.map((s) => {
+    const sNorm = s.normalized.replace(/\s+/g, '');
+    const sBigrams = bigrams(sNorm);
+    let overlap = 0;
+    for (const b of sBigrams) if (targetBigrams.has(b)) overlap += 1;
+    const denom = targetBigrams.size + sBigrams.size;
+    return { section: s, score: denom === 0 ? 0 : (2 * overlap) / denom };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored
+    .filter((x) => x.score > 0.2)
+    .slice(0, limit)
+    .map((x) => `${'#'.repeat(x.section.level)} ${x.section.rawTitle}`);
+}
+
+function bigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+function formatSuggestionTail(sections: Section[], heading: string): string {
+  const suggestions = suggestHeadings(sections, heading);
+  if (suggestions.length === 0) return '';
+  return `. Did you mean: ${suggestions.map((s) => `"${s}"`).join(', ')}?`;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Applier
 // ─────────────────────────────────────────────────────────────────────
@@ -268,7 +309,7 @@ interface PlannedEdit {
  *   2. The H1 line must survive the merge unchanged.
  *   3. Merged size must not collapse below 60% of original (catches accidental
  *      whole-doc replace).
- *   4. Every original H2/H3 must still exist in the merged output unless it
+ *   4. Every original H2-H6 must still exist in the merged output unless it
  *      was the target of a replace-section.
  *   5. No two consecutive identical headings (catches double-application).
  */
@@ -300,7 +341,9 @@ export function applyAuditPatch(originalSpec: string, ops: PatchOp[]): ApplyResu
       }
       const target = findSection(sections, op.heading);
       if (!target) {
-        errors.push(`replace-section: heading "${op.heading}" not found in original spec`);
+        errors.push(
+          `replace-section: heading "${op.heading}" not found in original spec${formatSuggestionTail(sections, op.heading)}`,
+        );
         continue;
       }
       planned.push({
@@ -318,7 +361,9 @@ export function applyAuditPatch(originalSpec: string, ops: PatchOp[]): ApplyResu
       }
       const anchor = findSection(sections, op.heading);
       if (!anchor) {
-        errors.push(`insert-after: heading "${op.heading}" not found in original spec`);
+        errors.push(
+          `insert-after: heading "${op.heading}" not found in original spec${formatSuggestionTail(sections, op.heading)}`,
+        );
         continue;
       }
       planned.push({
@@ -382,7 +427,7 @@ export function applyAuditPatch(originalSpec: string, ops: PatchOp[]): ApplyResu
     );
   }
 
-  // Heading-inventory: every original H2/H3 should still be present unless it
+  // Heading-inventory: every original H2-H6 should still be present unless it
   // was the target of a replace-section op.
   const replacedTargets = new Set(
     planned.filter((p) => p.op === 'replace-section').map((p) => p.targetNormalized),
