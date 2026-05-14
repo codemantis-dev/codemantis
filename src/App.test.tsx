@@ -134,6 +134,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     selfDriveMaxFixAttempts: 3, selfDriveRunBuildCheck: true,
     selfDriveRunTests: true, selfDriveAutoCommit: false,
     selfDriveEnableRecheckLoop: true,
+    selfDriveConfirmCapabilities: true,
     defaultThinkingEffort: null,
     ...overrides,
   };

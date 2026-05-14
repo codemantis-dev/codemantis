@@ -115,6 +115,7 @@ function setupSettings(overrides?: Partial<ReturnType<typeof useSettingsStore.ge
       selfDriveRunTests: true,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
       ...overrides,
     } as ReturnType<typeof useSettingsStore.getState>["settings"],

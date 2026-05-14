@@ -272,6 +272,7 @@ describe("useSettingsFormState", () => {
       selfDriveRunTests: false,
 selfDriveAutoCommit: true,
       selfDriveEnableRecheckLoop: true,
+      selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
     });
 

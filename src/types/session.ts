@@ -50,7 +50,8 @@ export type SelfDriveInjectionKind =
   | "commit-gate"    // auto-commit between sessions
   | "build-check"    // pnpm tsc --noEmit after build/fix
   | "recovery"       // recovery-verification prompt
-  | "parity-recovery"; // cross-system action parity recovery
+  | "parity-recovery" // cross-system action parity recovery
+  | "capability-check"; // Phase 0b SpecWriter capability handshake
 
 
 export interface TurnStats {

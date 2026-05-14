@@ -17,6 +17,7 @@ import { formatDuration } from "../../lib/format-utils";
 import type { SpecAttachment } from "../../types/spec-writer";
 import SpecChatMessage from "./SpecChatMessage";
 import SpecChatInput from "./SpecChatInput";
+import { CapabilityHandshakeBanner } from "./CapabilityHandshakeBanner";
 
 interface Props {
   projectPath: string;
@@ -321,6 +322,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
 
       <div className="relative flex-1 overflow-hidden">
       <div ref={scrollRef} onScroll={checkAtBottom} className="h-full overflow-y-auto px-3 py-2 space-y-3">
+        <CapabilityHandshakeBanner projectPath={projectPath} />
         {messages.length === 0 && (
           <div className="text-center py-8 text-chat" style={{ color: "var(--text-dim)" }}>
             Describe what you want to build. The AI will ask clarifying questions before writing a specification.

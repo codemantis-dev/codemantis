@@ -361,6 +361,7 @@ pub fn run() {
             commands::project_capabilities::probe_project_capabilities,
             commands::project_capabilities::read_project_capabilities,
             commands::project_capabilities::write_project_capabilities,
+            commands::project_capabilities::live_fire_capabilities,
             commands::slash_commands::discover_commands,
             commands::slash_commands::expand_skill,
             commands::slash_commands::run_oneshot_command,

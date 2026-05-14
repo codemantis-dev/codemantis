@@ -124,6 +124,7 @@ function setupSettings(): void {
       selfDriveRunTests: true,
 selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
     } as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,

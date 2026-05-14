@@ -257,6 +257,7 @@ function setupReadyState(): void {
       selfDriveRunTests: false,
       selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
+      selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
     },
     loaded: true,

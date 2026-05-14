@@ -25,6 +25,7 @@ import {
   buildClaudeCodePrompt,
 } from "../lib/spec-prompts";
 import { parseSelectableOptions } from "../lib/spec-option-parser";
+import { buildHandshakeQuestions } from "../lib/capability-handshake-prompt";
 import { auditCoverage, describeFailure, extractInputDocs, summarizeReport } from "../lib/spec-coverage-audit";
 import { parseAuditPatch, applyAuditPatch, summarizePatchApplication } from "../lib/spec-audit-patch";
 import {
@@ -155,6 +156,21 @@ export function useSpecConversationClaude(): {
             err,
           );
         });
+
+        // Phase 0b: build the capability handshake questions when the
+        // `selfDriveConfirmCapabilities` setting is ON (default true) AND
+        // at least one capability needs user confirmation. The UI surfaces
+        // these via CapabilityHandshakeBanner; `ensureSession` is gated on
+        // this map being empty so we never build a SpecWriter prompt with
+        // ambiguous capabilities.
+        const settings = useSettingsStore.getState().settings;
+        const confirmEnabled = settings.selfDriveConfirmCapabilities ?? true;
+        if (confirmEnabled) {
+          const questions = buildHandshakeQuestions(capabilities);
+          store.setPendingHandshakeQuestions(projectPath, questions);
+        } else {
+          store.clearPendingHandshakeQuestions(projectPath);
+        }
       } catch (probeErr) {
         console.warn(
           "[useSpecConversationClaude] Capability probe failed (non-fatal):",
@@ -180,6 +196,20 @@ export function useSpecConversationClaude(): {
 
     const conv = store.getActiveConversation(projectPath);
     if (!conv) throw new Error("No active SpecWriter conversation");
+
+    // Phase 0b gate: don't bake the SpecWriter system prompt with ambiguous
+    // capabilities. If a handshake is pending for this project, the user
+    // must resolve it before a Claude Code session is created. The UI is
+    // responsible for surfacing the handshake; this guard ensures the gate
+    // holds even if the UI is bypassed.
+    const pendingHandshake = store.pendingHandshakeQuestions.get(projectPath);
+    if (pendingHandshake && pendingHandshake.length > 0) {
+      throw new Error(
+        "SpecWriter session cannot start while the capability handshake is pending. " +
+          "Resolve the questions in the CapabilityHandshakeBanner or disable " +
+          "`selfDriveConfirmCapabilities` in settings.",
+      );
+    }
 
     const model = conv.ai_model || DEFAULT_SPEC_CLAUDE_CODE_MODEL;
     const projectContext = store.projectContext.get(projectPath) ?? "";

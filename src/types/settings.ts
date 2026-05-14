@@ -121,6 +121,19 @@ export interface AppSettings {
   selfDriveEnableRecheckLoop: boolean;
 
   /**
+   * Phase 0b capability handshake. When ON (default), SpecWriter asks the
+   * user to confirm ambiguous or high-leverage capabilities (BrowserMCP,
+   * Supabase service-role, LLM keys) before writing a spec, then live-fires
+   * each confirmation. When OFF, SpecWriter relies on probe inference alone
+   * and records ambiguous capabilities as `claimed-unverified` for
+   * verify-mode to handle. The Phase 0a passive probe and Phase 0c live-fire
+   * for probe-certain items always run regardless of this toggle.
+   *
+   * See plan: ~/.claude/plans/analyse-this-why-refactored-yao.md
+   */
+  selfDriveConfirmCapabilities: boolean;
+
+  /**
    * Default thinking-effort the Claude CLI is launched with for new sessions.
    * Baked into the inline `--settings` blob (see `build_session_settings_json`
    * in src-tauri/src/claude/process.rs) so it overrides the user's

@@ -460,6 +460,536 @@ fn probe_git(project_path: &Path, now: &str) -> Vec<ProbedCapability> {
     out
 }
 
+// ── Phase 0c: live-fire verification ────────────────────────────────────
+//
+// After the user confirms a `claimed-unverified` capability via the
+// handshake (Phase 0b), the frontend asks Rust to actually invoke each
+// capability to prove it's reachable. Live-fire updates a capability's
+// status from `claimed-unverified` to `verified` (success) or `absent`
+// (failure). The frontend merges the results into the existing record
+// and persists via `write_project_capabilities`.
+//
+// One capability — `browser-mcp` — cannot be exercised from Rust because
+// MCP tools (`mcp__browsermcp__browser_navigate` etc.) are invokable only
+// through a Claude Code CLI session. For that case Rust emits a record
+// flagged for frontend handling; PR 3 (Self-Drive verify-mode awareness)
+// drives the actual browser_navigate + browser_snapshot via a Claude
+// Code dispatcher.
+
+/// Read `.env*` files including VALUES for the live-fire phase. Values stay
+/// inside Rust — never returned through Tauri IPC, never logged. The map is
+/// dropped at the end of `live_fire_capabilities`.
+fn read_env_values_for_live_fire(
+    project_path: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let candidates = [
+        ".env",
+        ".env.local",
+        ".env.development",
+        ".env.development.local",
+        ".env.production",
+        ".env.production.local",
+    ];
+    let mut out = std::collections::BTreeMap::new();
+    for candidate in &candidates {
+        let path = project_path.join(candidate);
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some(eq) = trimmed.find('=') else { continue };
+            let key = trimmed[..eq].trim().to_string();
+            if key.is_empty() {
+                continue;
+            }
+            let raw_value = trimmed[eq + 1..].trim();
+            // Strip surrounding quotes if present (.env convention).
+            let value = raw_value
+                .trim_start_matches(['"', '\''])
+                .trim_end_matches(['"', '\''])
+                .to_string();
+            if value.is_empty() {
+                continue;
+            }
+            // Later files override earlier ones (typical .env precedence:
+            // .env.local overrides .env).
+            out.insert(key, value);
+        }
+    }
+    out
+}
+
+/// Build a live-fire-result record. `evidence` is short; `verify_method` is
+/// the exact command/URL that was tried.
+fn live_fire_result(
+    id: &str,
+    status: &str,
+    evidence: String,
+    verify_method: String,
+    now: &str,
+) -> ProbedCapability {
+    ProbedCapability {
+        id: id.to_string(),
+        status: status.to_string(),
+        discovered_by: DiscoveryMethod::LiveFire,
+        evidence,
+        last_verified_at: now.to_string(),
+        verify_method: Some(verify_method),
+        expires: None,
+        notes: None,
+    }
+}
+
+fn first_matching_value<'a>(
+    env: &'a std::collections::BTreeMap<String, String>,
+    patterns: &[&str],
+) -> Option<(&'a str, &'a str)> {
+    for (k, v) in env.iter() {
+        for pat in patterns {
+            if k.contains(pat) {
+                return Some((k.as_str(), v.as_str()));
+            }
+        }
+    }
+    None
+}
+
+async fn fire_supabase_anon(
+    env: &std::collections::BTreeMap<String, String>,
+    now: &str,
+) -> ProbedCapability {
+    let id = "db.supabase-anon";
+    let url = first_matching_value(env, &["SUPABASE_URL", "SUPABASE_PROJECT_URL"]);
+    let key = first_matching_value(env, &["SUPABASE_ANON_KEY", "SUPABASE_PUBLISHABLE"]);
+    let (Some((url_name, url_val)), Some((key_name, key_val))) = (url, key) else {
+        return live_fire_result(
+            id,
+            "absent",
+            "Required env vars missing at live-fire time".to_string(),
+            "skipped: SUPABASE_URL + SUPABASE_ANON_KEY required".to_string(),
+            now,
+        );
+    };
+    // Hit a generic introspection endpoint that requires the anon key but no
+    // specific table. PostgREST returns 200 with OpenAPI-style JSON when the
+    // key is valid even on a project with no public tables.
+    let target = format!("{}/rest/v1/", url_val.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return live_fire_result(
+                id,
+                "absent",
+                format!("reqwest client build failed: {}", e),
+                format!("GET {}", target),
+                now,
+            );
+        }
+    };
+    let resp = client
+        .get(&target)
+        .header("apikey", key_val)
+        .header("Authorization", format!("Bearer {}", key_val))
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => live_fire_result(
+            id,
+            "verified",
+            format!(
+                "REST {} returned {} using env keys {} + {}",
+                target,
+                r.status().as_u16(),
+                url_name,
+                key_name
+            ),
+            format!("GET {} (with apikey + Bearer)", target),
+            now,
+        ),
+        Ok(r) => live_fire_result(
+            id,
+            "absent",
+            format!(
+                "REST {} returned {} (env keys present: {} + {})",
+                target,
+                r.status().as_u16(),
+                url_name,
+                key_name
+            ),
+            format!("GET {}", target),
+            now,
+        ),
+        Err(e) => live_fire_result(
+            id,
+            "absent",
+            format!("HTTP error: {}", e),
+            format!("GET {}", target),
+            now,
+        ),
+    }
+}
+
+async fn fire_supabase_service_role(
+    env: &std::collections::BTreeMap<String, String>,
+    now: &str,
+) -> ProbedCapability {
+    let id = "db.supabase-service-role";
+    let url = first_matching_value(env, &["SUPABASE_URL", "SUPABASE_PROJECT_URL"]);
+    let key = first_matching_value(env, &["SUPABASE_SERVICE_ROLE", "SERVICE_ROLE_KEY"]);
+    let (Some((url_name, url_val)), Some((key_name, key_val))) = (url, key) else {
+        return live_fire_result(
+            id,
+            "absent",
+            "Required env vars missing at live-fire time".to_string(),
+            "skipped: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY required".to_string(),
+            now,
+        );
+    };
+    // PR 2 verification proves the service-role KEY is valid — we hit the
+    // same introspection endpoint with the service-role Authorization. A
+    // future enhancement could exercise an actual write/revert against a
+    // sentinel row, but that requires knowing a safe target table per
+    // project — out of scope for the generic dispatcher.
+    let target = format!("{}/rest/v1/", url_val.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return live_fire_result(
+                id,
+                "absent",
+                format!("reqwest client build failed: {}", e),
+                format!("GET {}", target),
+                now,
+            );
+        }
+    };
+    let resp = client
+        .get(&target)
+        .header("apikey", key_val)
+        .header("Authorization", format!("Bearer {}", key_val))
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => live_fire_result(
+            id,
+            "verified",
+            format!(
+                "REST {} returned {} with service-role key ({} + {})",
+                target,
+                r.status().as_u16(),
+                url_name,
+                key_name
+            ),
+            format!("GET {} (service-role Bearer)", target),
+            now,
+        ),
+        Ok(r) => live_fire_result(
+            id,
+            "absent",
+            format!("REST {} returned {}", target, r.status().as_u16()),
+            format!("GET {}", target),
+            now,
+        ),
+        Err(e) => live_fire_result(
+            id,
+            "absent",
+            format!("HTTP error: {}", e),
+            format!("GET {}", target),
+            now,
+        ),
+    }
+}
+
+async fn fire_anthropic(
+    env: &std::collections::BTreeMap<String, String>,
+    now: &str,
+) -> ProbedCapability {
+    let id = "llm-key.anthropic";
+    let key = first_matching_value(env, &["ANTHROPIC_API_KEY"]);
+    let Some((key_name, key_val)) = key else {
+        return live_fire_result(
+            id,
+            "absent",
+            "ANTHROPIC_API_KEY missing at live-fire time".to_string(),
+            "skipped".to_string(),
+            now,
+        );
+    };
+    let target = "https://api.anthropic.com/v1/messages";
+    // Send the smallest possible request that exercises auth without burning
+    // meaningful tokens: 1-token max, single user word, cheapest model.
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1,
+        "messages": [{ "role": "user", "content": "hi" }]
+    });
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return live_fire_result(
+                id,
+                "absent",
+                format!("reqwest client build failed: {}", e),
+                format!("POST {}", target),
+                now,
+            );
+        }
+    };
+    let resp = client
+        .post(target)
+        .header("x-api-key", key_val)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => live_fire_result(
+            id,
+            "verified",
+            format!(
+                "POST {} returned {} using env key {}",
+                target,
+                r.status().as_u16(),
+                key_name
+            ),
+            format!("POST {} (max_tokens=1)", target),
+            now,
+        ),
+        Ok(r) => live_fire_result(
+            id,
+            "absent",
+            format!("POST {} returned {}", target, r.status().as_u16()),
+            format!("POST {}", target),
+            now,
+        ),
+        Err(e) => live_fire_result(
+            id,
+            "absent",
+            format!("HTTP error: {}", e),
+            format!("POST {}", target),
+            now,
+        ),
+    }
+}
+
+async fn fire_openai(
+    env: &std::collections::BTreeMap<String, String>,
+    now: &str,
+) -> ProbedCapability {
+    let id = "llm-key.openai";
+    let key = first_matching_value(env, &["OPENAI_API_KEY"]);
+    let Some((key_name, key_val)) = key else {
+        return live_fire_result(
+            id,
+            "absent",
+            "OPENAI_API_KEY missing at live-fire time".to_string(),
+            "skipped".to_string(),
+            now,
+        );
+    };
+    let target = "https://api.openai.com/v1/models";
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return live_fire_result(
+                id,
+                "absent",
+                format!("reqwest client build failed: {}", e),
+                format!("GET {}", target),
+                now,
+            );
+        }
+    };
+    let resp = client
+        .get(target)
+        .header("Authorization", format!("Bearer {}", key_val))
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => live_fire_result(
+            id,
+            "verified",
+            format!(
+                "GET {} returned {} using env key {}",
+                target,
+                r.status().as_u16(),
+                key_name
+            ),
+            format!("GET {}", target),
+            now,
+        ),
+        Ok(r) => live_fire_result(
+            id,
+            "absent",
+            format!("GET {} returned {}", target, r.status().as_u16()),
+            format!("GET {}", target),
+            now,
+        ),
+        Err(e) => live_fire_result(
+            id,
+            "absent",
+            format!("HTTP error: {}", e),
+            format!("GET {}", target),
+            now,
+        ),
+    }
+}
+
+async fn fire_gemini(
+    env: &std::collections::BTreeMap<String, String>,
+    now: &str,
+) -> ProbedCapability {
+    let id = "llm-key.gemini";
+    let key = first_matching_value(env, &["GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+    let Some((key_name, key_val)) = key else {
+        return live_fire_result(
+            id,
+            "absent",
+            "GEMINI_API_KEY / GOOGLE_API_KEY missing at live-fire time".to_string(),
+            "skipped".to_string(),
+            now,
+        );
+    };
+    let target = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+        key_val
+    );
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return live_fire_result(
+                id,
+                "absent",
+                format!("reqwest client build failed: {}", e),
+                "GET v1beta/models".to_string(),
+                now,
+            );
+        }
+    };
+    let resp = client.get(&target).send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => live_fire_result(
+            id,
+            "verified",
+            format!(
+                "GET v1beta/models returned {} using env key {}",
+                r.status().as_u16(),
+                key_name
+            ),
+            "GET v1beta/models".to_string(),
+            now,
+        ),
+        Ok(r) => live_fire_result(
+            id,
+            "absent",
+            format!("GET v1beta/models returned {}", r.status().as_u16()),
+            "GET v1beta/models".to_string(),
+            now,
+        ),
+        Err(e) => live_fire_result(
+            id,
+            "absent",
+            format!("HTTP error: {}", e),
+            "GET v1beta/models".to_string(),
+            now,
+        ),
+    }
+}
+
+fn fire_browser_mcp_marker(now: &str) -> ProbedCapability {
+    // MCP tools are invokable only via a Claude Code CLI session, not from
+    // Rust. The frontend must orchestrate the actual `browser_navigate` +
+    // `browser_snapshot` call. Until that happens, the capability stays
+    // claimed-unverified — but with a clear marker so the frontend knows
+    // it's responsible for finishing the verification.
+    ProbedCapability {
+        id: "browser-mcp".to_string(),
+        status: "claimed-unverified".to_string(),
+        discovered_by: DiscoveryMethod::LiveFire,
+        evidence: "Rust dispatcher cannot invoke MCP tools — frontend must complete the live-fire via a Claude Code session.".to_string(),
+        last_verified_at: now.to_string(),
+        verify_method: Some(
+            "frontend: mcp__browsermcp__browser_navigate about:blank + browser_snapshot".to_string(),
+        ),
+        expires: None,
+        notes: Some(
+            "PR 3 wires the actual browser-mcp live-fire through a Claude Code dispatcher. For now this remains claimed-unverified after Phase 0c.".to_string(),
+        ),
+    }
+}
+
+fn fire_unknown(id: &str, now: &str) -> ProbedCapability {
+    ProbedCapability {
+        id: id.to_string(),
+        status: "claimed-unverified".to_string(),
+        discovered_by: DiscoveryMethod::LiveFire,
+        evidence: format!("Live-fire requested for unknown capability `{}` — dispatcher has no handler.", id),
+        last_verified_at: now.to_string(),
+        verify_method: None,
+        expires: None,
+        notes: Some(
+            "Add a fire_* handler in project_capabilities.rs to support this capability.".to_string(),
+        ),
+    }
+}
+
+/// Phase 0c — live-fire verification. Takes a list of capability IDs the user
+/// confirmed in the handshake and returns updated records (status, evidence,
+/// verifyMethod, lastVerifiedAt) for each. The caller merges these into the
+/// existing on-disk record and persists.
+///
+/// Errors here are per-capability — one failed fire downgrades that single
+/// capability to `status: absent`, it does NOT abort the batch.
+#[tauri::command]
+pub async fn live_fire_capabilities(
+    project_path: String,
+    capability_ids: Vec<String>,
+) -> Result<Vec<ProbedCapability>, String> {
+    let project = Path::new(&project_path);
+    let env = read_env_values_for_live_fire(project);
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let mut results: Vec<ProbedCapability> = Vec::with_capacity(capability_ids.len());
+    for id in capability_ids {
+        let cap = match id.as_str() {
+            "browser-mcp" => fire_browser_mcp_marker(&now),
+            "db.supabase-anon" => fire_supabase_anon(&env, &now).await,
+            "db.supabase-service-role" => fire_supabase_service_role(&env, &now).await,
+            "llm-key.anthropic" => fire_anthropic(&env, &now).await,
+            "llm-key.openai" => fire_openai(&env, &now).await,
+            "llm-key.gemini" => fire_gemini(&env, &now).await,
+            other => fire_unknown(other, &now),
+        };
+        results.push(cap);
+    }
+    info!(
+        "Live-fire complete: project={}, fired={}",
+        project_path,
+        results.len()
+    );
+    Ok(results)
+}
+
 /// Phase 0a — full passive probe. Returns the complete record (capabilities
 /// + metadata) ready to be persisted via `write_project_capabilities`. PR 2
 /// will splice in user-handshake + live-fire updates.
@@ -806,6 +1336,132 @@ mod tests {
         let pkg = serde_json::json!({});
         let caps = probe_linters(dir.path(), &pkg, "2026-05-14T10:00:00Z");
         assert!(caps.iter().any(|c| c.id == "lint.clippy"));
+    }
+
+    // ── read_env_values_for_live_fire ──
+
+    #[test]
+    fn env_values_strip_surrounding_quotes() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(".env.local"),
+            "QUOTED=\"hello\"\nSINGLE='world'\nBARE=plain\n",
+        )
+        .unwrap();
+        let env = read_env_values_for_live_fire(dir.path());
+        assert_eq!(env.get("QUOTED").map(String::as_str), Some("hello"));
+        assert_eq!(env.get("SINGLE").map(String::as_str), Some("world"));
+        assert_eq!(env.get("BARE").map(String::as_str), Some("plain"));
+    }
+
+    #[test]
+    fn env_values_local_overrides_base() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".env"), "SHARED=base\n").unwrap();
+        fs::write(dir.path().join(".env.local"), "SHARED=override\n").unwrap();
+        let env = read_env_values_for_live_fire(dir.path());
+        // .env.local appears later in the candidate list, so it overrides.
+        assert_eq!(env.get("SHARED").map(String::as_str), Some("override"));
+    }
+
+    #[test]
+    fn env_values_skip_empty_values() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".env.local"), "EMPTY=\nREAL=value\n").unwrap();
+        let env = read_env_values_for_live_fire(dir.path());
+        assert!(!env.contains_key("EMPTY"));
+        assert_eq!(env.get("REAL").map(String::as_str), Some("value"));
+    }
+
+    // ── live_fire_capabilities — env-missing paths ──
+
+    #[tokio::test]
+    async fn live_fire_supabase_anon_missing_env_returns_absent() {
+        let dir = tempdir().unwrap();
+        // No .env files written.
+        let project = dir.path().to_string_lossy().to_string();
+        let results =
+            live_fire_capabilities(project, vec!["db.supabase-anon".to_string()])
+                .await
+                .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "db.supabase-anon");
+        assert_eq!(results[0].status, "absent");
+        assert!(results[0].evidence.contains("Required env vars missing"));
+    }
+
+    #[tokio::test]
+    async fn live_fire_llm_keys_missing_env_return_absent() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().to_string_lossy().to_string();
+        let results = live_fire_capabilities(
+            project,
+            vec![
+                "llm-key.anthropic".to_string(),
+                "llm-key.openai".to_string(),
+                "llm-key.gemini".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 3);
+        for cap in &results {
+            assert_eq!(cap.status, "absent");
+            assert!(cap.evidence.contains("missing at live-fire time"));
+            assert_eq!(cap.discovered_by, DiscoveryMethod::LiveFire);
+        }
+    }
+
+    #[tokio::test]
+    async fn live_fire_browser_mcp_returns_frontend_marker() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().to_string_lossy().to_string();
+        let results =
+            live_fire_capabilities(project, vec!["browser-mcp".to_string()])
+                .await
+                .unwrap();
+        assert_eq!(results[0].id, "browser-mcp");
+        // Rust cannot complete browser-mcp verification — frontend must drive it.
+        assert_eq!(results[0].status, "claimed-unverified");
+        assert!(results[0].evidence.contains("frontend"));
+        assert!(results[0]
+            .verify_method
+            .as_ref()
+            .unwrap()
+            .contains("browser_navigate"));
+    }
+
+    #[tokio::test]
+    async fn live_fire_unknown_capability_returns_unknown_marker() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().to_string_lossy().to_string();
+        let results =
+            live_fire_capabilities(project, vec!["does.not.exist".to_string()])
+                .await
+                .unwrap();
+        assert_eq!(results[0].id, "does.not.exist");
+        assert_eq!(results[0].status, "claimed-unverified");
+        assert!(results[0].evidence.contains("unknown capability"));
+    }
+
+    #[tokio::test]
+    async fn live_fire_handles_batch_of_mixed_capabilities() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().to_string_lossy().to_string();
+        let results = live_fire_capabilities(
+            project,
+            vec![
+                "browser-mcp".to_string(),
+                "llm-key.openai".to_string(),
+                "does.not.exist".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].id, "browser-mcp");
+        assert_eq!(results[1].id, "llm-key.openai");
+        assert_eq!(results[2].id, "does.not.exist");
     }
 
     // ── probe_project_capabilities (end-to-end) ──

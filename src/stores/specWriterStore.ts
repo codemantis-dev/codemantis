@@ -1,9 +1,16 @@
 import { create } from "zustand";
-import { saveTaskBoardState, loadTaskBoardState, closeSpecwriterSession } from "../lib/tauri-commands";
+import {
+  saveTaskBoardState,
+  loadTaskBoardState,
+  closeSpecwriterSession,
+  liveFireCapabilities,
+  writeProjectCapabilities,
+} from "../lib/tauri-commands";
 import type {
   CompactionRunInfo,
   CoverageAuditReport,
   InputAnalysis,
+  ProbedCapability,
   ProjectCapabilitiesRecord,
   SpecConversation,
   SpecCreationEntry,
@@ -16,6 +23,7 @@ import type {
   SpecDocumentInfo,
   StreamStats,
 } from "../types/spec-writer";
+import type { HandshakeQuestion } from "../lib/capability-handshake-prompt";
 
 /** Hard cap on persisted creation-log entries. Mirrors selfDriveStore's
  *  runLog cap so long runs don't bloat the persistence row. */
@@ -60,6 +68,13 @@ interface SpecWriterState {
   // `<project>/.claude/project-capabilities.json`. See plan:
   // ~/.claude/plans/analyse-this-why-refactored-yao.md
   projectCapabilities: Map<string, ProjectCapabilitiesRecord>;
+
+  // Phase 0b handshake — populated after the probe when `claimed-unverified`
+  // items exist AND the `selfDriveConfirmCapabilities` setting is ON. The
+  // SpecWriter UI renders these questions; `ensureSession` MUST NOT create a
+  // Claude Code session while this is non-empty. Cleared by
+  // `applyHandshakeAnswers` once the user resolves all questions.
+  pendingHandshakeQuestions: Map<string, HandshakeQuestion[]>;
 
   // Current audit content being previewed (per project)
   currentAuditContent: Map<string, string>;
@@ -141,6 +156,21 @@ interface SpecWriterState {
     projectPath: string,
     capabilities: ProjectCapabilitiesRecord,
   ) => void;
+  setPendingHandshakeQuestions: (
+    projectPath: string,
+    questions: HandshakeQuestion[],
+  ) => void;
+  clearPendingHandshakeQuestions: (projectPath: string) => void;
+  /**
+   * Resolve the handshake: dispatch live-fire for "verify" answers, mark
+   * "absent" choices, and merge the results into the stored capability
+   * record. Persists the updated record to `.claude/project-capabilities.json`.
+   * Clears `pendingHandshakeQuestions` for this project on success.
+   */
+  applyHandshakeAnswers: (
+    projectPath: string,
+    answers: Array<{ capabilityId: string; action: 'verify' | 'skip' | 'absent' }>,
+  ) => Promise<void>;
 
   // Actions - Spec content
   setCurrentSpecContent: (projectPath: string, content: string | null) => void;
@@ -238,6 +268,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   fileRequestsPending: new Map(),
   projectContext: new Map(),
   projectCapabilities: new Map(),
+  pendingHandshakeQuestions: new Map(),
   draftText: new Map(),
   draftAttachments: new Map(),
   cliSessionIds: new Map(),
@@ -429,6 +460,96 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       projectCapabilities.set(projectPath, capabilities);
       return { projectCapabilities };
     }),
+
+  setPendingHandshakeQuestions: (projectPath, questions) =>
+    set((state) => {
+      const pendingHandshakeQuestions = new Map(state.pendingHandshakeQuestions);
+      if (questions.length === 0) {
+        pendingHandshakeQuestions.delete(projectPath);
+      } else {
+        pendingHandshakeQuestions.set(projectPath, questions);
+      }
+      return { pendingHandshakeQuestions };
+    }),
+
+  clearPendingHandshakeQuestions: (projectPath) =>
+    set((state) => {
+      const pendingHandshakeQuestions = new Map(state.pendingHandshakeQuestions);
+      pendingHandshakeQuestions.delete(projectPath);
+      return { pendingHandshakeQuestions };
+    }),
+
+  applyHandshakeAnswers: async (projectPath, answers) => {
+    const current = get().projectCapabilities.get(projectPath);
+    if (!current) return;
+
+    // 1) Dispatch live-fire for everything the user said "verify" to.
+    const toVerify = answers
+      .filter((a) => a.action === 'verify')
+      .map((a) => a.capabilityId);
+    let fireResults: ProbedCapability[] = [];
+    if (toVerify.length > 0) {
+      try {
+        fireResults = await liveFireCapabilities(projectPath, toVerify);
+      } catch (e) {
+        console.warn('[specWriterStore] live-fire failed:', e);
+        // Non-fatal — we still apply the user's "absent" choices below.
+      }
+    }
+    const fireById = new Map(fireResults.map((c) => [c.id, c]));
+
+    // 2) Build the updated capability list. For each existing capability:
+    //    - If the user picked "verify" and live-fire returned a result, use it.
+    //    - If the user picked "absent", mark absent.
+    //    - If the user picked "skip" or didn't pick anything, leave as-is.
+    const answerById = new Map(answers.map((a) => [a.capabilityId, a.action]));
+    const nowIso = new Date().toISOString();
+    const updated = current.capabilities.map((cap) => {
+      const action = answerById.get(cap.id);
+      if (action === 'verify') {
+        const fired = fireById.get(cap.id);
+        if (fired) return fired;
+        // Live-fire dispatch failed at the IPC level — flag explicitly.
+        return {
+          ...cap,
+          status: 'absent' as const,
+          discoveredBy: 'live-fire' as const,
+          evidence: 'live_fire_capabilities IPC failed',
+          lastVerifiedAt: nowIso,
+        };
+      }
+      if (action === 'absent') {
+        return {
+          ...cap,
+          status: 'absent' as const,
+          discoveredBy: 'user-handshake' as const,
+          evidence: `User declined ${cap.id} during Phase 0b handshake`,
+          lastVerifiedAt: nowIso,
+        };
+      }
+      return cap;
+    });
+
+    const nextRecord: ProjectCapabilitiesRecord = {
+      ...current,
+      capabilities: updated,
+      probedAt: nowIso,
+    };
+
+    // 3) Update store + persist.
+    set((state) => {
+      const projectCapabilities = new Map(state.projectCapabilities);
+      projectCapabilities.set(projectPath, nextRecord);
+      const pendingHandshakeQuestions = new Map(state.pendingHandshakeQuestions);
+      pendingHandshakeQuestions.delete(projectPath);
+      return { projectCapabilities, pendingHandshakeQuestions };
+    });
+    try {
+      await writeProjectCapabilities(projectPath, nextRecord);
+    } catch (e) {
+      console.warn('[specWriterStore] persisting capabilities after handshake failed:', e);
+    }
+  },
 
   // Spec content
   setCurrentSpecContent: (projectPath, content) =>

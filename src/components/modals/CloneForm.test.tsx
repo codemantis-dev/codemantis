@@ -78,6 +78,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   selfDriveRunTests: true,
 selfDriveAutoCommit: false,
   selfDriveEnableRecheckLoop: true,
+  selfDriveConfirmCapabilities: true,
   defaultThinkingEffort: null,
 };
 

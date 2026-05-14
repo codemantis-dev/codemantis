@@ -906,6 +906,13 @@ export async function writeProjectCapabilities(
   return invoke("write_project_capabilities", { projectPath, record });
 }
 
+export async function liveFireCapabilities(
+  projectPath: string,
+  capabilityIds: string[],
+): Promise<import("../types/spec-writer").ProbedCapability[]> {
+  return invoke("live_fire_capabilities", { projectPath, capabilityIds });
+}
+
 export async function readProjectFiles(
   projectPath: string,
   filePaths: string[],

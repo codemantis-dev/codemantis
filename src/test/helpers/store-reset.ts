@@ -58,6 +58,7 @@ export function resetAllStores(): void {
     fileRequestsPending: new Map(),
     projectContext: new Map(),
     projectCapabilities: new Map(),
+    pendingHandshakeQuestions: new Map(),
     draftText: new Map(),
     draftAttachments: new Map(),
     cliSessionIds: new Map(),
