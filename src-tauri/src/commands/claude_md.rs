@@ -807,6 +807,52 @@ fn read_env_example(project_path: &Path) -> Vec<String> {
     vec![]
 }
 
+/// Read all REAL `.env*` files (excluding `.env.example`/`.sample`/`.template`)
+/// and collect variable NAMES only — never values. Used by SpecWriter's
+/// Phase 0 probe to detect which credentials are actually present in the
+/// project (not just declared as placeholders in `.env.example`).
+///
+/// Returns a map keyed by env-var name → list of relative filenames where
+/// the name was seen, so the probe can distinguish "placeholder in
+/// .env.example" from "real value in .env.local".
+pub fn read_env_keys_real_sources(
+    project_path: &Path,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let candidates = [
+        ".env",
+        ".env.local",
+        ".env.development",
+        ".env.development.local",
+        ".env.production",
+        ".env.production.local",
+        ".env.test",
+        ".env.test.local",
+    ];
+    let mut out: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for candidate in &candidates {
+        let path = project_path.join(candidate);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let Some(name) = trimmed.split('=').next() else {
+                continue;
+            };
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                continue;
+            }
+            out.entry(name).or_default().push((*candidate).to_string());
+        }
+    }
+    out
+}
+
 /// Infer purpose from environment variable name
 fn infer_env_var_purpose(name: &str) -> String {
     let upper = name.to_uppercase();
@@ -1938,6 +1984,75 @@ mod tests {
         std::fs::write(dir.path().join(".env.sample"), "API_KEY=\n").unwrap();
         let vars = read_env_example(dir.path());
         assert_eq!(vars, vec!["API_KEY"]);
+    }
+
+    // ── read_env_keys_real_sources ──
+
+    #[test]
+    fn read_env_keys_real_sources_finds_keys_in_env_local() {
+        let dir = temp_dir();
+        std::fs::write(
+            dir.path().join(".env.local"),
+            "# Supabase\nVITE_SUPABASE_URL=https://example.supabase.co\nVITE_SUPABASE_ANON_KEY=ey...\n",
+        )
+        .unwrap();
+        let keys = read_env_keys_real_sources(dir.path());
+        assert_eq!(keys.len(), 2);
+        assert_eq!(
+            keys.get("VITE_SUPABASE_URL").map(|v| v.as_slice()),
+            Some(&[".env.local".to_string()][..])
+        );
+        assert_eq!(
+            keys.get("VITE_SUPABASE_ANON_KEY").map(|v| v.as_slice()),
+            Some(&[".env.local".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn read_env_keys_real_sources_ignores_env_example() {
+        // Placeholder files MUST be ignored — `.env.example` is for declaration,
+        // not actual credentials. The probe needs to know what's REALLY there.
+        let dir = temp_dir();
+        std::fs::write(dir.path().join(".env.example"), "OPENAI_API_KEY=\n").unwrap();
+        let keys = read_env_keys_real_sources(dir.path());
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn read_env_keys_real_sources_tracks_multiple_sources() {
+        let dir = temp_dir();
+        std::fs::write(dir.path().join(".env"), "SHARED_KEY=base\n").unwrap();
+        std::fs::write(dir.path().join(".env.local"), "SHARED_KEY=override\nLOCAL_ONLY=x\n")
+            .unwrap();
+        let keys = read_env_keys_real_sources(dir.path());
+        assert_eq!(
+            keys.get("SHARED_KEY").map(|v| v.as_slice()),
+            Some(&[".env".to_string(), ".env.local".to_string()][..])
+        );
+        assert_eq!(
+            keys.get("LOCAL_ONLY").map(|v| v.as_slice()),
+            Some(&[".env.local".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn read_env_keys_real_sources_skips_comments_and_blanks() {
+        let dir = temp_dir();
+        std::fs::write(
+            dir.path().join(".env.local"),
+            "# Comment\n\n  \nDATABASE_URL=postgres://x\n",
+        )
+        .unwrap();
+        let keys = read_env_keys_real_sources(dir.path());
+        assert_eq!(keys.len(), 1);
+        assert!(keys.contains_key("DATABASE_URL"));
+    }
+
+    #[test]
+    fn read_env_keys_real_sources_no_files() {
+        let dir = temp_dir();
+        let keys = read_env_keys_real_sources(dir.path());
+        assert!(keys.is_empty());
     }
 
     // ── extract_readme_description ──

@@ -9,6 +9,8 @@ import {
   listenChatEvents,
   listTemplates,
   gatherSpecContext,
+  probeProjectCapabilities,
+  writeProjectCapabilities,
   readFileContent,
 } from "../lib/tauri-commands";
 import type { FrontendEvent } from "../types/claude-events";
@@ -136,6 +138,30 @@ export function useSpecConversationClaude(): {
       const context = await gatherSpecContext(projectPath);
       const store = useSpecWriterStore.getState();
       store.setProjectContext(projectPath, context);
+
+      // Phase 0a: probe environment capabilities + persist the record so
+      // Self-Drive verify-mode can read the same source of truth. Probe
+      // failure is non-fatal — SpecWriter still works without a capabilities
+      // section, just less informed. See plan:
+      // ~/.claude/plans/analyse-this-why-refactored-yao.md
+      try {
+        const capabilities = await probeProjectCapabilities(projectPath);
+        store.setProjectCapabilities(projectPath, capabilities);
+        // Persist so subsequent loads / verify-mode can read it directly.
+        // Errors here are non-fatal — the in-memory record is still usable.
+        await writeProjectCapabilities(projectPath, capabilities).catch((err) => {
+          console.warn(
+            "[useSpecConversationClaude] Failed to persist project-capabilities.json:",
+            err,
+          );
+        });
+      } catch (probeErr) {
+        console.warn(
+          "[useSpecConversationClaude] Capability probe failed (non-fatal):",
+          probeErr,
+        );
+      }
+
       store.setContextLoaded(projectPath, true);
     } catch (e) {
       console.warn("[useSpecConversationClaude] Context gathering failed:", e);
@@ -157,10 +183,12 @@ export function useSpecConversationClaude(): {
 
     const model = conv.ai_model || DEFAULT_SPEC_CLAUDE_CODE_MODEL;
     const projectContext = store.projectContext.get(projectPath) ?? "";
+    const projectCapabilities = store.projectCapabilities.get(projectPath) ?? null;
     const systemPrompt = buildClaudeCodePrompt(
       conv.mode,
       conv.templateCatalog ?? "",
       projectContext,
+      projectCapabilities,
     );
 
     const sessionId = await createSpecwriterSession(projectPath, model, systemPrompt);

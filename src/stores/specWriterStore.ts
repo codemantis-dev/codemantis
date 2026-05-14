@@ -4,6 +4,7 @@ import type {
   CompactionRunInfo,
   CoverageAuditReport,
   InputAnalysis,
+  ProjectCapabilitiesRecord,
   SpecConversation,
   SpecCreationEntry,
   SpecCreationLog,
@@ -53,6 +54,12 @@ interface SpecWriterState {
 
   // Gathered project context for feature mode (per project)
   projectContext: Map<string, string>;
+
+  // Phase 0 probed project capabilities (per project). Loaded on
+  // `loadContext`, rendered into the SpecWriter prompt, persisted to
+  // `<project>/.claude/project-capabilities.json`. See plan:
+  // ~/.claude/plans/analyse-this-why-refactored-yao.md
+  projectCapabilities: Map<string, ProjectCapabilitiesRecord>;
 
   // Current audit content being previewed (per project)
   currentAuditContent: Map<string, string>;
@@ -130,6 +137,10 @@ interface SpecWriterState {
 
   // Actions - Project context
   setProjectContext: (projectPath: string, context: string) => void;
+  setProjectCapabilities: (
+    projectPath: string,
+    capabilities: ProjectCapabilitiesRecord,
+  ) => void;
 
   // Actions - Spec content
   setCurrentSpecContent: (projectPath: string, content: string | null) => void;
@@ -226,6 +237,7 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
   savedSpecs: new Map(),
   fileRequestsPending: new Map(),
   projectContext: new Map(),
+  projectCapabilities: new Map(),
   draftText: new Map(),
   draftAttachments: new Map(),
   cliSessionIds: new Map(),
@@ -409,6 +421,13 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const projectContext = new Map(state.projectContext);
       projectContext.set(projectPath, context);
       return { projectContext };
+    }),
+
+  setProjectCapabilities: (projectPath, capabilities) =>
+    set((state) => {
+      const projectCapabilities = new Map(state.projectCapabilities);
+      projectCapabilities.set(projectPath, capabilities);
+      return { projectCapabilities };
     }),
 
   // Spec content

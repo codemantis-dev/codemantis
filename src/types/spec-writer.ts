@@ -345,3 +345,79 @@ export interface CompactionRunInfo {
   /** ISO timestamp of the compact_complete event. */
   at: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Project capabilities — Phase 0 probe output, persisted to
+// `<project>/.claude/project-capabilities.json`. SpecWriter reads this
+// to render the `## Capabilities` section in specs; Self-Drive verify-mode
+// reads it to decide which evidence shape an item demands.
+//
+// NOT to be confused with `sessionCapabilities` in sessionStore — that's
+// the per-session Claude CLI capabilities map from the `initialize`
+// control_response. These are project-level, environmental affordances.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The status of one probed capability.
+ * - `verified` — proven by file content OR live-fire invocation
+ * - `pending-install` — user agreed to install in a setup session (e.g. vitest)
+ * - `absent` — probed and not present; spec must not require this capability
+ * - `claimed-unverified` — probe found indirect evidence; live-fire pending or skipped
+ */
+export type CapabilityStatus =
+  | 'verified'
+  | 'pending-install'
+  | 'absent'
+  | 'claimed-unverified';
+
+/**
+ * How a capability's status was determined. `passive-probe` reads files only;
+ * `user-handshake` means the user confirmed an ambiguous reading; `live-fire`
+ * means SpecWriter actually invoked the capability (curl, MCP call, exec) and
+ * captured a real response.
+ */
+export type CapabilityDiscoveryMethod =
+  | 'passive-probe'
+  | 'user-handshake'
+  | 'live-fire';
+
+/**
+ * One probed project capability. The `id` is a dotted namespace
+ * (`test-runner.vitest`, `db.supabase-service-role`, `browser-mcp`, etc.)
+ * referenced by acceptance criteria in specs as `[behavioral capability=<id>]`.
+ */
+export interface ProbedCapability {
+  id: string;
+  status: CapabilityStatus;
+  discoveredBy: CapabilityDiscoveryMethod;
+  /** Human-readable proof — file:line citation for passive probes, command+exit for live-fire. */
+  evidence: string;
+  /** ISO timestamp of the most recent verification (probe or live-fire). */
+  lastVerifiedAt: string;
+  /** The command or call used to verify; null for capabilities provable by file content alone. */
+  verifyMethod: string | null;
+  /** ISO timestamp at which this capability's verification should be considered expired (e.g. short-lived tokens). Null = never time-bound. */
+  expires: string | null;
+  /** Optional free-form notes the probe couldn't fit into `evidence` (e.g. baseline error counts, detected versions). */
+  notes?: string;
+}
+
+/**
+ * The on-disk record. Written to `<project>/.claude/project-capabilities.json`
+ * by the probe pipeline. Verify-mode re-fires capabilities older than
+ * `stalenessWindow` (ISO 8601 duration, default `PT24H`) before crediting
+ * `status: verified`. New capabilities introduced by a later Guide trigger
+ * targeted on-demand probes for just the missing entries.
+ */
+export interface ProjectCapabilitiesRecord {
+  schemaVersion: 1;
+  /** ISO timestamp of the most recent full-probe run. */
+  probedAt: string;
+  /** Claude CLI version at probe time, captured from sessionCapabilities. */
+  probedByCliVersion: string | null;
+  /** CodeMantis package version at probe time. */
+  probedBySpecWriterVersion: string | null;
+  capabilities: ProbedCapability[];
+  /** ISO 8601 duration (e.g. `PT24H`). Verify-mode re-fires capabilities older than this. */
+  stalenessWindow: string;
+}

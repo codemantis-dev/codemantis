@@ -3,6 +3,7 @@
 
 import { NEW_APP_PROMPT } from "./new-app-mode";
 import { FEATURE_MODE_PROMPT } from "./feature-mode";
+import type { ProjectCapabilitiesRecord } from "../../types/spec-writer";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Claude Code CLI — SpecWriter system prompt for --append-system-prompt
@@ -216,18 +217,69 @@ function stripRequestFileSections(prompt: string): string {
 }
 
 /**
+ * Render the `## Capabilities` section that prefixes the project context.
+ * SpecWriter reads this section to decide which acceptance criteria are
+ * verifiable in the current environment. Acceptance criteria MUST reference
+ * capabilities by ID via `[behavioral capability=<id>]` style tags; criteria
+ * targeting capabilities with `status: absent` must either substitute a
+ * verifiable alternative or be marked `DEFERRED: pending capability X`.
+ *
+ * See plan: ~/.claude/plans/analyse-this-why-refactored-yao.md
+ */
+export function renderCapabilitiesSection(
+  capabilities: ProjectCapabilitiesRecord | null,
+): string {
+  if (!capabilities || capabilities.capabilities.length === 0) {
+    return "";
+  }
+  const lines: string[] = [`## Capabilities (probed ${capabilities.probedAt})`];
+  for (const cap of capabilities.capabilities) {
+    const icon =
+      cap.status === "verified"
+        ? "✅"
+        : cap.status === "absent"
+          ? "❌"
+          : cap.status === "pending-install"
+            ? "⏳"
+            : "⚠️";
+    const verifyHint = cap.verifyMethod ? ` (verify: \`${cap.verifyMethod}\`)` : "";
+    lines.push(`- ${cap.id}: ${icon} ${cap.status}${verifyHint} — ${cap.evidence}`);
+  }
+  lines.push("");
+  lines.push(
+    "AUTHORITY: The `## Capabilities` block above is the single source of truth for what this project can verify. " +
+      "Every `[behavioral | integration | side-effect]` acceptance criterion in the spec MUST carry a " +
+      "`capability=<id>` tag referencing one of these IDs. Never write criteria that require a capability with " +
+      "`status: absent` — substitute a verifiable alternative (e.g. use `browser-mcp` when `test-runner.*` is absent) " +
+      "or mark the deliverable `DEFERRED: pending capability <id>`. Self-Drive verify-mode auto-resolves items whose " +
+      "capability is absent to `N/A` rather than SKIPPED, so honest specs avoid the deferred-test trap.",
+  );
+  return lines.join("\n");
+}
+
+/**
  * Build the full --append-system-prompt text for a Claude Code SpecWriter session.
  * Wraps the mode-specific prompt in the SpecWriter authority header.
+ *
+ * `capabilities` is the project's Phase 0 probe result. When non-null it is
+ * rendered as a `## Capabilities` section prepended to the project context
+ * so SpecWriter writes acceptance criteria only against verified affordances.
  */
 export function buildClaudeCodePrompt(
   mode: 'new_application' | 'feature',
   templateCatalog: string,
   projectContext: string,
+  capabilities: ProjectCapabilitiesRecord | null = null,
 ): string {
+  const capabilitiesSection = renderCapabilitiesSection(capabilities);
+  const contextWithCapabilities = capabilitiesSection
+    ? `${capabilitiesSection}\n\n${projectContext}`
+    : projectContext;
+
   let modePrompt: string;
-  if (mode === 'feature' && projectContext) {
+  if (mode === 'feature' && contextWithCapabilities) {
     modePrompt = FEATURE_MODE_PROMPT
-      .replace('{PROJECT_CONTEXT}', projectContext)
+      .replace('{PROJECT_CONTEXT}', contextWithCapabilities)
       .replace('{TEMPLATE_CATALOG}', templateCatalog);
   } else {
     modePrompt = NEW_APP_PROMPT.replace('{TEMPLATE_CATALOG}', templateCatalog);

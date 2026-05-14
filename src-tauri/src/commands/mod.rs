@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod menu;
 pub mod openrouter;
 pub mod preview;
+pub mod project_capabilities;
 pub mod scaffold;
 pub mod self_drive;
 pub mod session;

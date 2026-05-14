@@ -879,6 +879,33 @@ export async function gatherSpecContext(
   return invoke<string>("gather_spec_context", { projectPath });
 }
 
+// ── Phase 0 project capability probe ────────────────────────────────────
+//
+// See plan: ~/.claude/plans/analyse-this-why-refactored-yao.md
+// SpecWriter calls `probeProjectCapabilities` on context load, persists the
+// result via `writeProjectCapabilities`, and renders it into the system
+// prompt's `## Capabilities` section. Self-Drive verify-mode reads the same
+// record via `readProjectCapabilities` to decide what evidence to demand.
+
+export async function probeProjectCapabilities(
+  projectPath: string,
+): Promise<import("../types/spec-writer").ProjectCapabilitiesRecord> {
+  return invoke("probe_project_capabilities", { projectPath });
+}
+
+export async function readProjectCapabilities(
+  projectPath: string,
+): Promise<import("../types/spec-writer").ProjectCapabilitiesRecord | null> {
+  return invoke("read_project_capabilities", { projectPath });
+}
+
+export async function writeProjectCapabilities(
+  projectPath: string,
+  record: import("../types/spec-writer").ProjectCapabilitiesRecord,
+): Promise<void> {
+  return invoke("write_project_capabilities", { projectPath, record });
+}
+
 export async function readProjectFiles(
   projectPath: string,
   filePaths: string[],
