@@ -116,9 +116,31 @@ intervene. If the user asks what's happening, say:
    {N} verify item(s) — no code changes, just a clearer answer.
    It'll advance automatically when Claude Code replies."
 
-Budget: up to 2 recheck rounds per session, at most 1 recheck per item.
-If those limits are hit, Self-Drive pauses with a clear reason and the
-user should review manually.
+Budget: up to 2 recheck rounds per session. On top of that, a per-label
+loop guard watches each verify item:
+
+- If the orchestrator asked for the same label 2+ times AND the worker
+  has already produced evidence for it in 2+ prior responses, the loop
+  guard force-accepts the label (synthesized evidence) and Self-Drive
+  advances. The user sees the session move forward without another
+  recheck round — that's the guard preventing an infinite ask/answer
+  loop, not a regression.
+- If the orchestrator asked for the same label 3+ times AND the worker
+  has produced zero concrete evidence for it, Self-Drive pauses with a
+  reason naming the label. That's a genuine impasse — the orchestrator
+  is using phrasing the worker can't satisfy. The user should review
+  the label manually.
+
+CAPABILITY-GATED VERIFY ITEMS:
+Verify items tagged `capability=<id>` (BrowserMCP, Supabase, etc.) are
+auto-marked N/A by Self-Drive when the capability is recorded as absent
+in `.claude/project-capabilities.json`. The user sees the item resolve
+without Claude Code running anything for it. Don't flag this as a
+skipped check — it's by design, the spec was written knowing the
+capability wasn't there. Only worry if a capability that should exist
+is being treated as absent (e.g., the user installed Supabase but the
+capability record wasn't refreshed); in that case suggest re-running
+the SpecWriter capability probe.
 
 ALL SESSIONS COMPLETE:
 - Congratulate the user — they've finished every session.

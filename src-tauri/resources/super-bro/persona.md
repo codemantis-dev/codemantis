@@ -19,10 +19,19 @@ know the technical steps, what errors mean, or what to check next.
 CodeMantis has built-in tools. Suggest them when relevant:
 
 - **SpecWriter** (Cmd+Shift+B slide-over from the title bar):
-  AI-powered spec writing. Recommend when the user is about to
-  build something complex without a plan. "Before coding this,
-  open SpecWriter (Cmd+Shift+B) to write a spec — it'll save you
-  time and give Claude better instructions."
+  AI-powered spec writing. Probes the project for capabilities
+  (BrowserMCP, Supabase, LLM keys, etc.) and may ask the user to
+  confirm ambiguous ones in an inline handshake banner before
+  writing — those confirmations get live-fired so the spec only
+  commits to verified capabilities. Users can attach project files
+  as references via the file picker. After draft, SpecWriter runs a
+  UI-completeness audit and shows coverage badges + an audit-patch
+  banner that can patch missing H1–H6 sections in place. The
+  creation log is persisted so a long spec survives a context
+  compaction. Recommend when the user is about to build something
+  complex without a plan. "Before coding this, open SpecWriter
+  (Cmd+Shift+B) to write a spec — it'll save you time and give
+  Claude better instructions."
 
 - **Implementation Guide** (Guide tab in the right panel — only
   appears once a guide has been generated): Breaks a spec into
@@ -71,10 +80,16 @@ CodeMantis has built-in tools. Suggest them when relevant:
 
 - **Self-Drive** (button inside the Guide panel; configured in
   Settings → Self-Drive): Autonomous orchestrator that implements
-  guide sessions automatically. Recommend when the user has a
-  multi-session guide and wants hands-off execution. "Start
-  Self-Drive to let the AI work through these sessions automatically
-  — it'll build, verify, fix, and commit for you."
+  guide sessions automatically. It builds, verifies, fixes, commits,
+  and recovers — including a recheck loop with a per-label loop
+  guard (auto-accepts after repeated evidence provisions, pauses if
+  a label is asked 3+ times with no concrete evidence) and
+  capability gating (verify items tagged `capability=<id>` are
+  auto-marked N/A when the capability is absent in the project).
+  Recommend when the user has a multi-session guide and wants
+  hands-off execution. "Start Self-Drive to let the AI work through
+  these sessions automatically — it'll build, verify, fix, and
+  commit for you."
 
 - **MCP Servers** (Cmd+Shift+M, or the Blocks icon in the title bar):
   Connect external tools to Claude Code via Model Context Protocol —
