@@ -1,36 +1,19 @@
 use crate::agents::claude_code::approval_server::ApprovalServerState;
-use crate::agents::claude_code::process::ClaudeProcess;
+use crate::agents::{AgentId, AgentProcessHandle};
 use crate::storage::Database;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Session permission mode, enforced at the Rust approval server level.
-///
-/// Wire format to the Claude CLI is *camelCase* (`acceptEdits`, `dontAsk`,
-/// `bypassPermissions`, `auto`, `plan`, `default`) and is handled by the
-/// explicit `classify_permission_mode` (incoming) and `session_mode_to_cli`
-/// (outgoing) funnels. Internal Rust↔TS serialization is *kebab-case* via
-/// serde — do not confuse the two.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SessionMode {
-    Normal,
-    AutoAccept,
-    Plan,
-    /// CLI's auto-routing mode — the CLI decides per-tool whether to ask.
-    /// CodeMantis treats this like Normal for approval-server purposes.
-    Auto,
-    /// "Don't ask for anything" — behaviorally equivalent to AutoAccept for
-    /// CodeMantis's approval server; distinct label only.
-    DontAsk,
-    /// CLI bypasses all permission checks. The approval hook likely never
-    /// fires in this mode; branch returns allow defensively.
-    BypassPermissions,
-}
+/// Session permission mode. Phase 1 Session 3 unified this with the
+/// adapter-agnostic [`crate::agents::SessionMode`] — the legacy local enum
+/// (identical variants + kebab-case serde) is gone. `classify_permission_mode`
+/// (incoming) and `agents::claude_code::session_mode_to_cli` (outgoing) remain
+/// the camelCase ↔ enum funnels for the Claude wire.
+pub use crate::agents::SessionMode;
 
 /// Tracks a pending control_request so we can match the response.
 #[derive(Debug, Clone)]
@@ -44,6 +27,10 @@ pub enum ControlRequestKind {
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
     pub id: String,
+    /// Which agent owns this session. Phase 1: always `ClaudeCode` (legacy
+    /// rows and `create_session` default to it). Phase 2 makes this
+    /// user-selectable via the provider picker + adds the SQLite column.
+    pub agent_id: AgentId,
     pub name: String,
     pub project_path: String,
     pub status: SessionStatus,
@@ -64,7 +51,10 @@ pub enum SessionStatus {
 
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, SessionInfo>>,
-    pub processes: Mutex<HashMap<String, ClaudeProcess>>,
+    /// Per-session adapter handles. Phase 1 Session 3 generalised this from
+    /// `ClaudeProcess` to `Box<dyn AgentProcessHandle>` so non-Claude agents
+    /// (Phase 2: Codex) can coexist.
+    pub processes: Mutex<HashMap<String, Box<dyn AgentProcessHandle>>>,
     pub claude_binary: Mutex<Option<String>>,
     pub database: Arc<Database>,
     /// Maps CodeMantis session_id → CLI's own session_id.

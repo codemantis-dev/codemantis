@@ -85,6 +85,9 @@ fn to_native_control(
 /// registry. All per-session state is in the [`ClaudeCodeProcessHandle`] it
 /// returns.
 pub struct ClaudeCodeAdapter {
+    // Read via `capabilities()`; that trait method is first consumed by the
+    // Phase 2 capability-driven UI (provider picker / feature gating).
+    #[allow(dead_code)]
     capabilities: AgentCapabilitySet,
 }
 
@@ -122,6 +125,9 @@ impl Default for ClaudeCodeAdapter {
 /// its API surface to [`AgentProcessHandle`].
 pub struct ClaudeCodeProcessHandle {
     inner: ClaudeProcess,
+    // Returned by `session_id()`; that accessor is first consumed in Phase 2
+    // when the command layer routes by handle identity rather than map key.
+    #[allow(dead_code)]
     session_id: String,
 }
 

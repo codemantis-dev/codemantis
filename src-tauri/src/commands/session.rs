@@ -1,6 +1,6 @@
-use crate::claude::event_types::ControlRequestPayload;
-use crate::claude::process::ClaudeProcess;
-use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionMode, SessionStatus};
+use crate::agents::claude_code::session_mode_to_cli;
+use crate::agents::{registry, AgentId, ControlRequestPayload, SessionConfig, SessionMode};
+use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionStatus};
 use crate::errors::AppError;
 use crate::storage::database::{PersistedSession, SessionMessageRow, SessionMessageSearchResult};
 use crate::terminal::pty_manager::TerminalPool;
@@ -68,6 +68,7 @@ pub async fn create_session(
 
     let session_info = SessionInfo {
         id: session_id.clone(),
+        agent_id: AgentId::ClaudeCode,
         name: session_name,
         project_path: project_path.clone(),
         status: SessionStatus::Starting,
@@ -109,26 +110,32 @@ pub async fn create_session(
 
     let effort_override = state.thinking_effort_override(&project_path).await;
 
-    // Spawn the CLI process
-    let process = ClaudeProcess::spawn(
-        app_handle,
-        session_id.clone(),
-        &project_path,
-        &claude_binary,
-        resume_cli_session_id.as_deref(),
-        approval_port,
-        None, // model_override
-        None, // append_system_prompt
-        Some(&session_info.name),
-        effort_override.as_deref(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    // Spawn through the Claude Code adapter (Phase 1 Session 3: routing now
+    // goes through the AgentAdapter trait instead of the concrete CLI process).
+    let adapter = registry::get(AgentId::ClaudeCode)
+        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
+    let handle = adapter
+        .spawn_session(
+            app_handle,
+            &claude_binary,
+            approval_port,
+            SessionConfig {
+                session_id: session_id.clone(),
+                project_path: project_path.clone(),
+                session_name: Some(session_info.name.clone()),
+                model_override: None,
+                append_system_prompt: None,
+                resume_token: resume_cli_session_id.clone(),
+                effort_override: effort_override.clone(),
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
-    // Store process
+    // Store handle
     {
         let mut processes = state.processes.lock().await;
-        processes.insert(session_id.clone(), process);
+        processes.insert(session_id.clone(), handle);
     }
 
     // Update status to connected
@@ -158,8 +165,11 @@ pub async fn pause_session_process(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    let mut processes = state.processes.lock().await;
-    if let Some(mut process) = processes.remove(&session_id) {
+    let removed = {
+        let mut processes = state.processes.lock().await;
+        processes.remove(&session_id)
+    };
+    if let Some(process) = removed {
         process.shutdown().await;
     }
     let mut sessions = state.sessions.lock().await;
@@ -208,24 +218,29 @@ pub async fn resume_session_process(
 
     let effort_override = state.thinking_effort_override(&project_path).await;
 
-    let process = ClaudeProcess::spawn(
-        app_handle,
-        session_id.clone(),
-        &project_path,
-        &claude_binary,
-        effective_cli_session_id.as_deref(),
-        approval_port,
-        None, // model_override
-        None, // append_system_prompt
-        Some(&session_name),
-        effort_override.as_deref(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let adapter = registry::get(AgentId::ClaudeCode)
+        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
+    let handle = adapter
+        .spawn_session(
+            app_handle,
+            &claude_binary,
+            approval_port,
+            SessionConfig {
+                session_id: session_id.clone(),
+                project_path: project_path.clone(),
+                session_name: Some(session_name.clone()),
+                model_override: None,
+                append_system_prompt: None,
+                resume_token: effective_cli_session_id.clone(),
+                effort_override: effort_override.clone(),
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     {
         let mut processes = state.processes.lock().await;
-        processes.insert(session_id.clone(), process);
+        processes.insert(session_id.clone(), handle);
     }
 
     {
@@ -253,7 +268,10 @@ pub async fn send_message(
         return Err(AppError::ProcessNotRunning(session_id).to_string());
     }
 
-    process.send_message(&prompt).map_err(|e| e.to_string())
+    process
+        .send_user_message(&prompt)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -270,19 +288,22 @@ pub async fn set_session_mode(
     // Update backend state (approval server enforcement)
     {
         let mut modes = state.session_modes.lock().await;
-        modes.insert(session_id.clone(), mode.clone());
+        modes.insert(session_id.clone(), mode);
     }
 
     // Map CodeMantis mode to CLI permission_mode string
-    let cli_mode = session_mode_to_cli(&mode);
+    let cli_mode = session_mode_to_cli(mode);
 
     // Best-effort: send control request to CLI to sync permission mode
     let processes = state.processes.lock().await;
     if let Some(process) = processes.get(&session_id) {
         if process.is_running() {
-            match process.send_control_request(ControlRequestPayload::SetPermissionMode {
-                mode: cli_mode.to_string(),
-            }) {
+            match process
+                .send_control_request(ControlRequestPayload::SetPermissionMode {
+                    mode: cli_mode.to_string(),
+                })
+                .await
+            {
                 Ok(request_id) => {
                     let mut pending = state.pending_control_requests.lock().await;
                     pending.insert(
@@ -394,7 +415,10 @@ pub async fn submit_question_answer(
     if !process.is_running() {
         return Err(AppError::ProcessNotRunning(session_id).to_string());
     }
-    process.send_message(&answer).map_err(|e| e.to_string())
+    process
+        .send_user_message(&answer)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -413,12 +437,13 @@ pub async fn close_session(
         sessions.get(&session_id).and_then(|s| s.model.clone())
     };
 
-    // Shutdown the process
-    {
+    // Shutdown the process (drop the map lock before awaiting shutdown)
+    let removed = {
         let mut processes = state.processes.lock().await;
-        if let Some(mut process) = processes.remove(&session_id) {
-            process.shutdown().await;
-        }
+        processes.remove(&session_id)
+    };
+    if let Some(process) = removed {
+        process.shutdown().await;
     }
 
     // Close all terminals for this session
@@ -714,6 +739,7 @@ pub async fn interrupt_session(
 
     let request_id = process
         .send_control_request(ControlRequestPayload::Interrupt)
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut pending = state.pending_control_requests.lock().await;
@@ -740,6 +766,7 @@ pub async fn set_session_model(
         .send_control_request(ControlRequestPayload::SetModel {
             model: model.clone(),
         })
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut pending = state.pending_control_requests.lock().await;
@@ -763,6 +790,7 @@ pub async fn initialize_session(
 
     let request_id = process
         .send_control_request(ControlRequestPayload::Initialize)
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut pending = state.pending_control_requests.lock().await;
@@ -794,22 +822,8 @@ pub(crate) fn format_session_name(base: &str, existing_count: usize) -> String {
     }
 }
 
-/// Maps a `SessionMode` to the CLI permission_mode string.
-///
-/// Wire format is camelCase (matches the CLI's `--permission-mode` choices).
-/// Do NOT rely on serde for outgoing strings — the internal kebab-case
-/// serialization does not match what the CLI expects for the new variants
-/// (`DontAsk` would serialize as `"dont-ask"` but the CLI wants `"dontAsk"`).
-pub(crate) fn session_mode_to_cli(mode: &SessionMode) -> &'static str {
-    match mode {
-        SessionMode::Normal => "default",
-        SessionMode::AutoAccept => "acceptEdits",
-        SessionMode::Plan => "plan",
-        SessionMode::Auto => "auto",
-        SessionMode::DontAsk => "dontAsk",
-        SessionMode::BypassPermissions => "bypassPermissions",
-    }
-}
+// `session_mode_to_cli` moved to `crate::agents::claude_code` in Phase 1
+// Session 2 (spec §3.3) and is imported at the top of this file.
 
 // ── Session Messages (Session Logs) ─────────────────────────────────
 
@@ -953,25 +967,35 @@ pub async fn create_specwriter_session(
         *port
     };
 
-    let process = ClaudeProcess::spawn(
-        app_handle,
-        session_id.clone(),
-        &project_path,
-        &claude_binary,
-        None, // no resume
-        approval_port,
-        Some(&model),
-        Some(&system_prompt),
-        Some("SpecWriter"),
-        None, // effort_override — SpecWriter ignores user's effort choice
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    // Phase 1: SpecWriter is hardcoded to Claude Code. Phase 2 picks the
+    // adapter by capability (supports_append_system_prompt). Codex has no
+    // --append-system-prompt flag and uses an ephemeral AGENTS.override.md
+    // instead — the capability layer abstracts the mechanism.
+    let adapter = registry::get(AgentId::ClaudeCode)
+        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
+    let handle = adapter
+        .spawn_session(
+            app_handle,
+            &claude_binary,
+            approval_port,
+            SessionConfig {
+                session_id: session_id.clone(),
+                project_path: project_path.clone(),
+                session_name: Some("SpecWriter".to_string()),
+                model_override: Some(model.clone()),
+                append_system_prompt: Some(system_prompt.clone()),
+                resume_token: None,
+                // SpecWriter ignores the user's effort choice.
+                effort_override: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
-    // Store process (for send_message, interrupt, cleanup on exit)
+    // Store handle (for send_user_message, interrupt, cleanup on exit)
     {
         let mut processes = state.processes.lock().await;
-        processes.insert(session_id.clone(), process);
+        processes.insert(session_id.clone(), handle);
     }
 
     // Set Plan mode so the CLI cannot write/edit/create files
@@ -996,11 +1020,12 @@ pub async fn close_specwriter_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    {
+    let removed = {
         let mut processes = state.processes.lock().await;
-        if let Some(mut process) = processes.remove(&session_id) {
-            process.shutdown().await;
-        }
+        processes.remove(&session_id)
+    };
+    if let Some(process) = removed {
+        process.shutdown().await;
     }
     {
         let mut modes = state.session_modes.lock().await;
@@ -1089,35 +1114,35 @@ mod tests {
 
     #[test]
     fn mode_normal_maps_to_default() {
-        assert_eq!(session_mode_to_cli(&SessionMode::Normal), "default");
+        assert_eq!(session_mode_to_cli(SessionMode::Normal), "default");
     }
 
     #[test]
     fn mode_auto_accept_maps_to_accept_edits() {
-        assert_eq!(session_mode_to_cli(&SessionMode::AutoAccept), "acceptEdits");
+        assert_eq!(session_mode_to_cli(SessionMode::AutoAccept), "acceptEdits");
     }
 
     #[test]
     fn mode_plan_maps_to_plan() {
-        assert_eq!(session_mode_to_cli(&SessionMode::Plan), "plan");
+        assert_eq!(session_mode_to_cli(SessionMode::Plan), "plan");
     }
 
     #[test]
     fn mode_auto_maps_to_auto() {
-        assert_eq!(session_mode_to_cli(&SessionMode::Auto), "auto");
+        assert_eq!(session_mode_to_cli(SessionMode::Auto), "auto");
     }
 
     #[test]
     fn mode_dont_ask_maps_to_dont_ask_camel_case() {
         // CLI uses camelCase — do NOT rely on serde kebab-case here.
-        assert_eq!(session_mode_to_cli(&SessionMode::DontAsk), "dontAsk");
+        assert_eq!(session_mode_to_cli(SessionMode::DontAsk), "dontAsk");
     }
 
     #[test]
     fn mode_bypass_permissions_maps_to_camel_case() {
         // CLI uses camelCase — do NOT rely on serde kebab-case here.
         assert_eq!(
-            session_mode_to_cli(&SessionMode::BypassPermissions),
+            session_mode_to_cli(SessionMode::BypassPermissions),
             "bypassPermissions",
         );
     }
@@ -1249,7 +1274,7 @@ mod tests {
             SessionMode::DontAsk,
             SessionMode::BypassPermissions,
         ];
-        let cli_strings: Vec<&str> = modes.iter().map(session_mode_to_cli).collect();
+        let cli_strings: Vec<&str> = modes.iter().copied().map(session_mode_to_cli).collect();
         let unique: std::collections::HashSet<&&str> = cli_strings.iter().collect();
         assert_eq!(
             unique.len(),
@@ -1270,7 +1295,7 @@ mod tests {
             SessionMode::DontAsk,
             SessionMode::BypassPermissions,
         ] {
-            let cli = session_mode_to_cli(&mode);
+            let cli = session_mode_to_cli(mode);
             let roundtripped = classify_permission_mode(cli);
             assert_eq!(
                 roundtripped, mode,

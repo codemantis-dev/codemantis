@@ -27,8 +27,9 @@ pub fn get(agent_id: AgentId) -> Option<Arc<dyn AgentAdapter>> {
         .cloned()
 }
 
-/// Enumerate all registered adapter ids. Useful for capability-driven UI
-/// (provider picker) and for tests.
+/// Enumerate all registered adapter ids. First consumed by the Phase 2
+/// capability-driven UI (provider picker); also used by the tests below.
+#[allow(dead_code)]
 pub fn registered_ids() -> Vec<AgentId> {
     REGISTRY.iter().map(|a| a.agent_id()).collect()
 }

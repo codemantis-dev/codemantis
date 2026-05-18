@@ -1106,6 +1106,7 @@ use std::path::PathBuf;
         let state = AppState::new(test_db());
         let info = SessionInfo {
             id: "test-session-1".to_string(),
+            agent_id: crate::agents::AgentId::ClaudeCode,
             name: "Test".to_string(),
             project_path: "/tmp/test".to_string(),
             status: SessionStatus::Connected,
@@ -1135,6 +1136,7 @@ use std::path::PathBuf;
         let state = AppState::new(test_db());
         let info = SessionInfo {
             id: "s1".to_string(),
+            agent_id: crate::agents::AgentId::ClaudeCode,
             name: "Test".to_string(),
             project_path: "/tmp".to_string(),
             status: SessionStatus::Starting,

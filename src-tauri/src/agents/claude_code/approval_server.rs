@@ -317,7 +317,7 @@ async fn handle_tool_approval(
                     "[approval-server] {} observed → switching session {} to {:?} (CLI emits its own UI denial regardless of this allow)",
                     tool_name, sid, new_mode
                 );
-                modes.insert(sid.clone(), new_mode.clone());
+                modes.insert(sid.clone(), new_mode);
             }
             if let Err(e) = app_handle.emit(
                 "session-mode-changed",

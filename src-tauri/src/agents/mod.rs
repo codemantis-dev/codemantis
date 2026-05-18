@@ -13,6 +13,17 @@
 //! Spec: `_guidance/requirements/CodeMantis-Phase1-AgentAdapter-Refactor-v1.2.md`
 //! §3.2 (`AgentAdapter` trait) and §3.5 (channel helpers).
 
+//! Phase 1 lands the full adapter trait surface, the NormalizedEvent
+//! vocabulary, the generic control-protocol types, and the channel helpers
+//! ahead of full consumption (spec §4.1: "compiles but nothing calls them
+//! yet"). Claude Code still emits the legacy `claude_code::event_types`
+//! FrontendEvent on the wire in Phase 1 (spec §3.5: no wire-format change);
+//! Phase 2's Codex adapter is the first consumer of NormalizedEvent and the
+//! per-agent channel helpers. The forward-looking items below carry a
+//! targeted `#[allow(dead_code)]` with a Phase-2 rationale — applied per item
+//! (not module-wide) so real dead code in the moved `claude_code`
+//! implementation still warns.
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -32,6 +43,7 @@ pub enum AgentId {
     ClaudeCode,
 }
 
+#[allow(dead_code)]
 impl AgentId {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -44,6 +56,7 @@ impl AgentId {
 /// UI surfaces and dispatch logic so adapters never have to advertise
 /// capabilities they don't support.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AgentCapabilitySet {
     pub agent_id: AgentId,
     pub display_name: &'static str,
@@ -77,6 +90,7 @@ pub struct AgentCapabilitySet {
 
 /// Per-API-call token usage emitted from each agent's message-delta-equivalent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(dead_code)]
 pub struct UsageInfo {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -89,6 +103,7 @@ pub struct UsageInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(dead_code)]
 pub struct UsageIteration {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -99,6 +114,7 @@ pub struct UsageIteration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(dead_code)]
 pub struct ServerToolUse {
     pub web_search_requests: Option<u32>,
     pub web_fetch_requests: Option<u32>,
@@ -108,6 +124,7 @@ pub struct ServerToolUse {
 /// The frontend buckets these into protected-path toasts vs. UI-prompt events
 /// (ExitPlanMode / AskUserQuestion / EnterPlanMode) — see `chat.ts:213-275`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(dead_code)]
 pub struct PermissionDenial {
     pub tool_name: String,
     pub tool_use_id: String,
@@ -188,6 +205,7 @@ pub struct SessionConfig {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 pub enum NormalizedEvent {
     #[serde(rename = "session_init")]
     SessionInit {
@@ -426,6 +444,7 @@ pub enum NormalizedEvent {
 // ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum AgentError {
     #[error("Agent binary not found: {0}")]
     BinaryNotFound(String),
@@ -450,6 +469,7 @@ pub enum AgentError {
 /// The per-session handle owned by `AppState.processes`. Each adapter returns
 /// a concrete type that implements this trait; callers see only the trait.
 #[async_trait]
+#[allow(dead_code)]
 pub trait AgentProcessHandle: Send + Sync {
     fn agent_id(&self) -> AgentId;
     fn session_id(&self) -> &str;
@@ -502,6 +522,7 @@ pub trait AgentProcessHandle: Send + Sync {
 /// Stateless factory for one agent kind. Registered in
 /// `agents::registry::AGENT_REGISTRY`.
 #[async_trait]
+#[allow(dead_code)]
 pub trait AgentAdapter: Send + Sync {
     fn agent_id(&self) -> AgentId;
     fn capabilities(&self) -> &AgentCapabilitySet;
@@ -539,12 +560,14 @@ pub trait AgentAdapter: Send + Sync {
 // will subscribe to every known channel template.
 // ─────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn chat_channel(agent_id: AgentId, session_id: &str) -> String {
     match agent_id {
         AgentId::ClaudeCode => format!("claude-chat-{}", session_id),
     }
 }
 
+#[allow(dead_code)]
 pub fn activity_channel(agent_id: AgentId, session_id: &str) -> String {
     match agent_id {
         AgentId::ClaudeCode => format!("claude-activity-{}", session_id),

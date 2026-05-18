@@ -451,12 +451,16 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     // Shut down all Claude CLI processes
                     if let Some(state) = handle.try_state::<AppState>() {
-                        let mut processes = state.processes.lock().await;
-                        for (sid, proc) in processes.iter_mut() {
+                        // Drain the map taking ownership of each handle —
+                        // AgentProcessHandle::shutdown consumes `Box<Self>`.
+                        let drained: Vec<(String, Box<dyn agents::AgentProcessHandle>)> = {
+                            let mut processes = state.processes.lock().await;
+                            processes.drain().collect()
+                        };
+                        for (sid, proc) in drained {
                             info!("[exit] Shutting down CLI process for session {}", sid);
                             proc.shutdown().await;
                         }
-                        processes.clear();
                         // Promote any session that was still open (never explicitly
                         // closed by the user) to status='closed' so it appears in
                         // the Resume Session list on next launch. Must happen

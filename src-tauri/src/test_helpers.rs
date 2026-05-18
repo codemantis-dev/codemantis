@@ -3,6 +3,7 @@
 //! Usage: These helpers are available in any `#[cfg(test)]` module
 //! via `use crate::test_helpers::*`.
 
+use crate::agents::AgentId;
 use crate::claude::session::{AppState, SessionInfo, SessionStatus};
 use crate::storage::Database;
 use chrono::Utc;
@@ -41,6 +42,7 @@ pub async fn test_app_state_with_session(session_id: &str, project_path: &str) -
     let state = test_app_state();
     let info = SessionInfo {
         id: session_id.to_string(),
+        agent_id: AgentId::ClaudeCode,
         name: "Test Session".to_string(),
         project_path: project_path.to_string(),
         status: SessionStatus::Connected,
@@ -60,6 +62,7 @@ pub async fn test_app_state_with_session(session_id: &str, project_path: &str) -
 pub fn sample_session_info(id: &str) -> SessionInfo {
     SessionInfo {
         id: id.to_string(),
+        agent_id: AgentId::ClaudeCode,
         name: format!("Session {}", id),
         project_path: "/tmp/test-project".to_string(),
         status: SessionStatus::Connected,

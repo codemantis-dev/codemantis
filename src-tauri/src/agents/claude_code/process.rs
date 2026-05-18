@@ -12,6 +12,32 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
+/// The constant CLI flags every Claude Code session is spawned with.
+///
+/// ⚠ INVARIANT (spec §5.3, capture S06): `--dangerously-skip-permissions` is
+/// present and `--permission-mode` is NOT. The CLI silently overrides any
+/// `--permission-mode` value to `bypassPermissions` when
+/// `--dangerously-skip-permissions` is set, so plan mode is *only* ever
+/// applied at runtime via a `set_permission_mode` control_request after spawn.
+/// The `adapter_argv_never_pairs_dangerous_skip_with_permission_mode` test
+/// locks this. Tool approval is handled by the PreToolUse hook + CodeMantis's
+/// approval server (the CLI has no TTY in stream-json mode).
+///
+/// `--thinking-display summarized`: Opus 4.7+ defaults thinking.display to
+/// "omitted" (empty thinking blocks); summarized content feeds the Reasoning
+/// panel in the Activity tab.
+pub(crate) const CLAUDE_CONST_ARGS: &[&str] = &[
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--include-partial-messages",
+    "--verbose",
+    "--dangerously-skip-permissions",
+    "--thinking-display",
+    "summarized",
+];
+
 /// Ensure the hook script exists at ~/.codemantis/approval-hook.sh
 pub fn ensure_hook_script() -> Result<std::path::PathBuf, AppError> {
     let home = dirs::home_dir().ok_or_else(|| {
@@ -329,31 +355,7 @@ impl ClaudeProcess {
         cleanup_legacy_hook_config(project_path);
 
         let mut cmd = Command::new(claude_binary);
-        cmd.args([
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--include-partial-messages",
-            "--verbose",
-            // Skip CLI-level permissions: the CLI has no TTY in stream-json mode.
-            // Tool approval is handled by the PreToolUse hook + CodeMantis's
-            // approval server instead.
-            //
-            // ⚠ DO NOT pair this with `--permission-mode <m>` — the CLI silently
-            // overrides any --permission-mode value to "bypassPermissions" when
-            // --dangerously-skip-permissions is present. To enter plan mode at
-            // runtime, send a `set_permission_mode` control_request after spawn
-            // (see send_control_request / process.rs control protocol surface).
-            // Verified against CLI 2.1.126 in
-            // src-tauri/tests/cli_protocol_capture.rs scenario S06.
-            "--dangerously-skip-permissions",
-            // Opus 4.7+ defaults thinking.display to "omitted", which streams
-            // thinking blocks with empty text. We need summarized content so
-            // the Reasoning panel in the Activity tab can show it.
-            "--thinking-display",
-            "summarized",
-        ]);
+        cmd.args(CLAUDE_CONST_ARGS);
 
         // Always pass --settings so thinking output (alwaysThinkingEnabled,
         // showThinkingSummaries) is explicitly enabled — CLI v2.1.90+ disabled
@@ -715,6 +717,39 @@ impl Drop for ClaudeProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── argv invariant (spec §5.3) ──
+
+    #[test]
+    fn adapter_argv_never_pairs_dangerous_skip_with_permission_mode() {
+        // The CLI silently overrides --permission-mode → bypassPermissions
+        // when --dangerously-skip-permissions is present (verified against
+        // CLI 2.1.126, capture S06). Pairing them is a latent bug: plan mode
+        // would silently never take effect at spawn. Mode is applied at
+        // runtime via set_permission_mode instead.
+        let has_dangerous = CLAUDE_CONST_ARGS.contains(&"--dangerously-skip-permissions");
+        let has_permission_mode = CLAUDE_CONST_ARGS.contains(&"--permission-mode");
+        assert!(
+            has_dangerous,
+            "Claude Code must spawn with --dangerously-skip-permissions \
+             (no TTY in stream-json mode)"
+        );
+        assert!(
+            !has_permission_mode,
+            "Pairing --dangerously-skip-permissions with --permission-mode is \
+             silently ignored by CLI 2.1.126 — never add --permission-mode to \
+             CLAUDE_CONST_ARGS"
+        );
+    }
+
+    #[test]
+    fn const_args_request_stream_json_both_directions() {
+        let joined = CLAUDE_CONST_ARGS.join(" ");
+        assert!(joined.contains("--input-format stream-json"));
+        assert!(joined.contains("--output-format stream-json"));
+        assert!(CLAUDE_CONST_ARGS.contains(&"--include-partial-messages"));
+        assert!(CLAUDE_CONST_ARGS.contains(&"--thinking-display"));
+    }
 
     // ── build_session_settings_json ──
 
