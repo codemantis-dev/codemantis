@@ -1,3 +1,4 @@
+mod agents;
 mod changelog;
 mod claude;
 mod commands;
