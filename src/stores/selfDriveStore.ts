@@ -2860,12 +2860,40 @@ async function acceptUserOverrideAsResolution(blocker: Blocker, resolution: stri
   await continueAfterRecovery(blocker.sessionIndex);
 }
 
-async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<void> {
+// Exported for tests — covers the parity-recovery short-circuit path.
+export async function handleAdvanceRecovery(decision: OrchestratorDecision): Promise<void> {
   const state = useSelfDriveStore.getState();
   const blocker = state.activeBlocker;
+
+  // Parity-recovery short-circuit: when the orchestrator emits
+  // `advance_recovery` after a parity-recovery turn there is no
+  // activeBlocker (parity-recovery is a deterministic file-system gate,
+  // not a real blocker). Don't pause — delegate to handleAdvance, which
+  // re-runs attemptMarkSessionComplete and either advances on green parity
+  // or recurses into handleParityRecovery on a still-failing gate.
+  if (!blocker && state.lastSelfDrivePromptInjection === "parity-recovery") {
+    const sessionIndex = state.currentSessionIndex;
+    if (sessionIndex != null) {
+      addLogEntry(
+        sessionIndex,
+        "advancing",
+        "Re-running parity gate after parity-recovery turn (advance_recovery without active blocker)",
+      );
+      await handleAdvance(decision, "fixing");
+      return;
+    }
+  }
+
   const err = validateRecoveryResolution(blocker, decision);
   if (err || !blocker) {
-    handlePause(`Recovery rejected: ${err ?? "unknown"}`);
+    if (!blocker) {
+      const injection = state.lastSelfDrivePromptInjection ?? "unknown";
+      handlePause(
+        `Recovery rejected: no active blocker (injection=${injection}, verdict=advance_recovery). This is an orchestrator routing bug.`,
+      );
+    } else {
+      handlePause(`Recovery rejected: ${err}`);
+    }
     return;
   }
 

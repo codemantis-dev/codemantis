@@ -352,16 +352,12 @@ fn probe_credentials(project_path: &Path, now: &str) -> Vec<ProbedCapability> {
         .keys()
         .find(|k| k.contains("SUPABASE_SERVICE_ROLE") || k.contains("SERVICE_ROLE_KEY"));
 
-    if supabase_url.is_some() && supabase_anon.is_some() {
+    if let (Some(url), Some(anon)) = (supabase_url, supabase_anon) {
         out.push(ProbedCapability {
             id: "db.supabase-anon".to_string(),
             status: "claimed-unverified".to_string(),
             discovered_by: DiscoveryMethod::PassiveProbe,
-            evidence: format!(
-                "Env keys present: {} + {}",
-                supabase_url.unwrap(),
-                supabase_anon.unwrap()
-            ),
+            evidence: format!("Env keys present: {} + {}", url, anon),
             last_verified_at: now.to_string(),
             verify_method: Some(
                 "live-fire: GET $URL/rest/v1/<any-table>?select=id&limit=1 → 200".to_string(),
@@ -370,16 +366,12 @@ fn probe_credentials(project_path: &Path, now: &str) -> Vec<ProbedCapability> {
             notes: None,
         });
     }
-    if supabase_url.is_some() && supabase_service.is_some() {
+    if let (Some(url), Some(service)) = (supabase_url, supabase_service) {
         out.push(ProbedCapability {
             id: "db.supabase-service-role".to_string(),
             status: "claimed-unverified".to_string(),
             discovered_by: DiscoveryMethod::PassiveProbe,
-            evidence: format!(
-                "Env keys present: {} + {}",
-                supabase_url.unwrap(),
-                supabase_service.unwrap()
-            ),
+            evidence: format!("Env keys present: {} + {}", url, service),
             last_verified_at: now.to_string(),
             verify_method: Some(
                 "live-fire: sentinel row write + revert on a known table".to_string(),

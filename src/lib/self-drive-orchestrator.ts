@@ -256,6 +256,13 @@ PRE-EMIT SELF-CHECK on repeat-pattern (MANDATORY GATE — run this before finali
 AFTER A FIX PHASE (currentPhase = "fixing"):
 - Evaluate whether the fix was applied → {"action": "build_check", "summary": "Fix applied. Re-checking build.", "confidence": "high"}
 
+AFTER A PARITY-RECOVERY TURN (LAST TURN INJECTION = "parity-recovery"):
+You are NOT in a recovery phase — there is no activeBlocker. The parity gate is a deterministic file-system grep that Self-Drive will re-run on advance. Your job is only to confirm the worker addressed the missing-wire issue.
+- If the response shows the wire literal was added to the handler file (via Edit/Write, a quoted diff, or a successful \`pnpm check:worker-actions\` / parity-gate output) → {"action": "advance", "summary": "Parity gap closed: {one line of evidence}", "confidence": "high"}
+- If the response includes one or more \`DEFERRED: <action> — <reason>\` lines for the failing rows → {"action": "advance", "summary": "Parity deferrals honoured: {actions}", "confidence": "high"}
+- If neither → {"action": "fix", "fixPrompt": "Parity recovery did not close the gap. The handler file still doesn't reference the wire literal '{wire}', and no DEFERRED line was emitted. Either add the literal to the handler or emit \`DEFERRED: <action> — <reason>\`.", "summary": "...", "confidence": "high"}
+- NEVER emit "advance_recovery" from a parity-recovery turn — there is no activeBlocker for that verdict to resolve, and the store will reject the verdict.
+
 AFTER A TEST PHASE (currentPhase = "testing"):
 - If all tests pass → {"action": "advance", "summary": "Tests passing.", "confidence": "high"}
 - If tests fail → {"action": "fix", "fixPrompt": "These tests failed: ... Fix them.", "summary": "...", "confidence": "high"}

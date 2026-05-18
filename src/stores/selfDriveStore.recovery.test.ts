@@ -90,7 +90,7 @@ vi.mock("../lib/self-drive-utils", () => ({
   getTestCommand: vi.fn(() => "pnpm test"),
 }));
 
-import { useSelfDriveStore, validateRecoveryResolution, isAcceptAndProceedResolution } from "./selfDriveStore";
+import { useSelfDriveStore, validateRecoveryResolution, isAcceptAndProceedResolution, handleAdvanceRecovery } from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
@@ -645,5 +645,148 @@ describe("useBlockerHasResolution helper", () => {
     // A "paused" log entry explains why to the user.
     const explain = state.runLog.find((e) => e.summary.includes("Resume blocked"));
     expect(explain).toBeDefined();
+  });
+});
+
+// ── handleAdvanceRecovery: parity-recovery short-circuit ───────────────
+//
+// Regression: 2026-05-15 incident. When a parity-recovery turn completed
+// and the orchestrator emitted `advance_recovery`, the store routed it
+// through handleAdvanceRecovery, which requires `state.activeBlocker` to
+// be non-null. Parity-recovery never sets activeBlocker (it's a
+// deterministic file-system gate, not a real blocker), so the session
+// paused with "Recovery rejected: no active blocker to resolve" even
+// though the parity gate had been satisfied.
+
+describe("handleAdvanceRecovery — parity-recovery short-circuit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAllStores();
+  });
+
+  function seedRunningAfterParityRecovery(): void {
+    setup();
+    // Mark the verify check on the seeded session as already checked, so
+    // attemptMarkSessionComplete won't reject for "checks-incomplete" when
+    // the short-circuit delegates to handleAdvance.
+    const guide = makeGuide();
+    guide.sessions[0].verifyChecks = [{ id: "v-1-0", label: "Check A", checked: true }];
+    useGuideStore.setState({ guide, loading: false });
+    useSelfDriveStore.setState({
+      status: "running",
+      projectPath: PROJECT,
+      sessionId: SESSION_ID,
+      guide,
+      currentSessionIndex: 1,
+      currentPhase: "fixing",
+      fixAttempt: 1,
+      maxFixAttempts: 3,
+      previousFixPrompts: [],
+      lowConfidenceCount: 0,
+      runLog: [],
+      startedAt: Date.now(),
+      sessionStartedAt: Date.now(),
+      pauseReason: null,
+      activeBlocker: null,
+      blockerHistory: [],
+      recentPauseSummaries: [],
+      lastSelfDrivePromptInjection: "parity-recovery",
+    });
+  }
+
+  it("does NOT pause when advance_recovery arrives with no active blocker after parity-recovery", async () => {
+    seedRunningAfterParityRecovery();
+
+    await handleAdvanceRecovery({
+      action: "advance_recovery",
+      summary: "Parity gap closed: job_type now at intent_extraction.py lines 4,13",
+      confidence: "high",
+    });
+
+    const state = useSelfDriveStore.getState();
+    // The bug was: pauseReason set to "Recovery rejected: no active blocker to resolve".
+    // Fix: short-circuit delegates to handleAdvance instead → no pause with that reason.
+    expect(state.pauseReason ?? "").not.toContain("Recovery rejected");
+    expect(state.pauseReason ?? "").not.toContain("no active blocker");
+
+    // Log entry confirms the short-circuit ran rather than silent fall-through.
+    const reroute = state.runLog.find((e) => e.summary.includes("Re-running parity gate"));
+    expect(reroute).toBeDefined();
+  });
+
+  it("still pauses with a diagnostic when advance_recovery arrives with no active blocker AND no parity-recovery injection", async () => {
+    setup();
+    // Same shape as above but injection is null — the structural bug
+    // (`advance_recovery` with no blocker from a non-parity context) still
+    // pauses, but with an improved diagnostic message naming the injection.
+    useSelfDriveStore.setState({
+      status: "running",
+      projectPath: PROJECT,
+      sessionId: SESSION_ID,
+      guide: makeGuide(),
+      currentSessionIndex: 1,
+      currentPhase: "verifying",
+      fixAttempt: 0,
+      maxFixAttempts: 3,
+      previousFixPrompts: [],
+      lowConfidenceCount: 0,
+      runLog: [],
+      startedAt: Date.now(),
+      sessionStartedAt: Date.now(),
+      pauseReason: null,
+      activeBlocker: null,
+      blockerHistory: [],
+      recentPauseSummaries: [],
+      lastSelfDrivePromptInjection: null,
+    });
+
+    await handleAdvanceRecovery({
+      action: "advance_recovery",
+      summary: "Some evidence: digits 123 and quoted output",
+      confidence: "high",
+    });
+
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("paused");
+    expect(state.pauseReason).toContain("Recovery rejected");
+    expect(state.pauseReason).toContain("no active blocker");
+    // Improved diagnostic names the injection so future incidents are easier to triage.
+    expect(state.pauseReason).toContain("injection=unknown");
+    expect(state.pauseReason).toContain("verdict=advance_recovery");
+  });
+
+  it("still pauses when advance_recovery is malformed (low confidence) even if a blocker is active", async () => {
+    // Sanity: existing validateRecoveryResolution path is unaffected by the new branch.
+    setup();
+    useSelfDriveStore.setState({
+      status: "running",
+      projectPath: PROJECT,
+      sessionId: SESSION_ID,
+      guide: makeGuide(),
+      currentSessionIndex: 1,
+      currentPhase: "recovering",
+      fixAttempt: 0,
+      maxFixAttempts: 3,
+      previousFixPrompts: [],
+      lowConfidenceCount: 0,
+      runLog: [],
+      startedAt: Date.now(),
+      sessionStartedAt: Date.now(),
+      pauseReason: null,
+      activeBlocker: makeBlocker({ status: "verifying" }),
+      blockerHistory: [],
+      recentPauseSummaries: [],
+      lastSelfDrivePromptInjection: "recovery",
+    });
+
+    await handleAdvanceRecovery({
+      action: "advance_recovery",
+      summary: "fixed: command ran with quoted output showing rows",
+      confidence: "low",
+    });
+
+    const state = useSelfDriveStore.getState();
+    expect(state.status).toBe("paused");
+    expect(state.pauseReason).toContain("low-confidence");
   });
 });

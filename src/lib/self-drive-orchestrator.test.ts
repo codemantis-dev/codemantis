@@ -158,6 +158,27 @@ describe("buildSystemPrompt", () => {
     expect(systemPrompt).toContain("DEFERRED:");
   });
 
+  // Regression: 2026-05-15 — parity-recovery turns produced advance_recovery
+  // verdicts that dead-ended in handleAdvanceRecovery (no activeBlocker).
+  // The prompt now tells the orchestrator to emit `advance` (or `fix`) after
+  // a parity-recovery turn, never `advance_recovery`.
+  it("includes parity-recovery routing rules that forbid advance_recovery", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+
+    expect(systemPrompt).toContain('AFTER A PARITY-RECOVERY TURN');
+    expect(systemPrompt).toContain('LAST TURN INJECTION = "parity-recovery"');
+    expect(systemPrompt).toContain('NEVER emit "advance_recovery"');
+    // The correct verdict is `advance` — the parity gate re-runs on advance.
+    expect(systemPrompt).toContain('Parity gap closed');
+    expect(systemPrompt).toContain('DEFERRED:');
+  });
+
   it("includes WORKAROUND DETECTION block with banned phrases and a redo template", async () => {
     const { sendAssistantChat } = await import("./tauri-commands");
     const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
