@@ -1825,9 +1825,9 @@ When SpecWriter is open, a large panel slides in from the right edge of the wind
 
 3. **Saved Specs list** -- a collapsible section at the very bottom of the right column showing previously saved specifications for the current project.
 
-The chat column has its own sub-header reading "SpecWriter Chat" with a streaming indicator ("AI is responding..." with an elapsed timer when active). Below that are the conversation messages, followed by an input area with a paperclip button for attachments, a multi-line text area ("Describe what you want to build..."), and a Send/Stop button.
+The chat column has its own sub-header reading "SpecWriter Chat" with a streaming indicator ("AI is responding..." with an elapsed timer when active). Below that are the conversation messages, followed by an input area with a **paperclip** button (attach files), a **folder-tree** button (pick files from the project), a multi-line text area ("Describe what you want to build..."), and a Send/Stop button.
 
-The preview column shows either an empty state ("Spec Preview -- Start a conversation on the left...") or a rendered Markdown document. When both a specification and an audit document exist, a tab bar appears with "Specification" and "Verification Audit" tabs. Below the preview are action buttons: Edit/Preview toggle, Copy to Clipboard, Generate Audit, and Save Spec or Save Audit (depending on the active tab).
+The preview column shows either an empty state ("Spec Preview -- Start a conversation on the left...") or a rendered Markdown document. A tab bar appears above the preview with up to three tabs: **Specification**, **Verification Audit** (when an audit exists), and **Coverage** (when a coverage audit, input analysis, creation log, or patch outcome exists). The Coverage tab shows a red badge with the number of blocking findings when the latest coverage audit fails. Below the preview are action buttons: Edit/Preview toggle, Copy to Clipboard, Generate Audit, and Save Spec or Save Audit (depending on the active tab).
 
 ### How to Open / Access
 
@@ -1866,8 +1866,13 @@ Type a description in the chat input area. You can also:
 
 - **Attach images** -- click the paperclip icon, paste from clipboard (Command+V), or drag and drop files onto the input area. Images are resized to a maximum of 1024px on the longest edge. Accepted file types: images, PDF, TXT, MD, DOCX.
 - **Attach documents** -- text files are extracted inline (up to 10,000 characters); binary files (PDF, DOCX) are sent as document parts.
+- **Reference project files** -- click the **folder-tree** button (next to the paperclip) to open a Project File Picker. Browse or search your project tree, tick one or more files, and confirm with **Command+Enter** to attach them as `project-ref` chips. The AI fetches the actual file contents from your project on demand instead of being given the whole file inline.
 
 Press **Enter** (or **Command+Enter** if configured in Settings) to send. Attached files appear as small chips above the input area, each with an X to remove.
+
+**Confirm project capabilities (Feature mode)**
+
+When you open SpecWriter on an existing project, a passive **capability probe** scans your codebase (`package.json`, `.env*`, `mcp.json`, CLAUDE.md and similar) to detect which integrations are actually wired up — for example BrowserMCP, Supabase service-role keys, or LLM API keys. If the probe finds capabilities it cannot verify on its own, a yellow **"Confirm project capabilities (N)"** banner appears at the top of the chat. For each capability you pick one of: confirm it is present (SpecWriter then *live-fires* a small probe to verify), explicitly mark it absent, or skip. Choices are persisted to `.claude/project-capabilities.json` and reused next time. Spec generation is blocked until every question is answered.
 
 **Answer clarifying questions**
 
@@ -1899,6 +1904,10 @@ After a spec is complete, the AI presents a system message: "Spec complete! Gene
 The Verification Audit is a companion document that Claude Code uses after implementation to self-check its work by opening every file and verifying it matches the spec.
 
 When both documents exist, the preview shows tabs for "Specification" and "Verification Audit."
+
+**Review the Coverage panel**
+
+After SpecWriter writes a spec, the **Coverage** tab in the preview panel shows an automatic post-write audit comparing the produced spec to your inputs. Findings are grouped into colored count badges (e.g. *missing section*, *unmapped row*, *schema rename*, *truncation*, *placeholder leaked*, plus UI-completeness checks like *orphan entity*, *untriggered endpoint*, *form w/o validation*, *session too large*). Expand "Detailed findings" for a per-issue breakdown. When the audit fails, an accent **"Patch spec & re-audit"** button (wand icon) appears at the bottom of the panel: clicking it asks the model for an **AUDIT-PATCH** reply, splices the patch into the existing spec, and re-runs the audit. A green or red **"Spec patched"** / **"Patch rejected — spec preserved"** banner reports the outcome (operations applied, remaining findings, and any warnings). The Coverage tab also includes a **Creation log** section that lists each H2 section the model wrote with its byte size; if the CLI auto-compacted mid-stream, affected entries get a **post-compact** pill and the in-progress entry shows a **RESUME HERE** pill so you can recover gracefully.
 
 **Edit the spec**
 
@@ -1964,8 +1973,10 @@ While the AI is responding, a red square **Stop** button replaces the Send butto
 - **Done:** Spec complete. Badge shows "Done." Audit offer appears.
 - **Streaming:** A pulsing dot with "AI is responding..." and an elapsed timer (shown after 5 seconds).
 - **Loading files:** A pulsing amber dot with "Loading requested files..." appears when the AI requests project files in Feature mode.
+- **Awaiting capability confirmation:** The chat shows the yellow "Confirm project capabilities" banner; Generate Spec stays disabled until every question is answered.
 - **Error:** System messages in a gray box with an info icon describe API errors or missing keys.
 - **Empty preview:** A centered notebook emoji with "Spec Preview" and instructions.
+- **Coverage panel empty:** Before the first write, the Coverage tab shows a shield emoji with "When you provide an input spec and SpecWriter writes its output, this panel shows which sections were covered, what got dropped, and any silent rewrites."
 
 ### Configuration
 
@@ -2797,6 +2808,8 @@ Self-Drive works through the Implementation Guide sessions one by one:
 9. **Advancing** -- Moves to the next session and repeats from step 1.
 
 If the orchestrator cannot resolve an issue after the configured number of fix attempts, Self-Drive **pauses** and explains the problem. You can review, fix manually, and resume.
+
+**Evidence-driven verification.** When verifying a session, the orchestrator parses Claude Code's reply against the checklist using a shared **evidence vocabulary** (tool calls, file paths, command outputs, quoted lines, etc.). Items that quote real evidence are marked verified; items that only paraphrase are flagged for a recheck round or a pause. A built-in **loop guard** detects when the orchestrator is about to repeat the same fix or verify prompt and short-circuits the cycle so Claude is not stuck re-doing the same step. **Capability gating** suppresses verify items whose required capability (e.g. BrowserMCP, a Supabase service-role key) was marked absent or unverified during the SpecWriter handshake — those items are reported as *gated* in the pause reason instead of being treated as failures.
 
 ### User Actions
 

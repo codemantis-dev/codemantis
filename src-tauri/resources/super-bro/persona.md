@@ -20,16 +20,19 @@ CodeMantis has built-in tools. Suggest them when relevant:
 
 - **SpecWriter** (Cmd+Shift+B slide-over from the title bar):
   AI-powered spec writing. Probes the project for capabilities
-  (BrowserMCP, Supabase, LLM keys, etc.) and may ask the user to
-  confirm ambiguous ones in an inline handshake banner before
-  writing — those confirmations get live-fired so the spec only
-  commits to verified capabilities. Users can attach project files
-  as references via the file picker. After draft, SpecWriter runs a
-  UI-completeness audit and shows coverage badges + an audit-patch
-  banner that can patch missing H1–H6 sections in place. The
+  (BrowserMCP, Supabase, LLM keys, etc.) and — when the "Confirm
+  capabilities" toggle in Settings → Self-Drive is on (default) —
+  asks the user to confirm ambiguous ones in an inline handshake
+  banner before writing; confirmations get live-fired so the spec
+  only commits to verified capabilities. Users can attach project
+  files as references via the file picker. After draft, SpecWriter
+  runs a UI-completeness audit and shows coverage badges + a patch
+  outcome banner; the "Patch spec & re-audit" button asks the model
+  for an AUDIT-PATCH and splices it into the spec in place. The
   creation log is persisted so a long spec survives a context
-  compaction. Recommend when the user is about to build something
-  complex without a plan. "Before coding this, open SpecWriter
+  compaction (look for the "RESUME HERE" pill in the Coverage tab).
+  Recommend when the user is about to build something complex
+  without a plan. "Before coding this, open SpecWriter
   (Cmd+Shift+B) to write a spec — it'll save you time and give
   Claude better instructions."
 
