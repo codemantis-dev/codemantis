@@ -1,5 +1,53 @@
 # CodeMantis Releases
 
+## 1.1.11
+
+Major SpecWriter + Self-Drive iteration: project capability handshake before spec generation, UI-completeness audit with a Coverage panel, AUDIT-PATCH for splicing spec fixes, evidence-driven verification with a loop guard, and a parity-recovery short-circuit that ends an entire class of false-positive pauses.
+
+### SpecWriter — capability handshake (Phase 0/0b)
+- **Passive project probe (Phase 0)**: SpecWriter now scans the active project for capabilities before generating a Feature-mode spec — env vars, `.env` files, `package.json` deps, lockfile presence, docker, supabase/anthropic/openai/gemini/openrouter/stripe/resend/google-oauth credentials. Results land in `.claude/project-capabilities.json` so subsequent runs are incremental
+- **Live-fire handshake (Phase 0b)**: yellow banner surfaces probed capabilities and offers a one-click live-fire verification (real API call against the user's keys). Gated by the new `selfDriveConfirmCapabilities` setting (default on). Spec generation is gated on confirmation so the spec reflects real, reachable services instead of speculative ones
+- **Project file picker + project-ref attachments**: new picker lets users attach project files as references to the spec (button in the SpecWriter toolbar; Cmd+Enter confirms inside the picker)
+
+### SpecWriter — UI-completeness audit + Coverage panel
+- **Coverage panel** (new tab on SpecWriter slide-over) with audit count badges. Findings checked:
+  - **Orphan entities** in §Data Model: H3 entities missing a `Screens:` field
+  - **Untriggered endpoints** in §API: endpoints with no UI trigger
+  - **Forms without validation**: form sections missing a Validation block
+  - **Session too large**: per-session weight audit (files × phases × surfaces × SQL fence ratio)
+  - **Placeholder leaked**: ungrounded `{{placeholder}}` quotes in the spec body
+  - **Indivisible marker missing**: large sessions without an explicit indivisible declaration
+- **AUDIT-PATCH for Claude Code** (`f4b8dad`): a "Patch spec & re-audit" button asks Claude Code to splice fixes into existing spec sections rather than rewriting the whole spec. New per-heading patch templates (H1–H6), heading hints to keep splices in the right section, and placeholder recheck context that walks Claude back to where the leak happened
+- **Patch outcome banner**: explicit "Spec patched" / "Patch rejected — spec preserved" feedback so users never wonder whether a partial write happened. Spec is restored on rejection
+- **Creation log + RESUME HERE pill**: SpecWriter records a creation log so a compaction can recover the session at the right point. A `post-compact` + `RESUME HERE` pill marks the resume anchor
+
+### Self-Drive — evidence-driven verification (`8f0fced`)
+- **Evidence vocabulary**: orchestrator now emits typed evidence claims (`command_ran_with_output`, `file_grep_match`, `pnpm_check_output`, etc.) parsed by the store rather than free-text heuristics
+- **Semantic verify parsing**: verify checks accept structured proofs, removing the fragile "did the model say the right phrase" detector
+- **Loop guard**: bounded retry on repeat-pattern verify failures with a forced pre-emit self-check so the orchestrator can't burn a session on the same redo prompt
+- **Capability gating**: gated items report in the pause reason rather than as audit failures, so a missing service can't masquerade as an implementation bug
+- **Injection-aware orchestrator** (`44c7547`): the orchestrator now knows what kind of prompt injection produced the current response (parity-recovery, recovery, fix, etc.) and routes verdicts accordingly. Detector suppressors silence false-positive matches for the active injection
+- **Project record in orchestrator** (`36ee6c5`): the orchestrator receives the project capability record so verify items tied to a gated capability resolve cleanly without manual override
+
+### Self-Drive — parity-recovery short-circuit (2026-05-15 regression fix)
+- **Root cause**: when the orchestrator emitted `advance_recovery` after a parity-recovery turn, the store routed it through `handleAdvanceRecovery`, which requires `state.activeBlocker`. Parity-recovery never sets `activeBlocker` (it's a deterministic filesystem gate, not a real blocker), so the session paused with "Recovery rejected: no active blocker to resolve" even after the parity gap closed
+- **Fix**: `handleAdvanceRecovery` short-circuits when `lastSelfDrivePromptInjection === "parity-recovery"` and no blocker is active — delegates to `handleAdvance`, which re-runs the parity gate via `attemptMarkSessionComplete`. Run log entry confirms the reroute
+- **Diagnostic upgrade**: the remaining structural case (no blocker + non-parity injection) pauses with a message naming the injection and verdict (`injection=…, verdict=advance_recovery`) so future incidents triage in seconds
+- **Orchestrator prompt**: explicit "AFTER A PARITY-RECOVERY TURN" routing rules — must emit `advance` (parity closed / `DEFERRED: …`) or `fix`, never `advance_recovery`. Regression coverage in both `selfDriveStore.recovery.test.ts` and `self-drive-orchestrator.test.ts`
+
+### Super Bro
+- Documents the SpecWriter probe/handshake flow and the verify loop guard so Super-Bro can translate `orchestratorReasoning` into plain language and surface canonical recovery options
+
+### Rust Cleanup
+- `project_capabilities` probe_credentials uses `if let` destructuring instead of `is_some + unwrap`
+
+### Documentation
+- User guide: SpecWriter capability handshake, Coverage panel + AUDIT-PATCH flow, creation log; new "Awaiting capability confirmation" + "Coverage panel empty" states; Self-Drive evidence-driven verification section
+- Super-Bro knowledge: persona refines SpecWriter description; guide-transitions adds parity-recovery loop + `orchestrator-uncertain` blocker kind
+
+### Code Quality
+- Test count floors raised: TS unit ≥3,799 (+214), TS integration ≥162 (+27), Rust unit ≥1,477 (+39). Rust integration unchanged (19)
+
 ## 1.1.10
 
 Major feature release: introduces the **Preflight System** (Mission Control for project capabilities), encrypts AI provider keys at rest, fixes the AskUserQuestion flow on CLI 2.1.126, hardens crash-recovery and graduated wake-recovery, and tightens the Self-Drive parity gate with a recovery loop instead of a hard halt.
