@@ -1,4 +1,4 @@
-use crate::claude::event_types::RawStreamEvent;
+use crate::agents::claude_code::event_types::RawStreamEvent;
 use log::{debug, trace, warn};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -166,7 +166,7 @@ async fn maybe_notify_protocol_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::event_types::RawStreamEvent;
+    use crate::agents::claude_code::event_types::RawStreamEvent;
 
     // ── Helper: spawn a subprocess that echoes NDJSON to stdout ──
 
@@ -354,7 +354,7 @@ mod tests {
             RawStreamEvent::Assistant { message, .. } => {
                 let content = message.content.as_ref().unwrap();
                 match &content[0] {
-                    crate::claude::event_types::ContentBlock::Text { text } => {
+                    crate::agents::claude_code::event_types::ContentBlock::Text { text } => {
                         assert_eq!(text.len(), 100_000);
                     }
                     other => panic!("Expected Text, got {:?}", other),
@@ -373,7 +373,7 @@ mod tests {
             RawStreamEvent::Assistant { message, .. } => {
                 let content = message.content.as_ref().unwrap();
                 match &content[0] {
-                    crate::claude::event_types::ContentBlock::Text { text } => {
+                    crate::agents::claude_code::event_types::ContentBlock::Text { text } => {
                         assert!(text.contains('\u{4e16}'));
                         assert!(text.contains("Caf\u{e9}"));
                     }
@@ -503,7 +503,7 @@ mod tests {
             RawStreamEvent::ContentBlockStart { index, content_block, .. } => {
                 assert_eq!(*index, Some(1));
                 match content_block.as_ref().unwrap() {
-                    crate::claude::event_types::ContentBlock::ToolUse { id, name, .. } => {
+                    crate::agents::claude_code::event_types::ContentBlock::ToolUse { id, name, .. } => {
                         assert_eq!(id, "toolu_01");
                         assert_eq!(name, "Bash");
                     }
@@ -516,7 +516,7 @@ mod tests {
         match &events[1] {
             RawStreamEvent::ContentBlockDelta { delta, .. } => {
                 match delta.as_ref().unwrap() {
-                    crate::claude::event_types::StreamDelta::InputJsonDelta { partial_json } => {
+                    crate::agents::claude_code::event_types::StreamDelta::InputJsonDelta { partial_json } => {
                         assert!(partial_json.is_some());
                     }
                     other => panic!("Expected InputJsonDelta, got {:?}", other),

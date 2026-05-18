@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
+pub mod claude_code;
 pub mod registry;
 
 // ─────────────────────────────────────────────────────────────────────

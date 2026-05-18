@@ -3,9 +3,9 @@
 // needed (avoids the `module_inception` clippy lint).
 #![cfg(test)]
 
-use crate::claude::event_types::*;
+use crate::agents::claude_code::event_types::*;
 use crate::commands::files::{read_file_content, read_file_tree};
-use crate::utils::claude_detection::detect_claude;
+use crate::agents::claude_code::claude_detection::detect_claude;
 use std::fs;
 use std::path::PathBuf;
 
@@ -1089,7 +1089,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn app_state_starts_empty() {
-        let state = crate::claude::session::AppState::new(test_db());
+        let state = crate::agents::claude_code::session::AppState::new(test_db());
         let sessions = state.sessions.lock().await;
         assert!(sessions.is_empty());
         let processes = state.processes.lock().await;
@@ -1100,7 +1100,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn app_state_store_and_retrieve_session() {
-        use crate::claude::session::{AppState, SessionInfo, SessionStatus};
+        use crate::agents::claude_code::session::{AppState, SessionInfo, SessionStatus};
         use chrono::Utc;
 
         let state = AppState::new(test_db());
@@ -1129,7 +1129,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn app_state_update_session_status() {
-        use crate::claude::session::{AppState, SessionInfo, SessionStatus};
+        use crate::agents::claude_code::session::{AppState, SessionInfo, SessionStatus};
         use chrono::Utc;
 
         let state = AppState::new(test_db());
@@ -1196,7 +1196,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_parses_multiple_lines() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         // Create a fake "stdout" from bytes
@@ -1234,7 +1234,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_skips_empty_lines() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         let ndjson = r#"
@@ -1269,7 +1269,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_unwraps_stream_event_wrapper() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         // CLI wraps streaming deltas in {"type":"stream_event","event":{...}}
@@ -1305,7 +1305,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_parses_thinking_deltas() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         let ndjson = r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
@@ -1366,7 +1366,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_unwraps_thinking_in_stream_event_wrapper() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         // Thinking deltas wrapped in stream_event (from --include-partial-messages)
@@ -1407,7 +1407,7 @@ use std::path::PathBuf;
 
     #[tokio::test]
     async fn stream_parser_survives_malformed_lines() {
-        use crate::claude::stream_parser::parse_stream;
+        use crate::agents::claude_code::stream_parser::parse_stream;
         use tokio::sync::mpsc;
 
         let ndjson = r#"{"type":"system","subtype":"init","model":"sonnet"}

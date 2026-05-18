@@ -9,7 +9,7 @@ use tokio::sync::{oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::claude::session::SessionMode;
+use crate::agents::claude_code::session::SessionMode;
 use crate::commands::preview::capture_screenshot_inner;
 
 /// Tools that are auto-approved without asking the user (read-only tools).
@@ -176,7 +176,7 @@ async fn find_forge_session_id(
     cli_session_id: Option<&str>,
     cwd: Option<&str>,
 ) -> Option<String> {
-    use crate::claude::session::AppState;
+    use crate::agents::claude_code::session::AppState;
 
     // Tier 1: Direct match from env var (guaranteed unique per CLI process)
     if let Some(hint) = forge_session_id_hint {
@@ -292,7 +292,7 @@ async fn handle_tool_approval(
         // SpecWriter sessions must NOT be allowed to change mode.
         // A SpecWriter session exists in session_modes but NOT in sessions.
         if let Some(ref sid) = forge_session_id {
-            if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
+            if let Some(app_state) = app_handle.try_state::<crate::agents::claude_code::session::AppState>() {
                 let sessions = app_state.sessions.lock().await;
                 let modes = app_state.session_modes.lock().await;
                 if modes.contains_key(sid) && !sessions.contains_key(sid) {
@@ -311,7 +311,7 @@ async fn handle_tool_approval(
         }
 
         if let Some(ref sid) = forge_session_id {
-            if let Some(app_state) = app_handle.try_state::<crate::claude::session::AppState>() {
+            if let Some(app_state) = app_handle.try_state::<crate::agents::claude_code::session::AppState>() {
                 let mut modes = app_state.session_modes.lock().await;
                 info!(
                     "[approval-server] {} observed → switching session {} to {:?} (CLI emits its own UI denial regardless of this allow)",
@@ -383,7 +383,7 @@ async fn handle_tool_approval(
             forge_session_id
         );
     } else if let Some(app_state) =
-        app_handle.try_state::<crate::claude::session::AppState>()
+        app_handle.try_state::<crate::agents::claude_code::session::AppState>()
     {
         // ── Enforce session mode at the Rust level ──
         let modes = app_state.session_modes.lock().await;

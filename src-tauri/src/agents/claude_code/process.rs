@@ -1,7 +1,7 @@
-use crate::claude::event_types::{ControlRequestPayload, FrontendEvent, StdinMessage};
-use crate::claude::message_router::route_events;
-use crate::claude::session::{AppState, SessionStatus};
-use crate::claude::stream_parser::parse_stream;
+use crate::agents::claude_code::event_types::{ControlRequestPayload, FrontendEvent, StdinMessage};
+use crate::agents::claude_code::message_router::route_events;
+use crate::agents::claude_code::session::{AppState, SessionStatus};
+use crate::agents::claude_code::stream_parser::parse_stream;
 use crate::errors::AppError;
 use crate::utils::paths::login_shell_path;
 use log::{debug, error, info, warn};

@@ -10,10 +10,13 @@
 
 use std::sync::{Arc, LazyLock};
 
+use super::claude_code::ClaudeCodeAdapter;
 use super::{AgentAdapter, AgentId};
 
-/// Phase 1 Session 1: empty. Subsequent sessions push adapters here.
-static REGISTRY: LazyLock<Vec<Arc<dyn AgentAdapter>>> = LazyLock::new(Vec::new);
+/// The registered adapters. Phase 1: Claude Code only. Phase 2 pushes
+/// `CodexAdapter` here.
+static REGISTRY: LazyLock<Vec<Arc<dyn AgentAdapter>>> =
+    LazyLock::new(|| vec![Arc::new(ClaudeCodeAdapter::new()) as Arc<dyn AgentAdapter>]);
 
 /// Look up an adapter by id. Returns `None` if not yet registered (Phase 1
 /// Session 1 returns `None` for every id).
@@ -35,14 +38,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase1_session1_registry_is_empty() {
-        // Once Session 2 lands ClaudeCodeAdapter, this becomes
-        // `assert_eq!(registered_ids(), vec![AgentId::ClaudeCode]);`
-        assert!(registered_ids().is_empty());
+    fn phase1_registry_has_exactly_claude_code() {
+        assert_eq!(registered_ids(), vec![AgentId::ClaudeCode]);
     }
 
     #[test]
-    fn lookup_returns_none_when_empty() {
-        assert!(get(AgentId::ClaudeCode).is_none());
+    fn lookup_resolves_claude_code_adapter() {
+        let adapter = get(AgentId::ClaudeCode).expect("Claude Code must be registered");
+        assert_eq!(adapter.agent_id(), AgentId::ClaudeCode);
+        assert_eq!(adapter.capabilities().display_name, "Claude Code");
     }
 }

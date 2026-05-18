@@ -1,5 +1,5 @@
-use crate::claude::approval_server::ApprovalServerState;
-use crate::claude::process::ClaudeProcess;
+use crate::agents::claude_code::approval_server::ApprovalServerState;
+use crate::agents::claude_code::process::ClaudeProcess;
 use crate::storage::Database;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -84,7 +84,7 @@ pub struct AppState {
     pub openrouter_model_cache: Mutex<Option<(std::time::Instant, Vec<crate::commands::openrouter::OpenRouterModelResult>)>>,
     /// Cached "latest published" Claude Code CLI version from npm registry.
     /// 6-hour TTL (see `cli_version::LATEST_VERSION_TTL`).
-    pub cli_latest_version_cache: crate::utils::cli_version::LatestVersionCache,
+    pub cli_latest_version_cache: crate::agents::claude_code::cli_version::LatestVersionCache,
     /// Monotonic counter bumped by the frontend `wake_pong` IPC. The wake
     /// observer reads this before/after emitting `wake-from-sleep` to detect
     /// a dead WKWebView content process — see `crate::lifecycle::wake_observer`.

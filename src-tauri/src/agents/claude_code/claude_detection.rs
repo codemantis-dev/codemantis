@@ -1,4 +1,4 @@
-use crate::utils::cli_version::{
+use crate::agents::claude_code::cli_version::{
     classify, fetch_latest_version, parse_version, CliSupport, LatestVersionCache,
     FALLBACK_MIN_VERSION,
 };
@@ -123,7 +123,7 @@ pub fn apply_classification(status: &mut ClaudeStatus, latest: Option<Version>) 
 
     match latest {
         Some(latest_v) => {
-            let min = crate::utils::cli_version::compute_min_supported(&latest_v);
+            let min = crate::agents::claude_code::cli_version::compute_min_supported(&latest_v);
             status.latest_version = Some(latest_v.to_string());
             status.min_supported_version = Some(min.to_string());
             status.support = classify(&installed_version, &latest_v);

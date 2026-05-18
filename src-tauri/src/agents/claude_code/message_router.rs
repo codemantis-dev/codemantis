@@ -1,5 +1,5 @@
-use crate::claude::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, RateLimitInfo, StreamDelta};
-use crate::claude::session::{AppState, ControlRequestKind, SessionMode};
+use crate::agents::claude_code::event_types::{ContentBlock, FrontendEvent, RawStreamEvent, RateLimitInfo, StreamDelta};
+use crate::agents::claude_code::session::{AppState, ControlRequestKind, SessionMode};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
@@ -425,14 +425,14 @@ async fn handle_result(
     is_error: Option<bool>,
     result: Option<String>,
     duration_ms: Option<u64>,
-    usage: Option<crate::claude::event_types::UsageInfo>,
+    usage: Option<crate::agents::claude_code::event_types::UsageInfo>,
     cost_usd: Option<f64>,
     duration_api_ms: Option<u64>,
     num_turns: Option<u32>,
     stop_reason: Option<String>,
     terminal_reason: Option<String>,
     model_usage: &Option<serde_json::Value>,
-    permission_denials: Option<Vec<crate::claude::event_types::PermissionDenial>>,
+    permission_denials: Option<Vec<crate::agents::claude_code::event_types::PermissionDenial>>,
     state: &mut RouterState,
 ) {
     if let Some(sid) = cli_sid {
@@ -665,7 +665,7 @@ fn handle_system_task_lifecycle(
             let usage = extra
                 .get("usage")
                 .and_then(|v| {
-                    serde_json::from_value::<crate::claude::event_types::UsageInfo>(v.clone()).ok()
+                    serde_json::from_value::<crate::agents::claude_code::event_types::UsageInfo>(v.clone()).ok()
                 });
             let fe = FrontendEvent::TaskNotification {
                 session_id: session_id.to_string(),
@@ -696,7 +696,7 @@ fn handle_message_delta(
     app_handle: &AppHandle,
     session_id: &str,
     chat_event: &str,
-    usage: Option<crate::claude::event_types::UsageInfo>,
+    usage: Option<crate::agents::claude_code::event_types::UsageInfo>,
 ) {
     if let Some(usage) = usage {
         let fe = FrontendEvent::UsageUpdate {
@@ -711,7 +711,7 @@ fn handle_user_event(
     app_handle: &AppHandle,
     session_id: &str,
     activity_event: &str,
-    message: &Option<crate::claude::event_types::AssistantMessage>,
+    message: &Option<crate::agents::claude_code::event_types::AssistantMessage>,
 ) {
     if let Some(msg) = message {
         if let Some(content_blocks) = &msg.content {
@@ -1023,10 +1023,10 @@ pub async fn route_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::event_types::{
+    use crate::agents::claude_code::event_types::{
         ContentBlock, RateLimitInfo, RawStreamEvent, StreamDelta,
     };
-    use crate::claude::session::SessionMode;
+    use crate::agents::claude_code::session::SessionMode;
 
     // ── classify_permission_mode ──
 
@@ -1532,7 +1532,7 @@ mod tests {
                 let usage = extra
                     .get("usage")
                     .and_then(|v| {
-                        serde_json::from_value::<crate::claude::event_types::UsageInfo>(v.clone()).ok()
+                        serde_json::from_value::<crate::agents::claude_code::event_types::UsageInfo>(v.clone()).ok()
                     })
                     .expect("usage should parse");
                 assert_eq!(usage.input_tokens, Some(100));
@@ -1983,7 +1983,7 @@ mod tests {
                 }
             ]
         }"#;
-        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        let usage: crate::agents::claude_code::event_types::UsageInfo = serde_json::from_str(json).unwrap();
         assert_eq!(usage.input_tokens, Some(3));
         let iters = usage.iterations.unwrap();
         assert_eq!(iters.len(), 1);
@@ -1995,7 +1995,7 @@ mod tests {
     #[test]
     fn usage_info_without_iterations_deserializes() {
         let json = r#"{"input_tokens": 500, "output_tokens": 200}"#;
-        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        let usage: crate::agents::claude_code::event_types::UsageInfo = serde_json::from_str(json).unwrap();
         assert_eq!(usage.input_tokens, Some(500));
         assert!(usage.iterations.is_none());
     }
@@ -2003,14 +2003,14 @@ mod tests {
     #[test]
     fn usage_info_with_empty_iterations_deserializes() {
         let json = r#"{"input_tokens": 500, "output_tokens": 200, "iterations": []}"#;
-        let usage: crate::claude::event_types::UsageInfo = serde_json::from_str(json).unwrap();
+        let usage: crate::agents::claude_code::event_types::UsageInfo = serde_json::from_str(json).unwrap();
         let iters = usage.iterations.unwrap();
         assert!(iters.is_empty());
     }
 
     #[test]
     fn usage_info_iterations_skipped_when_none_in_serialization() {
-        let usage = crate::claude::event_types::UsageInfo {
+        let usage = crate::agents::claude_code::event_types::UsageInfo {
             input_tokens: Some(100),
             output_tokens: Some(50),
             cache_creation_input_tokens: None,
