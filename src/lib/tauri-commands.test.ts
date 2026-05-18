@@ -15,6 +15,7 @@ const mockListen = vi.mocked(listen);
 // Import after mocks are in place (setup.ts runs before this file)
 import {
   checkClaudeStatus,
+  isLegacyClaudePathActive,
   setClaudeBinaryOverride,
   createSession,
   pauseSessionProcess,
@@ -145,6 +146,15 @@ describe("setClaudeBinaryOverride", () => {
     mockInvoke.mockResolvedValueOnce({ installed: true, version: "1.0", authenticated: true, binary_path: "/usr/local/bin/claude" });
     await setClaudeBinaryOverride("/usr/local/bin/claude");
     expectInvoke("set_claude_binary_override", { path: "/usr/local/bin/claude" });
+  });
+});
+
+describe("isLegacyClaudePathActive", () => {
+  it("calls invoke with is_legacy_claude_path_active and returns the bool", async () => {
+    mockInvoke.mockResolvedValueOnce(true);
+    const active = await isLegacyClaudePathActive();
+    expect(active).toBe(true);
+    expectInvoke("is_legacy_claude_path_active");
   });
 });
 

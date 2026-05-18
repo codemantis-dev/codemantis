@@ -4,7 +4,7 @@
 //! via `use crate::test_helpers::*`.
 
 use crate::agents::AgentId;
-use crate::claude::session::{AppState, SessionInfo, SessionStatus};
+use crate::agents::claude_code::session::{AppState, SessionInfo, SessionStatus};
 use crate::storage::Database;
 use chrono::Utc;
 

@@ -1,6 +1,6 @@
 use crate::agents::claude_code::session_mode_to_cli;
 use crate::agents::{registry, AgentId, ControlRequestPayload, SessionConfig, SessionMode};
-use crate::claude::session::{AppState, ControlRequestKind, SessionInfo, SessionStatus};
+use crate::agents::claude_code::session::{AppState, ControlRequestKind, SessionInfo, SessionStatus};
 use crate::errors::AppError;
 use crate::storage::database::{PersistedSession, SessionMessageRow, SessionMessageSearchResult};
 use crate::terminal::pty_manager::TerminalPool;
@@ -1286,7 +1286,7 @@ mod tests {
     #[test]
     fn mode_to_cli_and_back_is_identity() {
         // Round-trip: SessionMode → CLI string → classify_permission_mode.
-        use crate::claude::message_router::classify_permission_mode;
+        use crate::agents::claude_code::message_router::classify_permission_mode;
         for mode in [
             SessionMode::Normal,
             SessionMode::AutoAccept,

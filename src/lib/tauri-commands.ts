@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Session, PersistedSession, SessionHistoryEntry, SessionMessagePayload, SessionMessageSearchResult } from "../types/session";
 import type { FileNode } from "../types/file-tree";
-import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/claude-events";
+import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/agent-events";
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo, GitCommit } from "../types/git";
@@ -54,6 +54,15 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
 
 export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatus> {
   return invoke<ClaudeStatus>("set_claude_binary_override", { path });
+}
+
+/**
+ * Read-only: is the Phase 1 adapter-refactor rollback env var
+ * (`CODEMANTIS_FORCE_LEGACY_CLAUDE=1`) set? Surfaced in Settings → About for
+ * incident response. Not a toggle — the user sets the env var themselves.
+ */
+export async function isLegacyClaudePathActive(): Promise<boolean> {
+  return invoke<boolean>("is_legacy_claude_path_active");
 }
 
 // --- Lifecycle ---

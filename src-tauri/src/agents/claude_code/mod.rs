@@ -1,16 +1,15 @@
 //! Claude Code adapter.
 //!
-//! Phase 1 Session 2: this is a near-mechanical move of the former
+//! Phase 1 Session 2 was a near-mechanical move of the former
 //! `crate::claude::*` module plus the Claude-specific CLI helpers from
 //! `crate::utils::*`. The behaviour is byte-identical to v1.1.11 — the only
 //! change is the module path and the addition of the [`ClaudeCodeAdapter`]
 //! wrapper that exposes the existing [`ClaudeProcess`] through the
 //! [`AgentAdapter`] / [`AgentProcessHandle`] traits.
 //!
-//! During Sessions 2–4 the legacy `crate::claude::*` paths still resolve via a
-//! thin re-export shim in `src/claude/mod.rs`, so existing command-layer
-//! callers compile unchanged. Session 3 pivots them onto the trait; Session 5
-//! deletes the shim.
+//! Sessions 2–4 kept a `src/claude/mod.rs` re-export shim for back-compat;
+//! Session 5 migrated every caller to `crate::agents::claude_code::*` and
+//! deleted the shim. This is now the single home for the Claude path.
 //!
 //! Spec: `_guidance/requirements/CodeMantis-Phase1-AgentAdapter-Refactor-v1.2.md`
 //! §3.1, §3.3.

@@ -43,7 +43,7 @@ use std::time::{Duration, SystemTime};
 use log::{info, warn};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 
 /// How often we check that the WebView is alive.
 const TICK_INTERVAL: Duration = Duration::from_secs(30);

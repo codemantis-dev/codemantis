@@ -5,10 +5,12 @@ import GeneralTab from "./GeneralTab";
 // @ts-expect-error Vite global define
 globalThis.__APP_VERSION__ = "0.8.10";
 
+const isLegacyClaudePathActiveMock = vi.fn(() => Promise.resolve(false));
 vi.mock("../../../lib/tauri-commands", () => ({
   updateSettings: vi.fn(() => Promise.resolve()),
   getSettings: vi.fn(() => Promise.resolve({})),
   checkForUpdates: vi.fn(() => Promise.resolve(null)),
+  isLegacyClaudePathActive: () => isLegacyClaudePathActiveMock(),
 }));
 
 vi.mock("../../../types/settings", async (importOriginal) => ({
@@ -40,11 +42,31 @@ describe("GeneralTab", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    isLegacyClaudePathActiveMock.mockResolvedValue(false);
   });
 
   it("renders the title", () => {
     render(<GeneralTab {...defaultProps} />);
     expect(screen.getByText("General")).toBeInTheDocument();
+  });
+
+  it("hides the legacy CLAUDE path notice when the env var is unset", async () => {
+    isLegacyClaudePathActiveMock.mockResolvedValue(false);
+    render(<GeneralTab {...defaultProps} />);
+    // Allow the useEffect microtask to resolve.
+    await Promise.resolve();
+    expect(
+      screen.queryByTestId("legacy-claude-path-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the legacy CLAUDE path notice when forced", async () => {
+    isLegacyClaudePathActiveMock.mockResolvedValue(true);
+    render(<GeneralTab {...defaultProps} />);
+    expect(
+      await screen.findByTestId("legacy-claude-path-notice"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Legacy CLAUDE path active")).toBeInTheDocument();
   });
 
   it("renders theme options", () => {

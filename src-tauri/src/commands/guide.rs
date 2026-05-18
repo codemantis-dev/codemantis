@@ -1,4 +1,4 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use log::info;
 use serde::Serialize;
 use tauri::State;

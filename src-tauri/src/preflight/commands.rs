@@ -13,7 +13,7 @@
 
 #![allow(dead_code)]
 
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use crate::commands::settings::get_settings;
 use crate::preflight::{
     catalog::Catalog,

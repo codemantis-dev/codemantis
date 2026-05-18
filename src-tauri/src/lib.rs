@@ -1,6 +1,5 @@
 mod agents;
 mod changelog;
-mod claude;
 mod commands;
 pub mod errors;
 mod lifecycle;
@@ -13,8 +12,8 @@ mod utils;
 #[cfg(test)]
 pub mod test_helpers;
 
-use claude::approval_server::start_approval_server;
-use claude::session::AppState;
+use agents::claude_code::approval_server::start_approval_server;
+use agents::claude_code::session::AppState;
 use log::{error, info, warn};
 use storage::Database;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -39,6 +38,16 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── Phase 1 adapter-refactor rollback indicator (spec §3.7 / §5.4) ──
+    if agents::legacy_claude_path_forced() {
+        info!(
+            "[startup] CODEMANTIS_FORCE_LEGACY_CLAUDE=1 — adapter refactor \
+             rollback requested. The Claude path is a verified pass-through \
+             wrapper; if you are seeing a regression, `git revert` the Phase 1 \
+             commits and rebuild. Settings → About shows this state."
+        );
+    }
+
     // ── Migrate data from old app identifier (dev.codemantis.app → dev.codemantis.myapp) ──
     // The APP_ID was updated to match tauri.conf.json's bundle identifier.
     // Move all files from the old data directory so existing users keep their
@@ -305,6 +314,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::startup::check_claude_status,
+            commands::startup::is_legacy_claude_path_active,
             commands::startup::set_claude_binary_override,
             commands::session::create_session,
             commands::session::pause_session_process,

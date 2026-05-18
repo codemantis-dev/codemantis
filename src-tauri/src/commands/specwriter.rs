@@ -1,4 +1,4 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::path::Path;

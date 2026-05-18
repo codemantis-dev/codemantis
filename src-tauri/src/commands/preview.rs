@@ -1,4 +1,4 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use crate::preview::port_detector;
 use crate::preview::{ConsoleLogEntry, DevServerInfo, DevServerStatus, PreviewState};
 use crate::terminal::pty_manager::TerminalPool;

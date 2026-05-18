@@ -1,5 +1,25 @@
 # CodeMantis Releases
 
+## 1.2.0
+
+**Internal architecture release — user-visible behaviour is identical to v1.1.11.** This lands the `AgentAdapter` abstraction so CodeMantis is no longer hard-wired to the Claude Code CLI. Phase 2 (v1.3.0) ships the OpenAI Codex adapter on top of it.
+
+### Why
+From **15 June 2026** Anthropic moves `claude -p` / Agent-SDK headless usage (which CodeMantis triggers via `--input-format stream-json --output-format stream-json`) onto a separate metered credit pool. Making the agent layer pluggable lets users route their own coding-agent CLIs (starting with Codex, bundled in ChatGPT subscriptions) instead of drawing down the new bucket.
+
+### What changed (architecture only)
+- New `src-tauri/src/agents/` module: `AgentAdapter` + `AgentProcessHandle` traits, a 25-variant `NormalizedEvent` vocabulary, `AgentCapabilitySet`, `SessionConfig`, agent-scoped channel helpers, and a registry (`AgentId::ClaudeCode` only in this release)
+- The entire Claude path moved verbatim from `src/claude/*` and the Claude-specific `src/utils/{claude_detection,cli_handshake_probe,cli_version}.rs` into `src/agents/claude_code/*` (git history preserved). It is now reached through a `ClaudeCodeAdapter` that is a **verified zero-behaviour-change delegating wrapper** over the existing process code
+- `AppState.processes` is now `Box<dyn AgentProcessHandle>`; `SessionInfo` gains an additive `agent_id` field (always `claude_code`); the `claude-chat-*` / `claude-activity-*` Tauri channels and every `#[tauri::command]` name/signature are byte-identical
+- Frontend `src/types/claude-events.ts` → `agent-events.ts` (+ optional `agent_id?` on every event); a re-export shim keeps existing imports working
+- The CLI argv invariant (`--dangerously-skip-permissions` is never paired with `--permission-mode` — the CLI silently overrides it, verified by capture S06) is now locked by a regression test
+
+### Rollback flag — `CODEMANTIS_FORCE_LEGACY_CLAUDE`
+The spec envisioned a `#[cfg(feature = "legacy_claude_path")]` parallel pre-refactor module. This release took a **move-based** refactor instead (the spec itself calls it a "near-mechanical move"): the adapter is a proven pass-through with the full Rust+TS suites and capture S06 green, so there is no behaviourally-distinct legacy path to toggle. The genuine rollback is `git revert` of the v1.2.0 commits — safe precisely because the wrapper adds no behaviour. `CODEMANTIS_FORCE_LEGACY_CLAUDE=1` is therefore a **diagnostic indicator**: it is logged at startup and surfaced read-only in Settings → About so an incident responder can see the build was asked to fall back. Removed entirely in v1.3.0 / Phase 2. (Deviation from the literal spec mechanism documented here per spec §8's allowance.)
+
+### Tests
+Floors raised: Rust unit ≥ 1,499, TS unit ≥ 3,80x (new agent-trait, channel-helper, argv-invariant, legacy-indicator, and agent-events tests). All Rust/TS unit + integration suites green; clippy/tsc/lint clean; CLI capture S06 re-run against live CLI v2.1.126.
+
 ## 1.1.11
 
 Major SpecWriter + Self-Drive iteration: project capability handshake before spec generation, UI-completeness audit with a Coverage panel, AUDIT-PATCH for splicing spec fixes, evidence-driven verification with a loop guard, and a parity-recovery short-circuit that ends an entire class of false-positive pauses.

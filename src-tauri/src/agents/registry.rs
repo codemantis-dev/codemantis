@@ -1,9 +1,6 @@
 //! Static registry of available agent adapters.
 //!
-//! Session 1 (this commit) ships the registry shape with no entries. Session 2
-//! populates it with `ClaudeCodeAdapter` once the mechanical move from
-//! `crate::claude::*` to `crate::agents::claude_code::*` has landed. Phase 2
-//! adds `CodexAdapter`.
+//! Phase 1: one entry, `ClaudeCodeAdapter`. Phase 2 adds `CodexAdapter`.
 //!
 //! Lookups are `AgentId` → `Arc<dyn AgentAdapter>`. The registry is built
 //! lazily and shared across all callers.

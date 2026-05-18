@@ -1,4 +1,4 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};

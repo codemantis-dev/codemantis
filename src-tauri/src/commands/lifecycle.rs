@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use tauri::State;
 
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 
 /// Command name registered with `invoke_handler!`. Kept as a constant so
 /// log lines from the wake-observer stay in sync if the command is ever

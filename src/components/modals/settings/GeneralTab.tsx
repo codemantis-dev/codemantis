@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ThemeId } from "../../../types/settings";
 import { THEMES } from "../../../types/settings";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { showToast } from "../../../stores/toastStore";
 import { useUiStore } from "../../../stores/uiStore";
 import { checkForUpdate } from "../../../lib/update-checker";
+import { isLegacyClaudePathActive } from "../../../lib/tauri-commands";
 
 export default function GeneralTab({
   theme, fontSize, sendShortcut, triviaEnabled, autoOpenFiles, defaultContextWindow, showWelcomeScreen,
@@ -150,7 +151,51 @@ export default function GeneralTab({
           </button>
         </div>
         <UpdateSection />
+        <LegacyClaudePathNotice />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Read-only incident-response indicator. Renders only when the env var
+ * `CODEMANTIS_FORCE_LEGACY_CLAUDE=1` is set (Phase 1 adapter-refactor
+ * rollback requested). Not a toggle — the user sets the env var themselves
+ * and restarts. Spec §3.7 / §8 Q2.
+ */
+function LegacyClaudePathNotice(): React.ReactElement | null {
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isLegacyClaudePathActive()
+      .then((v) => {
+        if (!cancelled) setActive(v);
+      })
+      .catch(() => {
+        /* indicator is best-effort; absence ≠ error */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!active) return null;
+
+  return (
+    <div
+      className="py-2 border-t border-border-light pt-4 mt-2"
+      role="status"
+      data-testid="legacy-claude-path-notice"
+    >
+      <label className="text-ui" style={{ color: "var(--warning, #d97706)" }}>
+        Legacy CLAUDE path active
+      </label>
+      <p className="text-label text-text-ghost">
+        CODEMANTIS_FORCE_LEGACY_CLAUDE=1 is set. The Claude path is a verified
+        pass-through; if you hit a regression, revert the v1.2.0 adapter
+        commits and rebuild. Unset the env var and restart to clear this.
+      </p>
     </div>
   );
 }

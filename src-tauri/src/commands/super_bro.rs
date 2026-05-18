@@ -1,4 +1,4 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use crate::storage::database::ObservationRow;
 use tauri::Manager;
 use tauri::State;

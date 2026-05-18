@@ -1,5 +1,5 @@
 use crate::changelog::summarizer::{self, SummarizeRequest};
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use crate::commands::settings;
 use log::error;
 use serde::Serialize;

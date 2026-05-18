@@ -1,18 +1,14 @@
 //! Agent adapter layer.
 //!
-//! Phase 1 of the AgentAdapter refactor introduces this module. The
-//! `AgentAdapter` trait is the abstraction over the per-agent CLI (Claude Code
-//! today; OpenAI Codex in Phase 2). Each adapter speaks its native wire
+//! The `AgentAdapter` trait is the abstraction over the per-agent CLI (Claude
+//! Code today; OpenAI Codex in Phase 2). Each adapter speaks its native wire
 //! protocol on stdin/stdout and exposes a normalized event stream + control
-//! surface to the rest of the app.
-//!
-//! Session 1 deliverable: types and trait shapes only. No callers yet — the
-//! existing `crate::claude::*` module continues to drive sessions during the
-//! same release until Session 2 migrates it into `agents::claude_code`.
+//! surface to the rest of the app. The Claude implementation lives in
+//! `claude_code` (moved here from the former `crate::claude::*` in Phase 1).
 //!
 //! Spec: `_guidance/requirements/CodeMantis-Phase1-AgentAdapter-Refactor-v1.2.md`
 //! §3.2 (`AgentAdapter` trait) and §3.5 (channel helpers).
-
+//!
 //! Phase 1 lands the full adapter trait surface, the NormalizedEvent
 //! vocabulary, the generic control-protocol types, and the channel helpers
 //! ahead of full consumption (spec §4.1: "compiles but nothing calls them
@@ -30,6 +26,29 @@ use tauri::AppHandle;
 
 pub mod claude_code;
 pub mod registry;
+
+/// Rollback escape hatch for the Phase 1 adapter refactor (spec §3.7, §5.4).
+///
+/// The spec envisioned a `#[cfg(feature = "legacy_claude_path")]` *parallel*
+/// pre-refactor module, presupposing a copy-based refactor. We did a
+/// move-based refactor instead (spec §3.3 itself calls it a "near-mechanical
+/// move"): the Claude path moved verbatim into `claude_code` and the adapter
+/// is a verified zero-behaviour-change delegating wrapper (Sessions 2–3
+/// landed it with the full suite + capture S06 green). There is therefore no
+/// behaviourally-distinct legacy path to toggle — the genuine rollback is
+/// `git revert` of the Phase 1 commits, which is safe precisely because the
+/// wrapper adds no behaviour.
+///
+/// This flag is retained for the 14-day (compressed: 3–5 day) soak as a
+/// **diagnostic indicator**: when `CODEMANTIS_FORCE_LEGACY_CLAUDE=1` is set
+/// it is logged at startup and surfaced read-only in Settings → About, so an
+/// incident responder can immediately see the build was asked to fall back
+/// (and knows to `git revert` + rebuild). Removed entirely in v1.3.0 /
+/// Phase 2 per spec §6. The deviation from the literal `#[cfg(feature)]`
+/// mechanism is documented in RELEASES.md per spec §8's allowance.
+pub fn legacy_claude_path_forced() -> bool {
+    std::env::var("CODEMANTIS_FORCE_LEGACY_CLAUDE").as_deref() == Ok("1")
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Identity & capabilities
@@ -83,9 +102,10 @@ pub struct AgentCapabilitySet {
 // ─────────────────────────────────────────────────────────────────────
 // Common control-protocol vocabulary (also referenced by NormalizedEvent)
 //
-// Note: `crate::claude::event_types` still defines its own copies of
-// `UsageInfo` and `PermissionDenial` for legacy callers. Session 2 of the
-// refactor migrates those to the definitions below.
+// Note: `claude_code::event_types` still defines its own Claude-native
+// copies of `UsageInfo` and `PermissionDenial` (pinned by the capture
+// harness wire format). Phase 2 converges adapters onto the definitions
+// below; Phase 1 keeps both to avoid perturbing the Claude wire.
 // ─────────────────────────────────────────────────────────────────────
 
 /// Per-API-call token usage emitted from each agent's message-delta-equivalent.
@@ -196,7 +216,7 @@ pub struct SessionConfig {
 // ─────────────────────────────────────────────────────────────────────
 // NormalizedEvent — the adapter-agnostic event vocabulary
 //
-// Near-superset of v1.1.11's `crate::claude::event_types::FrontendEvent`.
+// Near-superset of v1.1.11's `claude_code::event_types::FrontendEvent`.
 // Every variant carries `agent_id` so the frontend can branch when needed
 // (e.g. agent-aware protected-path detection). In Phase 1 the field is
 // additive and `claude::event_types::FrontendEvent` is what actually rides

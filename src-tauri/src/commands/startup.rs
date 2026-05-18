@@ -1,17 +1,35 @@
-use crate::claude::session::AppState;
+use crate::agents::claude_code::session::AppState;
 use crate::commands::settings::get_settings;
-use crate::utils::claude_detection::{
+use crate::agents::claude_code::claude_detection::{
     detect_claude, enrich_status, validate_claude_binary, ClaudeStatus,
 };
-use crate::utils::cli_handshake_probe::probe_if_unknown;
-use crate::utils::cli_version::CliSupport;
+use crate::agents::claude_code::cli_handshake_probe::probe_if_unknown;
+use crate::agents::claude_code::cli_version::CliSupport;
 use tauri::State;
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::claude_detection::{detect_claude, validate_claude_binary, ClaudeStatus};
-    use crate::utils::cli_version::CliSupport;
+    use crate::agents::claude_code::claude_detection::{detect_claude, validate_claude_binary, ClaudeStatus};
+    use crate::agents::claude_code::cli_version::CliSupport;
     use serde_json::Value;
+
+    #[test]
+    fn legacy_claude_path_indicator_reflects_env_var() {
+        // SAFETY: single-threaded test process for this case; we set then
+        // clear the var so no other test observes it.
+        std::env::remove_var("CODEMANTIS_FORCE_LEGACY_CLAUDE");
+        assert!(!super::is_legacy_claude_path_active());
+
+        std::env::set_var("CODEMANTIS_FORCE_LEGACY_CLAUDE", "1");
+        assert!(super::is_legacy_claude_path_active());
+
+        // Any value other than exactly "1" is not a force.
+        std::env::set_var("CODEMANTIS_FORCE_LEGACY_CLAUDE", "true");
+        assert!(!super::is_legacy_claude_path_active());
+
+        std::env::remove_var("CODEMANTIS_FORCE_LEGACY_CLAUDE");
+        assert!(!super::is_legacy_claude_path_active());
+    }
 
     #[test]
     fn claude_status_serializes_required_fields() {
@@ -86,6 +104,15 @@ pub async fn check_claude_status(state: State<'_, AppState>) -> Result<ClaudeSta
     }
 
     Ok(status)
+}
+
+/// Read-only indicator for Settings → About: is the adapter-refactor rollback
+/// env var (`CODEMANTIS_FORCE_LEGACY_CLAUDE=1`) set? Not a toggle — the user
+/// sets the env var themselves; this just surfaces the state for incident
+/// response (spec §3.7 / §8 Q2 default).
+#[tauri::command]
+pub fn is_legacy_claude_path_active() -> bool {
+    crate::agents::legacy_claude_path_forced()
 }
 
 #[tauri::command]
