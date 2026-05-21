@@ -202,12 +202,16 @@ export default function EffortSelector() {
     }
   };
 
+  // Agent-aware copy: Codex sessions read `current_effort` per-turn
+  // from the adapter handle, so "inherit X's default" wording differs.
+  const agentName =
+    (session?.agent_id ?? "claude_code") === "codex" ? "Codex" : "Claude Code";
   const titleParts: string[] = [];
   if (runningLevel) titleParts.push(`Current session: ${labelFor(runningLevel)}`);
   titleParts.push(
     persistedDefault
       ? `New sessions: ${labelFor(persistedDefault)}`
-      : "New sessions: inherit Claude Code's default",
+      : `New sessions: inherit ${agentName}'s default`,
   );
   const title = titleParts.join(" · ");
 
@@ -286,9 +290,9 @@ export default function EffortSelector() {
                   </span>
                 </button>
                 <div className="px-2.5 pb-1.5 text-label text-text-dim">
-                  Claude Code has no runtime way to change effort, so applying
-                  it to the running session means closing and resuming the CLI
-                  process.
+                  {(session?.agent_id ?? "claude_code") === "codex"
+                    ? "Codex applies effort per turn — picking a level here just updates the next turn's request."
+                    : "Claude Code has no runtime way to change effort, so applying it to the running session means closing and resuming the CLI process."}
                 </div>
               </>
             ) : (

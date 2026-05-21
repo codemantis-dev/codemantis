@@ -446,6 +446,83 @@ pub async fn spawn_codex_session(
         },
     );
 
+    // v1.3.1: call `model/list` and emit CapabilitiesDiscovered so the
+    // frontend's ModelSelector / EffortSelector pick up the real Codex
+    // model lineup (verified empirically: gpt-5.5 default, gpt-5.4,
+    // gpt-5.4-mini, gpt-5.3-codex, gpt-5.2 — all support
+    // low/medium/high/xhigh effort). Shape per v2/ModelListResponse.json:
+    //   { data: [{id, model, displayName, description, isDefault,
+    //              hidden, defaultReasoningEffort,
+    //              supportedReasoningEfforts: [{reasoningEffort, …}], …}] }
+    // We transform into the CliModelInfo shape ModelSelector expects:
+    //   { value, displayName, description }
+    // Best-effort: if model/list fails for any reason, we log + continue
+    // without emitting (the selector falls back to a static label).
+    match client.send_request("model/list", json!({})).await {
+        Ok(list) => {
+            let models_array = list
+                .get("data")
+                .and_then(|d| d.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let transformed: Vec<Value> = models_array
+                .iter()
+                .filter(|m| !m.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false))
+                .map(|m| {
+                    // Codex uses `model` as the wire id (e.g. "gpt-5.5");
+                    // `displayName` is the user-facing string.
+                    let value = m
+                        .get("model")
+                        .or_else(|| m.get("id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let display = m
+                        .get("displayName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&value)
+                        .to_string();
+                    let description = m
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let is_default = m
+                        .get("isDefault")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    json!({
+                        "value": value,
+                        "displayName": if is_default {
+                            format!("{display} (default)")
+                        } else {
+                            display
+                        },
+                        "description": description,
+                    })
+                })
+                .collect();
+            emit_event_for(
+                &app_handle,
+                &NormalizedEvent::CapabilitiesDiscovered {
+                    agent_id: AgentId::Codex,
+                    session_id: config.session_id.clone(),
+                    models: Value::Array(transformed),
+                    commands: Value::Null,
+                    agents: Value::Null,
+                    account: Value::Null,
+                    output_styles: Value::Null,
+                },
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "[codex {}] model/list failed ({e}); ModelSelector will fall back to a default label",
+                config.session_id
+            );
+        }
+    }
+
     // 7. thread/start or thread/resume — uses the "Auto" preset from
     // spec §2.3 (workspace-write × on-request). Phase 2 §6.1's Policy
     // pill mutates this via set_codex_policy after spawn.

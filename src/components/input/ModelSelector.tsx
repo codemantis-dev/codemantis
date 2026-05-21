@@ -6,12 +6,27 @@ import { formatModelName } from "../../lib/format-utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import type { CliModelInfo } from "../../types/claude-events";
 
-const FALLBACK_MODELS: CliModelInfo[] = [
+// Per-agent fallback lists used while the live `initialize` /
+// `model/list` capability discovery is still in-flight (or if it
+// fails). Real lists land via the CapabilitiesDiscovered event on the
+// chat channel and override these.
+const CLAUDE_FALLBACK_MODELS: CliModelInfo[] = [
   { value: "default", displayName: "Default", description: "Account default" },
   { value: "sonnet", displayName: "Sonnet", description: "Fast and capable" },
   { value: "opus[1m]", displayName: "Opus (1M)", description: "Extended context" },
   { value: "sonnet[1m]", displayName: "Sonnet (1M)", description: "Extended context" },
   { value: "haiku", displayName: "Haiku", description: "Fastest" },
+];
+
+// Codex empirical default lineup (verified against `model/list` JSON-RPC
+// on codex-cli 0.130.0). The real CapabilitiesDiscovered event is the
+// authoritative source; this list shows up only if model/list never
+// resolved (e.g. transport hiccup during spawn).
+const CODEX_FALLBACK_MODELS: CliModelInfo[] = [
+  { value: "gpt-5.5", displayName: "GPT-5.5 (default)", description: "Codex default — balanced speed and reasoning" },
+  { value: "gpt-5.4", displayName: "gpt-5.4", description: "General-purpose Codex model" },
+  { value: "gpt-5.4-mini", displayName: "GPT-5.4-Mini", description: "Smaller / faster" },
+  { value: "gpt-5.3-codex", displayName: "gpt-5.3-codex", description: "Older Codex-tuned model" },
 ];
 
 export default function ModelSelector() {
@@ -21,10 +36,18 @@ export default function ModelSelector() {
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  // Agent-aware fallback: Codex sessions must never see Claude models
+  // (Sonnet/Opus/Haiku) — that's user-visibly wrong even for the brief
+  // pre-CapabilitiesDiscovered window. Pick the correct static list
+  // based on the session's agent, then let the live event override.
+  const agentFallback =
+    (session?.agent_id ?? "claude_code") === "codex"
+      ? CODEX_FALLBACK_MODELS
+      : CLAUDE_FALLBACK_MODELS;
   const models: CliModelInfo[] =
     caps?.models && Array.isArray(caps.models) && caps.models.length > 0
       ? caps.models
-      : FALLBACK_MODELS;
+      : agentFallback;
 
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));

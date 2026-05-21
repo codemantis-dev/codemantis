@@ -453,9 +453,15 @@ export default function InputArea() {
             onPaste={handlePaste}
             placeholder={
               session
-                ? isBusy
-                  ? `Ask Claude anything... even while Claude is busy! (${sendShortcutHint(sendShortcut)})`
-                  : `Ask Claude anything... (${sendShortcutHint(sendShortcut)})`
+                ? (() => {
+                    const agent =
+                      (session.agent_id ?? "claude_code") === "codex"
+                        ? "Codex"
+                        : "Claude";
+                    return isBusy
+                      ? `Ask ${agent} anything... even while ${agent} is busy! (${sendShortcutHint(sendShortcut)})`
+                      : `Ask ${agent} anything... (${sendShortcutHint(sendShortcut)})`;
+                  })()
                 : "Open a project to start..."
             }
             disabled={!session}
@@ -541,10 +547,16 @@ export default function InputArea() {
             </div>
           </div>
 
-          {/* Keyboard shortcut hints */}
+          {/* Keyboard shortcut hints — Codex has no Shift+Tab mode-cycle
+              (sandbox + approval live on the Policy pill); show the
+              correct hint per agent. */}
           {session && (
             <div className="flex items-center justify-center gap-4 pb-1.5 -mt-0.5 text-label text-text-ghost select-none">
-              <span>Shift+Tab to switch mode</span>
+              {(session.agent_id ?? "claude_code") === "codex" ? (
+                <span>Click Policy to change sandbox / approval</span>
+              ) : (
+                <span>Shift+Tab to switch mode</span>
+              )}
               <span>⌘+/⌘− to adjust font size</span>
             </div>
           )}
