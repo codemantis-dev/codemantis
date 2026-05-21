@@ -788,22 +788,45 @@ export async function getDevServerStatus(
 
 // --- Event Listeners ---
 
-export function listenChatEvents(
+/**
+ * Subscribe to chat-channel events for a session. v1.3.1: subscribes to
+ * BOTH `claude-chat-*` and `codex-chat-*` (one of the two will be the
+ * actual emit channel; the other is a no-op). Cheap because Tauri's
+ * `listen` is just a name match — unmatched channels never fire.
+ *
+ * Why both rather than agent-specific: the caller (useClaudeSession)
+ * doesn't always have the agent id at attach time (resume-from-history
+ * flows construct the listener before SessionInfo lands). Subscribing
+ * to both is safer than guessing.
+ */
+export async function listenChatEvents(
   sessionId: string,
   callback: (event: FrontendEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<FrontendEvent>(`claude-chat-${sessionId}`, (e) =>
-    callback(e.payload)
-  );
+  const handler = (e: { payload: FrontendEvent }): void => callback(e.payload);
+  const [unA, unB] = await Promise.all([
+    listen<FrontendEvent>(`claude-chat-${sessionId}`, handler),
+    listen<FrontendEvent>(`codex-chat-${sessionId}`, handler),
+  ]);
+  return (() => {
+    unA();
+    unB();
+  }) as UnlistenFn;
 }
 
-export function listenActivityEvents(
+export async function listenActivityEvents(
   sessionId: string,
   callback: (event: FrontendEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<FrontendEvent>(`claude-activity-${sessionId}`, (e) =>
-    callback(e.payload)
-  );
+  const handler = (e: { payload: FrontendEvent }): void => callback(e.payload);
+  const [unA, unB] = await Promise.all([
+    listen<FrontendEvent>(`claude-activity-${sessionId}`, handler),
+    listen<FrontendEvent>(`codex-activity-${sessionId}`, handler),
+  ]);
+  return (() => {
+    unA();
+    unB();
+  }) as UnlistenFn;
 }
 
 export function listenToolApprovalRequests(

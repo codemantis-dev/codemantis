@@ -359,7 +359,13 @@ pub async fn sync_session_mode(
     Ok(())
 }
 
-#[tauri::command]
+// `rename_all = "camelCase"` makes Tauri rename the Rust `request_id` arg
+// to `requestId` for IPC matching, accepting the frontend's camelCase
+// payload. v1.3.1: a Codex approval flow was getting "invalid args
+// `requestId`" without this — the default arg-name policy in this
+// Tauri version doesn't auto-convert. Being explicit removes the
+// ambiguity.
+#[tauri::command(rename_all = "camelCase")]
 pub async fn resolve_tool_approval(
     state: State<'_, AppState>,
     request_id: String,
