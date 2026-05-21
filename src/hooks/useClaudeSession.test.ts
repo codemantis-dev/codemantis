@@ -168,7 +168,12 @@ describe("useClaudeSession", () => {
     });
 
     expect(sessionId).toBe("s1");
-    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH);
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      undefined,
+      undefined,
+      "claude_code",
+    );
     expect(useSessionStore.getState().sessions.has("s1")).toBe(true);
   });
 
@@ -221,7 +226,12 @@ describe("useClaudeSession", () => {
       await result.current.addSessionToProject();
     });
 
-    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH);
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      undefined,
+      undefined,
+      "claude_code",
+    );
   });
 
   it("sendMessage adds user message and calls backend", async () => {

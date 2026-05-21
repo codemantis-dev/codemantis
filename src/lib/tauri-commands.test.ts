@@ -15,7 +15,6 @@ const mockListen = vi.mocked(listen);
 // Import after mocks are in place (setup.ts runs before this file)
 import {
   checkClaudeStatus,
-  isLegacyClaudePathActive,
   setClaudeBinaryOverride,
   createSession,
   pauseSessionProcess,
@@ -149,14 +148,8 @@ describe("setClaudeBinaryOverride", () => {
   });
 });
 
-describe("isLegacyClaudePathActive", () => {
-  it("calls invoke with is_legacy_claude_path_active and returns the bool", async () => {
-    mockInvoke.mockResolvedValueOnce(true);
-    const active = await isLegacyClaudePathActive();
-    expect(active).toBe(true);
-    expectInvoke("is_legacy_claude_path_active");
-  });
-});
+// `isLegacyClaudePathActive` tests removed in v1.3.0 — the indicator was
+// retired after the v1.2.0 soak (Phase 2 S8 per spec §12).
 
 // ---------------------------------------------------------------------------
 // Session commands

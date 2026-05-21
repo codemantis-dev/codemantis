@@ -8,6 +8,7 @@ import { translateError } from "../../lib/error-messages";
 import ErrorCard from "../shared/ErrorCard";
 import TemplatePicker from "./TemplatePicker";
 import CloneForm from "./CloneForm";
+import AgentPicker from "../onboarding/AgentPicker";
 import { getRecentProjects, addRecentProject, removeRecentProject } from "../../lib/recent-projects";
 import { listRecentSessions } from "../../lib/tauri-commands";
 import { sessionIconFor, formatRelativeTime, projectBasename } from "../../lib/session-display";
@@ -36,6 +37,8 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
   const setShowProjectPicker = useUiStore((s) => s.setShowProjectPicker);
   const activeTab = useUiStore((s) => s.projectPickerTab);
   const setActiveTab = useUiStore((s) => s.setProjectPickerTab);
+  const selectedAgentId = useUiStore((s) => s.selectedAgentId);
+  const setSelectedAgentId = useUiStore((s) => s.setSelectedAgentId);
 
   const [projectPath, setProjectPath] = useState("");
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
@@ -261,6 +264,16 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
                     <span className="text-text-secondary text-ui">Select a project folder...</span>
                   )}
                 </button>
+
+                {/* Phase 2 §5: agent picker between project selection and
+                    the spawn call. Auto-collapses when only one binary is
+                    installed; persists choice in uiStore.selectedAgentId. */}
+                <div className="mb-3">
+                  <AgentPicker
+                    value={selectedAgentId}
+                    onChange={setSelectedAgentId}
+                  />
+                </div>
 
                 {/* Start button */}
                 <button

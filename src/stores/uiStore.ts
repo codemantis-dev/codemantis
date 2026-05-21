@@ -26,6 +26,19 @@ interface UiState {
   showMcpModal: boolean;
   showProjectPicker: boolean;
   projectPickerTab: ProjectPickerTab;
+  /**
+   * Phase 2 §5: which agent the next "create session" call should target.
+   * Persists for the lifetime of the UI store (not across launches) so a
+   * user who picks Codex once doesn't have to re-pick on every session.
+   */
+  selectedAgentId: import("../types/agent-events").AgentId;
+  /**
+   * Phase 2 §6.1: per-Codex-session sandbox+approval policy, keyed by
+   * session id. Missing entries default to the spec §2.3 "Auto" preset
+   * (workspace-write × on-request). The backend is authoritative; this
+   * is the optimistic UI mirror used by `PolicyPill`.
+   */
+  codexPolicies: Record<string, import("../lib/tauri-commands").CodexSessionPolicy>;
   showCliOverlay: boolean;
   cliOverlayInitialInput: string | null;
   cliOverlaySessionId: string | null;
@@ -74,6 +87,12 @@ interface UiState {
   setShowSettingsModal: (show: boolean) => void;
   setShowMcpModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
+  setSelectedAgentId: (id: import("../types/agent-events").AgentId) => void;
+  /** Local-only update; IPC commit happens via tauri-commands.setCodexPolicy. */
+  updateCodexPolicyLocal: (
+    sessionId: string,
+    policy: import("../lib/tauri-commands").CodexSessionPolicy,
+  ) => void;
   setProjectPickerTab: (tab: ProjectPickerTab) => void;
   openProjectPicker: (tab: ProjectPickerTab) => void;
   setShowCliOverlay: (show: boolean) => void;
@@ -120,6 +139,8 @@ export const useUiStore = create<UiState>((set) => ({
   showSettingsModal: false,
   showMcpModal: false,
   showProjectPicker: false,
+  selectedAgentId: "claude_code",
+  codexPolicies: {},
   projectPickerTab: "templates",
   showCliOverlay: false,
   cliOverlayInitialInput: null,
@@ -188,6 +209,11 @@ export const useUiStore = create<UiState>((set) => ({
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowMcpModal: (show) => set({ showMcpModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
+  setSelectedAgentId: (id) => set({ selectedAgentId: id }),
+  updateCodexPolicyLocal: (sessionId, policy) =>
+    set((state) => ({
+      codexPolicies: { ...state.codexPolicies, [sessionId]: policy },
+    })),
   setProjectPickerTab: (tab) => set({ projectPickerTab: tab }),
   openProjectPicker: (tab) => set({ showProjectPicker: true, projectPickerTab: tab }),
   setShowCliOverlay: (show) => set({ showCliOverlay: show, ...(!show ? { cliOverlaySessionId: null, cliOverlayProjectPath: null } : {}) }),

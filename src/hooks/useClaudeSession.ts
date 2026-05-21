@@ -74,7 +74,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
     }
 
-    const session = await createSession(projectPath);
+    // Phase 2 §5: route to the agent the user picked in the project
+    // picker (defaults to claude_code so existing flows are unchanged).
+    const agentId = useUiStore.getState().selectedAgentId;
+    const session = await createSession(projectPath, undefined, undefined, agentId);
     sessionStore.getState().addSession(session);
 
     // The CLI in stream-json mode does not echo the running effort back in

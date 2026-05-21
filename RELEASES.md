@@ -1,5 +1,65 @@
 # CodeMantis Releases
 
+## 1.3.0
+
+**OpenAI Codex CLI is now a first-class agent.** Sessions can route through either Claude Code (existing) or Codex (new), picked per session in the project picker. The Codex protocol is bidirectional JSON-RPC 2.0 over `codex app-server --listen stdio://`; CodeMantis speaks it natively (8 sessions of focused work on top of the Phase 1 `AgentAdapter` trait shipped in v1.2.0).
+
+### Why
+From **15 June 2026** Anthropic moves `claude -p` / Agent-SDK headless usage onto a metered credit pool separate from the interactive-subscription pool. Codex is bundled with the user's ChatGPT Plus/Pro/Business subscription, so traffic routed through it draws from existing headroom instead.
+
+### What's new
+
+**Agent picker** (Project Picker). When both `claude` and `codex` are installed, pick which agent the session uses. Auto-collapses to a static label when only one is on `$PATH`. Selection persists for the lifetime of the UI store.
+
+**Codex Policy pill** (input toolbar). Replaces the Claude Mode selector on Codex sessions. Codex's sandbox and approval policy are orthogonal axes, so the pill surfaces both:
+- Sandbox: `read-only` / `workspace-write` / `danger-full-access`
+- Approval policy: `never` / `on-request` / `untrusted`
+- Network-access shown as a read-only indicator (gated by the new `codex_network_access` Preflight recipe — toggling it means editing `~/.codex/config.toml` directly)
+
+Changes commit immediately and take effect on the next `turn/start`.
+
+**Approval flow.** Codex's four server-initiated approval kinds (`commandExecution`, `fileChange`, `mcpServer/elicitation`, `permissions`) all route onto the **existing** `ToolApprovalModal` — same UI, four kinds of JSON-RPC `result` shape on the way back. No new modal surface.
+
+**Crash recovery.** Codex sessions carry the same `agent_id` discriminator as Claude sessions; `thread/resume` is wired alongside Claude's `--resume`, so the Resume Session list restores either kind.
+
+**SpecWriter on Codex.** Codex has no `--append-system-prompt` flag. SpecWriter sessions on Codex spawn with `cwd` in an ephemeral `~/.codemantis/specwriter-sessions/<sid>/` directory holding an `AGENTS.override.md`; the user's actual project is reachable via `--add-dir`. AUDIT-PATCH remains Claude-only in v1.3.0.
+
+**Multi-agent protected-path detector** (chat panel). The toast that bucket-sorts denied writes is now agent-aware:
+- Claude: `.claude/` `.git/` `.vscode/`  → "Claude CLI's protected-path guardrail"
+- Codex: `.codex/` `.git/` `.agents/` → "Codex's sandbox"
+
+### Auth & install
+You install + sign in to Codex outside the app:
+
+```
+npm install -g @openai/codex      # or: brew install codex
+codex login                        # OAuth via browser, persists to ~/.codex/auth.json
+```
+
+The spawn path runs `codex login status` before each session and surfaces an actionable `AuthRequired` error with the docs link when you're signed out. In-app login is deferred to v1.4.0.
+
+### Removed
+- `CODEMANTIS_FORCE_LEGACY_CLAUDE` env var (v1.2.0 soak surfaced no adapter regressions, so the rollback indicator is gone). The genuine rollback for the Phase 1 refactor remains `git revert` of the v1.2.0 commits.
+
+### Known gaps in v1.3.0 (planned for v1.3.x / v1.4.0)
+- **MCP server management for Codex** — backend parses `~/.codex/config.toml`; the existing MCP Servers settings tab is still Claude-only. Edit `~/.codex/config.toml` directly to add Codex MCP servers; reload via the tab's refresh.
+- **AUDIT-PATCH on Codex** — Claude-only in v1.3.0; when a Codex session is active the button explains the limitation.
+- **In-app `codex login`** — deferred (OAuth browser flow + localhost callback handling); run it in a terminal.
+- **Build-mode preamble Codex variant** — Self-Drive runs on Codex use the Claude-tuned evidence-vocab preamble for v1.3.0.
+
+### Tests
+Floors raised in this release:
+- TS unit ≥ **3,849**
+- Rust unit ≥ **1,630**
+
+Plus the new Codex capture harness (`tests/codex_protocol_capture.rs`) with scenarios **C01–C12** against a live `codex app-server`. Manual merge gate:
+
+```
+CM_HARNESS_ONLY=C04 cargo test --test codex_protocol_capture capture_single -- --ignored --nocapture
+```
+
+`#[ignore]`-gated because each run consumes OpenAI credits and needs a logged-in Codex install.
+
 ## 1.2.0
 
 **Internal architecture release — user-visible behaviour is identical to v1.1.11.** This lands the `AgentAdapter` abstraction so CodeMantis is no longer hard-wired to the Claude Code CLI. Phase 2 (v1.3.0) ships the OpenAI Codex adapter on top of it.

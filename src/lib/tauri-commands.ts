@@ -56,14 +56,8 @@ export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatu
   return invoke<ClaudeStatus>("set_claude_binary_override", { path });
 }
 
-/**
- * Read-only: is the Phase 1 adapter-refactor rollback env var
- * (`CODEMANTIS_FORCE_LEGACY_CLAUDE=1`) set? Surfaced in Settings → About for
- * incident response. Not a toggle — the user sets the env var themselves.
- */
-export async function isLegacyClaudePathActive(): Promise<boolean> {
-  return invoke<boolean>("is_legacy_claude_path_active");
-}
+// `isLegacyClaudePathActive` (Phase 1 v1.2.0 rollback indicator) removed in
+// v1.3.0 / Phase 2 S8 — the v1.2.0 soak surfaced no adapter regressions.
 
 // --- Lifecycle ---
 

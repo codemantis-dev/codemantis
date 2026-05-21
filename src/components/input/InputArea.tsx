@@ -8,6 +8,7 @@ import { saveClipboardImage, getFileInfo, interruptSession } from "../../lib/tau
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
+import PolicyPill from "./PolicyPill";
 import ModelSelector from "./ModelSelector";
 import EffortSelector from "./EffortSelector";
 import type { Attachment } from "../../types/attachment";
@@ -499,7 +500,11 @@ export default function InputArea() {
             <div className="flex flex-wrap items-center gap-2 ml-auto">
               {session && (
                 <div className="flex flex-wrap items-center gap-2 select-none">
-                  <ModeSelector />
+                  {session.agent_id === "codex" ? (
+                    <CodexPolicyControl sessionId={session.id} />
+                  ) : (
+                    <ModeSelector />
+                  )}
                   <div className="w-px h-4 bg-border-light" />
                   <ModelSelector />
                   <EffortSelector />
@@ -543,5 +548,30 @@ export default function InputArea() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Phase 2 §6.1: per-Codex-session PolicyPill wrapper. Mounted in place
+ * of ModeSelector when the active session's agent_id is `codex`. Reads
+ * + writes the per-session policy through uiStore so tab switches
+ * preserve the user's selection.
+ */
+function CodexPolicyControl({ sessionId }: { sessionId: string }): React.ReactElement {
+  const policy = useUiStore(
+    (s) =>
+      s.codexPolicies[sessionId] ?? {
+        sandbox: "workspace-write" as const,
+        approval: "on-request" as const,
+        network_access: false,
+      },
+  );
+  const updateLocal = useUiStore((s) => s.updateCodexPolicyLocal);
+  return (
+    <PolicyPill
+      sessionId={sessionId}
+      value={policy}
+      onChange={(next) => updateLocal(sessionId, next)}
+    />
   );
 }

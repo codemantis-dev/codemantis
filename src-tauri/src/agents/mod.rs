@@ -28,28 +28,11 @@ pub mod claude_code;
 pub mod codex;
 pub mod registry;
 
-/// Rollback escape hatch for the Phase 1 adapter refactor (spec §3.7, §5.4).
-///
-/// The spec envisioned a `#[cfg(feature = "legacy_claude_path")]` *parallel*
-/// pre-refactor module, presupposing a copy-based refactor. We did a
-/// move-based refactor instead (spec §3.3 itself calls it a "near-mechanical
-/// move"): the Claude path moved verbatim into `claude_code` and the adapter
-/// is a verified zero-behaviour-change delegating wrapper (Sessions 2–3
-/// landed it with the full suite + capture S06 green). There is therefore no
-/// behaviourally-distinct legacy path to toggle — the genuine rollback is
-/// `git revert` of the Phase 1 commits, which is safe precisely because the
-/// wrapper adds no behaviour.
-///
-/// This flag is retained for the 14-day (compressed: 3–5 day) soak as a
-/// **diagnostic indicator**: when `CODEMANTIS_FORCE_LEGACY_CLAUDE=1` is set
-/// it is logged at startup and surfaced read-only in Settings → About, so an
-/// incident responder can immediately see the build was asked to fall back
-/// (and knows to `git revert` + rebuild). Removed entirely in v1.3.0 /
-/// Phase 2 per spec §6. The deviation from the literal `#[cfg(feature)]`
-/// mechanism is documented in RELEASES.md per spec §8's allowance.
-pub fn legacy_claude_path_forced() -> bool {
-    std::env::var("CODEMANTIS_FORCE_LEGACY_CLAUDE").as_deref() == Ok("1")
-}
+// CODEMANTIS_FORCE_LEGACY_CLAUDE removed in v1.3.0 / Phase 2 S8 per
+// spec §12. The v1.2.0 soak surfaced no adapter-related regressions, so
+// the diagnostic indicator and its IPC wrapper are gone. Rollback for
+// the refactor is `git revert` of the Phase 1 commits, exactly as
+// RELEASES.md v1.2.0 documented.
 
 // ─────────────────────────────────────────────────────────────────────
 // Identity & capabilities

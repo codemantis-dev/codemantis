@@ -1,5 +1,14 @@
+import type { AgentId } from "./agent-events";
+
 export interface Session {
   id: string;
+  /**
+   * Which adapter owns this session. Added in Phase 2 S1; the backend
+   * always stamps a value (defaults to "claude_code" on legacy DB rows).
+   * The field is optional on the type so v1.2.0-era fixtures + tests
+   * compile unchanged — readers should default `?? "claude_code"`.
+   */
+  agent_id?: AgentId;
   name: string;
   project_path: string;
   status: SessionStatus;
