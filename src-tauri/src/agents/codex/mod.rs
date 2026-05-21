@@ -15,6 +15,10 @@
 //!   * S4 — `CodexAdapter` glue + spawn + AGENTS.md ephemeral dir + MCP
 //!     config; registered in `agents::registry`.
 
+pub mod approvals;
+pub mod auth_probe;
+pub mod binary_detect;
 pub mod client;
 pub mod jsonrpc;
 pub mod thread_state;
+pub mod translation;
