@@ -460,6 +460,11 @@ pub async fn spawn_codex_session(
         approval: CodexApproval::OnRequest,
         network_access: false,
     };
+    // Schema source of truth: `codex app-server generate-json-schema`
+    // emits v2/ThreadStartParams.json + v2/ThreadResumeParams.json.
+    // Both accept the same shape; only `threadId` is required (resume)
+    // — `cwd` is optional. We send kebab-case enum values (fixed in
+    // hotfix #6 — earlier code sent camelCase and got rpc -32600).
     let mut params = serde_json::Map::new();
     params.insert(
         "cwd".into(),
@@ -473,15 +478,18 @@ pub async fn spawn_codex_session(
         "sandbox".into(),
         Value::String(initial_policy.sandbox.as_codex_wire().into()),
     );
+    // Personality + serviceName ARE in v2/ThreadStartParams.json. The
+    // v1.3.1 #5 commit wrongly dropped them suspecting they caused
+    // -32600; the real culprit was the camelCase enum values. Restored
+    // here — they're useful metrics (serviceName tags this app in
+    // Codex's analytics, personality picks the assistant style).
+    params.insert("personality".into(), Value::String("pragmatic".into()));
+    params.insert("serviceName".into(), Value::String("codemantis".into()));
     if let Some(model) = config.model_override.as_deref() {
         if !model.is_empty() {
             params.insert("model".into(), Value::String(model.to_string()));
         }
     }
-    // Drop personality + serviceName for v1.3.1 — those fields aren't
-    // accepted by Codex 0.130.0's thread/start and were causing
-    // rpc -32600 Invalid request. They're metrics-only per the README
-    // (no UI behaviour change), so omitting them is safe.
 
     let thread_method = if let Some(thread_id) = &config.resume_token {
         params.insert("threadId".into(), Value::String(thread_id.clone()));

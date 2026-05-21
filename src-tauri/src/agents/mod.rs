@@ -492,8 +492,11 @@ pub enum NormalizedEvent {
 /// Codex sandbox mode. Wire formats:
 /// - Rust ↔ TS (IPC): kebab-case via serde (`read-only`, `workspace-write`,
 ///   `danger-full-access`).
-/// - CodeMantis → Codex JSON-RPC: camelCase (`readOnly`, `workspaceWrite`,
-///   `dangerFullAccess`) — translated via [`CodexSandbox::as_codex_wire`].
+/// - CodeMantis → Codex JSON-RPC: kebab-case (`read-only`,
+///   `workspace-write`, `danger-full-access`) — translated via
+///   [`CodexSandbox::as_codex_wire`]. **Verified empirically** against
+///   `codex app-server generate-json-schema` (codex-cli 0.130.0,
+///   `v2/ThreadStartParams.json` → `SandboxMode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
@@ -504,19 +507,28 @@ pub enum CodexSandbox {
 }
 
 impl CodexSandbox {
+    /// Codex app-server SandboxMode enum (verified against
+    /// `codex app-server generate-json-schema` on codex-cli 0.130.0 —
+    /// see `docs/internal/codex-app-server-schemas/v2/ThreadStartParams.json`):
+    ///   `"read-only" | "workspace-write" | "danger-full-access"`.
+    /// **Kebab-case**, not camelCase — the Phase 2 spec doc was wrong
+    /// here and earlier code sent camelCase, producing rpc -32600.
     pub fn as_codex_wire(self) -> &'static str {
         match self {
-            CodexSandbox::ReadOnly => "readOnly",
-            CodexSandbox::WorkspaceWrite => "workspaceWrite",
-            CodexSandbox::DangerFullAccess => "dangerFullAccess",
+            CodexSandbox::ReadOnly => "read-only",
+            CodexSandbox::WorkspaceWrite => "workspace-write",
+            CodexSandbox::DangerFullAccess => "danger-full-access",
         }
     }
 }
 
 /// Codex approval policy. Wire formats:
 /// - Rust ↔ TS (IPC): kebab-case (`never`, `on-request`, `untrusted`).
-/// - CodeMantis → Codex JSON-RPC: camelCase (`never`, `onRequest`,
-///   `untrusted`).
+/// - CodeMantis → Codex JSON-RPC: kebab-case (`never`, `on-request`,
+///   `untrusted`). **Verified empirically** against
+///   `codex app-server generate-json-schema` (`AskForApproval`
+///   enum). The schema also lists `on-failure` which v1.3.0 doesn't
+///   surface in the Policy pill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
@@ -527,10 +539,17 @@ pub enum CodexApproval {
 }
 
 impl CodexApproval {
+    /// Codex app-server AskForApproval enum (verified against
+    /// `codex app-server generate-json-schema` on codex-cli 0.130.0):
+    ///   `"untrusted" | "on-failure" | "on-request" | "never"`.
+    /// **Kebab-case**, not camelCase — same lesson as CodexSandbox.
+    /// `on-failure` exists in the live binary but isn't surfaced in
+    /// the v1.3.0 Policy pill (the three documented in spec §6.1 are
+    /// what the UI exposes).
     pub fn as_codex_wire(self) -> &'static str {
         match self {
             CodexApproval::Never => "never",
-            CodexApproval::OnRequest => "onRequest",
+            CodexApproval::OnRequest => "on-request",
             CodexApproval::Untrusted => "untrusted",
         }
     }
@@ -901,6 +920,31 @@ mod tests {
         let chat = chat_channel(AgentId::ClaudeCode, "s");
         let activity = activity_channel(AgentId::ClaudeCode, "s");
         assert_ne!(chat, activity);
+    }
+
+    #[test]
+    fn codex_sandbox_wire_matches_published_schema() {
+        // Anchored against v2/ThreadStartParams.json::SandboxMode in
+        // docs/internal/codex-app-server-schemas/. If Codex changes
+        // these values, re-run `codex app-server generate-json-schema`
+        // and update both the schema dump and this test.
+        assert_eq!(CodexSandbox::ReadOnly.as_codex_wire(), "read-only");
+        assert_eq!(CodexSandbox::WorkspaceWrite.as_codex_wire(), "workspace-write");
+        assert_eq!(
+            CodexSandbox::DangerFullAccess.as_codex_wire(),
+            "danger-full-access"
+        );
+    }
+
+    #[test]
+    fn codex_approval_wire_matches_published_schema() {
+        // Anchored against v2/ThreadStartParams.json::AskForApproval.
+        // Note: the schema also lists `on-failure` which the Policy
+        // pill doesn't surface in v1.3.0 — that's a UI-scope choice,
+        // not a wire-format bug.
+        assert_eq!(CodexApproval::Never.as_codex_wire(), "never");
+        assert_eq!(CodexApproval::OnRequest.as_codex_wire(), "on-request");
+        assert_eq!(CodexApproval::Untrusted.as_codex_wire(), "untrusted");
     }
 
     #[test]
