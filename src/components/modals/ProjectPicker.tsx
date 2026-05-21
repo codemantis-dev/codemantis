@@ -237,6 +237,21 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
           {/* Divider */}
           <div className="border-b border-border mx-5 mt-2" />
 
+          {/* Phase 2 §5: agent picker shared across every new-session tab
+              (Templates, Open, Clone). Sits below the tab bar so users
+              always see + change which agent the next session will use.
+              Auto-collapses to a static label when only one binary is on
+              PATH; hidden on Recent / Resume tabs (those open existing
+              sessions, where agent is already chosen). */}
+          {(activeTab === "templates" || activeTab === "open" || activeTab === "clone") && (
+            <div className="px-5 pt-3" data-testid="project-picker-agent-strip">
+              <AgentPicker
+                value={selectedAgentId}
+                onChange={setSelectedAgentId}
+              />
+            </div>
+          )}
+
           {/* Tab content */}
           <div className="flex-1 min-h-0 overflow-y-auto p-5">
             {activeTab === "templates" && (
@@ -264,16 +279,6 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
                     <span className="text-text-secondary text-ui">Select a project folder...</span>
                   )}
                 </button>
-
-                {/* Phase 2 §5: agent picker between project selection and
-                    the spawn call. Auto-collapses when only one binary is
-                    installed; persists choice in uiStore.selectedAgentId. */}
-                <div className="mb-3">
-                  <AgentPicker
-                    value={selectedAgentId}
-                    onChange={setSelectedAgentId}
-                  />
-                </div>
 
                 {/* Start button */}
                 <button

@@ -9,6 +9,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
 import PolicyPill from "./PolicyPill";
+import AgentBadge from "./AgentBadge";
 import ModelSelector from "./ModelSelector";
 import EffortSelector from "./EffortSelector";
 import type { Attachment } from "../../types/attachment";
@@ -500,6 +501,8 @@ export default function InputArea() {
             <div className="flex flex-wrap items-center gap-2 ml-auto">
               {session && (
                 <div className="flex flex-wrap items-center gap-2 select-none">
+                  <AgentBadgeForActive />
+                  <div className="w-px h-4 bg-border-light" />
                   {session.agent_id === "codex" ? (
                     <CodexPolicyControl sessionId={session.id} />
                   ) : (
@@ -548,6 +551,30 @@ export default function InputArea() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Visible agent indicator that reads the active session and offers a
+ * one-click path to open a new session with the other agent in the
+ * same project (v1.3.1: addresses "where do I select Codex from the
+ * chat interface?").
+ */
+function AgentBadgeForActive(): React.ReactElement | null {
+  const session = useSessionStore((s) => s.getActiveSession());
+  const { addSessionToProject } = useClaudeSession();
+  if (!session) return null;
+  const activeAgent = session.agent_id ?? "claude_code";
+  return (
+    <AgentBadge
+      activeAgent={activeAgent}
+      onOpenNewSessionWith={async () => {
+        // The hook reads uiStore.selectedAgentId on every call; the
+        // badge updates it before invoking us, so the new session
+        // uses the requested agent.
+        await addSessionToProject();
+      }}
+    />
   );
 }
 

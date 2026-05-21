@@ -6,6 +6,7 @@ import { useOpenRouterStore } from "../../stores/openRouterStore";
 
 import { NAV_ITEMS } from "./settings/SettingsShared";
 import GeneralTab from "./settings/GeneralTab";
+import AgentsTab from "./settings/AgentsTab";
 import TerminalTab from "./settings/TerminalTab";
 import QuickCommandsTab from "./settings/QuickCommandsTab";
 import AIProvidersTab from "./settings/AIProvidersTab";
@@ -107,6 +108,8 @@ export default function SettingsModal() {
                 onShowWelcomeScreenChange={state.setShowWelcomeScreen}
               />
             )}
+
+            {state.activeTab === "agents" && <AgentsTab />}
 
             {state.activeTab === "terminal" && (
               <TerminalTab
