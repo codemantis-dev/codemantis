@@ -50,7 +50,12 @@ pub async fn create_session(
         binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
     };
 
+    log::info!(
+        "[create_session] received name={:?} project_path={:?} resume_cli_session_id={:?}",
+        name, project_path, resume_cli_session_id
+    );
     let session_name = if let Some(n) = name {
+        log::info!("[create_session] using provided name={:?}", n);
         n
     } else {
         let base = derive_session_base_name(&project_path);
@@ -61,7 +66,12 @@ pub async fn create_session(
             .filter(|s| s.project_path == project_path)
             .count();
         drop(sessions);
-        format_session_name(&base, existing_count)
+        let derived = format_session_name(&base, existing_count);
+        log::info!(
+            "[create_session] no name provided — derived={:?} base={:?} existing_count={}",
+            derived, base, existing_count
+        );
+        derived
     };
 
     let icon_index = state.database.get_next_icon_index().unwrap_or(0);
@@ -680,6 +690,10 @@ pub async fn list_crashed_sessions(
         // fall back to created_at so the frontend always has a sortable timestamp.
         let closed_at = session.closed_at.unwrap_or_else(|| session.created_at.clone());
         if let Some(cli_sid) = session.cli_session_id {
+            log::info!(
+                "[list_crashed_sessions] entry id={} name={:?} project_path={:?} cli_session_id={} has_stored_messages={}",
+                session.id, session.name, session.project_path, cli_sid, session.has_stored_messages
+            );
             entries.push(SessionHistoryEntry {
                 session_id: session.id,
                 name: session.name,

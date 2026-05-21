@@ -13,6 +13,7 @@ import { getContextWindowForModel } from "../model-context";
 import { handleProcessError, handleProcessExited } from "./process";
 import { handleUsageUpdate, checkContextThresholds, maybeGenerateChangelog } from "./lifecycle";
 import { turnToolCallCount } from "./activity";
+import { scheduleFlushTranscript } from "../session-transcript";
 
 // Store state types (derived from Zustand store getState())
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
@@ -225,6 +226,10 @@ function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: 
 
   // Trigger changelog generation if enabled
   maybeGenerateChangelog(sessionId);
+
+  // Eagerly persist the now-complete assistant turn so crash recovery has
+  // it available — the 60s snapshot tick remains as a safety net.
+  scheduleFlushTranscript(sessionId);
 }
 
 // ── Main chat event handler ──

@@ -32,6 +32,7 @@ import { showToast } from "../stores/toastStore";
 import { handleError } from "../lib/error-handler";
 import { translateErrorForToast } from "../lib/error-messages";
 import { inputDrafts } from "../lib/input-drafts";
+import { scheduleFlushTranscript } from "../lib/session-transcript";
 
 const MAX_SESSIONS = 10;
 
@@ -139,6 +140,9 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       activityIds: [],
       isStreaming: false,
     });
+    // Eagerly persist the transcript so the user prompt survives a crash
+    // before the next 60s snapshot tick. Debounced ~500ms inside the helper.
+    scheduleFlushTranscript(sessionId);
     sessionStore.getState().setSessionBusy(sessionId, true);
 
     try {
@@ -344,6 +348,9 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       // Already restored — possibly a duplicate startup pass
       return;
     }
+    console.info(
+      `[restorePausedSession] entry session_id=${entry.session_id} name=${JSON.stringify(entry.name)} project_path=${JSON.stringify(entry.project_path)} cli_session_id=${entry.cli_session_id}`
+    );
     const restored: Session = {
       id: entry.session_id,
       name: entry.name,
@@ -389,6 +396,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       return null;
     }
     const oldIndex = state.tabOrder.indexOf(pausedSessionId);
+
+    console.info(
+      `[resumeRecoveredSession] paused session name=${JSON.stringify(session.name)} cli_session_id=${cliSessionId} project_path=${JSON.stringify(session.project_path)}`
+    );
 
     // Detach the placeholder before resumeFromHistory so its tab slot frees up
     // (also avoids tripping the MAX_SESSIONS guard on full workspaces).
