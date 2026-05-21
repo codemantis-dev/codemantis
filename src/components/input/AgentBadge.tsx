@@ -107,7 +107,11 @@ export default function AgentBadge({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 mt-2 w-72 rounded-lg border border-border shadow-xl p-3 z-50"
+          // Open upward — the badge lives in the bottom input toolbar
+          // and a downward popover gets cut off by the macOS Dock /
+          // Windows taskbar. Mirrors ModeSelector's `bottom-full mb-1.5`
+          // placement so all popovers in the toolbar behave the same.
+          className="absolute right-0 bottom-full mb-2 w-72 rounded-lg border border-border shadow-xl p-3 z-50"
           style={{ background: "var(--bg-primary)" }}
           role="dialog"
           aria-label="Agent options"

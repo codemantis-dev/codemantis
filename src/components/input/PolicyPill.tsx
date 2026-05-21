@@ -117,7 +117,9 @@ export default function PolicyPill({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 mt-2 w-80 rounded-lg border border-border shadow-xl p-3 z-50"
+          // Open upward — same rationale as AgentBadge above (popover
+          // in the bottom toolbar must clear the macOS Dock).
+          className="absolute right-0 bottom-full mb-2 w-80 rounded-lg border border-border shadow-xl p-3 z-50"
           style={{ background: "var(--bg-primary)" }}
           role="dialog"
           aria-label="Codex policy"
