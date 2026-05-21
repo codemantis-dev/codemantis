@@ -25,6 +25,7 @@ pub fn test_db_with_sessions(count: usize) -> Database {
             &format!("2026-01-{:02}T00:00:00Z", (i % 28) + 1),
             Some("claude-sonnet-4-6"),
             (i % 10) as i32,
+            "claude_code",
         )
         .expect("Failed to insert test session");
     }

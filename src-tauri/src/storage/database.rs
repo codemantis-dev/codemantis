@@ -246,13 +246,14 @@ impl Database {
         created_at: &str,
         model: Option<&str>,
         icon_index: i32,
+        agent_id: &str,
     ) -> Result<(), AppError> {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
         conn.execute(
-            "INSERT OR REPLACE INTO sessions (id, name, project_path, status, created_at, model, icon_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![id, name, project_path, status, created_at, model, icon_index],
+            "INSERT OR REPLACE INTO sessions (id, name, project_path, status, created_at, model, icon_index, agent_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![id, name, project_path, status, created_at, model, icon_index, agent_id],
         )
         .map_err(|e| AppError::DatabaseError(format!("Insert session failed: {}", e)))?;
         Ok(())
@@ -1253,7 +1254,7 @@ mod tests {
     fn test_create_and_list_sessions() {
         let db = Database::new(":memory:").unwrap();
 
-        db.insert_session("s1", "Test Session", "/tmp/test", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test Session", "/tmp/test", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
 
         let sessions = db.list_sessions().unwrap();
@@ -1265,7 +1266,7 @@ mod tests {
     #[test]
     fn test_update_status() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
 
         db.update_session_status("s1", "closed").unwrap();
@@ -1277,7 +1278,7 @@ mod tests {
     #[test]
     fn test_rename_session() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Old Name", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Old Name", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
 
         db.rename_session("s1", "New Name").unwrap();
@@ -1289,7 +1290,7 @@ mod tests {
     #[test]
     fn test_delete_session() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
 
         db.delete_session("s1").unwrap();
@@ -1301,7 +1302,7 @@ mod tests {
     #[test]
     fn test_was_open_default_zero_after_insert() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         // Fresh insert leaves was_open at the column default (0). The
         // session command sets it to 1 explicitly; we verify the default here.
@@ -1312,7 +1313,7 @@ mod tests {
     #[test]
     fn test_set_session_was_open_marks_and_clears() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         db.set_session_was_open("s1", true).unwrap();
         assert_eq!(db.list_was_open_session_ids().unwrap(), vec!["s1".to_string()]);
@@ -1328,7 +1329,7 @@ mod tests {
         // init but was never explicitly closed would have NULL on disk and
         // thus be invisible to crash-recovery and the Resume Session list.
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0, "claude_code")
             .unwrap();
 
         // Pre-condition: column is NULL.
@@ -1359,7 +1360,7 @@ mod tests {
         // Defensive: if the CLI somehow re-emits init with a different sid
         // (e.g. resume path), the latest write wins.
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test", "/p", "connected", "2026-05-10T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         db.set_cli_session_id("s1", "cli-first").unwrap();
         db.set_cli_session_id("s1", "cli-second").unwrap();
@@ -1384,7 +1385,7 @@ mod tests {
     #[test]
     fn test_mark_session_closed_if_stale_promotes_connected() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         db.set_cli_session_id("s1", "cli-1").unwrap();
 
@@ -1408,7 +1409,7 @@ mod tests {
     #[test]
     fn test_mark_session_closed_if_stale_idempotent_on_already_closed() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0)
+        db.insert_session("s1", "T", "/p", "connected", "2026-05-10T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         db.close_session_with_details("s1", Some("cli-1"), None, "2026-05-10T00:30:00Z")
             .unwrap();
@@ -1431,11 +1432,11 @@ mod tests {
     #[test]
     fn test_clear_all_session_was_open_resets_every_row() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("a", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("a", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
-        db.insert_session("b", "B", "/p", "connected", "2026-01-01T00:00:01Z", None, 0)
+        db.insert_session("b", "B", "/p", "connected", "2026-01-01T00:00:01Z", None, 0, "claude_code")
             .unwrap();
-        db.insert_session("c", "C", "/p", "connected", "2026-01-01T00:00:02Z", None, 0)
+        db.insert_session("c", "C", "/p", "connected", "2026-01-01T00:00:02Z", None, 0, "claude_code")
             .unwrap();
         db.set_session_was_open("a", true).unwrap();
         db.set_session_was_open("b", true).unwrap();
@@ -1450,11 +1451,11 @@ mod tests {
     fn test_list_crashed_sessions_orders_oldest_first() {
         let db = Database::new(":memory:").unwrap();
         // Insert in non-creation order to verify sort
-        db.insert_session("late", "L", "/p", "connected", "2026-01-03T00:00:00Z", None, 0)
+        db.insert_session("late", "L", "/p", "connected", "2026-01-03T00:00:00Z", None, 0, "claude_code")
             .unwrap();
-        db.insert_session("early", "E", "/p", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("early", "E", "/p", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
-        db.insert_session("mid", "M", "/p", "connected", "2026-01-02T00:00:00Z", None, 0)
+        db.insert_session("mid", "M", "/p", "connected", "2026-01-02T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         // Each crashed session needs a cli_session_id to be returned by
         // list_crashed_sessions (the command filters on it). We persist via
@@ -1484,7 +1485,7 @@ mod tests {
         let path_str = path.to_str().unwrap();
         {
             let db = Database::new(path_str).unwrap();
-            db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+            db.insert_session("s1", "A", "/p", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
             db.set_session_was_open("s1", true).unwrap();
         }
         // Re-open the same file — migrations re-run.
@@ -1500,7 +1501,7 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
         assert_eq!(db.get_next_icon_index().unwrap(), 0);
 
-        db.insert_session("s1", "Test1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+        db.insert_session("s1", "Test1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
             .unwrap();
         assert_eq!(db.get_next_icon_index().unwrap(), 1);
     }
@@ -1510,10 +1511,10 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
 
         // Two sessions in the same project
-        db.insert_session("s1", "Session A", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("s2", "Session B", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s1", "Session A", "/project", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Session B", "/project", "connected", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         // One session in a different project
-        db.insert_session("s3", "Other", "/other", "connected", "2026-01-03T00:00:00Z", None, 2).unwrap();
+        db.insert_session("s3", "Other", "/other", "connected", "2026-01-03T00:00:00Z", None, 2, "claude_code").unwrap();
 
         db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "First", "desc1", "feature", "[]", 0, "", "").unwrap();
         db.insert_changelog_entry("e2", "s2", "2026-01-02T01:00:00Z", "Second", "desc2", "bugfix", "[]", 0, "", "").unwrap();
@@ -1552,7 +1553,7 @@ mod tests {
     #[test]
     fn test_save_and_load_session_messages() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         let messages = make_test_messages("s1", 5);
         db.save_session_messages("s1", &messages).unwrap();
@@ -1569,7 +1570,7 @@ mod tests {
     #[test]
     fn test_save_messages_overwrite() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         let messages1 = make_test_messages("s1", 3);
         db.save_session_messages("s1", &messages1).unwrap();
@@ -1584,7 +1585,7 @@ mod tests {
     #[test]
     fn test_session_messages_cascade_delete() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         let messages = make_test_messages("s1", 5);
         db.save_session_messages("s1", &messages).unwrap();
@@ -1598,7 +1599,7 @@ mod tests {
     #[test]
     fn test_session_has_messages() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         assert!(!db.session_has_messages("s1").unwrap());
 
@@ -1611,8 +1612,8 @@ mod tests {
     #[test]
     fn test_has_stored_messages_in_listing() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "With msgs", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("s2", "Without msgs", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s1", "With msgs", "/project", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Without msgs", "/project", "connected", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
 
         let messages = make_test_messages("s1", 2);
         db.save_session_messages("s1", &messages).unwrap();
@@ -1627,9 +1628,9 @@ mod tests {
     #[test]
     fn test_search_session_messages() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Auth session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Auth session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
-        db.insert_session("s2", "Other session", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s2", "Other session", "/project", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
 
         let msgs1 = vec![
@@ -1661,7 +1662,7 @@ mod tests {
     #[test]
     fn test_save_empty_messages_list() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         // Save 3 messages first
         let messages = make_test_messages("s1", 3);
@@ -1677,7 +1678,7 @@ mod tests {
     #[test]
     fn test_load_messages_preserves_sort_order() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         // Insert messages with non-sequential sort_orders
         let messages = vec![
@@ -1702,17 +1703,17 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
 
         // Old session — closed 60 days ago
-        db.insert_session("old", "Old Session", "/project", "closed", "2025-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("old", "Old Session", "/project", "closed", "2025-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         let old_closed = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
         db.close_session_with_details("old", Some("cli-old"), None, &old_closed).unwrap();
 
         // Recent session — closed 5 days ago
-        db.insert_session("recent", "Recent Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 1).unwrap();
+        db.insert_session("recent", "Recent Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 1, "claude_code").unwrap();
         let recent_closed = (chrono::Utc::now() - chrono::Duration::days(5)).to_rfc3339();
         db.close_session_with_details("recent", Some("cli-recent"), None, &recent_closed).unwrap();
 
         // Active session — no closed_at
-        db.insert_session("active", "Active Session", "/project", "connected", "2026-01-01T00:00:00Z", None, 2).unwrap();
+        db.insert_session("active", "Active Session", "/project", "connected", "2026-01-01T00:00:00Z", None, 2, "claude_code").unwrap();
 
         // Save messages for all three
         db.save_session_messages("old", &make_test_messages("old", 3)).unwrap();
@@ -1736,7 +1737,7 @@ mod tests {
     #[test]
     fn test_delete_expired_keeps_all_when_none_expired() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Recent", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Recent", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         let closed_at = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
         db.close_session_with_details("s1", Some("cli1"), None, &closed_at).unwrap();
         db.save_session_messages("s1", &make_test_messages("s1", 5)).unwrap();
@@ -1751,7 +1752,7 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
 
         // Session in project A
-        db.insert_session("s1", "Project A", "/project-a", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Project A", "/project-a", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
         let msgs = vec![
             SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "deploy the thing".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
@@ -1759,7 +1760,7 @@ mod tests {
         db.save_session_messages("s1", &msgs).unwrap();
 
         // Session in project B with same content
-        db.insert_session("s2", "Project B", "/project-b", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s2", "Project B", "/project-b", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
         let msgs2 = vec![
             SessionMessageRow { id: "m2".into(), session_id: "s2".into(), role: "user".into(), content: "deploy the thing too".into(), timestamp: "2026-01-02T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
@@ -1782,7 +1783,7 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
 
         // Active session (not closed)
-        db.insert_session("s1", "Active", "/project", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Active", "/project", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         let msgs = vec![
             SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "secret keyword".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
         ];
@@ -1796,7 +1797,7 @@ mod tests {
     #[test]
     fn test_search_respects_limit() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
 
         let msgs: Vec<SessionMessageRow> = (0..10)
@@ -1819,7 +1820,7 @@ mod tests {
     #[test]
     fn test_search_returns_session_name() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "My Named Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "My Named Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
         let msgs = vec![
             SessionMessageRow { id: "m1".into(), session_id: "s1".into(), role: "user".into(), content: "findme".into(), timestamp: "2026-01-01T00:01:00Z".into(), thinking_content: None, sort_order: 0 },
@@ -1835,7 +1836,7 @@ mod tests {
     #[test]
     fn test_search_truncates_long_content_to_snippet() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
 
         let long_content = "x".repeat(500);
@@ -1854,7 +1855,7 @@ mod tests {
     #[test]
     fn test_search_escapes_sql_wildcards() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Session", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
 
         let msgs = vec![
@@ -1872,9 +1873,9 @@ mod tests {
     #[test]
     fn test_has_stored_messages_in_closed_sessions_listing() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "With msgs", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "With msgs", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
-        db.insert_session("s2", "Without msgs", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s2", "Without msgs", "/project", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
 
         db.save_session_messages("s1", &make_test_messages("s1", 2)).unwrap();
@@ -1894,12 +1895,12 @@ mod tests {
             let id = format!("s{:02}", i);
             let project = format!("/p{}", i % 3);
             let closed_at = format!("2026-01-01T00:00:{:02}Z", i);
-            db.insert_session(&id, &id, &project, "closed", &closed_at, None, 0).unwrap();
+            db.insert_session(&id, &id, &project, "closed", &closed_at, None, 0, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli-{:02}", i)), None, &closed_at).unwrap();
         }
         // Also seed an active and a closed-without-cli row that must be excluded.
-        db.insert_session("active", "Active", "/p0", "connected", "2026-02-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("nocli", "NoCli", "/p0", "closed", "2026-02-02T00:00:00Z", None, 0).unwrap();
+        db.insert_session("active", "Active", "/p0", "connected", "2026-02-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("nocli", "NoCli", "/p0", "closed", "2026-02-02T00:00:00Z", None, 0, "claude_code").unwrap();
         // close_session_with_details with cli=None leaves cli_session_id NULL
         db.close_session_with_details("nocli", None, None, "2026-02-02T01:00:00Z").unwrap();
 
@@ -1929,7 +1930,7 @@ mod tests {
         for i in 0..5 {
             let id = format!("s{}", i);
             let closed_at = format!("2026-01-01T00:00:0{}Z", i);
-            db.insert_session(&id, &id, "/p", "closed", &closed_at, None, 0).unwrap();
+            db.insert_session(&id, &id, "/p", "closed", &closed_at, None, 0, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli-{}", i)), None, &closed_at).unwrap();
         }
         let recent = db.list_recent_closed_sessions(3).unwrap();
@@ -1950,9 +1951,9 @@ mod tests {
     #[test]
     fn test_list_recent_closed_sessions_reflects_has_stored_messages() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "With msgs", "/pa", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "With msgs", "/pa", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
-        db.insert_session("s2", "Without msgs", "/pb", "closed", "2026-01-02T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s2", "Without msgs", "/pb", "closed", "2026-01-02T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
         db.save_session_messages("s1", &make_test_messages("s1", 1)).unwrap();
 
@@ -1966,8 +1967,8 @@ mod tests {
     #[test]
     fn test_messages_isolated_between_sessions() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Session 1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("s2", "Session 2", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s1", "Session 1", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Session 2", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
 
         db.save_session_messages("s1", &make_test_messages("s1", 3)).unwrap();
         db.save_session_messages("s2", &make_test_messages("s2", 5)).unwrap();
@@ -1989,8 +1990,8 @@ mod tests {
         // handle the collision gracefully instead of failing with UNIQUE
         // constraint violation.
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Session 1", "/tmp", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("s2", "Session 2", "/tmp", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s1", "Session 1", "/tmp", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Session 2", "/tmp", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
 
         // Session 1 gets messages with IDs msg-0, msg-1 (simulating counter-based IDs)
         let msgs1 = vec![
@@ -2280,7 +2281,7 @@ mod tests {
     #[test]
     fn test_close_session_with_details_sets_fields() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         db.close_session_with_details("s1", Some("cli-abc-123"), Some("claude-3.5-sonnet"), "2026-01-01T01:00:00Z").unwrap();
 
@@ -2295,7 +2296,7 @@ mod tests {
     #[test]
     fn test_close_session_preserves_existing_model_when_none() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3-opus"), 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3-opus"), 0, "claude_code").unwrap();
 
         // Pass model=None, should keep the original model via COALESCE
         db.close_session_with_details("s1", Some("cli-id"), None, "2026-01-01T01:00:00Z").unwrap();
@@ -2307,12 +2308,12 @@ mod tests {
     #[test]
     fn test_list_closed_sessions_for_project_returns_only_closed() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Closed", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Closed", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
 
-        db.insert_session("s2", "Active", "/project", "connected", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s2", "Active", "/project", "connected", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
 
-        db.insert_session("s3", "Other project", "/other", "closed", "2026-01-03T00:00:00Z", None, 2).unwrap();
+        db.insert_session("s3", "Other project", "/other", "closed", "2026-01-03T00:00:00Z", None, 2, "claude_code").unwrap();
         db.close_session_with_details("s3", Some("cli3"), None, "2026-01-03T01:00:00Z").unwrap();
 
         let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
@@ -2325,11 +2326,11 @@ mod tests {
     fn test_list_closed_sessions_requires_cli_session_id() {
         let db = Database::new(":memory:").unwrap();
         // Closed but without cli_session_id
-        db.insert_session("s1", "Closed no CLI", "/project", "closed", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Closed no CLI", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", None, None, "2026-01-01T01:00:00Z").unwrap();
 
         // Closed with cli_session_id
-        db.insert_session("s2", "Closed with CLI", "/project", "closed", "2026-01-02T00:00:00Z", None, 1).unwrap();
+        db.insert_session("s2", "Closed with CLI", "/project", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
 
         let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
@@ -2343,7 +2344,7 @@ mod tests {
         for i in 0..5 {
             let id = format!("s{}", i);
             let closed_at = format!("2026-01-{:02}T01:00:00Z", i + 1);
-            db.insert_session(&id, "Session", "/project", "closed", &format!("2026-01-{:02}T00:00:00Z", i + 1), None, i).unwrap();
+            db.insert_session(&id, "Session", "/project", "closed", &format!("2026-01-{:02}T00:00:00Z", i + 1), None, i, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli{}", i)), None, &closed_at).unwrap();
         }
 
@@ -2361,12 +2362,12 @@ mod tests {
     fn test_get_next_icon_index_wraps_at_10() {
         let db = Database::new(":memory:").unwrap();
         for i in 0..10 {
-            db.insert_session(&format!("s{}", i), "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+            db.insert_session(&format!("s{}", i), "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         }
         // 10 sessions % 10 = 0
         assert_eq!(db.get_next_icon_index().unwrap(), 0);
 
-        db.insert_session("s10", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s10", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         // 11 sessions % 10 = 1
         assert_eq!(db.get_next_icon_index().unwrap(), 1);
     }
@@ -2374,7 +2375,7 @@ mod tests {
     #[test]
     fn test_insert_session_with_model() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3.5-sonnet"), 3).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", Some("claude-3.5-sonnet"), 3, "claude_code").unwrap();
 
         let sessions = db.list_sessions().unwrap();
         assert_eq!(sessions[0].model, Some("claude-3.5-sonnet".to_string()));
@@ -2384,7 +2385,7 @@ mod tests {
     #[test]
     fn test_update_session_model() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         db.update_session_model("s1", "claude-3-opus").unwrap();
 
@@ -2527,7 +2528,7 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
         let long_name = "x".repeat(10_000);
         let long_path = "/".to_string() + &"a".repeat(10_000);
-        db.insert_session("s1", &long_name, &long_path, "connected", "2026-01-01T00:00:00Z", Some(&"m".repeat(5_000)), 0).unwrap();
+        db.insert_session("s1", &long_name, &long_path, "connected", "2026-01-01T00:00:00Z", Some(&"m".repeat(5_000)), 0, "claude_code").unwrap();
 
         let sessions = db.list_sessions().unwrap();
         assert_eq!(sessions[0].name.len(), 10_000);
@@ -2569,7 +2570,7 @@ mod tests {
     fn test_null_optional_fields_work() {
         let db = Database::new(":memory:").unwrap();
         // model = None, cli_session_id and closed_at default to None
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         let sessions = db.list_sessions().unwrap();
         assert!(sessions[0].model.is_none());
@@ -2580,7 +2581,7 @@ mod tests {
     #[test]
     fn test_null_thinking_content_in_messages() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         let msgs = vec![
             SessionMessageRow {
@@ -2607,7 +2608,7 @@ mod tests {
     #[test]
     fn test_changelog_insert_and_list() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
 
         db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "Added feature", "Added login flow", "feature", "[\"auth.rs\"]", 0, "- Modified auth.rs", "1 file edited").unwrap();
         db.insert_changelog_entry("e2", "s1", "2026-01-01T02:00:00Z", "Fixed bug", "Fixed login crash", "bugfix", "[]", 1, "", "").unwrap();
@@ -2625,7 +2626,7 @@ mod tests {
     #[test]
     fn test_changelog_delete_entry() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.insert_changelog_entry("e1", "s1", "2026-01-01T01:00:00Z", "Test", "desc", "feature", "[]", 0, "", "").unwrap();
 
         db.delete_changelog_entry("e1").unwrap();
@@ -2636,9 +2637,9 @@ mod tests {
     #[test]
     fn test_session_insert_or_replace() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "Original", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
+        db.insert_session("s1", "Original", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         // Inserting with same ID replaces (INSERT OR REPLACE)
-        db.insert_session("s1", "Replaced", "/tmp2", "closed", "2026-01-02T00:00:00Z", Some("model"), 5).unwrap();
+        db.insert_session("s1", "Replaced", "/tmp2", "closed", "2026-01-02T00:00:00Z", Some("model"), 5, "claude_code").unwrap();
 
         let sessions = db.list_sessions().unwrap();
         assert_eq!(sessions.len(), 1);
@@ -2649,9 +2650,9 @@ mod tests {
     #[test]
     fn test_list_sessions_ordered_by_created_at_desc() {
         let db = Database::new(":memory:").unwrap();
-        db.insert_session("s1", "First", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0).unwrap();
-        db.insert_session("s2", "Second", "/tmp", "connected", "2026-01-03T00:00:00Z", None, 1).unwrap();
-        db.insert_session("s3", "Third", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 2).unwrap();
+        db.insert_session("s1", "First", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Second", "/tmp", "connected", "2026-01-03T00:00:00Z", None, 1, "claude_code").unwrap();
+        db.insert_session("s3", "Third", "/tmp", "connected", "2026-01-02T00:00:00Z", None, 2, "claude_code").unwrap();
 
         let sessions = db.list_sessions().unwrap();
         assert_eq!(sessions[0].name, "Second");  // 2026-01-03 newest

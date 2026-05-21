@@ -1,12 +1,13 @@
 /**
- * Which coding-agent CLI produced an event. Phase 1: only `claude_code`
- * (the field is optional and unread by the frontend). Phase 2 adds `codex`
- * and makes `agent_id` required so handlers can branch (e.g. the
- * agent-aware protected-path detector in `event-handlers/chat.ts`).
+ * Which coding-agent CLI produced an event. Phase 2 added `codex`.
+ * The field remains optional on event payloads (still `agent_id?` on each
+ * variant) for Phase 1 wire-format back-compat; the frontend handlers
+ * that need to branch on it (e.g. the protected-path detector in
+ * `event-handlers/chat.ts`) treat `undefined` as `"claude_code"`.
  *
  * Wire format matches the Rust `agents::AgentId` snake_case serde repr.
  */
-export type AgentId = "claude_code";
+export type AgentId = "claude_code" | "codex";
 
 export type FrontendEvent =
   | SessionInitEvent

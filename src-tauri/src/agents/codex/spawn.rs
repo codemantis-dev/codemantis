@@ -44,7 +44,8 @@ use super::thread_state::ThreadState;
 use super::translation::Translator;
 use crate::agents::{
     activity_channel, chat_channel, is_activity_event, AgentError, AgentId,
-    AgentProcessHandle, ControlRequestPayload, NormalizedEvent, SessionConfig, SessionMode,
+    AgentProcessHandle, CodexApproval, CodexSandbox, CodexSessionPolicy,
+    ControlRequestPayload, NormalizedEvent, SessionConfig, SessionMode,
 };
 use crate::utils::paths::login_shell_path;
 
@@ -68,6 +69,10 @@ pub struct CodexProcessHandle {
     /// here and apply on the next `send_user_message`.
     current_model: Mutex<Option<String>>,
     current_effort: Mutex<Option<String>>,
+    /// Active sandbox + approval policy. Defaults to (workspace-write,
+    /// on-request) per spec §2.3 ("Auto" preset). Updated by
+    /// `set_codex_policy` and applied on the next `turn/start`.
+    current_policy: Mutex<CodexSessionPolicy>,
     app_handle: AppHandle,
 }
 
@@ -98,9 +103,12 @@ impl AgentProcessHandle for CodexProcessHandle {
             .clone()
             .ok_or_else(|| AgentError::ProtocolError("no thread/started yet".into()))?;
 
+        let policy = *self.current_policy.lock().await;
         let mut params = json!({
             "threadId": thread_id,
             "input": [{"type": "text", "text": text}],
+            "sandbox": policy.sandbox.as_codex_wire(),
+            "approvalPolicy": policy.approval.as_codex_wire(),
         });
         if let Some(model) = self.current_model.lock().await.clone() {
             params["model"] = Value::String(model);
@@ -207,6 +215,34 @@ impl AgentProcessHandle for CodexProcessHandle {
         self.send_control_request(ControlRequestPayload::Interrupt)
             .await
             .map(|_| ())
+    }
+
+    async fn respond_to_approval(
+        &self,
+        request_id: &str,
+        approved: bool,
+        content: Option<Value>,
+    ) -> Result<bool, AgentError> {
+        let Some(kind) = self.state.take_server_request(request_id).await else {
+            // request_id not on this handle — caller may try another
+            // session. Returning Ok(false) avoids surfacing a hard error
+            // for what is really a "not mine" outcome.
+            return Ok(false);
+        };
+        let decision = super::approvals::ApprovalDecision::from_bool(approved);
+        let resp = super::approvals::build_response(&kind, decision, content);
+        self.client
+            .respond(resp.rpc_id, resp.result)
+            .map_err(|e| AgentError::SendFailed(e.to_string()))?;
+        Ok(true)
+    }
+
+    async fn set_codex_policy(
+        &self,
+        policy: CodexSessionPolicy,
+    ) -> Result<(), AgentError> {
+        *self.current_policy.lock().await = policy;
+        Ok(())
     }
 
     async fn shutdown(self: Box<Self>) {
@@ -410,7 +446,14 @@ pub async fn spawn_codex_session(
         },
     );
 
-    // 7. thread/start or thread/resume.
+    // 7. thread/start or thread/resume — uses the "Auto" preset from
+    // spec §2.3 (workspace-write × on-request). Phase 2 §6.1's Policy
+    // pill mutates this via set_codex_policy after spawn.
+    let initial_policy = CodexSessionPolicy {
+        sandbox: CodexSandbox::WorkspaceWrite,
+        approval: CodexApproval::OnRequest,
+        network_access: false,
+    };
     let (thread_method, thread_params) = if let Some(thread_id) = &config.resume_token {
         (
             "thread/resume",
@@ -418,8 +461,8 @@ pub async fn spawn_codex_session(
                 "threadId": thread_id,
                 "cwd": cwd.to_string_lossy(),
                 "model": config.model_override,
-                "approvalPolicy": "onRequest",
-                "sandbox": "workspaceWrite",
+                "approvalPolicy": initial_policy.approval.as_codex_wire(),
+                "sandbox": initial_policy.sandbox.as_codex_wire(),
                 "personality": "pragmatic",
                 "serviceName": "codemantis",
             }),
@@ -430,8 +473,8 @@ pub async fn spawn_codex_session(
             json!({
                 "cwd": cwd.to_string_lossy(),
                 "model": config.model_override,
-                "approvalPolicy": "onRequest",
-                "sandbox": "workspaceWrite",
+                "approvalPolicy": initial_policy.approval.as_codex_wire(),
+                "sandbox": initial_policy.sandbox.as_codex_wire(),
                 "personality": "pragmatic",
                 "serviceName": "codemantis",
             }),
@@ -451,6 +494,7 @@ pub async fn spawn_codex_session(
         agents_md_dir: Mutex::new(agents_md_dir),
         current_model: Mutex::new(config.model_override),
         current_effort: Mutex::new(config.effort_override),
+        current_policy: Mutex::new(initial_policy),
         app_handle,
     }))
 }

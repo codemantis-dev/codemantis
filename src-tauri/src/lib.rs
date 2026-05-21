@@ -323,6 +323,7 @@ pub fn run() {
             commands::session::set_session_mode,
             commands::session::sync_session_mode,
             commands::session::resolve_tool_approval,
+            commands::session::set_codex_policy,
             commands::session::submit_question_answer,
             commands::session::close_session,
             commands::session::check_process_alive,

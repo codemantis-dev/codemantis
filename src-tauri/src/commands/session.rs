@@ -42,18 +42,25 @@ pub async fn create_session(
     project_path: String,
     name: Option<String>,
     resume_cli_session_id: Option<String>,
+    // Phase 2 §5: optional agent picker. `None` keeps the v1.2.0 default
+    // (`claude_code`) so existing frontend callers compile unchanged.
+    agent_id: Option<AgentId>,
 ) -> Result<SessionInfo, String> {
     let session_id = Uuid::new_v4().to_string();
-
-    let claude_binary = {
-        let binary = state.claude_binary.lock().await;
-        binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
-    };
+    let agent_id = agent_id.unwrap_or(AgentId::ClaudeCode);
 
     log::info!(
-        "[create_session] received name={:?} project_path={:?} resume_cli_session_id={:?}",
-        name, project_path, resume_cli_session_id
+        "[create_session] received agent={:?} name={:?} project_path={:?} resume_cli_session_id={:?}",
+        agent_id, name, project_path, resume_cli_session_id
     );
+
+    // Adapter lookup happens first so we fail fast with a clear error
+    // (and don't write a session row that the adapter can't honour).
+    let adapter = registry::get(agent_id)
+        .ok_or_else(|| format!("{agent_id:?} adapter not registered"))?;
+    // Each adapter handles its own binary discovery + auth probe.
+    let binary = adapter.detect_binary().await.map_err(|e| e.to_string())?;
+
     let session_name = if let Some(n) = name {
         log::info!("[create_session] using provided name={:?}", n);
         n
@@ -78,7 +85,7 @@ pub async fn create_session(
 
     let session_info = SessionInfo {
         id: session_id.clone(),
-        agent_id: AgentId::ClaudeCode,
+        agent_id,
         name: session_name,
         project_path: project_path.clone(),
         status: SessionStatus::Starting,
@@ -93,7 +100,8 @@ pub async fn create_session(
         sessions.insert(session_id.clone(), session_info.clone());
     }
 
-    // Persist to SQLite
+    // Persist to SQLite (agent_id stamped so crash recovery knows which
+    // adapter to dispatch to on next launch).
     if let Err(e) = state.database.insert_session(
         &session_info.id,
         &session_info.name,
@@ -102,6 +110,7 @@ pub async fn create_session(
         &session_info.created_at.to_rfc3339(),
         None,
         session_info.icon_index,
+        agent_id.as_str(),
     ) {
         log::error!("Failed to persist session to database: {}", e);
     }
@@ -112,7 +121,7 @@ pub async fn create_session(
         log::warn!("Failed to set was_open flag: {}", e);
     }
 
-    // Get approval server port
+    // Get approval server port (Claude only — Codex ignores this).
     let approval_port = {
         let port = state.approval_server_port.lock().await;
         *port
@@ -120,14 +129,10 @@ pub async fn create_session(
 
     let effort_override = state.thinking_effort_override(&project_path).await;
 
-    // Spawn through the Claude Code adapter (Phase 1 Session 3: routing now
-    // goes through the AgentAdapter trait instead of the concrete CLI process).
-    let adapter = registry::get(AgentId::ClaudeCode)
-        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
     let handle = adapter
         .spawn_session(
             app_handle,
-            &claude_binary,
+            &binary,
             approval_port,
             SessionConfig {
                 session_id: session_id.clone(),
@@ -198,20 +203,27 @@ pub async fn resume_session_process(
     session_id: String,
     cli_session_id: Option<String>,
 ) -> Result<(), String> {
-    let claude_binary = {
-        let binary = state.claude_binary.lock().await;
-        binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
-    };
-
-    let (project_path, session_name) = {
+    // Crash-recovery branching: read agent_id off the SessionInfo we
+    // restored from SQLite, then route to the right adapter. `cli_session_id`
+    // is the adapter-defined resume token (CLI session UUID for Claude;
+    // thread id `thr_…` for Codex).
+    let (project_path, session_name, agent_id) = {
         let sessions = state.sessions.lock().await;
         let session = sessions
             .get(&session_id)
             .ok_or_else(|| "Session not found".to_string())?;
-        (session.project_path.clone(), session.name.clone())
+        (
+            session.project_path.clone(),
+            session.name.clone(),
+            session.agent_id,
+        )
     };
 
-    // Use frontend-provided CLI session ID, or fall back to backend-stored one
+    let adapter = registry::get(agent_id)
+        .ok_or_else(|| format!("{agent_id:?} adapter not registered"))?;
+    let binary = adapter.detect_binary().await.map_err(|e| e.to_string())?;
+
+    // Use frontend-provided resume token, or fall back to backend-stored one.
     let effective_cli_session_id = match &cli_session_id {
         Some(id) => Some(id.clone()),
         None => {
@@ -220,20 +232,16 @@ pub async fn resume_session_process(
         }
     };
 
-    // Get approval server port
     let approval_port = {
         let port = state.approval_server_port.lock().await;
         *port
     };
-
     let effort_override = state.thinking_effort_override(&project_path).await;
 
-    let adapter = registry::get(AgentId::ClaudeCode)
-        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
     let handle = adapter
         .spawn_session(
             app_handle,
-            &claude_binary,
+            &binary,
             approval_port,
             SessionConfig {
                 session_id: session_id.clone(),
@@ -362,18 +370,81 @@ pub async fn resolve_tool_approval(
         "[resolve_tool_approval] request_id={}, approved={}, reason={:?}",
         request_id, approved, reason
     );
+
+    // Try Claude's HTTP approval server first — that's the v1.2.0 path
+    // and it knows for certain when a request_id is its own. If it
+    // returns false we fall through to per-Codex-session lookup.
     let resolved = state
         .approval_state
         .resolve(&request_id, approved, reason)
         .await;
     if resolved {
-        Ok(())
-    } else {
-        Err(format!(
-            "No pending approval found for request_id: {}",
-            request_id
-        ))
+        return Ok(());
     }
+
+    // Codex sessions register request_ids in their own per-session
+    // pending_server_requests map. We don't track which session owns
+    // which uuid at the AppState level (Phase 2 §3.1 #3: kept session-
+    // local) — so probe every active handle. A given uuid resolves on
+    // at most one session.
+    let processes = state.processes.lock().await;
+    for (sid, handle) in processes.iter() {
+        if handle.agent_id() != AgentId::Codex {
+            continue;
+        }
+        match handle.respond_to_approval(&request_id, approved, None).await {
+            Ok(true) => {
+                info!(
+                    "[resolve_tool_approval] resolved on Codex session {}",
+                    sid
+                );
+                return Ok(());
+            }
+            Ok(false) => continue,
+            Err(e) => {
+                log::warn!(
+                    "[resolve_tool_approval] Codex session {} respond_to_approval errored: {}",
+                    sid, e
+                );
+            }
+        }
+    }
+
+    Err(format!(
+        "No pending approval found for request_id: {}",
+        request_id
+    ))
+}
+
+/// Apply a Codex sandbox + approval policy to a live session. Takes effect
+/// on the next `turn/start`. Spec §6.1 / §14 Session 5: the Policy pill
+/// calls this from the frontend instead of `set_session_mode` when the
+/// active session's agent is Codex.
+#[tauri::command]
+pub async fn set_codex_policy(
+    state: State<'_, AppState>,
+    session_id: String,
+    policy: crate::agents::CodexSessionPolicy,
+) -> Result<(), String> {
+    info!(
+        "[set_codex_policy] session_id={} sandbox={:?} approval={:?} network={}",
+        session_id, policy.sandbox, policy.approval, policy.network_access
+    );
+    let processes = state.processes.lock().await;
+    let handle = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {session_id}"))?;
+    if handle.agent_id() != AgentId::Codex {
+        return Err(format!(
+            "set_codex_policy is only valid on Codex sessions; \
+             session {session_id} is {:?}",
+            handle.agent_id()
+        ));
+    }
+    handle
+        .set_codex_policy(policy)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Deliver an `AskUserQuestion` answer to Claude.
@@ -968,29 +1039,40 @@ pub async fn create_specwriter_session(
     project_path: String,
     model: String,
     system_prompt: String,
+    // Phase 2 §10.1: SpecWriter is capability-dispatched. `None` picks the
+    // historic Claude path; passing `Codex` routes through the ephemeral
+    // AGENTS.override.md strategy (spec §2.5). Both adapters carry the
+    // system prompt via `SessionConfig.append_system_prompt`; the Codex
+    // adapter translates it into AGENTS.override.md inside spawn_session.
+    agent_id: Option<AgentId>,
 ) -> Result<String, String> {
     let session_id = Uuid::new_v4().to_string();
+    let agent_id = agent_id.unwrap_or(AgentId::ClaudeCode);
 
-    let claude_binary = {
-        let binary = state.claude_binary.lock().await;
-        binary.clone().ok_or_else(|| "Claude CLI not found".to_string())?
-    };
+    let adapter = registry::get(agent_id)
+        .ok_or_else(|| format!("{agent_id:?} adapter not registered"))?;
+    // Capability gate: either adapter must offer *some* way to inject a
+    // system prompt. Phase 2 §10.1 — Claude via --append-system-prompt,
+    // Codex via AGENTS.override.md. If neither, refuse rather than spawn
+    // a session that ignores the SpecWriter prompt.
+    let caps = adapter.capabilities();
+    if !caps.supports_append_system_prompt && !caps.supports_project_doc_injection {
+        return Err(format!(
+            "{agent_id:?} cannot host a SpecWriter session — neither \
+             append_system_prompt nor project_doc_injection is supported"
+        ));
+    }
+    let binary = adapter.detect_binary().await.map_err(|e| e.to_string())?;
 
     let approval_port = {
         let port = state.approval_server_port.lock().await;
         *port
     };
 
-    // Phase 1: SpecWriter is hardcoded to Claude Code. Phase 2 picks the
-    // adapter by capability (supports_append_system_prompt). Codex has no
-    // --append-system-prompt flag and uses an ephemeral AGENTS.override.md
-    // instead — the capability layer abstracts the mechanism.
-    let adapter = registry::get(AgentId::ClaudeCode)
-        .ok_or_else(|| "Claude Code adapter not registered".to_string())?;
     let handle = adapter
         .spawn_session(
             app_handle,
-            &claude_binary,
+            &binary,
             approval_port,
             SessionConfig {
                 session_id: session_id.clone(),

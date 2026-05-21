@@ -186,11 +186,11 @@ fn migrations_are_idempotent() {
 fn insert_and_list_sessions() {
     let db = Database::new(":memory:").unwrap();
 
-    db.insert_session("s1", "Alpha", "/projects/alpha", "connected", "2026-01-01T00:00:00Z", Some("claude-4"), 0)
+    db.insert_session("s1", "Alpha", "/projects/alpha", "connected", "2026-01-01T00:00:00Z", Some("claude-4"), 0, "claude_code")
         .unwrap();
-    db.insert_session("s2", "Beta", "/projects/beta", "idle", "2026-01-02T00:00:00Z", None, 1)
+    db.insert_session("s2", "Beta", "/projects/beta", "idle", "2026-01-02T00:00:00Z", None, 1, "claude_code")
         .unwrap();
-    db.insert_session("s3", "Gamma", "/projects/gamma", "connected", "2026-01-03T00:00:00Z", Some("claude-4-opus"), 2)
+    db.insert_session("s3", "Gamma", "/projects/gamma", "connected", "2026-01-03T00:00:00Z", Some("claude-4-opus"), 2, "claude_code")
         .unwrap();
 
     let sessions = db.list_sessions().unwrap();
@@ -215,7 +215,7 @@ fn insert_and_list_sessions() {
 fn update_session_status_and_rename() {
     let db = Database::new(":memory:").unwrap();
 
-    db.insert_session("s1", "Original", "/tmp/proj", "connected", "2026-01-01T00:00:00Z", None, 0)
+    db.insert_session("s1", "Original", "/tmp/proj", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
         .unwrap();
 
     // Update status
@@ -248,6 +248,7 @@ fn get_next_icon_index_cycles() {
             &format!("2026-01-{:02}T00:00:00Z", i + 1),
             None,
             i % 10,
+            "claude_code",
         )
         .unwrap();
     }
@@ -265,6 +266,7 @@ fn get_next_icon_index_cycles() {
             &format!("2026-02-{:02}T00:00:00Z", i - 10),
             None,
             0,
+            "claude_code",
         )
         .unwrap();
     }
@@ -280,7 +282,7 @@ fn changelog_entry_crud() {
     let db = Database::new(":memory:").unwrap();
 
     // Need a session first (FK constraint)
-    db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0)
+    db.insert_session("s1", "Test", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 0, "claude_code")
         .unwrap();
 
     // Insert
@@ -373,7 +375,7 @@ fn session_message_storage_and_search() {
     let db = Database::new(":memory:").unwrap();
 
     // Create a closed session (search only works on closed sessions)
-    db.insert_session("s1", "Search Session", "/projects/searchable", "closed", "2026-01-01T00:00:00Z", None, 0)
+    db.insert_session("s1", "Search Session", "/projects/searchable", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code")
         .unwrap();
 
     let messages = vec![
@@ -455,14 +457,14 @@ fn delete_expired_session_messages() {
 
     // Session closed 100 days ago
     let old_closed_at = (chrono::Utc::now() - chrono::Duration::days(100)).to_rfc3339();
-    db.insert_session("old", "Old Session", "/tmp", "connected", "2025-01-01T00:00:00Z", None, 0)
+    db.insert_session("old", "Old Session", "/tmp", "connected", "2025-01-01T00:00:00Z", None, 0, "claude_code")
         .unwrap();
     db.close_session_with_details("old", Some("cli-old"), None, &old_closed_at)
         .unwrap();
 
     // Session closed 5 days ago
     let recent_closed_at = (chrono::Utc::now() - chrono::Duration::days(5)).to_rfc3339();
-    db.insert_session("recent", "Recent Session", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 1)
+    db.insert_session("recent", "Recent Session", "/tmp", "connected", "2026-01-01T00:00:00Z", None, 1, "claude_code")
         .unwrap();
     db.close_session_with_details("recent", Some("cli-recent"), None, &recent_closed_at)
         .unwrap();

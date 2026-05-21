@@ -17,7 +17,7 @@ use codemantis_lib::storage::database::Database;
 /// Helper: seed a session in the on-startup state — inserted, was_open=1,
 /// no CLI init yet observed (cli_session_id NULL), no close.
 fn seed_active_session(db: &Database, id: &str, project: &str, created_at: &str) {
-    db.insert_session(id, "Overnight work", project, "connected", created_at, None, 0)
+    db.insert_session(id, "Overnight work", project, "connected", created_at, None, 0, "claude_code")
         .unwrap();
     db.set_session_was_open(id, true).unwrap();
 }
@@ -87,6 +87,7 @@ fn snapshot_tick_promotes_stale_open_to_resume_list() {
         "2026-05-09T08:00:00Z",
         None,
         0,
+        "claude_code",
     )
     .unwrap();
     db.set_cli_session_id("ghost", "cli-uuid-ghost").unwrap();
@@ -131,6 +132,7 @@ fn graceful_shutdown_promotes_all_open_sessions() {
             &format!("2026-05-09T0{}:00:00Z", i),
             None,
             0,
+            "claude_code",
         )
         .unwrap();
         db.set_cli_session_id(id, &format!("cli-{}", id)).unwrap();
@@ -138,7 +140,7 @@ fn graceful_shutdown_promotes_all_open_sessions() {
     }
     // Also one session that was already explicitly closed yesterday — it
     // must NOT be touched by the bulk promotion.
-    db.insert_session("legit", "Old", "/repo", "connected", "2026-05-08T10:00:00Z", None, 0)
+    db.insert_session("legit", "Old", "/repo", "connected", "2026-05-08T10:00:00Z", None, 0, "claude_code")
         .unwrap();
     db.close_session_with_details("legit", Some("cli-legit"), None, "2026-05-08T11:00:00Z")
         .unwrap();
@@ -164,7 +166,7 @@ fn promotion_does_not_clobber_explicit_close_timestamp() {
     // tick must not rewrite its closed_at. The user's "1 May" entry should
     // not get bumped to today's timestamp because of an unrelated tick.
     let db = Database::new(":memory:").unwrap();
-    db.insert_session("legit", "Real close", "/repo/proj", "connected", "2026-05-01T10:00:00Z", None, 0)
+    db.insert_session("legit", "Real close", "/repo/proj", "connected", "2026-05-01T10:00:00Z", None, 0, "claude_code")
         .unwrap();
     db.close_session_with_details("legit", Some("cli-legit"), None, "2026-05-01T11:00:00Z")
         .unwrap();

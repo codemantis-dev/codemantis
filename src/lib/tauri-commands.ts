@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Session, PersistedSession, SessionHistoryEntry, SessionMessagePayload, SessionMessageSearchResult } from "../types/session";
 import type { FileNode } from "../types/file-tree";
-import type { FrontendEvent, ToolApprovalRequestEvent } from "../types/agent-events";
+import type { AgentId, FrontendEvent, ToolApprovalRequestEvent } from "../types/agent-events";
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo, GitCommit } from "../types/git";
@@ -80,12 +80,15 @@ export async function wakePong(): Promise<number> {
 export async function createSession(
   projectPath: string,
   name?: string,
-  resumeCliSessionId?: string
+  resumeCliSessionId?: string,
+  /** Optional Phase 2 agent picker. Omit to keep the v1.2.0 default (`claude_code`). */
+  agentId?: AgentId,
 ): Promise<Session> {
   return invoke<Session>("create_session", {
     projectPath,
     name,
     resumeCliSessionId,
+    agentId,
   });
 }
 
@@ -110,11 +113,14 @@ export async function createSpecwriterSession(
   projectPath: string,
   model: string,
   systemPrompt: string,
+  /** Phase 2 §10.1: capability dispatch. Codex uses ephemeral AGENTS.override.md. */
+  agentId?: AgentId,
 ): Promise<string> {
   return invoke<string>("create_specwriter_session", {
     projectPath,
     model,
     systemPrompt,
+    agentId,
   });
 }
 
@@ -141,6 +147,26 @@ export async function syncSessionMode(
   mode: string
 ): Promise<void> {
   return invoke("sync_session_mode", { sessionId, mode });
+}
+
+/**
+ * Codex policy (sandbox × approval), spec §6.1. Frontend Policy pill
+ * calls this instead of `setSessionMode` on Codex sessions.
+ * Wire format is kebab-case to match Rust's serde repr.
+ */
+export type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
+export type CodexApproval = "never" | "on-request" | "untrusted";
+export interface CodexSessionPolicy {
+  sandbox: CodexSandbox;
+  approval: CodexApproval;
+  network_access: boolean;
+}
+
+export async function setCodexPolicy(
+  sessionId: string,
+  policy: CodexSessionPolicy
+): Promise<void> {
+  return invoke("set_codex_policy", { sessionId, policy });
 }
 
 export async function resolveToolApproval(

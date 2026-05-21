@@ -503,6 +503,72 @@ pub enum NormalizedEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Codex session policy (sandbox × approval — Phase 2 §6.1)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Codex sandbox mode. Wire formats:
+/// - Rust ↔ TS (IPC): kebab-case via serde (`read-only`, `workspace-write`,
+///   `danger-full-access`).
+/// - CodeMantis → Codex JSON-RPC: camelCase (`readOnly`, `workspaceWrite`,
+///   `dangerFullAccess`) — translated via [`CodexSandbox::as_codex_wire`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+pub enum CodexSandbox {
+    ReadOnly,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl CodexSandbox {
+    pub fn as_codex_wire(self) -> &'static str {
+        match self {
+            CodexSandbox::ReadOnly => "readOnly",
+            CodexSandbox::WorkspaceWrite => "workspaceWrite",
+            CodexSandbox::DangerFullAccess => "dangerFullAccess",
+        }
+    }
+}
+
+/// Codex approval policy. Wire formats:
+/// - Rust ↔ TS (IPC): kebab-case (`never`, `on-request`, `untrusted`).
+/// - CodeMantis → Codex JSON-RPC: camelCase (`never`, `onRequest`,
+///   `untrusted`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[allow(dead_code)]
+pub enum CodexApproval {
+    Never,
+    OnRequest,
+    Untrusted,
+}
+
+impl CodexApproval {
+    pub fn as_codex_wire(self) -> &'static str {
+        match self {
+            CodexApproval::Never => "never",
+            CodexApproval::OnRequest => "onRequest",
+            CodexApproval::Untrusted => "untrusted",
+        }
+    }
+}
+
+/// The user's choice from the Policy pill (Phase 2 §6.1). Mirrors the
+/// shape `set_codex_policy` accepts over IPC.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct CodexSessionPolicy {
+    pub sandbox: CodexSandbox,
+    pub approval: CodexApproval,
+    /// Whether to allow network access inside `workspace-write` (gated by
+    /// the `codex_network_access` Preflight recipe — spec §8). `false` is
+    /// the safe default; the frontend Policy pill only enables this when
+    /// the user has explicitly opted in via `~/.codex/config.toml`.
+    #[serde(default)]
+    pub network_access: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────
 
@@ -574,6 +640,41 @@ pub trait AgentProcessHandle: Send + Sync {
         Err(AgentError::CapabilityNotSupported(
             self.agent_id(),
             "cancel_turn (default impl)",
+        ))
+    }
+
+    /// Respond to a previously-routed server-initiated approval. Codex
+    /// uses this for its 4 `*/requestApproval` kinds (spec §4.5); Claude's
+    /// HTTP approval-server path is unchanged so its impl returns
+    /// `CapabilityNotSupported` and the command layer skips this call
+    /// when `agent_id == ClaudeCode`.
+    ///
+    /// Returns `Ok(true)` if the request_id was found and resolved on this
+    /// handle, `Ok(false)` if not (so the command layer can try the next
+    /// session — request_ids are session-scoped but the IPC doesn't carry
+    /// a session id today).
+    async fn respond_to_approval(
+        &self,
+        _request_id: &str,
+        _approved: bool,
+        _content: Option<serde_json::Value>,
+    ) -> Result<bool, AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "respond_to_approval (default impl)",
+        ))
+    }
+
+    /// Apply a Codex sandbox + approval-policy combination at runtime.
+    /// Takes effect on the next `turn/start`. Claude returns
+    /// `CapabilityNotSupported` (use `apply_mode` instead).
+    async fn set_codex_policy(
+        &self,
+        _policy: CodexSessionPolicy,
+    ) -> Result<(), AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "set_codex_policy (default impl)",
         ))
     }
 

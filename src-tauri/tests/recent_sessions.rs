@@ -17,7 +17,7 @@ fn seed_closed_session(
     closed_at: &str,
     cli_session_id: &str,
 ) {
-    db.insert_session(id, name, project_path, "closed", closed_at, None, 0)
+    db.insert_session(id, name, project_path, "closed", closed_at, None, 0, "claude_code")
         .unwrap();
     db.close_session_with_details(id, Some(cli_session_id), None, closed_at)
         .unwrap();
