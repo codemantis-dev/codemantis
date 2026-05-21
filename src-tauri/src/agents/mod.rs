@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 pub mod claude_code;
+pub mod codex;
 pub mod registry;
 
 /// Rollback escape hatch for the Phase 1 adapter refactor (spec §3.7, §5.4).
