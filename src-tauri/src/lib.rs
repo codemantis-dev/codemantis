@@ -304,6 +304,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::startup::check_claude_status,
+            commands::startup::check_codex_status,
             commands::startup::set_claude_binary_override,
             commands::session::create_session,
             commands::session::pause_session_process,

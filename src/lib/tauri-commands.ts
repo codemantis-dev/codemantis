@@ -56,6 +56,23 @@ export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatu
   return invoke<ClaudeStatus>("set_claude_binary_override", { path });
 }
 
+/**
+ * Codex install + auth status (v1.3.1). Returns installed=false when
+ * the binary isn't on PATH; returns authenticated=false when it is but
+ * `codex login` hasn't been run.
+ */
+export interface CodexStatus {
+  installed: boolean;
+  version: string | null;
+  parsed_version: string | null;
+  binary_path: string | null;
+  authenticated: boolean;
+}
+
+export async function checkCodexStatus(): Promise<CodexStatus> {
+  return invoke<CodexStatus>("check_codex_status");
+}
+
 // `isLegacyClaudePathActive` (Phase 1 v1.2.0 rollback indicator) removed in
 // v1.3.0 / Phase 2 S8 — the v1.2.0 soak surfaced no adapter regressions.
 

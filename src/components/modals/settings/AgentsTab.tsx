@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import { SectionTitle } from "./SettingsShared";
 import { useUiStore } from "../../../stores/uiStore";
-import { checkClaudeStatus } from "../../../lib/tauri-commands";
+import { checkClaudeStatus, checkCodexStatus } from "../../../lib/tauri-commands";
 import type { AgentId } from "../../../types/agent-events";
+
+type AgentInstallState =
+  | { kind: "checking" }
+  | { kind: "missing" }
+  | { kind: "installed"; version: string | null; authenticated: boolean | null };
 
 /**
  * Settings → Agents tab (Phase 2 §6). Surfaces every supported coding-
@@ -46,17 +51,36 @@ const AGENTS: AgentRow[] = [
 export default function AgentsTab(): React.ReactElement {
   const selectedAgentId = useUiStore((s) => s.selectedAgentId);
   const setSelectedAgentId = useUiStore((s) => s.setSelectedAgentId);
-  const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null);
+  const [statuses, setStatuses] = useState<Record<AgentId, AgentInstallState>>({
+    claude_code: { kind: "checking" },
+    codex: { kind: "checking" },
+  });
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const s = await checkClaudeStatus();
-        if (!cancelled) setClaudeInstalled(!!s.installed);
-      } catch {
-        if (!cancelled) setClaudeInstalled(false);
-      }
+      const [claudeRes, codexRes] = await Promise.allSettled([
+        checkClaudeStatus(),
+        checkCodexStatus(),
+      ]);
+      if (cancelled) return;
+      const claudeState: AgentInstallState =
+        claudeRes.status === "fulfilled" && claudeRes.value.installed
+          ? {
+              kind: "installed",
+              version: claudeRes.value.parsed_version ?? claudeRes.value.version ?? null,
+              authenticated: claudeRes.value.authenticated ?? null,
+            }
+          : { kind: "missing" };
+      const codexState: AgentInstallState =
+        codexRes.status === "fulfilled" && codexRes.value.installed
+          ? {
+              kind: "installed",
+              version: codexRes.value.parsed_version ?? codexRes.value.version ?? null,
+              authenticated: codexRes.value.authenticated,
+            }
+          : { kind: "missing" };
+      setStatuses({ claude_code: claudeState, codex: codexState });
     })();
     return () => {
       cancelled = true;
@@ -81,14 +105,28 @@ export default function AgentsTab(): React.ReactElement {
       <div className="flex flex-col gap-3">
         {AGENTS.map((a) => {
           const isDefault = selectedAgentId === a.id;
-          const installState =
-            a.id === "claude_code"
-              ? claudeInstalled === null
-                ? "checking…"
-                : claudeInstalled
-                ? "detected"
-                : "not detected"
-              : "expected on PATH (auto-check coming in v1.4.0)";
+          const status = statuses[a.id];
+          let installState: string;
+          let badgeColor = "var(--text-secondary)";
+          if (status.kind === "checking") {
+            installState = "checking…";
+          } else if (status.kind === "missing") {
+            installState = "not installed";
+            badgeColor = "var(--red, #ef4444)";
+          } else {
+            const v = status.version ? ` ${status.version}` : "";
+            const authNote =
+              status.authenticated === false
+                ? " · not signed in"
+                : status.authenticated === true
+                ? " · signed in"
+                : "";
+            installState = `installed${v}${authNote}`;
+            badgeColor =
+              status.authenticated === false
+                ? "var(--warning, #d97706)"
+                : "var(--green, #10b981)";
+          }
           return (
             <div
               key={a.id}
@@ -109,7 +147,7 @@ export default function AgentsTab(): React.ReactElement {
                       className="text-label px-2 py-0.5 rounded-md"
                       style={{
                         background: "var(--bg-elevated)",
-                        color: "var(--text-secondary)",
+                        color: badgeColor,
                       }}
                     >
                       {installState}

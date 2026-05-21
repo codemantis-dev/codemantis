@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { AgentId } from "../../types/agent-events";
-import { checkClaudeStatus } from "../../lib/tauri-commands";
+import { checkClaudeStatus, checkCodexStatus } from "../../lib/tauri-commands";
 
 /**
  * Provider picker — Phase 2 §5. Renders between the project picker and
@@ -57,19 +57,16 @@ export default function AgentPicker({
     if (installed) return; // tests inject the status directly
     let cancelled = false;
     void (async () => {
-      let claudeOk = false;
-      try {
-        const s = await checkClaudeStatus();
-        claudeOk = !!s.installed;
-      } catch {
-        /* absence is fine */
-      }
-      // Codex install detection: Tauri command lands in S8 (binary_detect
-      // exposed as is_codex_installed). For S6 the picker is purely
-      // user-driven — the user picks Codex, the spawn surfaces an
-      // actionable error if the binary is missing.
+      const [claudeOk, codexOk] = await Promise.all([
+        checkClaudeStatus()
+          .then((s) => !!s.installed)
+          .catch(() => false),
+        checkCodexStatus()
+          .then((s) => !!s.installed)
+          .catch(() => false),
+      ]);
       if (!cancelled) {
-        setAutoInstalled({ claude_code: claudeOk, codex: true });
+        setAutoInstalled({ claude_code: claudeOk, codex: codexOk });
       }
     })();
     return () => {

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Plus, FolderOpen, GitBranch } from "lucide-react";
 import {
   checkClaudeStatus,
+  checkCodexStatus,
+  type CodexStatus,
   setClaudeBinaryOverride,
   cleanupOldAttachments,
   listSelfDriveStates,
@@ -76,6 +78,7 @@ async function hydratePersistedSelfDriveRuns(): Promise<void> {
 
 export default function App() {
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
@@ -96,6 +99,11 @@ export default function App() {
   useCrashRecoverySnapshot();
 
   useEffect(() => {
+    // Probe Codex in parallel; failures are absorbed because the UI
+    // handles missing-codex gracefully (it just won't be offered).
+    checkCodexStatus()
+      .then(setCodexStatus)
+      .catch(() => setCodexStatus(null));
     checkClaudeStatus()
       .then((status) => {
         setClaudeStatus(status);
@@ -264,11 +272,10 @@ export default function App() {
                 CodeMantis
               </h2>
               <p className="text-text-secondary text-ui">
-                {claudeStatus?.version ? (
-                  <span>Claude Code {claudeStatus.version}</span>
-                ) : (
-                  <span>Native UI for Claude Code</span>
-                )}
+                <AgentStatusSubtitle
+                  claudeStatus={claudeStatus}
+                  codexStatus={codexStatus}
+                />
               </p>
               <p className="text-text-ghost text-label mt-1">v{__APP_VERSION__}</p>
             </div>
@@ -386,4 +393,40 @@ export default function App() {
       <Toast />
     </div>
   );
+}
+
+/**
+ * Start-screen subtitle showing detected agent CLIs with versions.
+ * Renders one of:
+ *   - "Claude Code 2.1.145 · OpenAI Codex 0.130.0"   (both detected)
+ *   - "Claude Code 2.1.145"                           (Codex missing)
+ *   - "OpenAI Codex 0.130.0"                          (Claude missing)
+ *   - "Native UI for Claude Code and OpenAI Codex"    (neither detected;
+ *     the welcome onboarding screen handles install guidance separately)
+ */
+function AgentStatusSubtitle({
+  claudeStatus,
+  codexStatus,
+}: {
+  claudeStatus: ClaudeStatus | null;
+  codexStatus: CodexStatus | null;
+}): React.ReactElement {
+  const claudeOk = !!(claudeStatus?.installed && claudeStatus.version);
+  const codexOk = !!(codexStatus?.installed && codexStatus.version);
+  const parts: string[] = [];
+  if (claudeOk) {
+    const v = claudeStatus!.parsed_version ?? claudeStatus!.version!;
+    parts.push(`Claude Code ${v}`);
+  }
+  if (codexOk) {
+    const v = codexStatus!.parsed_version ?? codexStatus!.version!;
+    // The raw `codex --version` output already includes "codex-cli " —
+    // strip it for a clean "OpenAI Codex 0.130.0" presentation.
+    const clean = v.replace(/^codex-cli\s+/i, "");
+    parts.push(`OpenAI Codex ${clean}`);
+  }
+  if (parts.length === 0) {
+    return <span>Native UI for Claude Code and OpenAI Codex</span>;
+  }
+  return <span>{parts.join(" · ")}</span>;
 }

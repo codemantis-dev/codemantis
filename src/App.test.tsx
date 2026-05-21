@@ -20,6 +20,15 @@ vi.mock("./lib/tauri-commands", () => ({
       binary_path: "/usr/local/bin/claude",
     })
   ),
+  checkCodexStatus: vi.fn(() =>
+    Promise.resolve({
+      installed: false,
+      version: null,
+      parsed_version: null,
+      binary_path: null,
+      authenticated: false,
+    })
+  ),
   cleanupOldAttachments: vi.fn(() => Promise.resolve(0)),
   listTemplates: vi.fn(() => Promise.resolve([])),
   listenScaffoldProgress: vi.fn(() => Promise.resolve(() => {})),

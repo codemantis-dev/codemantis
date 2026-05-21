@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { AgentId } from "../../types/agent-events";
-import { checkClaudeStatus } from "../../lib/tauri-commands";
+import { checkClaudeStatus, checkCodexStatus } from "../../lib/tauri-commands";
 import { useUiStore } from "../../stores/uiStore";
 
 /**
@@ -36,6 +36,7 @@ export default function AgentBadge({
 }: AgentBadgeProps): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null);
+  const [codexInstalled, setCodexInstalled] = useState<boolean | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const setSelectedAgentId = useUiStore((s) => s.setSelectedAgentId);
 
@@ -50,24 +51,31 @@ export default function AgentBadge({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  // Probe Claude installation lazily so the popover can show accurate
-  // status. Codex auto-check IPC lands in v1.4.0; until then we assume
-  // the user has installed whichever agent is on their PATH.
+  // Probe both adapters when the popover first opens so the install
+  // hint text reflects reality (v1.3.1 added the real `check_codex_status`
+  // IPC).
   useEffect(() => {
-    if (claudeInstalled !== null) return;
+    if (!open) return;
+    if (claudeInstalled !== null && codexInstalled !== null) return;
     let cancelled = false;
     void (async () => {
-      try {
-        const s = await checkClaudeStatus();
-        if (!cancelled) setClaudeInstalled(!!s.installed);
-      } catch {
-        if (!cancelled) setClaudeInstalled(false);
+      const [claudeOk, codexOk] = await Promise.all([
+        checkClaudeStatus()
+          .then((s) => !!s.installed)
+          .catch(() => false),
+        checkCodexStatus()
+          .then((s) => !!s.installed)
+          .catch(() => false),
+      ]);
+      if (!cancelled) {
+        setClaudeInstalled(claudeOk);
+        setCodexInstalled(codexOk);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [claudeInstalled]);
+  }, [open, claudeInstalled, codexInstalled]);
 
   const otherAgent: AgentId =
     activeAgent === "claude_code" ? "codex" : "claude_code";
@@ -126,10 +134,9 @@ export default function AgentBadge({
               </code>
             </div>
           )}
-          {otherAgent === "codex" && (
+          {otherAgent === "codex" && codexInstalled === false && (
             <div className="mt-2 text-label text-text-ghost">
-              If <code className="px-1 py-0.5 rounded bg-bg-elevated">codex</code>{" "}
-              isn't installed yet:{" "}
+              OpenAI Codex isn't on PATH — install it first:{" "}
               <code className="px-1 py-0.5 rounded bg-bg-elevated">
                 npm install -g @openai/codex && codex login
               </code>

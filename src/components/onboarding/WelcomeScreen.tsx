@@ -139,7 +139,7 @@ export default function WelcomeScreen({
               Welcome to CodeMantis
             </h1>
             <p className="text-text-secondary" style={{ fontSize: "14px" }}>
-              Native desktop UI for Claude Code
+              Native desktop UI for Claude Code and OpenAI Codex
             </p>
             <p className="text-text-ghost mt-1" style={{ fontSize: "12px" }}>
               v{__APP_VERSION__}

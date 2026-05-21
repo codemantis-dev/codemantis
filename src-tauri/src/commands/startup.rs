@@ -5,6 +5,8 @@ use crate::agents::claude_code::claude_detection::{
 };
 use crate::agents::claude_code::cli_handshake_probe::probe_if_unknown;
 use crate::agents::claude_code::cli_version::CliSupport;
+use crate::agents::codex::auth_probe::{probe_login_status, AuthProbeOutcome};
+use crate::agents::codex::binary_detect::{detect_codex, CodexStatus};
 use tauri::State;
 
 #[cfg(test)]
@@ -86,6 +88,34 @@ pub async fn check_claude_status(state: State<'_, AppState>) -> Result<ClaudeSta
     }
 
     Ok(status)
+}
+
+/// Codex counterpart of `check_claude_status`. Surfaces the installed
+/// state, version, binary path, and (when installed) whether the user is
+/// signed in via `codex login`. v1.3.1 — wired into AgentPicker /
+/// AgentBadge / Settings → Agents so the UI never has to guess.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodexStatusFull {
+    #[serde(flatten)]
+    pub binary: CodexStatus,
+    /// `true` if `codex login status` exited 0. `false` if the user
+    /// needs to run `codex login`, or if the binary isn't installed at
+    /// all (in which case `binary.installed` is also false).
+    pub authenticated: bool,
+}
+
+#[tauri::command]
+pub async fn check_codex_status() -> Result<CodexStatusFull, String> {
+    let binary = detect_codex();
+    let authenticated = if let Some(path) = binary.binary_path.as_deref() {
+        matches!(probe_login_status(path), AuthProbeOutcome::Authenticated)
+    } else {
+        false
+    };
+    Ok(CodexStatusFull {
+        binary,
+        authenticated,
+    })
 }
 
 #[tauri::command]
