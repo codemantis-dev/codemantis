@@ -99,12 +99,11 @@ export default function App() {
   useCrashRecoverySnapshot();
 
   useEffect(() => {
-    // Probe Codex in parallel; failures are absorbed because the UI
-    // handles missing-codex gracefully (it just won't be offered).
-    checkCodexStatus()
-      .then(setCodexStatus)
-      .catch(() => setCodexStatus(null));
-    checkClaudeStatus()
+    // v1.3.1: probe both agents in parallel; only clear `checking` once
+    // BOTH have resolved so the splash reflects the full picture
+    // ("Claude Code 2.1.145 · OpenAI Codex 0.130.0" can't be assembled
+    // until codexStatus is in).
+    const claudePromise = checkClaudeStatus()
       .then((status) => {
         setClaudeStatus(status);
         if (status.binary_path) {
@@ -112,10 +111,20 @@ export default function App() {
         }
       })
       .catch((e) => {
-        console.error("Status check failed:", e);
+        console.error("Claude status check failed:", e);
         showToast("Failed to check Claude CLI status", "error");
-      })
-      .finally(() => setChecking(false));
+      });
+    const codexPromise = checkCodexStatus()
+      .then(setCodexStatus)
+      .catch((e) => {
+        // Codex probe failures are non-fatal — log + leave codexStatus
+        // null so the UI just won't offer Codex.
+        console.warn("Codex status check failed:", e);
+        setCodexStatus(null);
+      });
+    void Promise.allSettled([claudePromise, codexPromise]).finally(() =>
+      setChecking(false),
+    );
     loadSettings();
     // Rehydrate Self-Drive runs paused at the previous shutdown. Each row
     // is hydrated as paused + needsSessionAttach; the user explicitly
@@ -204,29 +213,33 @@ export default function App() {
       <div className="h-screen w-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
         <div className="h-12 shrink-0" data-tauri-drag-region />
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-text-dim">Checking Claude Code installation...</p>
+          <p className="text-text-dim">
+            Checking Claude Code and OpenAI Codex installation…
+          </p>
         </div>
       </div>
     );
   }
 
-  // The CLI gate. Always show the welcome screen when:
-  //  - it's the user's first launch (onboarding not yet completed), OR
-  //  - the installed Claude Code CLI is missing or outdated.
-  // Without the second condition, an existing user with an old CLI silently
-  // falls through to the chat view and hits cryptic stream errors at session
-  // start. The welcome screen renders the prerequisites (`Claude Code CLI`,
-  // `Authentication`) with clear remediation copy and the upgrade command.
-  const cliGateBlocking =
-    !claudeStatus ||
-    claudeStatus.support.kind === "notInstalled" ||
-    claudeStatus.support.kind === "outdated";
+  // The CLI gate. v1.3.1: now satisfied as soon as EITHER agent is
+  // fully working (installed + authenticated) — users with just Codex
+  // can use the app without needing Claude installed. Only force
+  // Welcome when neither agent is usable AND no Claude path can resolve
+  // (the old "missing or outdated Claude" check is still the trigger
+  // when Claude is the only adapter available).
+  const claudeUsable =
+    !!claudeStatus &&
+    claudeStatus.support.kind !== "notInstalled" &&
+    claudeStatus.support.kind !== "outdated";
+  const codexUsable = !!codexStatus?.installed;
+  const cliGateBlocking = !claudeUsable && !codexUsable;
   const showOnboarding =
     settingsLoaded && !onboardingCompleted && !onboardingDismissed;
   if (showOnboarding || cliGateBlocking) {
     return (
       <WelcomeScreen
         claudeStatus={claudeStatus}
+        codexStatus={codexStatus}
         rechecking={rechecking}
         onRecheck={handleRecheck}
         onGetStarted={handleGetStarted}

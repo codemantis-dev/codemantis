@@ -12,10 +12,16 @@ import {
   Search,
   GitBranch,
 } from "lucide-react";
-import type { ClaudeStatus } from "../../lib/tauri-commands";
+import type { ClaudeStatus, CodexStatus } from "../../lib/tauri-commands";
 
 interface WelcomeScreenProps {
   claudeStatus: ClaudeStatus | null;
+  /** Codex install + auth status (v1.3.1). `null` while still probing
+   * or if the IPC failed. The welcome screen now treats either agent
+   * being fully working as enough to satisfy the "you can use the app"
+   * gate, so users can get started with just Codex if they prefer.
+   * Optional in the type so v1.2.0-era test fixtures still compile. */
+  codexStatus?: CodexStatus | null;
   rechecking: boolean;
   onRecheck: () => void;
   onGetStarted: (skipFuture: boolean) => void;
@@ -67,22 +73,61 @@ function describeCli(status: ClaudeStatus | null): { description: string; satisf
   }
 }
 
-function getPrerequisites(status: ClaudeStatus | null): Prerequisite[] {
-  const cli = describeCli(status);
+function describeCodex(status: CodexStatus | null): {
+  description: string;
+  satisfied: boolean;
+  helpCommand?: string;
+} {
+  if (!status?.installed) {
+    return {
+      description: "Not installed",
+      satisfied: false,
+      helpCommand: "npm install -g @openai/codex",
+    };
+  }
+  const v = status.parsed_version ?? status.version ?? "unknown";
+  // Codex's --version stdout is "codex-cli X.Y.Z"; strip the leading
+  // brand for display parity with the Claude "Installed (vX.Y.Z)" form.
+  const versionLabel = v.replace(/^codex-cli\s+/i, "");
+  return { description: `Installed (v${versionLabel})`, satisfied: true };
+}
+
+function getPrerequisites(
+  claudeStatus: ClaudeStatus | null,
+  codexStatus: CodexStatus | null,
+): Prerequisite[] {
+  const claude = describeCli(claudeStatus);
+  const codex = describeCodex(codexStatus);
+  const claudeAuth = claudeStatus?.authenticated ?? false;
+  const codexAuth = codexStatus?.authenticated ?? false;
   return [
     {
       label: "Claude Code CLI",
-      description: cli.description,
-      satisfied: cli.satisfied,
-      helpCommand: cli.helpCommand,
+      description: claude.description,
+      satisfied: claude.satisfied,
+      helpCommand: claude.helpCommand,
     },
     {
-      label: "Authentication",
-      description: status?.authenticated
-        ? "Logged in at Claude Code"
-        : "Not authenticated",
-      satisfied: status?.authenticated ?? false,
+      label: "Claude Code · Authentication",
+      description: claudeAuth ? "Logged in" : "Not authenticated",
+      satisfied: claudeAuth,
       helpCommand: "claude login",
+    },
+    {
+      label: "OpenAI Codex CLI",
+      description: codex.description,
+      satisfied: codex.satisfied,
+      helpCommand: codex.helpCommand,
+    },
+    {
+      label: "OpenAI Codex · Authentication",
+      description: codexAuth
+        ? "Logged in"
+        : codexStatus?.installed
+        ? "Not authenticated"
+        : "—",
+      satisfied: codexAuth,
+      helpCommand: "codex login",
     },
     {
       label: "You are cool and motivated \u{1F680}",
@@ -94,6 +139,7 @@ function getPrerequisites(status: ClaudeStatus | null): Prerequisite[] {
 
 export default function WelcomeScreen({
   claudeStatus,
+  codexStatus = null,
   rechecking,
   onRecheck,
   onGetStarted,
@@ -104,8 +150,16 @@ export default function WelcomeScreen({
   onSelectClaudeBinary,
 }: WelcomeScreenProps) {
   const [skipFuture, setSkipFuture] = useState(true);
-  const prerequisites = getPrerequisites(claudeStatus);
-  const prerequisitesMet = prerequisites.every((p) => p.satisfied);
+  const prerequisites = getPrerequisites(claudeStatus, codexStatus);
+  // v1.3.1: the gate is satisfied as soon as EITHER agent is fully
+  // working (installed + authenticated). Users can use the app with
+  // just Codex; they don't need Claude.
+  const claudeFullyOk =
+    !!claudeStatus?.installed &&
+    claudeStatus.support.kind !== "outdated" &&
+    !!claudeStatus.authenticated;
+  const codexFullyOk = !!codexStatus?.installed && !!codexStatus.authenticated;
+  const prerequisitesMet = claudeFullyOk || codexFullyOk;
   const claudeNotFound = !(claudeStatus?.installed ?? false);
   const claudeOutdated =
     !!claudeStatus?.installed && claudeStatus.support.kind === "outdated";

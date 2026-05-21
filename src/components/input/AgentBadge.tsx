@@ -107,7 +107,8 @@ export default function AgentBadge({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 mt-2 w-72 rounded-lg border border-border bg-bg shadow-lg p-3 z-50"
+          className="absolute right-0 mt-2 w-72 rounded-lg border border-border shadow-xl p-3 z-50"
+          style={{ background: "var(--bg-primary)" }}
           role="dialog"
           aria-label="Agent options"
           data-testid="agent-badge-popover"

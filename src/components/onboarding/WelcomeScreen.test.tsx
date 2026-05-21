@@ -73,10 +73,14 @@ describe("WelcomeScreen", () => {
     expect(screen.getByText("v0.8.10")).toBeInTheDocument();
   });
 
-  it("shows all three prerequisites when claude is installed and authenticated", () => {
+  it("shows per-agent prerequisites when claude is installed and authenticated", () => {
+    // v1.3.1: Codex rows are present too; auth labels are now scoped
+    // per agent ("Claude Code · Authentication", "OpenAI Codex · …").
     render(<WelcomeScreen {...defaultProps} />);
     expect(screen.getByText("Claude Code CLI")).toBeInTheDocument();
-    expect(screen.getByText("Authentication")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code · Authentication")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI Codex CLI")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI Codex · Authentication")).toBeInTheDocument();
     expect(screen.getByText(/You are cool and motivated/)).toBeInTheDocument();
   });
 
