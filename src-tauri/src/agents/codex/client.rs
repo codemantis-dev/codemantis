@@ -211,6 +211,27 @@ impl CodexClient {
         Err(last_err.unwrap_or(ClientError::Cancelled))
     }
 
+    /// Send a fire-and-forget JSON-RPC notification (no id, no pending
+    /// slot). Used during the handshake (`initialized`) and on
+    /// disconnect-class flows. Notifications are write-only — there is no
+    /// matching response by spec.
+    pub fn send_notification(
+        &self,
+        method: impl Into<String>,
+        params: Value,
+    ) -> Result<(), ClientError> {
+        let msg = Message::Notification {
+            method: method.into(),
+            params,
+        };
+        let line = msg.to_wire_line().map_err(|e| ClientError::Rpc {
+            code: -32603,
+            message: format!("internal: {e}"),
+            data: None,
+        })?;
+        self.inner.outbound.send(line).map_err(|_| ClientError::Closed)
+    }
+
     /// Respond to a server-initiated request. The server-request handler
     /// (see [`crate::agents::codex::approvals`] in S3) calls this once the
     /// user has answered the modal. `result` is the JSON-RPC `result` field
@@ -461,6 +482,19 @@ mod tests {
         assert_eq!(got[0].0, Id::Number(7));
         assert_eq!(got[0].1, "item/commandExecution/requestApproval");
         assert_eq!(got[0].2["command"], "ls");
+    }
+
+    #[tokio::test]
+    async fn send_notification_writes_no_id_line() {
+        let (client, mut rx) = make_client();
+        client
+            .send_notification("initialized", json!({}))
+            .unwrap();
+        let line = rx.recv().await.unwrap();
+        let parsed: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(parsed["method"], "initialized");
+        assert!(parsed.get("id").is_none(), "notification must have no id");
+        assert!(parsed.get("jsonrpc").is_none());
     }
 
     #[tokio::test]

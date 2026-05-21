@@ -631,6 +631,28 @@ pub fn chat_channel(agent_id: AgentId, session_id: &str) -> String {
     }
 }
 
+/// Routes a [`NormalizedEvent`] to chat vs. activity per the v1.1.11 split:
+/// the Chat panel shows only conversation text + lifecycle envelopes; tool
+/// invocations and subagent / task events go to the Activity feed.
+/// Mirrors the Claude `route_events` dispatcher (`agents/claude_code/
+/// message_router.rs`); adapters that emit `NormalizedEvent` directly use
+/// this to pick the right Tauri channel.
+#[allow(dead_code)]
+pub fn is_activity_event(ev: &NormalizedEvent) -> bool {
+    matches!(
+        ev,
+        NormalizedEvent::ToolUseStart { .. }
+            | NormalizedEvent::ToolResult { .. }
+            | NormalizedEvent::ToolProgress { .. }
+            | NormalizedEvent::AgentPreparing { .. }
+            | NormalizedEvent::SubAgentStarted { .. }
+            | NormalizedEvent::SubAgentProgress { .. }
+            | NormalizedEvent::SubAgentComplete { .. }
+            | NormalizedEvent::TaskNotification { .. }
+            | NormalizedEvent::TaskUpdated { .. }
+    )
+}
+
 #[allow(dead_code)]
 pub fn activity_channel(agent_id: AgentId, session_id: &str) -> String {
     match agent_id {
@@ -697,6 +719,66 @@ mod tests {
             activity_channel(AgentId::Codex, "sess-xyz"),
             "codex-activity-sess-xyz"
         );
+    }
+
+    #[test]
+    fn is_activity_event_routes_tools_to_activity() {
+        let chat_events = [
+            NormalizedEvent::TextDelta {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                text: "".into(),
+            },
+            NormalizedEvent::TurnComplete {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                duration_ms: None,
+                usage: None,
+                cost_usd: None,
+                duration_api_ms: None,
+                num_turns: None,
+                stop_reason: None,
+                terminal_reason: None,
+                model_name: None,
+                context_window: None,
+                max_output_tokens: None,
+            },
+            NormalizedEvent::CompactingStatus {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                is_compacting: true,
+            },
+        ];
+        for ev in &chat_events {
+            assert!(!is_activity_event(ev), "expected chat for {:?}", ev);
+        }
+
+        let activity_events = [
+            NormalizedEvent::ToolUseStart {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                tool_use_id: "x".into(),
+                tool_name: "Bash".into(),
+                tool_input: serde_json::Value::Null,
+            },
+            NormalizedEvent::ToolResult {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                tool_use_id: "x".into(),
+                content: None,
+                is_error: false,
+            },
+            NormalizedEvent::ToolProgress {
+                agent_id: AgentId::Codex,
+                session_id: "s".into(),
+                tool_use_id: "x".into(),
+                tool_name: "Bash".into(),
+                elapsed_seconds: 1.0,
+            },
+        ];
+        for ev in &activity_events {
+            assert!(is_activity_event(ev), "expected activity for {:?}", ev);
+        }
     }
 
     #[test]

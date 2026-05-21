@@ -8,12 +8,17 @@
 use std::sync::{Arc, LazyLock};
 
 use super::claude_code::ClaudeCodeAdapter;
+use super::codex::CodexAdapter;
 use super::{AgentAdapter, AgentId};
 
-/// The registered adapters. Phase 1: Claude Code only. Phase 2 pushes
-/// `CodexAdapter` here.
-static REGISTRY: LazyLock<Vec<Arc<dyn AgentAdapter>>> =
-    LazyLock::new(|| vec![Arc::new(ClaudeCodeAdapter::new()) as Arc<dyn AgentAdapter>]);
+/// The registered adapters. Phase 1 had Claude Code only; Phase 2 S4
+/// added the Codex adapter alongside it.
+static REGISTRY: LazyLock<Vec<Arc<dyn AgentAdapter>>> = LazyLock::new(|| {
+    vec![
+        Arc::new(ClaudeCodeAdapter::new()) as Arc<dyn AgentAdapter>,
+        Arc::new(CodexAdapter::new()) as Arc<dyn AgentAdapter>,
+    ]
+});
 
 /// Look up an adapter by id. Returns `None` if not yet registered (Phase 1
 /// Session 1 returns `None` for every id).
@@ -36,8 +41,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase1_registry_has_exactly_claude_code() {
-        assert_eq!(registered_ids(), vec![AgentId::ClaudeCode]);
+    fn phase2_registry_has_both_adapters() {
+        let ids = registered_ids();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&AgentId::ClaudeCode));
+        assert!(ids.contains(&AgentId::Codex));
     }
 
     #[test]
@@ -45,5 +53,12 @@ mod tests {
         let adapter = get(AgentId::ClaudeCode).expect("Claude Code must be registered");
         assert_eq!(adapter.agent_id(), AgentId::ClaudeCode);
         assert_eq!(adapter.capabilities().display_name, "Claude Code");
+    }
+
+    #[test]
+    fn lookup_resolves_codex_adapter() {
+        let adapter = get(AgentId::Codex).expect("Codex must be registered");
+        assert_eq!(adapter.agent_id(), AgentId::Codex);
+        assert_eq!(adapter.capabilities().display_name, "OpenAI Codex");
     }
 }

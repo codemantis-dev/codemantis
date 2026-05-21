@@ -133,7 +133,7 @@ These rules are non-negotiable. Every code change must satisfy ALL of them:
 5. **Test count floors — never decrease:**
    - TS unit tests: **3,834** minimum
    - TS integration tests: **168** minimum
-   - Rust unit tests: **1,610** minimum
+   - Rust unit tests: **1,631** minimum
    - Rust integration tests: **20** minimum
 6. **Integration tests required for cross-module changes.** If a change touches 2+ stores, a hook + store, or the event pipeline, there must be an integration test covering the interaction.
 7. **No mocking Zustand stores.** Use real stores with `resetAllStores()` in `beforeEach`. Mocking stores hides real integration bugs.
