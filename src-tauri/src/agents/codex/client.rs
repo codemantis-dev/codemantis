@@ -37,7 +37,10 @@ use super::jsonrpc::{parse_line, retry_backoff_ms, Id, Message, ParseError, RpcE
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// The server replied with a JSON-RPC error (`{"error": {...}}`).
-    #[error("rpc error {code}: {message}")]
+    /// `data` is appended to the Display so the user gets the full
+    /// rejection reason — Codex puts the offending field name there
+    /// (e.g. `data: { "field": "personality" }`).
+    #[error("rpc error {code}: {message}{}", .data.as_ref().map(|d| format!(" (data: {})", d)).unwrap_or_default())]
     Rpc {
         code: i32,
         message: String,

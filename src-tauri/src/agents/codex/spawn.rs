@@ -449,41 +449,67 @@ pub async fn spawn_codex_session(
     // 7. thread/start or thread/resume — uses the "Auto" preset from
     // spec §2.3 (workspace-write × on-request). Phase 2 §6.1's Policy
     // pill mutates this via set_codex_policy after spawn.
+    //
+    // v1.3.1: build params dynamically so we (a) never send `"model":
+    // null` for unspecified-model sessions (Codex 0.130.0 rejects with
+    // -32600), and (b) only attach `personality` / `serviceName` when
+    // documented. If Codex returns Invalid Request, dump the full
+    // response so the user has a diagnostic instead of "unknown ...".
     let initial_policy = CodexSessionPolicy {
         sandbox: CodexSandbox::WorkspaceWrite,
         approval: CodexApproval::OnRequest,
         network_access: false,
     };
-    let (thread_method, thread_params) = if let Some(thread_id) = &config.resume_token {
-        (
-            "thread/resume",
-            json!({
-                "threadId": thread_id,
-                "cwd": cwd.to_string_lossy(),
-                "model": config.model_override,
-                "approvalPolicy": initial_policy.approval.as_codex_wire(),
-                "sandbox": initial_policy.sandbox.as_codex_wire(),
-                "personality": "pragmatic",
-                "serviceName": "codemantis",
-            }),
-        )
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "cwd".into(),
+        Value::String(cwd.to_string_lossy().into_owned()),
+    );
+    params.insert(
+        "approvalPolicy".into(),
+        Value::String(initial_policy.approval.as_codex_wire().into()),
+    );
+    params.insert(
+        "sandbox".into(),
+        Value::String(initial_policy.sandbox.as_codex_wire().into()),
+    );
+    if let Some(model) = config.model_override.as_deref() {
+        if !model.is_empty() {
+            params.insert("model".into(), Value::String(model.to_string()));
+        }
+    }
+    // Drop personality + serviceName for v1.3.1 — those fields aren't
+    // accepted by Codex 0.130.0's thread/start and were causing
+    // rpc -32600 Invalid request. They're metrics-only per the README
+    // (no UI behaviour change), so omitting them is safe.
+
+    let thread_method = if let Some(thread_id) = &config.resume_token {
+        params.insert("threadId".into(), Value::String(thread_id.clone()));
+        "thread/resume"
     } else {
-        (
-            "thread/start",
-            json!({
-                "cwd": cwd.to_string_lossy(),
-                "model": config.model_override,
-                "approvalPolicy": initial_policy.approval.as_codex_wire(),
-                "sandbox": initial_policy.sandbox.as_codex_wire(),
-                "personality": "pragmatic",
-                "serviceName": "codemantis",
-            }),
-        )
+        "thread/start"
     };
+
+    debug!(
+        "[codex {}] sending {} with params: {}",
+        config.session_id,
+        thread_method,
+        serde_json::to_string(&params).unwrap_or_default()
+    );
     let _ = client
-        .send_request(thread_method, thread_params)
+        .send_request(thread_method, Value::Object(params))
         .await
-        .map_err(|e| AgentError::ProtocolError(format!("{thread_method} failed: {e}")))?;
+        .map_err(|e| {
+            // Codex's "Invalid request: unknown ..." gets truncated in
+            // the toast; log the full error here so users can copy-paste
+            // it. Most -32600s come from a new field or a renamed key
+            // (Codex's wire is still evolving).
+            log::error!(
+                "[codex {}] {} failed: {} — check Codex CLI version + wire format",
+                config.session_id, thread_method, e
+            );
+            AgentError::ProtocolError(format!("{thread_method} failed: {e}"))
+        })?;
 
     Ok(Box::new(CodexProcessHandle {
         session_id: config.session_id,
