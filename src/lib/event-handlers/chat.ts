@@ -306,7 +306,16 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       // See docs/internal/cli-2.1.126-protocol-report.md §"actionable bugs B1".
       const CONTROL_TOOLS = new Set(["ExitPlanMode", "EnterPlanMode", "AskUserQuestion"]);
       const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
-      const PROTECTED_PREFIXES = [".claude/", ".git/", ".vscode/"];
+      // Phase 2 §4.7: protected-path prefixes are per-agent. The event
+      // carries `agent_id` (optional in Phase 1, populated in Phase 2);
+      // missing values keep the v1.2.0 default of Claude.
+      const PROTECTED_PREFIXES_BY_AGENT: Record<string, string[]> = {
+        claude_code: [".claude/", ".git/", ".vscode/"],
+        codex: [".codex/", ".git/", ".agents/"],
+      };
+      const PROTECTED_PREFIXES =
+        PROTECTED_PREFIXES_BY_AGENT[event.agent_id ?? "claude_code"] ??
+        PROTECTED_PREFIXES_BY_AGENT.claude_code;
 
       const writeDenials = event.denials.filter((d) => WRITE_TOOLS.has(d.tool_name));
       const otherDenials = event.denials.filter(
@@ -344,8 +353,12 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
         };
         const list = formatList(writeDenials, labelOf);
         const noun = writeDenials.length === 1 ? "Write blocked" : `${writeDenials.length} writes blocked`;
+        const guardrailName =
+          (event.agent_id ?? "claude_code") === "codex"
+            ? "Codex's sandbox"
+            : "Claude CLI's protected-path guardrail";
         const summary = protectedPath
-          ? `${noun} by Claude CLI's protected-path guardrail: ${list}. Ask the agent to use Bash heredoc instead.`
+          ? `${noun} by ${guardrailName}: ${list}. Ask the agent to use Bash heredoc instead.`
           : `${noun}: ${list}.`;
         showToast(summary, "error", 12000);
       }

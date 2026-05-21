@@ -574,6 +574,70 @@ describe("chat event handler — protected_path_deny", () => {
     expect(msg).not.toContain("/p/.claude/d");
   });
 
+  it("Codex agent_id swaps protected-path prefixes to .codex/.agents", () => {
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      agent_id: "codex",
+      denials: [
+        {
+          tool_name: "Write",
+          tool_use_id: "t1",
+          tool_input: { file_path: "/proj/.codex/forbidden" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("Write blocked");
+    expect(msg).toContain("Codex's sandbox");
+    expect(msg).not.toContain("Claude CLI");
+    expect(msg).toContain("/proj/.codex/forbidden");
+  });
+
+  it("Codex agent_id treats .claude/ writes as plain host-deny (not protected-path)", () => {
+    // .claude/ is NOT a protected path under Codex — only .codex/ .git/
+    // .agents/ are. The toast must use the generic "Write blocked" form
+    // without the Codex-sandbox or Claude-guardrail wording.
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      agent_id: "codex",
+      denials: [
+        {
+          tool_name: "Write",
+          tool_use_id: "t1",
+          tool_input: { file_path: "/proj/.claude/whatever" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("Write blocked");
+    expect(msg).not.toContain("sandbox");
+    expect(msg).not.toContain("guardrail");
+  });
+
+  it("missing agent_id falls back to Claude prefixes", () => {
+    // Phase 1 wire format omits agent_id; the detector must default to
+    // Claude so v1.2.0-era events still bucket correctly.
+    const event: FrontendEvent = {
+      type: "protected_path_deny",
+      session_id: "s1",
+      denials: [
+        {
+          tool_name: "Write",
+          tool_use_id: "t1",
+          tool_input: { file_path: "/p/.claude/x" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("Claude CLI's protected-path guardrail");
+  });
+
   it("uses generic 'Write blocked' wording for non-protected-path host denies (S11 shape)", () => {
     // From harness S11: host hook returns deny for /tmp/cm-harness-S11-b.md.
     // The path is NOT under .claude/.git/.vscode, so the toast must NOT
