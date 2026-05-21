@@ -53,6 +53,18 @@ pub const MIGRATE_SESSION_WAS_OPEN: &[&str] = &[
     "ALTER TABLE sessions ADD COLUMN was_open INTEGER NOT NULL DEFAULT 0",
 ];
 
+// Phase 2 Session 1: per-session agent discriminator. Default 'claude_code'
+// covers every legacy row (the only agent that existed before v1.3.0) so the
+// `NOT NULL` is safe. Crash-recovery and the future provider picker dispatch
+// on this column. There is no separate `session_history` table — the
+// historical-sessions UI reads back from `sessions` filtered on `closed_at`,
+// so this single ALTER is sufficient (spec §7 referenced a `session_history`
+// table that does not exist in this codebase).
+pub const MIGRATE_SESSION_AGENT_ID: &[&str] = &[
+    "ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'claude_code'",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id)",
+];
+
 pub const MIGRATE_CHANGELOG_DETAIL: &[&str] = &[
     "ALTER TABLE changelog_entries ADD COLUMN technical_details TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE changelog_entries ADD COLUMN tools_summary TEXT NOT NULL DEFAULT ''",

@@ -100,6 +100,66 @@ fn fresh_database_sets_journal_mode() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn sessions_table_has_agent_id_column_after_migration() {
+    // Phase 2 S1: ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL
+    // DEFAULT 'claude_code'. Default covers every pre-Phase-2 row.
+    let db = Database::new(":memory:").unwrap();
+    drop(db);
+
+    // Use a standalone connection that runs the full migration chain to
+    // inspect pragma_table_info.
+    let conn = rusqlite::Connection::open(":memory:").unwrap();
+    conn.execute_batch(codemantis_lib::storage::migrations::CREATE_TABLES)
+        .unwrap();
+    for sql in codemantis_lib::storage::migrations::MIGRATE_SESSION_HISTORY {
+        let _ = conn.execute_batch(sql);
+    }
+    for sql in codemantis_lib::storage::migrations::MIGRATE_SESSION_WAS_OPEN {
+        let _ = conn.execute_batch(sql);
+    }
+    for sql in codemantis_lib::storage::migrations::MIGRATE_SESSION_AGENT_ID {
+        let _ = conn.execute_batch(sql);
+    }
+
+    // Column exists.
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'agent_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "sessions.agent_id column missing");
+
+    // Default lands as 'claude_code' on a pre-existing row.
+    conn.execute(
+        "INSERT INTO sessions (id, name, project_path, status, created_at, icon_index) \
+         VALUES ('legacy-1', 'Legacy', '/p', 'closed', '2026-01-01T00:00:00Z', 0)",
+        [],
+    )
+    .unwrap();
+    let agent_id: String = conn
+        .query_row(
+            "SELECT agent_id FROM sessions WHERE id = 'legacy-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(agent_id, "claude_code");
+
+    // Index exists.
+    let idx_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master \
+             WHERE type='index' AND name='idx_sessions_agent_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(idx_count, 1, "idx_sessions_agent_id missing");
+}
+
+#[test]
 fn migrations_are_idempotent() {
     // Calling Database::new twice on the same file must not error.
     // We use a temp file so both calls hit the same database.

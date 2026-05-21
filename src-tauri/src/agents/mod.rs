@@ -60,6 +60,12 @@ pub fn legacy_claude_path_forced() -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum AgentId {
     ClaudeCode,
+    /// OpenAI Codex CLI — uses the `codex app-server --listen stdio://`
+    /// JSON-RPC 2.0 protocol (spec Phase 2 §2.4). Bundled with the user's
+    /// ChatGPT Plus/Pro/Business subscription, so traffic doesn't draw down
+    /// the Anthropic Agent-SDK credit pool. Added in Phase 2 Session 1
+    /// (foundation only — the adapter implementation lands in S2–S4).
+    Codex,
 }
 
 #[allow(dead_code)]
@@ -67,6 +73,7 @@ impl AgentId {
     pub fn as_str(self) -> &'static str {
         match self {
             AgentId::ClaudeCode => "claude_code",
+            AgentId::Codex => "codex",
         }
     }
 }
@@ -97,6 +104,41 @@ pub struct AgentCapabilitySet {
     pub supports_external_approval_hook: bool,
     pub supports_protected_path_denials: bool,
     pub supports_raw_stream_log: bool,
+
+    // ── Phase 2 additions (spec §4.2) ──
+    //
+    // Codex differs from Claude in shape, not just binary. These flags let the
+    // UI gate features and the command layer dispatch by capability instead of
+    // by `agent_id` match arms.
+    /// Project-instruction injection via an on-disk doc (Codex's
+    /// `AGENTS.md` / `AGENTS.override.md`) rather than via a CLI flag.
+    /// Used by SpecWriter to pick its system-prompt-delivery mechanism.
+    pub supports_project_doc_injection: bool,
+    /// Sandbox-policy axis (Codex: `read-only` / `workspace-write` /
+    /// `danger-full-access`). Claude has no analog.
+    pub supports_sandbox_modes: bool,
+    /// Approval-policy axis (Codex: `never` / `on-request` / `untrusted`).
+    /// Claude has no analog; together with `supports_sandbox_modes` this is
+    /// the orthogonal 2-axis replacement for `SessionMode`.
+    pub supports_approval_policy: bool,
+    /// Six-mode `SessionMode` taxonomy (Claude). Codex sets this to `false`
+    /// because sandbox and approval policy are orthogonal axes instead.
+    /// The frontend Mode pill ↔ Policy pill swap is gated on this.
+    pub supports_session_mode: bool,
+    /// MCP server management is per-agent (Claude: `~/.claude.json`;
+    /// Codex: `~/.codex/config.toml` via `config/value/write` JSON-RPC).
+    pub supports_mcp_management: bool,
+    /// In-app browser-OAuth login (Codex's `account/login/start`,
+    /// Claude's Welcome-screen install prompt). Deferred to v1.4.0 for
+    /// both adapters in v1.3.0 — the user runs `claude login` /
+    /// `codex login` in a terminal.
+    pub supports_in_app_login: bool,
+    /// Whether this adapter can act in the AUDIT-PATCH role (the
+    /// spec-splice button in the SpecWriter Coverage panel). Claude:
+    /// `true`. Codex: `false` in v1.3.0 — when a Codex session is active,
+    /// AUDIT-PATCH either spawns an auxiliary Claude session (if Claude
+    /// is installed) or surfaces a tooltip. Generalised in v1.4.0.
+    pub supports_audit_patch_role: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -572,18 +614,19 @@ pub trait AgentAdapter: Send + Sync {
 // ─────────────────────────────────────────────────────────────────────
 // Tauri event channel naming
 //
-// Phase 1: every agent keeps the historical `claude-*` channel prefix to
-// preserve backwards-compatibility with the frontend `claude-chat-*` /
-// `claude-activity-*` subscriptions in `src/lib/event-handlers/`.
-//
-// Phase 2 will add per-agent prefixes (e.g. `codex-chat-*`) and the frontend
-// will subscribe to every known channel template.
+// Claude Code keeps its historical `claude-*` prefix (the frontend
+// subscriptions in `src/lib/event-handlers/` predate the trait). Phase 2
+// adds the parallel `codex-*` prefix for Codex sessions; the frontend
+// subscribes to every known agent's channel template and dispatches via
+// `NormalizedEvent.agent_id`. Renaming Claude's prefix is deferred
+// indefinitely per Phase 2 spec §6.
 // ─────────────────────────────────────────────────────────────────────
 
 #[allow(dead_code)]
 pub fn chat_channel(agent_id: AgentId, session_id: &str) -> String {
     match agent_id {
         AgentId::ClaudeCode => format!("claude-chat-{}", session_id),
+        AgentId::Codex => format!("codex-chat-{}", session_id),
     }
 }
 
@@ -591,6 +634,7 @@ pub fn chat_channel(agent_id: AgentId, session_id: &str) -> String {
 pub fn activity_channel(agent_id: AgentId, session_id: &str) -> String {
     match agent_id {
         AgentId::ClaudeCode => format!("claude-activity-{}", session_id),
+        AgentId::Codex => format!("codex-activity-{}", session_id),
     }
 }
 
@@ -617,6 +661,54 @@ mod tests {
         let s = serde_json::to_string(&id).unwrap();
         let back: AgentId = serde_json::from_str(&s).unwrap();
         assert_eq!(back, id);
+    }
+
+    #[test]
+    fn agent_id_codex_serializes_snake_case() {
+        let id = AgentId::Codex;
+        let s = serde_json::to_string(&id).unwrap();
+        assert_eq!(s, "\"codex\"");
+        assert_eq!(AgentId::Codex.as_str(), "codex");
+    }
+
+    #[test]
+    fn agent_id_codex_roundtrips_through_serde() {
+        let id = AgentId::Codex;
+        let s = serde_json::to_string(&id).unwrap();
+        let back: AgentId = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, id);
+    }
+
+    #[test]
+    fn agent_ids_are_distinct() {
+        assert_ne!(AgentId::ClaudeCode, AgentId::Codex);
+        assert_ne!(AgentId::ClaudeCode.as_str(), AgentId::Codex.as_str());
+    }
+
+    #[test]
+    fn chat_channel_codex_uses_codex_prefix() {
+        assert_eq!(chat_channel(AgentId::Codex, "sess-xyz"), "codex-chat-sess-xyz");
+    }
+
+    #[test]
+    fn activity_channel_codex_uses_codex_prefix() {
+        assert_eq!(
+            activity_channel(AgentId::Codex, "sess-xyz"),
+            "codex-activity-sess-xyz"
+        );
+    }
+
+    #[test]
+    fn channels_are_distinct_across_agents() {
+        // Two sessions with the same id but different agents must not collide.
+        assert_ne!(
+            chat_channel(AgentId::ClaudeCode, "s"),
+            chat_channel(AgentId::Codex, "s")
+        );
+        assert_ne!(
+            activity_channel(AgentId::ClaudeCode, "s"),
+            activity_channel(AgentId::Codex, "s")
+        );
     }
 
     #[test]
@@ -806,6 +898,13 @@ mod tests {
             supports_external_approval_hook: true,
             supports_protected_path_denials: true,
             supports_raw_stream_log: true,
+            supports_project_doc_injection: false,
+            supports_sandbox_modes: false,
+            supports_approval_policy: false,
+            supports_session_mode: true,
+            supports_mcp_management: true,
+            supports_in_app_login: false,
+            supports_audit_patch_role: true,
         };
         assert_eq!(caps.display_name, "Claude Code");
         assert!(caps.supports_interrupt);

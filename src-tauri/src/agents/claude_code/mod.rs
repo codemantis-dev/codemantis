@@ -108,6 +108,14 @@ impl ClaudeCodeAdapter {
                 supports_external_approval_hook: true,
                 supports_protected_path_denials: true,
                 supports_raw_stream_log: true,
+                // Phase 2 capability axis (spec §4.2):
+                supports_project_doc_injection: false,    // uses --append-system-prompt instead
+                supports_sandbox_modes: false,            // sandbox/approval are Codex-only axes
+                supports_approval_policy: false,
+                supports_session_mode: true,              // 6-mode SessionMode taxonomy
+                supports_mcp_management: true,            // ~/.claude.json
+                supports_in_app_login: false,             // user runs `claude login` in a terminal
+                supports_audit_patch_role: true,          // can splice spec fixes via AUDIT-PATCH
             },
         }
     }

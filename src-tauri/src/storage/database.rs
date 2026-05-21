@@ -143,6 +143,11 @@ impl Database {
             let _ = conn.execute_batch(sql);
         }
 
+        // Phase 2 S1: per-session agent discriminator. Safe to re-run.
+        for sql in migrations::MIGRATE_SESSION_AGENT_ID {
+            let _ = conn.execute_batch(sql);
+        }
+
         for sql in migrations::MIGRATE_CHANGELOG_DETAIL {
             let _ = conn.execute_batch(sql);
         }
