@@ -584,16 +584,26 @@ function AgentBadgeForActive(): React.ReactElement | null {
  * + writes the per-session policy through uiStore so tab switches
  * preserve the user's selection.
  */
+// Spec §2.3 "Auto" preset — used when the user hasn't picked a
+// policy yet for this session. Defined at module scope so the
+// reference is stable across renders (returning a fresh object from a
+// zustand selector triggers an infinite re-render loop because
+// Object.is comparison always fails).
+const DEFAULT_CODEX_POLICY = {
+  sandbox: "workspace-write" as const,
+  approval: "on-request" as const,
+  network_access: false,
+};
+
 function CodexPolicyControl({ sessionId }: { sessionId: string }): React.ReactElement {
-  const policy = useUiStore(
-    (s) =>
-      s.codexPolicies[sessionId] ?? {
-        sandbox: "workspace-write" as const,
-        approval: "on-request" as const,
-        network_access: false,
-      },
-  );
+  // Selector returns the actual stored reference (or undefined) — never
+  // a fresh literal. The `??` fallback to a module-scope constant
+  // happens *outside* the selector so both branches yield a stable
+  // identity. This is the fix for "Maximum update depth exceeded" the
+  // user saw when switching to Codex.
+  const stored = useUiStore((s) => s.codexPolicies[sessionId]);
   const updateLocal = useUiStore((s) => s.updateCodexPolicyLocal);
+  const policy = stored ?? DEFAULT_CODEX_POLICY;
   return (
     <PolicyPill
       sessionId={sessionId}
