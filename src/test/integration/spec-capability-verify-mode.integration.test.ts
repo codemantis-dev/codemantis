@@ -131,3 +131,123 @@ describe('PR3 verify-mode capability awareness', () => {
     expect(body).toContain('NOT-RESOLVED');
   });
 });
+
+/**
+ * Atikon CRM regression: cloud-only Supabase project, no test runner, no
+ * BrowserMCP. The LLM emitted `[side-effect] supabase db reset clean` and
+ * `[behavioral] vitest passes for migration` — both impossible in that
+ * environment. The capability-aware finalize pass (plus the environment
+ * preamble feeding spec generation) is the cross-layer fix that keeps this
+ * from blowing up future sessions.
+ */
+describe('SpecWriter finalize pass — Atikon end-to-end regression', () => {
+  const ATIKON_PROJECT = '/tmp/atikon-fixture';
+  const ATIKON_RECORD: ProjectCapabilitiesRecord = {
+    schemaVersion: 1,
+    probedAt: '2026-05-19T17:00:00Z',
+    probedByCliVersion: 'claude-code 2.1.126',
+    probedBySpecWriterVersion: '1.2.0',
+    stalenessWindow: 'PT24H',
+    capabilities: [
+      {
+        id: 'db.supabase.local-stack',
+        status: 'absent',
+        discoveredBy: 'passive-probe',
+        evidence: 'no supabase/config.toml; cloud-only Supabase setup detected via env keys',
+        lastVerifiedAt: '2026-05-19T17:00:00Z',
+        verifyMethod: 'file: supabase/config.toml (not found)',
+        expires: null,
+      },
+      {
+        id: 'db.supabase-anon',
+        status: 'verified',
+        discoveredBy: 'live-fire',
+        evidence: 'REST /rest/v1/ → 200',
+        lastVerifiedAt: '2026-05-19T17:00:00Z',
+        verifyMethod: 'GET /rest/v1/',
+        expires: null,
+      },
+      {
+        id: 'test-runner.any',
+        status: 'absent',
+        discoveredBy: 'passive-probe',
+        evidence: 'package.json has no vitest/jest/playwright',
+        lastVerifiedAt: '2026-05-19T17:00:00Z',
+        verifyMethod: null,
+        expires: null,
+      },
+      {
+        id: 'browser-mcp',
+        status: 'absent',
+        discoveredBy: 'passive-probe',
+        evidence: 'No browser MCP server in .mcp.json',
+        lastVerifiedAt: '2026-05-19T17:00:00Z',
+        verifyMethod: null,
+        expires: null,
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    resetAllStores();
+    useSpecWriterStore.getState().setProjectCapabilities(ATIKON_PROJECT, ATIKON_RECORD);
+  });
+
+  it('rewrites `supabase db reset` to the cloud Supabase vocab', async () => {
+    const { finalizeSpecForCapabilities, vocabFromCapabilities } = await import(
+      '../../lib/spec-writer-finalize'
+    );
+    const vocab = vocabFromCapabilities(ATIKON_RECORD);
+    const input = [
+      '## Verification',
+      '',
+      '- [side-effect] supabase db reset clean',
+      '- [behavioral] vitest passes for FooMigration',
+    ].join('\n');
+
+    const { content, adjustments } = finalizeSpecForCapabilities(input, ATIKON_RECORD, vocab);
+
+    expect(content).not.toContain('supabase db reset');
+    expect(content).toMatch(/supabase db push/);
+    expect(content).toContain('capability=db.supabase-anon');
+    // vitest line becomes DEFERRED.
+    expect(content).toContain('DEFERRED');
+    expect(content).toContain('test-runner.any');
+
+    const kinds = adjustments.map((a) => a.kind);
+    expect(kinds).toContain('substituted');
+    expect(kinds).toContain('deferred');
+  });
+
+  it('Self-Drive verify-mode then auto-resolves the substituted item via its capability tag', async () => {
+    const { finalizeSpecForCapabilities, vocabFromCapabilities } = await import(
+      '../../lib/spec-writer-finalize'
+    );
+    const vocab = vocabFromCapabilities(ATIKON_RECORD);
+    const { content } = finalizeSpecForCapabilities(
+      '- [behavioral] vitest passes',
+      ATIKON_RECORD,
+      vocab,
+    );
+    // The finalize pass marked it DEFERRED, so verify-mode now has an
+    // explicit capability tag to gate on:
+    expect(content).toMatch(/capability=test-runner\.any/);
+    const decision = shouldAutoResolveToNA(content, ATIKON_RECORD);
+    expect(decision.autoNA).toBe(true);
+    expect(decision.capabilityId).toBe('test-runner.any');
+  });
+
+  it('the SpecWriter prompt explicitly tells the LLM to avoid db reset on this project', async () => {
+    const { buildClaudeCodePrompt } = await import('../../lib/spec-prompts');
+    const prompt = buildClaudeCodePrompt(
+      'feature',
+      'template-1: Next.js',
+      'Atikon CRM',
+      ATIKON_RECORD,
+    );
+    expect(prompt).toContain('Project environment');
+    expect(prompt).toContain('supabase db reset');
+    expect(prompt).toContain('supabase db push');
+    expect(prompt).toMatch(/Avoid \(local stack is NOT available/);
+  });
+});

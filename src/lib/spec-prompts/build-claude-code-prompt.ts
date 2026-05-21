@@ -4,6 +4,7 @@
 import { NEW_APP_PROMPT } from "./new-app-mode";
 import { FEATURE_MODE_PROMPT } from "./feature-mode";
 import type { ProjectCapabilitiesRecord } from "../../types/spec-writer";
+import { vocabFromCapabilities } from "../spec-writer-finalize";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Claude Code CLI — SpecWriter system prompt for --append-system-prompt
@@ -246,15 +247,99 @@ export function renderCapabilitiesSection(
     lines.push(`- ${cap.id}: ${icon} ${cap.status}${verifyHint} — ${cap.evidence}`);
   }
   lines.push("");
+
+  // Environment preamble — senior-advisor framing. The capability list above
+  // is data; this section turns it into concrete prefer/avoid guidance the
+  // LLM will follow far more reliably than rhetorical "MUST" statements.
+  const preamble = renderEnvironmentPreamble(capabilities);
+  if (preamble) {
+    lines.push(preamble);
+    lines.push("");
+  }
+
   lines.push(
     "AUTHORITY: The `## Capabilities` block above is the single source of truth for what this project can verify. " +
       "Every `[behavioral | integration | side-effect]` acceptance criterion in the spec MUST carry a " +
       "`capability=<id>` tag referencing one of these IDs. Never write criteria that require a capability with " +
       "`status: absent` — substitute a verifiable alternative (e.g. use `browser-mcp` when `test-runner.*` is absent) " +
       "or mark the deliverable `DEFERRED: pending capability <id>`. Self-Drive verify-mode auto-resolves items whose " +
-      "capability is absent to `N/A` rather than SKIPPED, so honest specs avoid the deferred-test trap.",
+      "capability is absent to `N/A` rather than SKIPPED, so honest specs avoid the deferred-test trap. " +
+      "If you forget a `capability=` tag, SpecWriter's finalize pass will infer one from the evidence text; " +
+      "if a tagged command is forbidden in this environment, the finalize pass will substitute the project-correct " +
+      "alternative and log the change for the user — so prefer to write the right thing the first time.",
   );
   return lines.join("\n");
+}
+
+/**
+ * Render a per-project "Project environment" preamble — concrete prefer/avoid
+ * guidance derived from the capability record. This is the bridge between
+ * Phase 0 detection and the LLM's spec generation: when the probe knows the
+ * project is cloud-only Supabase with no local stack, this section tells the
+ * model "use `supabase db push`, avoid `supabase db reset`" in plain language.
+ *
+ * Senior-advisor framing: examples, not mandates. The finalize pass enforces
+ * the contract; this preamble exists so the model rarely needs the safety net.
+ */
+export function renderEnvironmentPreamble(
+  capabilities: ProjectCapabilitiesRecord | null,
+): string {
+  if (!capabilities || capabilities.capabilities.length === 0) return "";
+
+  const status = (id: string): string | null =>
+    capabilities.capabilities.find((c) => c.id === id)?.status ?? null;
+
+  const vocab = vocabFromCapabilities(capabilities);
+  const sections: string[] = ["### Project environment — prefer/avoid"];
+
+  // ── Database / SQL transport ─────────────────────────────────────────
+  const localStack = status("db.supabase.local-stack");
+  const supabaseAnon = status("db.supabase-anon");
+  const supabaseService = status("db.supabase-service-role");
+  const hasAnySupabase =
+    localStack !== null || supabaseAnon !== null || supabaseService !== null;
+  if (hasAnySupabase) {
+    sections.push("");
+    sections.push(`**Database** — transport: ${vocab.sqlTransport}`);
+    sections.push("Prefer:");
+    sections.push(`- SQL evidence: \`${vocab.sqlCommandTemplate}\``);
+    sections.push(`- List migrations: \`${vocab.listMigrationsCommand}\``);
+    sections.push(`- Apply migrations: \`${vocab.applyMigrationsCommand}\``);
+    if (localStack === "absent") {
+      sections.push("Avoid (local stack is NOT available — `db.supabase.local-stack` absent):");
+      sections.push("- `supabase db reset` / `supabase start` / `supabase stop`");
+      sections.push("- `psql -h localhost ...` / `psql $DATABASE_URL ...`");
+      sections.push("- Any evidence requiring `localhost:54322` Postgres");
+    }
+  }
+
+  // ── Test runners ─────────────────────────────────────────────────────
+  const testAny = status("test-runner.any");
+  if (testAny === "absent") {
+    sections.push("");
+    sections.push("**Test runners** — none detected (`test-runner.any` absent)");
+    sections.push("Prefer behavioral evidence via:");
+    if (status("browser-mcp") === "verified" || status("browser-mcp") === "claimed-unverified") {
+      sections.push("- BrowserMCP flows (`browser_navigate` + `browser_snapshot` + `browser_click`)");
+    } else {
+      sections.push("- Static evidence: typecheck (`tsc --noEmit`), lint, or quoted source");
+      sections.push("- If a behavioral check is truly required, mark it `DEFERRED: pending test-runner`");
+    }
+    sections.push("Avoid:");
+    sections.push("- `vitest`, `jest`, `playwright`, `cypress` — none of these are installed.");
+  }
+
+  // ── BrowserMCP ────────────────────────────────────────────────────────
+  const browserMcp = status("browser-mcp");
+  if (browserMcp === "absent") {
+    sections.push("");
+    sections.push("**BrowserMCP** — not configured (`browser-mcp` absent)");
+    sections.push("Avoid: any `browser_*` MCP tool calls. They will not be available to verify-mode.");
+  }
+
+  // If the only thing the preamble would say is the header, skip emitting.
+  if (sections.length <= 1) return "";
+  return sections.join("\n");
 }
 
 /**

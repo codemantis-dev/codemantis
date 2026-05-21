@@ -766,3 +766,115 @@ describe("buildClaudeCodePrompt", () => {
     expect(result).toContain("Implementation Checklist");
   });
 });
+
+describe("renderEnvironmentPreamble (via buildClaudeCodePrompt)", () => {
+  const templateCatalog = "t1: Next.js";
+  const projectContext = "Demo project";
+
+  function cap(id: string, status: "verified" | "absent" | "claimed-unverified"): import("../types/spec-writer").ProbedCapability {
+    return {
+      id,
+      status,
+      discoveredBy: "passive-probe",
+      evidence: `synthetic ${id}`,
+      lastVerifiedAt: "2026-05-19T00:00:00Z",
+      verifyMethod: null,
+      expires: null,
+    };
+  }
+  function record(caps: import("../types/spec-writer").ProbedCapability[]): import("../types/spec-writer").ProjectCapabilitiesRecord {
+    return {
+      schemaVersion: 1,
+      probedAt: "2026-05-19T00:00:00Z",
+      probedByCliVersion: null,
+      probedBySpecWriterVersion: null,
+      capabilities: caps,
+      stalenessWindow: "PT24H",
+    };
+  }
+
+  it("emits a prefer/avoid section for cloud-only Supabase projects", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      record([
+        cap("db.supabase.local-stack", "absent"),
+        cap("db.supabase-anon", "verified"),
+      ]),
+    );
+    expect(result).toContain("Project environment");
+    // Prefer side
+    expect(result).toContain("supabase db push");
+    // Avoid side — the Atikon-failure commands
+    expect(result).toContain("supabase db reset");
+    expect(result).toContain("psql -h localhost");
+    expect(result).toContain("localhost:54322");
+  });
+
+  it("does not list 'avoid local commands' when local stack is present", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      record([
+        cap("db.supabase.local-stack", "verified"),
+        cap("db.supabase-anon", "verified"),
+      ]),
+    );
+    expect(result).toContain("Project environment");
+    // No "avoid" section for local-stack commands when it's available.
+    expect(result).not.toMatch(/Avoid \(local stack is NOT available/);
+  });
+
+  it("guides toward BrowserMCP when test runners are absent and BrowserMCP is verified", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      record([
+        cap("test-runner.any", "absent"),
+        cap("browser-mcp", "verified"),
+      ]),
+    );
+    expect(result).toContain("Test runners");
+    expect(result).toContain("BrowserMCP");
+    expect(result).toContain("browser_navigate");
+  });
+
+  it("suggests static evidence or DEFERRED when neither test runners nor BrowserMCP are available", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      record([
+        cap("test-runner.any", "absent"),
+        cap("browser-mcp", "absent"),
+      ]),
+    );
+    expect(result).toContain("Static evidence");
+    expect(result).toContain("DEFERRED");
+    // Avoid section listing the unavailable runners.
+    expect(result).toMatch(/vitest.*jest.*playwright.*cypress|none of these/);
+  });
+
+  it("mentions the finalize safety net so the LLM knows missing tags will be inferred", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      record([cap("db.supabase-anon", "verified")]),
+    );
+    expect(result).toContain("finalize pass");
+  });
+
+  it("omits the preamble when there are no capabilities", () => {
+    const result = buildClaudeCodePrompt(
+      "feature",
+      templateCatalog,
+      projectContext,
+      null,
+    );
+    expect(result).not.toContain("Project environment");
+  });
+});

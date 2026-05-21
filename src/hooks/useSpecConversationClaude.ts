@@ -34,6 +34,11 @@ import {
   renderCreationLogRecap,
 } from "../lib/spec-creation-log";
 import { analyzeInput, renderClarificationMessage } from "../lib/spec-input-analyzer";
+import {
+  finalizeSpecForCapabilities,
+  renderAdjustmentsMessage,
+  vocabFromCapabilities,
+} from "../lib/spec-writer-finalize";
 import type { StreamStatus } from "../types/spec-writer";
 
 /** Marker the model emits at the start of an auto-recheck reply per buildRecheckPrompts. */
@@ -657,15 +662,49 @@ export function useSpecConversationClaude(): {
           }
           const isReadyToWrite = SPEC_READY_PATTERNS.some((p) => p.test(finalContent));
 
+          // ─── Capability-aware finalize pass ──────────────────────────
+          // Spec-shaped output only. Senior-advisor behavior: infer missing
+          // `capability=` tags, substitute commands that don't fit the
+          // project's evidence vocabulary (e.g. `supabase db reset` on a
+          // cloud-only project), surface the adjustments as a system
+          // message so the user sees what changed. Never blocks, never
+          // refuses; non-spec turns (audits, recheck patches) pass through
+          // untouched.
+          let persistedContent = mergedSpecContent ?? finalContent;
+          let finalizeAdjustmentsMessage: string | null = null;
+          if (isSpec && !isAudit) {
+            const projectCapabilities = useSpecWriterStore
+              .getState()
+              .projectCapabilities.get(projectPath) ?? null;
+            const vocab = vocabFromCapabilities(projectCapabilities);
+            const finalized = finalizeSpecForCapabilities(
+              persistedContent,
+              projectCapabilities,
+              vocab,
+            );
+            persistedContent = finalized.content;
+            finalizeAdjustmentsMessage = renderAdjustmentsMessage(finalized.adjustments);
+          }
+
           // Single batched store update: streaming=false, content, status, message type
           currentStore.completeTurn(projectPath, {
-            finalContent: mergedSpecContent ?? finalContent,
+            finalContent: persistedContent,
             isSpec,
             isAudit,
             displayContent: parsed?.cleanContent,
             options: parsed?.options,
             isReadyToWrite,
           });
+
+          if (finalizeAdjustmentsMessage) {
+            currentStore.addMessage(projectPath, {
+              id: `msg-finalize-${Date.now()}`,
+              role: "system",
+              content: finalizeAdjustmentsMessage,
+              message_type: "conversation",
+              timestamp: new Date().toISOString(),
+            });
+          }
 
           if (patchAppliedSummary) {
             currentStore.addMessage(projectPath, {
@@ -695,10 +734,10 @@ export function useSpecConversationClaude(): {
             const convNow = useSpecWriterStore.getState().getActiveConversation(projectPath);
             if (convNow) {
               const inputDocs = extractInputDocs(convNow.messages);
-              // After a successful AUDIT-PATCH merge, audit the merged spec —
-              // not the raw patch text — so progress on the original failures
-              // is actually measured.
-              const auditTarget = mergedSpecContent ?? finalContent;
+              // After a successful AUDIT-PATCH merge AND the capability-aware
+              // finalize pass, audit the *persisted* spec — that's what the
+              // user sees and what verify-mode grades against.
+              const auditTarget = persistedContent;
               const report = auditCoverage(inputDocs, auditTarget, {
                 skipForNewApp: convNow.mode === 'new_application',
               });

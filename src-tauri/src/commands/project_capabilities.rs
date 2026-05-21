@@ -408,6 +408,65 @@ fn probe_credentials(project_path: &Path, now: &str) -> Vec<ProbedCapability> {
     out
 }
 
+/// Detect whether this project ships a local Supabase stack via
+/// `supabase/config.toml`. SpecWriter uses this to decide whether
+/// `supabase db reset`, `supabase start`, and `psql -h localhost` are
+/// legal evidence shapes. Atikon CRM is the motivating case: cloud-only
+/// Supabase with no local stack — `supabase db reset` will hang forever.
+///
+/// Emits three shapes:
+/// - `config.toml` present → `verified` (file IS the proof; no live-fire needed).
+/// - `config.toml` absent + any cloud-Supabase signal (env URL or anon key)
+///   → `absent` with a "cloud-only setup detected" evidence string. SpecWriter
+///   substitutes `supabase db push` / `supabase db query --linked` for items
+///   tagged `capability=db.supabase.local-stack`.
+/// - Neither → omit (this isn't a Supabase project at all).
+fn probe_supabase_local_stack(project_path: &Path, now: &str) -> Vec<ProbedCapability> {
+    let config_toml = project_path.join("supabase").join("config.toml");
+    if config_toml.exists() {
+        return vec![ProbedCapability {
+            id: "db.supabase.local-stack".to_string(),
+            status: "verified".to_string(),
+            discovered_by: DiscoveryMethod::PassiveProbe,
+            evidence: "supabase/config.toml present at project root".to_string(),
+            last_verified_at: now.to_string(),
+            verify_method: Some("file: supabase/config.toml".to_string()),
+            expires: None,
+            notes: Some(
+                "Local stack assumed available — `supabase start` / `db reset` / `psql -h localhost:54322` are legal evidence shapes."
+                    .to_string(),
+            ),
+        }];
+    }
+    // No config.toml — only emit the capability if there's a cloud signal,
+    // so an `absent` record actively tells SpecWriter "this project IS
+    // Supabase but cloud-only; substitute local commands."
+    let keys = super::claude_md::read_env_keys_real_sources(project_path);
+    let has_cloud_signal = keys.keys().any(|k| {
+        k.contains("SUPABASE_URL")
+            || k.contains("SUPABASE_PROJECT_URL")
+            || k.contains("SUPABASE_ANON_KEY")
+            || k.contains("SUPABASE_PUBLISHABLE")
+            || k.contains("SUPABASE_SERVICE_ROLE")
+    });
+    if !has_cloud_signal {
+        return Vec::new();
+    }
+    vec![ProbedCapability {
+        id: "db.supabase.local-stack".to_string(),
+        status: "absent".to_string(),
+        discovered_by: DiscoveryMethod::PassiveProbe,
+        evidence: "no supabase/config.toml; cloud-only Supabase setup detected via env keys".to_string(),
+        last_verified_at: now.to_string(),
+        verify_method: Some("file: supabase/config.toml (not found)".to_string()),
+        expires: None,
+        notes: Some(
+            "Do not emit `supabase db reset`, `supabase start`, or `psql -h localhost`. Use `supabase db push`, `supabase db query --linked`, or live REST/MCP."
+                .to_string(),
+        ),
+    }]
+}
+
 /// Probe git state — clean-tree + upstream tracking. These are cheap and
 /// useful for Self-Drive to decide whether a build-mode turn can safely
 /// stage commits.
@@ -999,6 +1058,7 @@ pub fn probe_project_capabilities(
     capabilities.extend(probe_linters(project, &pkg, &now));
     capabilities.extend(probe_mcp_servers(&project_path, &now));
     capabilities.extend(probe_credentials(project, &now));
+    capabilities.extend(probe_supabase_local_stack(project, &now));
     capabilities.extend(probe_git(project, &now));
 
     let record = ProjectCapabilitiesRecord {
@@ -1304,6 +1364,85 @@ mod tests {
         let dir = tempdir().unwrap();
         let caps = probe_credentials(dir.path(), "2026-05-14T10:00:00Z");
         assert!(caps.is_empty());
+    }
+
+    // ── probe_supabase_local_stack ──
+
+    #[test]
+    fn probe_local_stack_emits_verified_when_config_toml_present() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("supabase")).unwrap();
+        fs::write(
+            dir.path().join("supabase").join("config.toml"),
+            "[project]\nname = \"x\"\n",
+        )
+        .unwrap();
+        let caps = probe_supabase_local_stack(dir.path(), "2026-05-14T10:00:00Z");
+        let cap = caps
+            .iter()
+            .find(|c| c.id == "db.supabase.local-stack")
+            .expect("local-stack capability must be emitted when config.toml is present");
+        assert_eq!(cap.status, "verified");
+        assert!(cap.evidence.contains("supabase/config.toml"));
+        // Notes guide SpecWriter on legal evidence shapes.
+        assert!(cap.notes.as_ref().unwrap().contains("db reset"));
+    }
+
+    #[test]
+    fn probe_local_stack_emits_absent_when_cloud_only() {
+        let dir = tempdir().unwrap();
+        // No supabase/config.toml; cloud signal via env keys.
+        fs::write(
+            dir.path().join(".env.local"),
+            "VITE_SUPABASE_URL=https://x.supabase.co\nVITE_SUPABASE_ANON_KEY=ey...\n",
+        )
+        .unwrap();
+        let caps = probe_supabase_local_stack(dir.path(), "2026-05-14T10:00:00Z");
+        let cap = caps
+            .iter()
+            .find(|c| c.id == "db.supabase.local-stack")
+            .expect("absent local-stack must be surfaced when cloud signal is present");
+        assert_eq!(cap.status, "absent");
+        assert!(cap.evidence.contains("cloud-only"));
+        // Notes tell SpecWriter what to substitute.
+        let notes = cap.notes.as_ref().unwrap();
+        assert!(notes.contains("supabase db push"));
+        assert!(!notes.contains(" db reset") || notes.contains("Do not emit"));
+    }
+
+    #[test]
+    fn probe_local_stack_omitted_when_no_supabase_signal() {
+        let dir = tempdir().unwrap();
+        // Neither config.toml nor any Supabase env keys.
+        fs::write(dir.path().join(".env.local"), "FOO=bar\n").unwrap();
+        let caps = probe_supabase_local_stack(dir.path(), "2026-05-14T10:00:00Z");
+        assert!(
+            caps.is_empty(),
+            "no local-stack capability should be emitted for non-Supabase projects"
+        );
+    }
+
+    #[test]
+    fn probe_local_stack_present_takes_precedence_over_env_signal() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("supabase")).unwrap();
+        fs::write(
+            dir.path().join("supabase").join("config.toml"),
+            "[project]\nname = \"x\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".env.local"),
+            "VITE_SUPABASE_URL=https://x.supabase.co\n",
+        )
+        .unwrap();
+        let caps = probe_supabase_local_stack(dir.path(), "2026-05-14T10:00:00Z");
+        let cap = caps
+            .iter()
+            .find(|c| c.id == "db.supabase.local-stack")
+            .unwrap();
+        // config.toml wins — local stack is a real capability here.
+        assert_eq!(cap.status, "verified");
     }
 
     // ── probe_linters ──
