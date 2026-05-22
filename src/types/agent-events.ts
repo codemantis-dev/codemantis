@@ -229,6 +229,10 @@ export interface CliModelInfo {
   value: string;
   displayName: string;
   description: string;
+  /** True for the model the CLI would pick if no explicit selection is sent.
+   * Used by ModelSelector to show a resolved label (e.g. "GPT-5.5") instead
+   * of a "Model ▼" placeholder before the user has clicked anything. */
+  isDefault?: boolean;
   supportsEffort?: boolean;
   supportedEffortLevels?: string[];
   supportsAdaptiveThinking?: boolean;

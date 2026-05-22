@@ -180,7 +180,24 @@ impl AgentProcessHandle for CodexProcessHandle {
                 Ok(format!("codex-interrupt-{}", uuid::Uuid::new_v4().simple()))
             }
             ControlRequestPayload::SetModel { model } => {
-                *self.current_model.lock().await = Some(model);
+                // Codex applies `model` per-turn (turn/start), so SetModel
+                // just updates the per-handle default. Unlike Claude, there
+                // is no echo-back from the CLI — emit ModelChanged here so
+                // chat.ts can update `session.model` and the ModelSelector
+                // shows the new pick. Without this, the UI shows "Model ▼"
+                // forever even after a successful select (the bug that
+                // motivated this fix).
+                *self.current_model.lock().await = Some(model.clone());
+                emit_event_for(
+                    &self.app_handle,
+                    &NormalizedEvent::ModelChanged {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        model,
+                        success: true,
+                        error: None,
+                    },
+                );
                 Ok(format!("codex-setmodel-{}", uuid::Uuid::new_v4().simple()))
             }
             ControlRequestPayload::Initialize => {
@@ -491,14 +508,16 @@ pub async fn spawn_codex_session(
                         .get("isDefault")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
+                    // Surface `isDefault` as a structured field — the
+                    // frontend reads it to pick the resolved label when
+                    // `session.model` is still null (fresh session).
+                    // The old "(default)" suffix in displayName is gone
+                    // because ModelSelector now annotates it itself.
                     json!({
                         "value": value,
-                        "displayName": if is_default {
-                            format!("{display} (default)")
-                        } else {
-                            display
-                        },
+                        "displayName": display,
                         "description": description,
+                        "isDefault": is_default,
                     })
                 })
                 .collect();

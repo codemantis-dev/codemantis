@@ -13,6 +13,7 @@ import {
   autoSelectSpecModel,
   isSpecModelAvailable,
   getSpecModelLabel,
+  isLocalCliProvider,
   SPECWRITER_WEAK_MODELS,
   modelSupportsImages,
   modelSupportsFiles,
@@ -23,24 +24,37 @@ import {
 import type { OpenRouterModel } from "./assistant-provider";
 
 describe("assistant-provider types", () => {
-  it("AI_PROVIDERS has 5 providers", () => {
-    expect(AI_PROVIDERS).toHaveLength(5);
+  it("AI_PROVIDERS has 6 providers including both local CLIs", () => {
+    expect(AI_PROVIDERS).toHaveLength(6);
     const ids = AI_PROVIDERS.map((p) => p.id);
     expect(ids).toContain("claude-code");
+    expect(ids).toContain("codex");
     expect(ids).toContain("openai");
     expect(ids).toContain("gemini");
     expect(ids).toContain("anthropic");
     expect(ids).toContain("openrouter");
   });
 
-  it("claude-code does not require API key", () => {
+  it("local-CLI providers do not require API key", () => {
     const cc = AI_PROVIDERS.find((p) => p.id === "claude-code");
     expect(cc?.requiresApiKey).toBe(false);
+    const codex = AI_PROVIDERS.find((p) => p.id === "codex");
+    expect(codex?.requiresApiKey).toBe(false);
+    expect(codex?.label).toBe("Codex (local)");
+  });
+
+  it("isLocalCliProvider distinguishes CLI from API providers", () => {
+    expect(isLocalCliProvider("claude-code")).toBe(true);
+    expect(isLocalCliProvider("codex")).toBe(true);
+    expect(isLocalCliProvider("openai")).toBe(false);
+    expect(isLocalCliProvider("gemini")).toBe(false);
+    expect(isLocalCliProvider("anthropic")).toBe(false);
+    expect(isLocalCliProvider("openrouter")).toBe(false);
   });
 
   it("API providers require API keys", () => {
     for (const p of AI_PROVIDERS) {
-      if (p.id !== "claude-code") {
+      if (!isLocalCliProvider(p.id)) {
         expect(p.requiresApiKey).toBe(true);
       }
     }

@@ -1,5 +1,5 @@
 import type { AssistantShortcut } from "../../../types/settings";
-import { AI_PROVIDERS, AI_MODELS } from "../../../types/assistant-provider";
+import { AI_PROVIDERS, AI_MODELS, isLocalCliProvider } from "../../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../../types/assistant-provider";
 import { useOpenRouterStore } from "../../../stores/openRouterStore";
 import OpenRouterModelSelect from "../../shared/OpenRouterModelSelect";
@@ -17,7 +17,10 @@ export default function AssistantSettingsTab({
   onModelChange: (provider: string, modelId: string) => void;
   onShortcutsChange: (shortcuts: AssistantShortcut[]) => void;
 }) {
-  const apiProviders = AI_PROVIDERS.filter((p) => p.id !== "claude-code");
+  // The "Default Model per provider" section only applies to HTTPS API
+  // providers — local CLIs (claude-code, codex) drive their own model
+  // selection through the chat ModelSelector.
+  const apiProviders = AI_PROVIDERS.filter((p) => !isLocalCliProvider(p.id));
   const orModels = useOpenRouterStore((s) => s.models);
 
   const handleShortcutUpdate = (index: number, field: "name" | "prompt", value: string) => {

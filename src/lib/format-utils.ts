@@ -110,10 +110,15 @@ export function formatTimestamp(ts: string): string {
 
 /** Format a model ID to a human-readable name.
  * "claude-opus-4-7-20250101" → "Opus 4.7"
+ * "gpt-5.5"                  → "GPT-5.5"
+ * "gpt-5.3-codex"            → "GPT-5.3-Codex"
+ * "default"                  → "Default"  (Claude account-default sentinel)
  * Returns null if model is null/undefined. */
 export function formatModelName(model: string | null | undefined): string | null {
   if (!model) return null;
   const m = model.toLowerCase();
+
+  // Claude families
   const families = ["opus", "sonnet", "haiku"];
   for (const family of families) {
     const idx = m.indexOf(family);
@@ -123,5 +128,25 @@ export function formatModelName(model: string | null | undefined): string | null
     const name = family.charAt(0).toUpperCase() + family.slice(1);
     return versionPart ? `${name} ${versionPart}` : name;
   }
+
+  // Codex / OpenAI: `gpt-5.5` → "GPT-5.5"; `gpt-5.3-codex` → "GPT-5.3-Codex".
+  // Anything starting with `gpt-` gets the prefix uppercased and remaining
+  // hyphen-separated tokens title-cased so "codex"/"mini" read cleanly.
+  if (m.startsWith("gpt-")) {
+    const parts = model.split("-");
+    return parts
+      .map((p, i) =>
+        i === 0
+          ? "GPT"
+          : /^\d/.test(p)
+            ? p
+            : p.charAt(0).toUpperCase() + p.slice(1)
+      )
+      .join("-");
+  }
+
+  // Claude's account-default sentinel
+  if (m === "default") return "Default";
+
   return model;
 }

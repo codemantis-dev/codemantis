@@ -1,10 +1,18 @@
 import type { ModelPricing } from "./settings";
 
 /** All supported AI provider types. */
-export type AIProvider = "claude-code" | "openai" | "gemini" | "anthropic" | "openrouter";
+export type AIProvider = "claude-code" | "codex" | "openai" | "gemini" | "anthropic" | "openrouter";
 
-/** API-only providers (excludes claude-code which uses the local CLI). */
-export type APIProvider = Exclude<AIProvider, "claude-code">;
+/** API-only providers (excludes local CLIs which speak our process protocols). */
+export type APIProvider = Exclude<AIProvider, "claude-code" | "codex">;
+
+/** True for providers backed by a local headless CLI process (Claude Code or
+ * Codex) rather than an HTTPS API. These share the spawn-via-`createSession`
+ * + chat-events path in `useAssistantSession`; the API providers go through
+ * `sendAssistantChat` instead. */
+export function isLocalCliProvider(p: AIProvider): boolean {
+  return p === "claude-code" || p === "codex";
+}
 
 export interface ProviderOption {
   id: AIProvider;
@@ -20,6 +28,7 @@ export interface ModelOption {
 
 export const AI_PROVIDERS: ProviderOption[] = [
   { id: "claude-code", label: "Claude Code (local)", requiresApiKey: false },
+  { id: "codex", label: "Codex (local)", requiresApiKey: false },
   { id: "openai", label: "OpenAI", requiresApiKey: true },
   { id: "gemini", label: "Google Gemini", requiresApiKey: true },
   { id: "anthropic", label: "Anthropic API", requiresApiKey: true },

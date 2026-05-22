@@ -4,14 +4,14 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { setSessionModel } from "../../lib/tauri-commands";
 import { formatModelName } from "../../lib/format-utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import type { CliModelInfo } from "../../types/claude-events";
+import type { CliModelInfo } from "../../types/agent-events";
 
 // Per-agent fallback lists used while the live `initialize` /
 // `model/list` capability discovery is still in-flight (or if it
 // fails). Real lists land via the CapabilitiesDiscovered event on the
 // chat channel and override these.
 const CLAUDE_FALLBACK_MODELS: CliModelInfo[] = [
-  { value: "default", displayName: "Default", description: "Account default" },
+  { value: "default", displayName: "Default", description: "Account default", isDefault: true },
   { value: "sonnet", displayName: "Sonnet", description: "Fast and capable" },
   { value: "opus[1m]", displayName: "Opus (1M)", description: "Extended context" },
   { value: "sonnet[1m]", displayName: "Sonnet (1M)", description: "Extended context" },
@@ -23,10 +23,10 @@ const CLAUDE_FALLBACK_MODELS: CliModelInfo[] = [
 // authoritative source; this list shows up only if model/list never
 // resolved (e.g. transport hiccup during spawn).
 const CODEX_FALLBACK_MODELS: CliModelInfo[] = [
-  { value: "gpt-5.5", displayName: "GPT-5.5 (default)", description: "Codex default — balanced speed and reasoning" },
-  { value: "gpt-5.4", displayName: "gpt-5.4", description: "General-purpose Codex model" },
+  { value: "gpt-5.5", displayName: "GPT-5.5", description: "Codex default — balanced speed and reasoning", isDefault: true },
+  { value: "gpt-5.4", displayName: "GPT-5.4", description: "General-purpose Codex model" },
   { value: "gpt-5.4-mini", displayName: "GPT-5.4-Mini", description: "Smaller / faster" },
-  { value: "gpt-5.3-codex", displayName: "gpt-5.3-codex", description: "Older Codex-tuned model" },
+  { value: "gpt-5.3-codex", displayName: "GPT-5.3-Codex", description: "Older Codex-tuned model" },
 ];
 
 export default function ModelSelector() {
@@ -52,7 +52,15 @@ export default function ModelSelector() {
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
-  const currentModelName = formatModelName(session?.model) ?? "Model";
+  // Resolved-default: when `session.model` is still null (fresh session,
+  // user hasn't picked anything), show what the CLI would actually use —
+  // gpt-5.5 for Codex, "Default" for Claude. Without this the label
+  // would say "Model ▼" indefinitely for Codex sessions because
+  // session.model is never auto-set on spawn.
+  const resolvedDefault =
+    models.find((m) => m.isDefault)?.value ?? models[0]?.value;
+  const currentModelName =
+    formatModelName(session?.model ?? resolvedDefault) ?? "Model";
 
   const handleSelect = (model: CliModelInfo) => {
     if (!activeSessionId) return;
@@ -82,9 +90,12 @@ export default function ModelSelector() {
           style={{ background: "var(--bg-primary)" }}
         >
           {models.map((m) => {
-            const isActive =
-              session?.model?.includes(m.value) ||
-              formatModelName(session?.model) === m.displayName;
+            // Active = explicit user pick matches, OR no pick yet and this
+            // is the resolved default (so the highlight matches the label).
+            const isActive = session?.model
+              ? session.model.includes(m.value) ||
+                formatModelName(session.model) === m.displayName
+              : m.value === resolvedDefault;
             return (
               <button
                 key={m.value}

@@ -5,6 +5,7 @@ import AssistantSettingsTab from "./AssistantSettingsTab";
 vi.mock("../../../types/assistant-provider", () => ({
   AI_PROVIDERS: [
     { id: "claude-code", label: "Claude Code (local)", requiresApiKey: false },
+    { id: "codex", label: "Codex (local)", requiresApiKey: false },
     { id: "openai", label: "OpenAI", requiresApiKey: true },
     { id: "gemini", label: "Google Gemini", requiresApiKey: true },
   ],
@@ -16,6 +17,9 @@ vi.mock("../../../types/assistant-provider", () => ({
       { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", defaultPricing: { input: 0.15, output: 0.60 } },
     ],
   },
+  // Mirrors the real helper — both local CLIs are excluded from the
+  // "Default Model per provider" section.
+  isLocalCliProvider: (p: string) => p === "claude-code" || p === "codex",
 }));
 
 describe("AssistantSettingsTab", () => {

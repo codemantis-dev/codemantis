@@ -8,6 +8,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { EMPTY_ARRAY } from "../../lib/empty-refs";
 import { useUiStore } from "../../stores/uiStore";
 import { useAssistantSession } from "../../hooks/useAssistantSession";
+import { isLocalCliProvider } from "../../types/assistant-provider";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useProviderMenu } from "../../hooks/useProviderMenu";
 import { useAssistantShortcuts } from "../../hooks/useAssistantShortcuts";
@@ -85,8 +86,15 @@ export default function AssistantPanel() {
 
   const { activeInstance, isClaudeCode, isApiProvider, showThinking } = useMemo(() => {
     const activeInstance = activeAssistantId ? assistants.find((a) => a.id === activeAssistantId) : undefined;
+    // Two distinct concepts, both needed:
+    //   isClaudeCode  — Claude Code specifically (gates Claude's `/` slash
+    //                   command palette + Claude-specific empty-state copy)
+    //   isApiProvider — true for HTTPS API providers only (gates the model
+    //                   picker, multimodal attachments, etc.). Codex is a
+    //                   local CLI, so it must NOT be treated as API even
+    //                   though it isn't claude-code.
     const isClaudeCode = activeInstance?.provider === "claude-code";
-    const isApiProvider = activeInstance && activeInstance.provider !== "claude-code";
+    const isApiProvider = !!activeInstance && !isLocalCliProvider(activeInstance.provider);
     const showThinking = busy && !streaming?.isStreaming;
     return { activeInstance, isClaudeCode, isApiProvider, showThinking };
   }, [activeAssistantId, assistants, busy, streaming]);

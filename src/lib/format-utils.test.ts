@@ -105,7 +105,20 @@ describe("formatModelName", () => {
     expect(formatModelName("sonnet")).toBe("Sonnet");
   });
 
-  it("returns raw name for unknown models", () => {
-    expect(formatModelName("gpt-4o")).toBe("gpt-4o");
+  it("formats Codex / OpenAI gpt-* models with uppercased prefix", () => {
+    // Regression: the chat ModelSelector showed lowercase "gpt-5.5" for
+    // Codex sessions even though the rest of the UI uses Title Case.
+    expect(formatModelName("gpt-5.5")).toBe("GPT-5.5");
+    expect(formatModelName("gpt-5.4-mini")).toBe("GPT-5.4-Mini");
+    expect(formatModelName("gpt-5.3-codex")).toBe("GPT-5.3-Codex");
+    expect(formatModelName("gpt-4o")).toBe("GPT-4o");
+  });
+
+  it("formats Claude's 'default' sentinel", () => {
+    expect(formatModelName("default")).toBe("Default");
+  });
+
+  it("returns raw name for genuinely unknown models", () => {
+    expect(formatModelName("some-future-model-x9")).toBe("some-future-model-x9");
   });
 });

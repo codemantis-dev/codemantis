@@ -166,11 +166,42 @@ describe("useAssistantSession", () => {
     });
 
     expect(id).toBe("asst-1");
-    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Claude 1");
+    // Local CLI assistants now route through the shared createSession path
+    // with an explicit agent_id (Phase 2). For claude-code that's
+    // "claude_code"; the resumeCliSessionId slot stays undefined.
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      "Claude 1",
+      undefined,
+      "claude_code",
+    );
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
     expect(assistants).toHaveLength(1);
     expect(assistants[0].provider).toBe("claude-code");
     expect(assistants[0].parentSessionId).toBe("main-s1");
+  });
+
+  it("createAssistant with codex creates CLI session via codex agent", async () => {
+    // The headline bug: Codex was missing from the Assistant panel
+    // entirely. Now it lands in the same local-CLI branch as claude-code,
+    // distinguished only by the agent_id arg passed to create_session.
+    const { result } = renderHook(() => useAssistantSession());
+
+    let id: string = "";
+    await act(async () => {
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "codex");
+    });
+
+    expect(id).toBe("asst-1");
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      "Codex 1",
+      undefined,
+      "codex",
+    );
+    const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
+    expect(assistants[0].provider).toBe("codex");
+    expect(assistants[0].name).toBe("Codex 1");
   });
 
   it("createAssistant with claude-code registers listeners", async () => {

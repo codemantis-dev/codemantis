@@ -8,6 +8,7 @@ import StatusDot from "../shared/StatusDot";
 
 const PROVIDER_BADGES: Record<AIProvider, { short: string; color: string }> = {
   "claude-code": { short: "CC", color: "var(--accent)" },
+  codex: { short: "CX", color: "#10a37f" }, // OpenAI green — same family as their other models
   openai: { short: "OA", color: "#10a37f" },
   gemini: { short: "G", color: "#4285f4" },
   anthropic: { short: "A", color: "#d4a574" },

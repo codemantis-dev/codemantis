@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { handleError } from "../lib/error-handler";
-import { AI_MODELS } from "../types/assistant-provider";
+import { AI_MODELS, isLocalCliProvider } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
 import { useOpenRouterStore } from "../stores/openRouterStore";
 
@@ -42,14 +42,16 @@ export function useProviderMenu({
   const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {
     if (!activeProjectPath || !activeSessionId || creating) return;
 
-    // Check API key for non-claude-code providers
-    if (provider !== "claude-code" && !(apiKeys[provider] ?? "").trim()) {
+    // Check API key for HTTPS API providers (local CLIs don't need one)
+    if (!isLocalCliProvider(provider) && !(apiKeys[provider] ?? "").trim()) {
       return; // shouldn't happen since button is disabled, but guard
     }
 
-    // Use settings default model if none provided
+    // Use settings default model if none provided.
+    // Local CLIs (claude-code, codex) pick their model via the chat
+    // ModelSelector — no settings default applies here.
     let resolvedModel = model;
-    if (!resolvedModel && provider !== "claude-code") {
+    if (!resolvedModel && !isLocalCliProvider(provider)) {
       if (provider === "openrouter") {
         const orStore = useOpenRouterStore.getState();
         resolvedModel = defaultModels[provider]

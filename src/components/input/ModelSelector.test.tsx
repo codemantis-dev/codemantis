@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import ModelSelector from "./ModelSelector";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { Session } from "../../types/session";
-import type { CapabilitiesDiscoveredEvent } from "../../types/claude-events";
+import type { CapabilitiesDiscoveredEvent } from "../../types/agent-events";
 
 const SESSION: Session = {
   id: "s1",
@@ -103,11 +103,28 @@ describe("ModelSelector", () => {
     expect(screen.queryByText("Account default")).not.toBeInTheDocument();
   });
 
-  it("shows 'Model' when session has no model", () => {
+  it("falls back to Claude's 'Default' label when session.model is null", () => {
+    // Regression: label used to say "Model" until a model was picked, which
+    // looked broken. We now resolve to the agent's default (isDefault flag
+    // on the fallback list).
     const noModelSession = { ...SESSION, model: null as string | null };
     resetStore(noModelSession);
     render(<ModelSelector />);
-    expect(screen.getByText("Model")).toBeInTheDocument();
+    expect(screen.getByText("Default")).toBeInTheDocument();
+  });
+
+  it("falls back to GPT-5.5 for Codex sessions with no model", () => {
+    // The headline bug: Codex sessions showed "Model ▼" forever because
+    // session.model was never auto-set on spawn. Now the resolved default
+    // (gpt-5.5, marked isDefault on CODEX_FALLBACK_MODELS) is rendered.
+    const codexSession: Session = {
+      ...SESSION,
+      model: null,
+      agent_id: "codex",
+    };
+    resetStore(codexSession);
+    render(<ModelSelector />);
+    expect(screen.getByText("GPT-5.5")).toBeInTheDocument();
   });
 
   it("formats opus model name correctly", () => {
@@ -120,5 +137,16 @@ describe("ModelSelector", () => {
     resetStore({ ...SESSION, model: "claude-haiku-4-5-20241022" });
     render(<ModelSelector />);
     expect(screen.getByText("Haiku 4.5")).toBeInTheDocument();
+  });
+
+  it("formats Codex gpt-5.5 model from session", () => {
+    const codexSession: Session = {
+      ...SESSION,
+      model: "gpt-5.5",
+      agent_id: "codex",
+    };
+    resetStore(codexSession);
+    render(<ModelSelector />);
+    expect(screen.getByText("GPT-5.5")).toBeInTheDocument();
   });
 });

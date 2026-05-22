@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useAssistantStore } from "../stores/assistantStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { AI_MODELS } from "../types/assistant-provider";
+import { AI_MODELS, isLocalCliProvider } from "../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
 import type { Attachment } from "../types/attachment";
 import type { ContentPart } from "../lib/tauri-commands";
@@ -56,15 +56,21 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const siblings = existing.filter((a) => a.parentSessionId === parentSessionId);
     const num = siblings.length + 1;
     const providerLabel = provider === "claude-code" ? "Claude" :
+      provider === "codex" ? "Codex" :
       provider === "openai" ? "GPT" :
       provider === "gemini" ? "Gemini" :
       provider === "openrouter" ? "OpenRouter" :
       "Anthropic";
     const name = `${providerLabel} ${num}`;
 
-    if (provider === "claude-code") {
-      // Claude Code: create a CLI session
-      const session = await createSession(projectPath, name);
+    if (isLocalCliProvider(provider)) {
+      // Local CLI (Claude Code or Codex): spawn a real headless session.
+      // Both adapters emit on their respective `*-chat-{sid}` channel and
+      // listenChatEvents subscribes to both, so the assistant pipeline
+      // is identical from here on. The agent_id arg picks the spawn path
+      // in commands::session::create_session.
+      const agentId = provider === "codex" ? "codex" : "claude_code";
+      const session = await createSession(projectPath, name, undefined, agentId);
 
       store.addAssistant(projectPath, {
         id: session.id,
@@ -118,9 +124,10 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     // Guard against concurrent sends (UI checks busy, but retryLastMessage and other paths may not)
     if (store.busy.get(sessionId)) return;
 
-    // For Claude Code with attachments, inline text content (CLI only accepts text)
+    // For local CLI providers with attachments, inline text content (CLIs only accept text).
+    // Codex shares the same constraint — `turn/start` is text-only at the protocol level.
     let finalPrompt = prompt;
-    if (instance.provider === "claude-code" && attachments && attachments.length > 0) {
+    if (isLocalCliProvider(instance.provider) && attachments && attachments.length > 0) {
       const parts: string[] = [];
       for (const att of attachments) {
         if (att.isImage) {
@@ -151,8 +158,9 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     });
     store.setBusy(sessionId, true);
 
-    if (instance.provider === "claude-code") {
-      // Send via CLI
+    if (isLocalCliProvider(instance.provider)) {
+      // Send via CLI (Claude Code or Codex — same Tauri command, the
+      // backend dispatches on the session's agent_id)
       sendMessageCmd(sessionId, finalPrompt).catch((e) => {
         handleError("Failed to send assistant message", e);
         store.setBusy(sessionId, false);
@@ -178,7 +186,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
   const retryLastMessage = useCallback((sessionId: string) => {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
-    if (!instance || instance.provider === "claude-code") return;
+    if (!instance || isLocalCliProvider(instance.provider)) return;
 
     const messages = store.messages.get(sessionId) ?? [];
     // Find last user message
@@ -216,7 +224,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const instance = store.findAssistantInstance(sessionId);
     if (!instance) return;
 
-    if (instance.provider === "claude-code") {
+    if (isLocalCliProvider(instance.provider)) {
       interruptSession(sessionId).catch((e) =>
         console.error("[assistant] Failed to interrupt CLI session:", e)
       );
@@ -231,8 +239,10 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const store = useAssistantStore.getState();
     const instance = store.findAssistantInstance(sessionId);
 
-    // Cancel in-flight API stream if busy (prevents orphaned backend streams)
-    if (instance && instance.provider !== "claude-code" && store.busy.get(sessionId)) {
+    // Cancel in-flight API stream if busy (prevents orphaned backend streams).
+    // Local CLI sessions use interruptSession instead and don't have a
+    // streaming-cancel command.
+    if (instance && !isLocalCliProvider(instance.provider) && store.busy.get(sessionId)) {
       cancelAssistantChat(sessionId).catch((e) =>
         console.error("[assistant] Failed to cancel API stream on close:", e)
       );
@@ -251,7 +261,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
       assistantListeners.delete(sessionId);
     }
 
-    if (instance?.provider === "claude-code") {
+    if (instance && isLocalCliProvider(instance.provider)) {
       try {
         await closeSessionCmd(sessionId);
       } catch (e) {
@@ -273,8 +283,8 @@ export function useAssistantSession(): UseAssistantSessionReturn {
     const assistants = store.getAssistants(projectPath);
 
     for (const asst of assistants) {
-      // Cancel in-flight API streams
-      if (asst.provider !== "claude-code" && store.busy.get(asst.id)) {
+      // Cancel in-flight API streams (local CLIs don't have these)
+      if (!isLocalCliProvider(asst.provider) && store.busy.get(asst.id)) {
         cancelAssistantChat(asst.id).catch((e) =>
           console.error("[assistant] Failed to cancel API stream on close:", e)
         );
@@ -287,7 +297,7 @@ export function useAssistantSession(): UseAssistantSessionReturn {
         }
         assistantListeners.delete(asst.id);
       }
-      if (asst.provider === "claude-code") {
+      if (isLocalCliProvider(asst.provider)) {
         try {
           await closeSessionCmd(asst.id);
         } catch (e) {

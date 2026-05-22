@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { AI_PROVIDERS, AI_MODELS } from "../../types/assistant-provider";
+import { AI_PROVIDERS, AI_MODELS, isLocalCliProvider } from "../../types/assistant-provider";
 import type { AIProvider, APIProvider } from "../../types/assistant-provider";
 import { useOpenRouterStore } from "../../stores/openRouterStore";
 import ModelCapabilityBadges from "../shared/ModelCapabilityBadges";
@@ -132,8 +132,9 @@ export default function AssistantProviderMenu({
         style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
       >
         {AI_PROVIDERS.map((p) => {
-          const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-          const isApi = p.id !== "claude-code";
+          // Local CLIs (claude-code, codex) don't need an API key.
+          const hasKey = isLocalCliProvider(p.id) || !!(apiKeys[p.id] ?? "").trim();
+          const isApi = !isLocalCliProvider(p.id);
           const isOpenRouter = p.id === "openrouter";
           const models = isApi && !isOpenRouter ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
           const isExpanded = expandedProvider === p.id;
@@ -188,8 +189,9 @@ export default function AssistantProviderMenu({
   return (
     <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
       {AI_PROVIDERS.map((p) => {
-        const hasKey = p.id === "claude-code" || !!(apiKeys[p.id] ?? "").trim();
-        const isApi = p.id !== "claude-code";
+        // Local CLIs (claude-code, codex) don't need an API key.
+        const hasKey = isLocalCliProvider(p.id) || !!(apiKeys[p.id] ?? "").trim();
+        const isApi = !isLocalCliProvider(p.id);
         const isOpenRouter = p.id === "openrouter";
         const models = isApi && !isOpenRouter ? (AI_MODELS[p.id as APIProvider] ?? []) : [];
         const isExpanded = expandedProvider === p.id;
