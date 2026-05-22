@@ -151,6 +151,58 @@ pub async fn classify_server_request(
                 json!({"permissions": perms}),
             )
         }
+        // Codex 0.130.0+ ships these as bare RPC methods alongside the
+        // older `item/*` family. Same UX (approve / deny), different
+        // wire shape: `callId` instead of `itemId`, ReviewDecision
+        // response vocabulary (`approved` / `denied` / `abort`) instead
+        // of `accept` / `decline` / `cancel`. We map them to the same
+        // user-facing tool names so the modal stays readable.
+        "execCommandApproval" => {
+            let call_id = params
+                .get("callId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let command_arr = params.get("command").cloned().unwrap_or(Value::Null);
+            // The schema sends command as a string array; join for the
+            // modal so users see `cmd arg1 arg2` rather than a JSON array.
+            let command_str = command_arr
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            let cwd = params.get("cwd").cloned().unwrap_or(Value::Null);
+            let reason = params.get("reason").cloned().unwrap_or(Value::Null);
+            (
+                ServerRequestKind::ExecCommandApproval {
+                    rpc_id: rpc_id.clone(),
+                    call_id,
+                },
+                "Bash".to_string(),
+                json!({"command": command_str, "cwd": cwd, "reason": reason}),
+            )
+        }
+        "applyPatchApproval" => {
+            let call_id = params
+                .get("callId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let file_changes = params.get("fileChanges").cloned().unwrap_or(Value::Null);
+            let reason = params.get("reason").cloned().unwrap_or(Value::Null);
+            (
+                ServerRequestKind::ApplyPatchApproval {
+                    rpc_id: rpc_id.clone(),
+                    call_id,
+                },
+                "Edit".to_string(),
+                json!({"fileChanges": file_changes, "reason": reason}),
+            )
+        }
         _ => return None,
     };
 
@@ -225,6 +277,20 @@ pub fn build_response(
                     _ => json!({}),
                 }
             })
+        }
+        ServerRequestKind::ExecCommandApproval { .. }
+        | ServerRequestKind::ApplyPatchApproval { .. } => {
+            // ReviewDecision vocabulary per schema: approved / denied /
+            // abort / timed_out / approved_for_session / … We collapse
+            // to the three primary states. Cancel maps to abort (per the
+            // schema's "agent should not do anything until next user
+            // command" semantics).
+            let d = match decision {
+                ApprovalDecision::Accept => "approved",
+                ApprovalDecision::Decline => "denied",
+                ApprovalDecision::Cancel => "abort",
+            };
+            json!({"decision": d})
         }
     };
 
@@ -480,5 +546,100 @@ mod tests {
     fn approval_decision_from_bool_collapses_to_accept_or_decline() {
         assert_eq!(ApprovalDecision::from_bool(true), ApprovalDecision::Accept);
         assert_eq!(ApprovalDecision::from_bool(false), ApprovalDecision::Decline);
+    }
+
+    // ── Codex 0.130.0+ bare-method approval families ──
+
+    #[tokio::test]
+    async fn classifies_exec_command_approval() {
+        // Newer family — bare method, callId correlator, command-as-array.
+        // The translator should join the array into a display string and
+        // map the tool name to Bash so the existing badge + modal layer
+        // recognise it.
+        let state = ThreadState::new();
+        let req = classify_server_request(
+            &state,
+            "sess-x",
+            rpc(11),
+            "execCommandApproval",
+            json!({
+                "callId": "call_abc",
+                "conversationId": "thr_1",
+                "command": ["rm", "-rf", "/tmp/x"],
+                "cwd": "/home/u",
+                "parsedCmd": [],
+                "reason": "cleanup",
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(req.tool_name, "Bash");
+        assert_eq!(req.tool_input["command"], "rm -rf /tmp/x");
+        assert_eq!(req.tool_input["cwd"], "/home/u");
+        let kind = state.take_server_request(&req.request_id).await.unwrap();
+        match kind {
+            ServerRequestKind::ExecCommandApproval { call_id, rpc_id } => {
+                assert_eq!(call_id, "call_abc");
+                assert_eq!(rpc_id, Id::Number(11));
+            }
+            other => panic!("expected ExecCommandApproval, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn classifies_apply_patch_approval() {
+        let state = ThreadState::new();
+        let req = classify_server_request(
+            &state,
+            "sess-y",
+            rpc(12),
+            "applyPatchApproval",
+            json!({
+                "callId": "call_def",
+                "conversationId": "thr_1",
+                "fileChanges": {
+                    "/tmp/a.rs": { "type": "add", "content": "fn main() {}" }
+                },
+                "reason": "implementing plan",
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(req.tool_name, "Edit");
+        assert!(req.tool_input["fileChanges"].is_object());
+        assert_eq!(req.tool_input["reason"], "implementing plan");
+        let kind = state.take_server_request(&req.request_id).await.unwrap();
+        match kind {
+            ServerRequestKind::ApplyPatchApproval { call_id, .. } => {
+                assert_eq!(call_id, "call_def");
+            }
+            other => panic!("expected ApplyPatchApproval, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_response_exec_command_uses_review_decision_vocabulary() {
+        // ReviewDecision: approved / denied / abort — NOT accept/decline.
+        // Schema: docs/internal/codex-app-server-schemas/ExecCommandApprovalResponse.json
+        let kind = ServerRequestKind::ExecCommandApproval {
+            rpc_id: rpc(1),
+            call_id: "call_1".into(),
+        };
+        let approved = build_response(&kind, ApprovalDecision::Accept, None);
+        assert_eq!(approved.result, json!({"decision": "approved"}));
+        let denied = build_response(&kind, ApprovalDecision::Decline, None);
+        assert_eq!(denied.result, json!({"decision": "denied"}));
+        let cancelled = build_response(&kind, ApprovalDecision::Cancel, None);
+        assert_eq!(cancelled.result, json!({"decision": "abort"}));
+    }
+
+    #[test]
+    fn build_response_apply_patch_uses_review_decision_vocabulary() {
+        let kind = ServerRequestKind::ApplyPatchApproval {
+            rpc_id: rpc(2),
+            call_id: "call_2".into(),
+        };
+        let approved = build_response(&kind, ApprovalDecision::Accept, None);
+        assert_eq!(approved.result, json!({"decision": "approved"}));
     }
 }

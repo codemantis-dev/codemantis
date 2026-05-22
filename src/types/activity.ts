@@ -63,13 +63,21 @@ export function extractSubAgentInfo(
 
 export function getActivityType(toolName: string): ActivityType {
   const readTools = ["Read", "Glob", "Grep"];
-  const writeTools = ["Write", "NotebookEdit"];
+  // ImageGeneration writes a generated image to disk — semantically a
+  // file write from the user's perspective, so the "WR" badge fits.
+  const writeTools = ["Write", "NotebookEdit", "ImageGeneration"];
   const editTools = ["Edit"];
   const bashTools = ["Bash"];
   const taskTools = ["TodoWrite", "TodoRead", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"];
   const searchTools = ["ToolSearch", "WebSearch", "WebFetch"];
   const agentTools = ["Agent"];
-  const questionTools = ["AskUserQuestion"];
+  // Control tools that drive a UI prompt rather than a tool execution:
+  // Claude's ExitPlanMode / EnterPlanMode are suppressed from the
+  // activity feed by `modeControlToolIds` in activity.ts but DO appear
+  // in the approval modal — without this entry they'd render as "EX".
+  // Codex plans flow through the same ExitPlanMode synthetic tool name
+  // via the v1.4.0 translator (see agents/codex/translation.rs).
+  const questionTools = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode"];
 
   if (readTools.includes(toolName)) return "read";
   if (writeTools.includes(toolName)) return "write";
@@ -80,5 +88,9 @@ export function getActivityType(toolName: string): ActivityType {
   if (agentTools.includes(toolName)) return "agent";
   if (questionTools.includes(toolName)) return "question";
   if (toolName.startsWith("mcp__")) return "mcp";
+  // Codex `dynamicToolCall` items are emitted as `dyn__{namespace}__{tool}`
+  // (mirroring the mcp__ convention). They're semantically the same kind
+  // of dynamic-tool-registration call so the MCP badge fits visually.
+  if (toolName.startsWith("dyn__")) return "mcp";
   return "other";
 }

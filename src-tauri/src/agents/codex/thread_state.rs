@@ -41,6 +41,18 @@ pub enum ServerRequestKind {
     /// `item/permissions/requestApproval` — response is
     /// `{ "scope": "session" | "turn", "permissions": { … } }`.
     PermissionRequest { rpc_id: RpcId, item_id: String },
+    /// `execCommandApproval` — newer (cli 0.130.0+) bare-method form of
+    /// `item/commandExecution/requestApproval`. Different response shape:
+    /// `{ "decision": "approved" | "denied" | "abort" | "timed_out" |
+    ///                "approved_for_session" | … }` (`ReviewDecision`).
+    /// Correlates via `callId` rather than `itemId`. Schema:
+    /// docs/internal/codex-app-server-schemas/ExecCommandApprovalParams.json
+    ExecCommandApproval { rpc_id: RpcId, call_id: String },
+    /// `applyPatchApproval` — same `ReviewDecision` response shape as
+    /// `ExecCommandApproval`. Payload is a map of file changes (add /
+    /// delete / update with unified_diff). Schema:
+    /// docs/internal/codex-app-server-schemas/ApplyPatchApprovalParams.json
+    ApplyPatchApproval { rpc_id: RpcId, call_id: String },
 }
 
 impl ServerRequestKind {
@@ -49,7 +61,9 @@ impl ServerRequestKind {
             ServerRequestKind::CommandExecution { rpc_id, .. }
             | ServerRequestKind::FileChange { rpc_id, .. }
             | ServerRequestKind::McpElicitation { rpc_id, .. }
-            | ServerRequestKind::PermissionRequest { rpc_id, .. } => rpc_id,
+            | ServerRequestKind::PermissionRequest { rpc_id, .. }
+            | ServerRequestKind::ExecCommandApproval { rpc_id, .. }
+            | ServerRequestKind::ApplyPatchApproval { rpc_id, .. } => rpc_id,
         }
     }
 
@@ -59,6 +73,11 @@ impl ServerRequestKind {
             | ServerRequestKind::FileChange { item_id, .. }
             | ServerRequestKind::McpElicitation { item_id, .. }
             | ServerRequestKind::PermissionRequest { item_id, .. } => item_id,
+            // The newer approval methods use `callId` rather than
+            // `itemId`. The semantics are the same — a stable correlator
+            // — so item_id() returns it transparently to callers.
+            ServerRequestKind::ExecCommandApproval { call_id, .. }
+            | ServerRequestKind::ApplyPatchApproval { call_id, .. } => call_id,
         }
     }
 }
