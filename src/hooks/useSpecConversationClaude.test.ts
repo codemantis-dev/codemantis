@@ -149,6 +149,30 @@ describe("useSpecConversationClaude", () => {
         PROJECT,
         "claude-sonnet-4-6",
         expect.any(String), // system prompt
+        // v1.4.1 Phase B.1: hook now passes agent_id so backend can
+        // dispatch local-CLI provider correctly. "claude_code" for
+        // Claude conversations.
+        "claude_code",
+      );
+    });
+
+    it("passes agent_id=codex when the conversation provider is codex (v1.4.1 Phase B.1)", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "codex", "", "feature",
+      );
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Hello");
+      });
+
+      expect(mockCreateSpecwriterSession).toHaveBeenCalledTimes(1);
+      expect(mockCreateSpecwriterSession).toHaveBeenCalledWith(
+        PROJECT,
+        "", // Codex picks its own default
+        expect.any(String),
+        "codex",
       );
     });
 

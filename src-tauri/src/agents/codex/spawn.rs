@@ -900,6 +900,7 @@ fn short_kind(ev: &NormalizedEvent) -> &'static str {
         NormalizedEvent::HookStatus { .. } => "HookStatus",
         NormalizedEvent::AuthTokenRefreshRequested { .. } => "AuthTokenRefreshRequested",
         NormalizedEvent::DynamicToolCallDenied { .. } => "DynamicToolCallDenied",
+        NormalizedEvent::McpStartupStatus { .. } => "McpStartupStatus",
         NormalizedEvent::CapabilitiesDiscovered { .. } => "CapabilitiesDiscovered",
         NormalizedEvent::AgentPreparing { .. } => "AgentPreparing",
         NormalizedEvent::SubAgentStarted { .. } => "SubAgentStarted",

@@ -172,6 +172,16 @@ describe("SpecChat", () => {
     expect(selects.length).toBeGreaterThanOrEqual(2); // provider + model
   });
 
+  it("offers Codex (local) as a provider option (v1.4.1 Phase B.1)", () => {
+    useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
+    renderChat();
+    // The provider <select> must include a Codex option so users can
+    // pick the local Codex CLI for SpecWriter sessions. Backend
+    // (createSpecwriterSession with agent_id: "codex") is already
+    // wired; this is the UI gate.
+    expect(screen.getByText(/codex \(local\)/i)).toBeTruthy();
+  });
+
   it("shows Claude Code models when claude-code is selected", () => {
     useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-sonnet-4-6", "feature");
     renderChat();

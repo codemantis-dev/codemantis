@@ -522,6 +522,21 @@ pub enum NormalizedEvent {
         namespace: Option<String>,
     },
 
+    /// Codex `mcpServer/startupStatus/updated` lifecycle. Emitted only
+    /// for the meaningful transitions (`failed` / `cancelled`) so the
+    /// chat handler can toast users when a Codex MCP server fails to
+    /// start. `starting` and `ready` are silent — too noisy otherwise.
+    /// Schema:
+    /// docs/internal/codex-app-server-schemas/v2/McpServerStatusUpdatedNotification.json
+    #[serde(rename = "mcp_startup_status")]
+    McpStartupStatus {
+        agent_id: AgentId,
+        session_id: String,
+        name: String,
+        status: String,
+        error: Option<String>,
+    },
+
     #[serde(rename = "capabilities_discovered")]
     CapabilitiesDiscovered {
         agent_id: AgentId,

@@ -13,7 +13,7 @@ import {
   writeProjectCapabilities,
   readFileContent,
 } from "../lib/tauri-commands";
-import type { FrontendEvent } from "../types/claude-events";
+import type { FrontendEvent, AgentId } from "../types/agent-events";
 import type { SpecMessage, SpecAttachment, SpecPatchOutcome } from "../types/spec-writer";
 import { DEFAULT_SPEC_CLAUDE_CODE_MODEL } from "../types/assistant-provider";
 import {
@@ -216,7 +216,22 @@ export function useSpecConversationClaude(): {
       );
     }
 
-    const model = conv.ai_model || DEFAULT_SPEC_CLAUDE_CODE_MODEL;
+    // v1.4.1 Phase B.1 — local-CLI dispatch. The hook handles BOTH
+    // Claude Code and Codex local-CLI providers (the API providers go
+    // through `useSpecConversation`). Codex sessions spawn with
+    // `agent_id: "codex"` so the backend wires the ephemeral
+    // ~/.codemantis/specwriter-sessions/<sid>/AGENTS.override.md path
+    // (see src-tauri/src/agents/codex/agents_md.rs +
+    // spawn.rs:333-370). The system prompt content stays identical;
+    // Codex consumes it via AGENTS.override.md instead of Claude's
+    // --append-system-prompt flag — the prompt builder is unchanged.
+    const agentId: AgentId =
+      conv.ai_provider === "codex" ? "codex" : "claude_code";
+    // Codex's CLI picks its own default model when `model` is empty;
+    // the live `model/list` later updates the ModelSelector. For
+    // Claude Code we keep the hardcoded default.
+    const model =
+      conv.ai_model || (agentId === "codex" ? "" : DEFAULT_SPEC_CLAUDE_CODE_MODEL);
     const projectContext = store.projectContext.get(projectPath) ?? "";
     const projectCapabilities = store.projectCapabilities.get(projectPath) ?? null;
     const systemPrompt = buildClaudeCodePrompt(
@@ -226,7 +241,12 @@ export function useSpecConversationClaude(): {
       projectCapabilities,
     );
 
-    const sessionId = await createSpecwriterSession(projectPath, model, systemPrompt);
+    const sessionId = await createSpecwriterSession(
+      projectPath,
+      model,
+      systemPrompt,
+      agentId,
+    );
     store.setCliSessionId(projectPath, sessionId);
 
     return sessionId;

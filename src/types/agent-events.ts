@@ -34,6 +34,7 @@ export type FrontendEvent =
   | HookStatusEvent
   | AuthTokenRefreshRequestedEvent
   | DynamicToolCallDeniedEvent
+  | McpStartupStatusEvent
   | CapabilitiesDiscoveredEvent
   | AgentPreparingEvent
   | SubAgentStartedEvent
@@ -305,6 +306,18 @@ export interface DynamicToolCallDeniedEvent {
   session_id: string;
   tool: string;
   namespace?: string | null;
+}
+
+/** Codex `mcpServer/startupStatus/updated` — only emitted on
+ * meaningful `failed` / `cancelled` transitions so the chat handler
+ * can surface a toast. Silent on `starting` / `ready`. */
+export interface McpStartupStatusEvent {
+  type: "mcp_startup_status";
+  agent_id?: AgentId;
+  session_id: string;
+  name: string;
+  status: string;
+  error?: string | null;
 }
 
 export interface CapabilitiesDiscoveredEvent {

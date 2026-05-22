@@ -217,15 +217,53 @@ FIX PROMPT (the specific failure the orchestrator caught):
  * `firstTurnOfSession=true` (default) → full preamble.
  * `firstTurnOfSession=false` → compressed reference (Phase C.3).
  */
+/** v1.4.1 Phase B.3 — Codex-specific evidence-vocabulary clarifier.
+ *
+ * The build-mode preambles above are calibrated to Claude's tool names
+ * (Bash, Edit, Write, Read, WebSearch). Codex emits the same kinds of
+ * tool calls under different names — `commandExecution` instead of
+ * `Bash`, `fileChange` instead of `Edit`/`Write`, `webSearch` for
+ * search, `imageView` for `Read`, plus a few unique items like
+ * `imageGeneration`. Self-Drive's evidence-vocab matcher
+ * (`self-drive-evidence-vocab.ts`) is project-aware but not agent-aware,
+ * so handing Claude-calibrated preambles to Codex confuses the
+ * parity check: the model talks in its own tool vocabulary and the
+ * matcher fails to recognise valid evidence.
+ *
+ * This clarifier prepends a short translation key to the preamble so
+ * Codex understands which of its emissions count as which Claude
+ * evidence pattern. Only injected when `agentId === "codex"`. */
+export const CODEX_VOCAB_CLARIFIER = `
+Tool-name vocabulary (CodeMantis Self-Drive is calibrated to Claude's
+tool names but you're running Codex — please use Codex tools normally
+and consider these equivalences when reporting evidence):
+- commandExecution (Codex) ⇔ Bash (Claude) — shell command runs
+- fileChange (Codex) ⇔ Edit / Write (Claude) — file writes/edits
+- webSearch (Codex) ⇔ WebSearch (Claude) — web queries
+- imageView (Codex) ⇔ Read (Claude) — image / file reads
+- imageGeneration (Codex) — creates a file; report as Write evidence
+- mcp__server__tool — same on both
+- dynamicToolCall — Codex-only; treat as the underlying tool's evidence
+Reasoning text is hidden in Codex's protocol; only the token count is
+reported. Don't claim "you saw the reasoning" — claim "the reasoning
+tokens billed for this turn".
+
+`;
+
 export function wrapBuildPrompt(
   prompt: string,
   kind: "build" | "fix",
   firstTurnOfSession: boolean = true,
+  /** v1.4.1 Phase B.3 — agent-aware preamble. Defaults to "claude_code"
+   * for callers that haven't migrated; pass "codex" so the Codex vocab
+   * clarifier is prepended. */
+  agentId: "claude_code" | "codex" = "claude_code",
 ): string {
+  const clarifier = agentId === "codex" ? CODEX_VOCAB_CLARIFIER : "";
   if (firstTurnOfSession) {
     const preamble = kind === "build" ? BUILD_MODE_PREAMBLE : FIX_MODE_PREAMBLE;
-    return `${preamble}${prompt}`;
+    return `${clarifier}${preamble}${prompt}`;
   }
   const ref = kind === "build" ? SHORT_BUILD_REFERENCE : SHORT_FIX_REFERENCE;
-  return `${ref}${prompt}`;
+  return `${clarifier}${ref}${prompt}`;
 }

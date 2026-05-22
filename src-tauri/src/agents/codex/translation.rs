@@ -84,6 +84,12 @@ impl Translator {
             // ThreadItems carry the *content* injected by the hook.
             "hook/started" => self.on_hook_lifecycle(params, "started"),
             "hook/completed" => self.on_hook_lifecycle(params, "completed"),
+            // v1.4.1 Phase B.2 — Codex MCP server lifecycle + account
+            // rate-limit updates. Schemas:
+            //   v2/McpServerStatusUpdatedNotification.json
+            //   v2/AccountRateLimitsUpdatedNotification.json
+            "mcpServer/startupStatus/updated" => self.on_mcp_startup_status(params),
+            "account/rateLimits/updated" => self.on_rate_limits_updated(params),
             "error" => self.map_error(params),
             // Intentionally NOT handled (v1.4.1 Phase A.4):
             //   `item/fileChange/outputDelta` — the schema at
@@ -135,6 +141,95 @@ impl Translator {
             agent_id: AgentId::Codex,
             session_id: self.session_id.clone(),
             usage,
+        }]
+    }
+
+    /// v1.4.1 Phase B.2 — MCP server startup status notification.
+    /// Emit only on `failed` / `cancelled` so users see why an MCP tool
+    /// stopped responding; `starting` / `ready` are silent (too noisy).
+    fn on_mcp_startup_status(&self, params: Value) -> Vec<NormalizedEvent> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let status = params
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if status != "failed" && status != "cancelled" {
+            return Vec::new();
+        }
+        let error = params
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        vec![NormalizedEvent::McpStartupStatus {
+            agent_id: AgentId::Codex,
+            session_id: self.session_id.clone(),
+            name,
+            status,
+            error,
+        }]
+    }
+
+    /// v1.4.1 Phase B.2 — account rate-limits. Codex sends a dual-window
+    /// `{ primary, secondary }` structure. We compute the higher of the
+    /// two utilizations and emit a `RateLimitWarning` (Claude already
+    /// uses this event for the existing rate-limit banner) when
+    /// utilization ≥ 0.8 OR a `rateLimitReachedType` is set. Schema:
+    /// docs/internal/codex-app-server-schemas/v2/AccountRateLimitsUpdatedNotification.json
+    fn on_rate_limits_updated(&self, params: Value) -> Vec<NormalizedEvent> {
+        let limits = match params.get("rateLimits") {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let pct = |obj: &Value| -> Option<f64> {
+            obj.get("usedPercent").and_then(|v| v.as_f64())
+        };
+        let primary = limits.get("primary").map(pct).unwrap_or(None);
+        let secondary = limits.get("secondary").map(pct).unwrap_or(None);
+        let max_pct = match (primary, secondary) {
+            (Some(p), Some(s)) => Some(p.max(s)),
+            (Some(p), None) => Some(p),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        };
+        let reached_type = limits
+            .get("rateLimitReachedType")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        // Threshold: 80% of either window OR an explicit reachedType.
+        let utilization_frac = max_pct.map(|p| p / 100.0).unwrap_or(0.0);
+        let trigger_threshold = utilization_frac >= 0.8 || reached_type.is_some();
+        if !trigger_threshold {
+            return Vec::new();
+        }
+        // Pull resetsAt from whichever window is closer to the cap.
+        let resets_at = match (primary, secondary) {
+            (Some(p), Some(s)) if s >= p => limits
+                .get("secondary")
+                .and_then(|w| w.get("resetsAt"))
+                .and_then(|v| v.as_f64()),
+            _ => limits
+                .get("primary")
+                .and_then(|w| w.get("resetsAt"))
+                .and_then(|v| v.as_f64()),
+        };
+        vec![NormalizedEvent::RateLimitWarning {
+            agent_id: AgentId::Codex,
+            session_id: self.session_id.clone(),
+            utilization: utilization_frac,
+            resets_at,
+            rate_limit_type: reached_type.clone().or_else(|| {
+                limits
+                    .get("limitName")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            }),
+            overage_status: None,
+            is_using_overage: None,
         }]
     }
 
@@ -1526,6 +1621,135 @@ mod tests {
     }
 
     // ── v1.4.0 ThreadItem types ──
+
+    // ── v1.4.1 Phase B.2 — MCP startup + rate limits ──
+
+    #[tokio::test]
+    async fn mcp_startup_status_failed_emits_event() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "mcpServer/startupStatus/updated",
+                json!({"name": "postgres", "status": "failed", "error": "config bad"}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::McpStartupStatus { name, status, error, .. } => {
+                assert_eq!(name, "postgres");
+                assert_eq!(status, "failed");
+                assert_eq!(error.as_deref(), Some("config bad"));
+            }
+            other => panic!("expected McpStartupStatus, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_startup_status_cancelled_emits_event() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "mcpServer/startupStatus/updated",
+                json!({"name": "github", "status": "cancelled", "error": null}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::McpStartupStatus { status, error, .. } => {
+                assert_eq!(status, "cancelled");
+                assert!(error.is_none());
+            }
+            other => panic!("expected McpStartupStatus, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_startup_status_starting_or_ready_is_no_op() {
+        // Silent transitions — would be too noisy as toasts.
+        let t = translator();
+        for status in ["starting", "ready"] {
+            let events = t
+                .on_notification(
+                    "mcpServer/startupStatus/updated",
+                    json!({"name": "x", "status": status, "error": null}),
+                )
+                .await;
+            assert!(events.is_empty(), "expected no event for status={status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn rate_limits_updated_emits_warning_above_threshold() {
+        // Primary at 90% triggers a RateLimitWarning.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "account/rateLimits/updated",
+                json!({
+                    "rateLimits": {
+                        "primary": {"usedPercent": 90, "resetsAt": 1779999999, "windowDurationMins": 60},
+                        "secondary": {"usedPercent": 12, "resetsAt": null, "windowDurationMins": null},
+                        "credits": {"hasCredits": true, "unlimited": false, "balance": "$5"},
+                        "planType": "plus",
+                        "limitId": null,
+                        "limitName": null,
+                        "rateLimitReachedType": null,
+                    }
+                }),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::RateLimitWarning { utilization, resets_at, .. } => {
+                // 90 / 100 = 0.9
+                assert!((utilization - 0.9).abs() < 1e-6);
+                // Higher of the two windows is primary at 90%, so its resetsAt.
+                assert_eq!(*resets_at, Some(1779999999.0));
+            }
+            other => panic!("expected RateLimitWarning, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn rate_limits_updated_silent_below_threshold() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "account/rateLimits/updated",
+                json!({
+                    "rateLimits": {
+                        "primary": {"usedPercent": 30, "resetsAt": null, "windowDurationMins": null},
+                        "secondary": {"usedPercent": 5, "resetsAt": null, "windowDurationMins": null},
+                        "rateLimitReachedType": null,
+                    }
+                }),
+            )
+            .await;
+        assert!(events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rate_limits_updated_emits_when_reached_type_set() {
+        // Even at 0% the explicit reachedType triggers a warning.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "account/rateLimits/updated",
+                json!({
+                    "rateLimits": {
+                        "primary": {"usedPercent": 0, "resetsAt": null, "windowDurationMins": null},
+                        "rateLimitReachedType": "workspace_owner_credits_depleted",
+                    }
+                }),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::RateLimitWarning { rate_limit_type, .. } => {
+                assert_eq!(
+                    rate_limit_type.as_deref(),
+                    Some("workspace_owner_credits_depleted")
+                );
+            }
+            other => panic!("expected RateLimitWarning, got {:?}", other),
+        }
+    }
 
     #[tokio::test]
     async fn token_usage_updated_emits_usage_update_with_reasoning_tokens() {

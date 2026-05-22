@@ -3164,7 +3164,17 @@ function wrapWithPreambleTracking(
       preambleSent: [...state.preambleSent, key],
     });
   }
-  return wrapBuildPrompt(prompt, kind, isFirst);
+  // v1.4.1 Phase B.3 — pass agent_id so Codex sessions get the
+  // tool-name vocab clarifier prepended. The agent_id is captured by
+  // looking up the active session in sessionStore (set by self-drive
+  // start()). If the lookup fails for any reason, default to Claude —
+  // the worst case is a Codex session getting Claude-calibrated
+  // preambles, which is the pre-B.3 behavior (still works, just less
+  // accurate evidence matching).
+  const sessionId = state.sessionId;
+  const session = sessionId ? useSessionStore.getState().sessions.get(sessionId) : null;
+  const agentId = session?.agent_id === "codex" ? "codex" : "claude_code";
+  return wrapBuildPrompt(prompt, kind, isFirst, agentId);
 }
 
 async function sendMessageToSession(

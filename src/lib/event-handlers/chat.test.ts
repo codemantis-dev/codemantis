@@ -645,6 +645,43 @@ describe("chat event handler — system events", () => {
     });
   });
 
+  describe("mcp_startup_status (v1.4.1 Phase B.2)", () => {
+    it("toasts an error when a Codex MCP server fails to start", () => {
+      handleChatEvent("s1", {
+        type: "mcp_startup_status",
+        session_id: "s1",
+        name: "postgres",
+        status: "failed",
+        error: "missing DATABASE_URL",
+      });
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("postgres"),
+        "error",
+        8000,
+      );
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("missing DATABASE_URL"),
+        "error",
+        8000,
+      );
+    });
+
+    it("toasts an error when a Codex MCP server is cancelled (no detail)", () => {
+      handleChatEvent("s1", {
+        type: "mcp_startup_status",
+        session_id: "s1",
+        name: "github",
+        status: "cancelled",
+        error: null,
+      });
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("github"),
+        "error",
+        8000,
+      );
+    });
+  });
+
   describe("capabilities_discovered", () => {
     it("stores capabilities", () => {
       handleChatEvent("s1", {

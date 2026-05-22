@@ -547,6 +547,20 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
     }
 
+    case "mcp_startup_status": {
+      // v1.4.1 Phase B.2 — Codex MCP server failed / cancelled startup.
+      // The translator filters out the noisy starting/ready transitions
+      // upstream so this case only fires when something needs the user's
+      // attention.
+      const detail = event.error ? `: ${event.error}` : "";
+      showToast(
+        `MCP server '${event.name}' ${event.status}${detail}`,
+        "error",
+        8000,
+      );
+      break;
+    }
+
     case "capabilities_discovered": {
       store.setSessionCapabilities(sessionId, event);
       break;

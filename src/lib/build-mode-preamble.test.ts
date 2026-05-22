@@ -3,6 +3,7 @@ import {
   BUILD_MODE_PREAMBLE,
   FIX_MODE_PREAMBLE,
   wrapBuildPrompt,
+  CODEX_VOCAB_CLARIFIER,
 } from "./build-mode-preamble";
 
 // The preamble is the persona contract sent to Claude Code at every
@@ -162,5 +163,37 @@ describe("wrapBuildPrompt", () => {
     expect(shortFix).toContain("FIX MODE (cont.)");
     expect(shortFix).not.toContain("RULE 1 — FIX ROOT CAUSES");
     expect(shortFix).toContain(sessionPrompt);
+  });
+
+  // ── v1.4.1 Phase B.3 — Codex vocab clarifier ──
+
+  it("prepends the Codex vocab clarifier when agentId is codex (first turn)", () => {
+    const wrapped = wrapBuildPrompt(sessionPrompt, "build", true, "codex");
+    // Clarifier comes BEFORE the preamble so the model reads the
+    // translation key before the senior-engineer contract.
+    expect(wrapped.indexOf(CODEX_VOCAB_CLARIFIER)).toBeLessThan(
+      wrapped.indexOf(BUILD_MODE_PREAMBLE),
+    );
+    expect(wrapped).toContain("commandExecution (Codex)");
+    expect(wrapped).toContain("fileChange (Codex)");
+    expect(wrapped).toContain("imageGeneration (Codex)");
+  });
+
+  it("prepends the Codex vocab clarifier on subsequent (compressed) turns too", () => {
+    const wrapped = wrapBuildPrompt(sessionPrompt, "build", false, "codex");
+    expect(wrapped).toContain("commandExecution (Codex)");
+    expect(wrapped).toContain("Senior-Engineer Quality Contract from turn 1");
+  });
+
+  it("does NOT prepend the Codex clarifier for Claude sessions (default)", () => {
+    // Default agentId is "claude_code" — no Codex clarifier should appear.
+    const wrapped = wrapBuildPrompt(sessionPrompt, "build", true);
+    expect(wrapped).not.toContain("commandExecution (Codex)");
+    expect(wrapped).not.toContain(CODEX_VOCAB_CLARIFIER);
+  });
+
+  it("does NOT prepend the Codex clarifier when agentId is explicitly claude_code", () => {
+    const wrapped = wrapBuildPrompt(sessionPrompt, "build", true, "claude_code");
+    expect(wrapped).not.toContain(CODEX_VOCAB_CLARIFIER);
   });
 });

@@ -158,12 +158,22 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
 
   const currentModel = conversation?.ai_model ?? "";
   const currentProvider = conversation?.ai_provider ?? "";
+  // Local CLI providers (claude-code, codex) share the same SpecWriter
+  // hook surface (useSpecConversationClaude — see B.1) and don't
+  // require an API key. Codex is gated only by the empty-string model
+  // (its CLI picks the default itself).
   const isClaudeCode = currentProvider === "claude-code";
+  const isCodex = currentProvider === "codex";
+  const isLocalCli = isClaudeCode || isCodex;
 
   const handleProviderChange = useCallback(
     (newProvider: string) => {
       if (newProvider === "claude-code") {
         updateConversationProvider(projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL);
+      } else if (newProvider === "codex") {
+        // Codex's CLI picks its own default model when `model` is empty;
+        // the live `model/list` later refreshes the ModelSelector.
+        updateConversationProvider(projectPath, "codex", "");
       } else {
         // Pick the first model for this provider that has an API key
         const model = SPEC_WRITING_MODELS.find(
@@ -183,12 +193,14 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
     (newModelId: string) => {
       if (isClaudeCode) {
         updateConversationProvider(projectPath, "claude-code", newModelId);
+      } else if (isCodex) {
+        updateConversationProvider(projectPath, "codex", newModelId);
       } else {
         const provider = getProviderForModel(newModelId) ?? "gemini";
         updateConversationProvider(projectPath, provider, newModelId);
       }
     },
-    [projectPath, updateConversationProvider, isClaudeCode]
+    [projectPath, updateConversationProvider, isClaudeCode, isCodex]
   );
 
   const handleModeChange = useCallback(
@@ -198,8 +210,8 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
     [projectPath, setConversationMode]
   );
 
-  // Check if current model has an API key (Claude Code doesn't need one)
-  const currentModelHasKey = isClaudeCode || isSpecModelAvailable(currentModel, apiKeys);
+  // Check if current model has an API key (local CLIs don't need one).
+  const currentModelHasKey = isLocalCli || isSpecModelAvailable(currentModel, apiKeys);
 
   return (
     <div className="flex flex-col h-full">
@@ -235,6 +247,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
               }}
             >
               <option value="claude-code">Claude Code</option>
+              <option value="codex">Codex (local)</option>
               {["gemini", "openai", "anthropic", "openrouter"].map((p) => {
                 const hasKey = !!apiKeys[p]?.trim();
                 const labels: Record<string, string> = {
