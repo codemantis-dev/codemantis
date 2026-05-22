@@ -201,10 +201,14 @@ impl AgentProcessHandle for CodexProcessHandle {
                 Ok(format!("codex-setmodel-{}", uuid::Uuid::new_v4().simple()))
             }
             ControlRequestPayload::Initialize => {
-                // Idempotent: emit a CapabilitiesDiscovered with whatever
-                // model/list we cached. For now this is a no-op acknowledged
-                // request — S6's frontend will treat the absence of a fresh
-                // response as "already discovered."
+                // Refresh capabilities live by re-running `model/list`
+                // and re-emitting CapabilitiesDiscovered. Without this,
+                // a session spawned against an older binary that didn't
+                // populate `supportedReasoningEfforts` would have stale
+                // caps forever — the EffortSelector would stay hidden
+                // even after the binary was upgraded. Now the frontend
+                // can call `initialize_session` to refresh on demand.
+                discover_capabilities(&self.client, &self.app_handle, &self.session_id).await;
                 Ok(format!("codex-init-{}", uuid::Uuid::new_v4().simple()))
             }
             ControlRequestPayload::SetPermissionMode { .. } => {
@@ -483,108 +487,12 @@ pub async fn spawn_codex_session(
         },
     );
 
-    // v1.3.1: call `model/list` and emit CapabilitiesDiscovered so the
-    // frontend's ModelSelector / EffortSelector pick up the real Codex
-    // model lineup (verified empirically: gpt-5.5 default, gpt-5.4,
-    // gpt-5.4-mini, gpt-5.3-codex, gpt-5.2 — all support
-    // low/medium/high/xhigh effort). Shape per v2/ModelListResponse.json:
-    //   { data: [{id, model, displayName, description, isDefault,
-    //              hidden, defaultReasoningEffort,
-    //              supportedReasoningEfforts: [{reasoningEffort, …}], …}] }
-    // We transform into the CliModelInfo shape ModelSelector expects:
-    //   { value, displayName, description }
-    // Best-effort: if model/list fails for any reason, we log + continue
-    // without emitting (the selector falls back to a static label).
-    match client.send_request("model/list", json!({})).await {
-        Ok(list) => {
-            let models_array = list
-                .get("data")
-                .and_then(|d| d.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let transformed: Vec<Value> = models_array
-                .iter()
-                .filter(|m| !m.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false))
-                .map(|m| {
-                    // Codex uses `model` as the wire id (e.g. "gpt-5.5");
-                    // `displayName` is the user-facing string.
-                    let value = m
-                        .get("model")
-                        .or_else(|| m.get("id"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let display = m
-                        .get("displayName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&value)
-                        .to_string();
-                    let description = m
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let is_default = m
-                        .get("isDefault")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    // Codex's model/list returns supportedReasoningEfforts
-                    // as an array of objects `{ reasoningEffort: "low" }`
-                    // etc. Empirically (cli 0.130.0) every shipped model
-                    // supports [low, medium, high, xhigh]; older / hidden
-                    // models may add `none` / `minimal`. The frontend's
-                    // EffortSelector hides itself when this list is empty,
-                    // so dropping the data made the control invisible for
-                    // Codex sessions — Tier 0 of v1.4.0 closes that gap.
-                    let supported_efforts: Vec<String> = m
-                        .get("supportedReasoningEfforts")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|e| {
-                                    e.get("reasoningEffort")
-                                        .and_then(|v| v.as_str())
-                                        .map(str::to_string)
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let default_effort = m
-                        .get("defaultReasoningEffort")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    let supports_effort = !supported_efforts.is_empty();
-                    json!({
-                        "value": value,
-                        "displayName": display,
-                        "description": description,
-                        "isDefault": is_default,
-                        "supportsEffort": supports_effort,
-                        "supportedEffortLevels": supported_efforts,
-                        "defaultEffort": default_effort,
-                    })
-                })
-                .collect();
-            emit_event_for(
-                &app_handle,
-                &NormalizedEvent::CapabilitiesDiscovered {
-                    agent_id: AgentId::Codex,
-                    session_id: config.session_id.clone(),
-                    models: Value::Array(transformed),
-                    commands: Value::Null,
-                    agents: Value::Null,
-                    account: Value::Null,
-                    output_styles: Value::Null,
-                },
-            );
-        }
-        Err(e) => {
-            log::warn!(
-                "[codex {}] model/list failed ({e}); ModelSelector will fall back to a default label",
-                config.session_id
-            );
-        }
-    }
+    // Discover capabilities (model/list → CapabilitiesDiscovered).
+    // Pulled into a helper so the Initialize control request can re-fire
+    // it on a live session — necessary for refreshing caps without
+    // close+reopen when (e.g.) the user wants the EffortSelector to
+    // re-appear after a binary upgrade that added new fields.
+    discover_capabilities(&client, &app_handle, &config.session_id).await;
 
     // 7. thread/start or thread/resume — uses the "Auto" preset from
     // spec §2.3 (workspace-write × on-request). Phase 2 §6.1's Policy
@@ -738,6 +646,114 @@ fn make_server_request_handler(
 /// Pick chat vs. activity channel and emit. Pure plumbing — the routing
 /// logic lives in `agents::is_activity_event` so adding a new variant
 /// only touches one place.
+/// Call `model/list` and emit a `CapabilitiesDiscovered` event on the
+/// chat channel. Used by `spawn_session` on initial handshake and by
+/// `send_control_request(Initialize)` to refresh caps on a live session
+/// without close+reopen.
+///
+/// Shape per v2/ModelListResponse.json (verified live against
+/// codex-cli 0.130.0, 2026-05-22):
+///   { data: [{ id, model, displayName, description, isDefault, hidden,
+///              defaultReasoningEffort,
+///              supportedReasoningEfforts: [{reasoningEffort, …}], … }] }
+///
+/// Best-effort: if `model/list` fails (transport hiccup, server
+/// overload), we log + skip emitting; the selector falls back to its
+/// static manifest.
+async fn discover_capabilities(
+    client: &super::client::CodexClient,
+    app_handle: &AppHandle,
+    session_id: &str,
+) {
+    match client.send_request("model/list", json!({})).await {
+        Ok(list) => {
+            let models_array = list
+                .get("data")
+                .and_then(|d| d.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let transformed: Vec<Value> = models_array
+                .iter()
+                .filter(|m| !m.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false))
+                .map(|m| {
+                    // Codex uses `model` as the wire id (e.g. "gpt-5.5");
+                    // `displayName` is the user-facing string.
+                    let value = m
+                        .get("model")
+                        .or_else(|| m.get("id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let display = m
+                        .get("displayName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&value)
+                        .to_string();
+                    let description = m
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let is_default = m
+                        .get("isDefault")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    // Codex's model/list returns supportedReasoningEfforts
+                    // as an array of objects `{ reasoningEffort: "low" }`
+                    // etc. Empirically (cli 0.130.0) every shipped model
+                    // supports [low, medium, high, xhigh]; older / hidden
+                    // models may add `none` / `minimal`. The frontend's
+                    // EffortSelector hides itself when this list is empty.
+                    let supported_efforts: Vec<String> = m
+                        .get("supportedReasoningEfforts")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|e| {
+                                    e.get("reasoningEffort")
+                                        .and_then(|v| v.as_str())
+                                        .map(str::to_string)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let default_effort = m
+                        .get("defaultReasoningEffort")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let supports_effort = !supported_efforts.is_empty();
+                    json!({
+                        "value": value,
+                        "displayName": display,
+                        "description": description,
+                        "isDefault": is_default,
+                        "supportsEffort": supports_effort,
+                        "supportedEffortLevels": supported_efforts,
+                        "defaultEffort": default_effort,
+                    })
+                })
+                .collect();
+            emit_event_for(
+                app_handle,
+                &NormalizedEvent::CapabilitiesDiscovered {
+                    agent_id: AgentId::Codex,
+                    session_id: session_id.to_string(),
+                    models: Value::Array(transformed),
+                    commands: Value::Null,
+                    agents: Value::Null,
+                    account: Value::Null,
+                    output_styles: Value::Null,
+                },
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "[codex {session_id}] model/list failed ({e}); selector will fall back to static manifest"
+            );
+        }
+    }
+}
+
 fn emit_event_for(app_handle: &AppHandle, ev: &NormalizedEvent) {
     let session_id = session_id_of(ev);
     let channel = if is_activity_event(ev) {
