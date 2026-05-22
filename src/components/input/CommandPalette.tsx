@@ -38,7 +38,9 @@ const CommandPalette = forwardRef<CommandPaletteHandle, CommandPaletteProps>(
       if (!session) return;
       let cancelled = false;
 
-      discoverCommands(session.project_path)
+      // v1.5.0 — pass the session's agent so Codex sessions get
+      // Codex prompts + built-ins, not Claude's skills/CLI commands.
+      discoverCommands(session.project_path, session.agent_id ?? "claude_code")
         .then((cmds) => {
           if (!cancelled) {
             setCommands(cmds);

@@ -614,8 +614,14 @@ export async function getGitLog(projectPath: string, maxCommits: number): Promis
 
 // --- Slash Commands ---
 
-export async function discoverCommands(projectPath: string): Promise<SlashCommand[]> {
-  return invoke<SlashCommand[]>("discover_commands", { projectPath });
+export async function discoverCommands(
+  projectPath: string,
+  /** v1.5.0 — agent-aware discovery. Codex sessions get `.codex/prompts`
+   * + built-ins; Claude sessions get `.claude/{commands,skills}` +
+   * built-ins + Claude's CLI commands. Omit → defaults to claude_code. */
+  agentId?: AgentId,
+): Promise<SlashCommand[]> {
+  return invoke<SlashCommand[]>("discover_commands", { projectPath, agentId });
 }
 
 export async function expandSkill(

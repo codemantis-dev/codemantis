@@ -297,37 +297,66 @@ fn cli_only_commands() -> Vec<SlashCommand> {
         .collect()
 }
 
-#[tauri::command]
-pub async fn discover_commands(project_path: String) -> Result<Vec<SlashCommand>, String> {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn discover_commands(
+    project_path: String,
+    // v1.5.0 — agent-aware command discovery. Claude Code sessions
+    // scan `.claude/{commands,skills}` and surface Claude's CLI
+    // commands; Codex sessions scan `.codex/prompts/` and surface
+    // NEITHER Claude's skills (e.g. /seo-audit) nor Claude's CLI
+    // commands (e.g. /bug "Report to Anthropic"). Both keep the
+    // CodeMantis-level built-ins (/clear, /context, /cost, …).
+    // Legacy callers omit this — `Option` deserialises to `None`,
+    // which the body treats as `claude_code`.
+    agent_id: Option<String>,
+) -> Result<Vec<SlashCommand>, String> {
     let mut seen = std::collections::HashSet::new();
     let mut all_commands = Vec::new();
 
     let project = PathBuf::from(&project_path);
     let home = dirs::home_dir().unwrap_or_default();
+    let is_codex = agent_id.as_deref() == Some("codex");
 
-    // Scan in priority order: project first, then user-level
-    let scan_dirs: Vec<PathBuf> = vec![
-        project.join(".claude").join("commands"),
-        project.join(".claude").join("skills"),
-        home.join(".claude").join("commands"),
-        home.join(".claude").join("skills"),
-    ];
-
-    for (i, dir) in scan_dirs.iter().enumerate() {
-        if i % 2 == 0 {
-            // commands dir — flat .md files
+    if is_codex {
+        // Codex custom prompts: flat `.md` files in `$CODEX_HOME/prompts`
+        // (default `~/.codex/prompts`) and the project-level equivalent.
+        // Non-existent dirs scan to empty — Codex creates the dir
+        // lazily when the user adds their first prompt.
+        let codex_dirs: Vec<PathBuf> = vec![
+            project.join(".codex").join("prompts"),
+            home.join(".codex").join("prompts"),
+        ];
+        for dir in &codex_dirs {
             all_commands.extend(scan_command_dir(dir, &mut seen).await);
-        } else {
-            // skills dir — subdirs with SKILL.md
-            all_commands.extend(scan_skills_dir(dir, &mut seen).await);
+        }
+    } else {
+        // Claude Code: project first, then user-level.
+        let scan_dirs: Vec<PathBuf> = vec![
+            project.join(".claude").join("commands"),
+            project.join(".claude").join("skills"),
+            home.join(".claude").join("commands"),
+            home.join(".claude").join("skills"),
+        ];
+        for (i, dir) in scan_dirs.iter().enumerate() {
+            if i % 2 == 0 {
+                all_commands.extend(scan_command_dir(dir, &mut seen).await);
+            } else {
+                all_commands.extend(scan_skills_dir(dir, &mut seen).await);
+            }
         }
     }
 
-    // Add built-in commands
+    // Built-in commands are CodeMantis-level (clear / context / cost /
+    // compact / exit / help / rename) — agent-agnostic, always shown.
     all_commands.extend(builtin_commands());
 
-    // Add CLI-only commands
-    all_commands.extend(cli_only_commands());
+    // Claude's CLI-only commands (/bug, /init, /login, /model, …) are
+    // Claude-specific. Codex sessions don't get them — they'd be wrong
+    // (e.g. "Report a bug to Anthropic") and aren't wired to a Codex
+    // overlay anyway.
+    if !is_codex {
+        all_commands.extend(cli_only_commands());
+    }
 
     // Sort by category then name
     all_commands.sort_by(|a, b| {
@@ -908,5 +937,67 @@ mod tests {
         let result = scan_command_dir(dir.path(), &mut seen).await;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "custom-name");
+    }
+
+    // ── v1.5.0 — agent-aware discover_commands ──
+
+    #[tokio::test]
+    async fn discover_commands_codex_session_scans_codex_prompts_not_claude_skills() {
+        // A project with BOTH a Claude skill and a Codex prompt.
+        let project = temp_dir();
+        let claude_skill = project.path().join(".claude").join("skills").join("zzclaudeskill");
+        std::fs::create_dir_all(&claude_skill).unwrap();
+        std::fs::write(
+            claude_skill.join("SKILL.md"),
+            "---\nname: zzclaudeskill\ndescription: A Claude skill\n---\nBody",
+        )
+        .unwrap();
+        let codex_prompts = project.path().join(".codex").join("prompts");
+        std::fs::create_dir_all(&codex_prompts).unwrap();
+        std::fs::write(
+            codex_prompts.join("zzcodexprompt.md"),
+            "---\ndescription: A Codex prompt\n---\nBody",
+        )
+        .unwrap();
+
+        let path = project.path().to_string_lossy().to_string();
+
+        // Codex session: sees the Codex prompt, NOT the Claude skill,
+        // and NOT Claude's CLI-only commands (e.g. /bug).
+        let codex_cmds = discover_commands(path.clone(), Some("codex".into()))
+            .await
+            .unwrap();
+        let names: Vec<&str> = codex_cmds.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"zzcodexprompt"), "codex prompt missing");
+        assert!(!names.contains(&"zzclaudeskill"), "claude skill leaked into codex");
+        assert!(!names.contains(&"bug"), "claude CLI command leaked into codex");
+        // Built-ins are agent-agnostic — still present.
+        assert!(names.contains(&"clear"), "built-in /clear missing for codex");
+
+        // Claude session: sees the Claude skill + CLI commands, NOT the
+        // Codex prompt.
+        let claude_cmds = discover_commands(path, Some("claude_code".into()))
+            .await
+            .unwrap();
+        let cnames: Vec<&str> = claude_cmds.iter().map(|c| c.name.as_str()).collect();
+        assert!(cnames.contains(&"zzclaudeskill"), "claude skill missing");
+        assert!(cnames.contains(&"bug"), "claude CLI command missing");
+        assert!(!cnames.contains(&"zzcodexprompt"), "codex prompt leaked into claude");
+        assert!(cnames.contains(&"clear"), "built-in /clear missing for claude");
+    }
+
+    #[tokio::test]
+    async fn discover_commands_legacy_none_agent_defaults_to_claude() {
+        // Callers that omit agent_id (legacy) get the Claude behaviour.
+        let project = temp_dir();
+        let cmds = discover_commands(
+            project.path().to_string_lossy().to_string(),
+            None,
+        )
+        .await
+        .unwrap();
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        // Claude CLI-only commands present → defaulted to claude_code.
+        assert!(names.contains(&"bug"));
     }
 }
