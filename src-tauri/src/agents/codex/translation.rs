@@ -227,11 +227,15 @@ impl Translator {
                 let server = item.get("serverName").and_then(|v| v.as_str()).unwrap_or("?");
                 let tool = item.get("toolName").and_then(|v| v.as_str()).unwrap_or("?");
                 let args = item.get("arguments").cloned().unwrap_or(Value::Null);
+                // Match Claude's `mcp__server__tool` convention so
+                // ActivityFeed / event-classifier / activity-type helpers
+                // recognise the call as MCP and format the badge as
+                // "server: tool" instead of dumping the raw string.
                 vec![NormalizedEvent::ToolUseStart {
                     agent_id: AgentId::Codex,
                     session_id: self.session_id.clone(),
                     tool_use_id: item_id,
-                    tool_name: format!("MCP:{server}:{tool}"),
+                    tool_name: format!("mcp__{server}__{tool}"),
                     tool_input: args,
                 }]
             }
@@ -721,7 +725,9 @@ mod tests {
         let NormalizedEvent::ToolUseStart { tool_name, tool_input, .. } = &events[0] else {
             panic!()
         };
-        assert_eq!(tool_name, "MCP:context7:query-docs");
+        // Claude-compatible double-underscore convention so ActivityFeed
+        // formats it as "context7: query-docs" via its mcp__ branch.
+        assert_eq!(tool_name, "mcp__context7__query-docs");
         assert_eq!(tool_input["q"], "tauri");
     }
 

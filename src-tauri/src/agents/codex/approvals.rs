@@ -133,7 +133,10 @@ pub async fn classify_server_request(
                     rpc_id: rpc_id.clone(),
                     item_id: item_id.clone(),
                 },
-                format!("MCP:{server}:elicitation"),
+                // Claude-compatible mcp__ convention so the approval
+                // modal + activity feed format the tool as
+                // "{server}: elicitation" via their shared mcp__ branches.
+                format!("mcp__{server}__elicitation"),
                 json!({"mode": mode, "schema": schema}),
             )
         }
@@ -307,7 +310,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(req.tool_name, "MCP:context7:elicitation");
+        assert_eq!(req.tool_name, "mcp__context7__elicitation");
         assert_eq!(req.tool_input["mode"], "form");
         let kind = state.take_server_request(&req.request_id).await.unwrap();
         assert!(matches!(kind, ServerRequestKind::McpElicitation { .. }));
