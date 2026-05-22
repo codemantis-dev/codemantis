@@ -51,6 +51,11 @@ const MODE_COLOR: Record<SessionMode, string> = {
   "auto": "text-blue",
   "dont-ask": "text-green",
   "bypass-permissions": "text-red",
+  // Codex-only mode — ModeSelector is only mounted for Claude sessions
+  // (Codex sessions render PolicyPill instead), so this entry should
+  // never actually be displayed. Present to satisfy the Record<…>
+  // exhaustiveness check; matches the review banner's accent colour.
+  "review": "text-accent",
 };
 
 export default function ModeSelector() {

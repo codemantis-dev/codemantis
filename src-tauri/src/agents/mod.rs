@@ -166,6 +166,15 @@ pub struct ServerToolUse {
     pub web_fetch_requests: Option<u32>,
 }
 
+/// A single fragment inside a Codex `hookPrompt` ThreadItem. The CLI
+/// can emit multiple fragments per hook run (e.g. when a hook chains
+/// multiple `--add-context` calls); each surfaces as its own toast.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HookPromptFragment {
+    pub hook_run_id: String,
+    pub text: String,
+}
+
 /// A tool call that was denied (by the agent's guardrail or by the host).
 /// The frontend buckets these into protected-path toasts vs. UI-prompt events
 /// (ExitPlanMode / AskUserQuestion / EnterPlanMode) — see `chat.ts:213-275`.
@@ -415,6 +424,66 @@ pub enum NormalizedEvent {
         error: Option<String>,
     },
 
+    /// Fired when the per-session reasoning effort changes. Codex emits
+    /// this from `CodexProcessHandle::set_effort`; Claude has no runtime
+    /// path for effort and never fires this. Mirrors `ModelChanged`.
+    #[serde(rename = "effort_changed")]
+    EffortChanged {
+        agent_id: AgentId,
+        session_id: String,
+        effort: String,
+        success: bool,
+        error: Option<String>,
+    },
+
+    /// Codex `enteredReviewMode` ThreadItem at item/completed. Carries the
+    /// final `review` text — `ReviewModeBanner` reads it from
+    /// `sessionReviewContent`. Lifecycle pair with `ReviewModeExited`.
+    #[serde(rename = "review_mode_entered")]
+    ReviewModeEntered {
+        agent_id: AgentId,
+        session_id: String,
+        item_id: String,
+        review: String,
+    },
+
+    /// Codex `exitedReviewMode` ThreadItem at item/completed. Carries the
+    /// final review text; the banner keeps showing this until the user
+    /// dismisses it explicitly.
+    #[serde(rename = "review_mode_exited")]
+    ReviewModeExited {
+        agent_id: AgentId,
+        session_id: String,
+        item_id: String,
+        final_review: String,
+    },
+
+    /// Codex `hookPrompt` ThreadItem at item/completed. Each fragment is
+    /// surfaced as an info toast. Distinct from hook lifecycle status
+    /// (started/completed) below — `hookPrompt` is hook-emitted content,
+    /// not hook-runtime metadata.
+    #[serde(rename = "hook_prompt")]
+    HookPrompt {
+        agent_id: AgentId,
+        session_id: String,
+        item_id: String,
+        fragments: Vec<HookPromptFragment>,
+    },
+
+    /// Codex hook lifecycle (HookStarted / HookCompleted RPC
+    /// notifications, not ThreadItems). Surfaced as info / warning /
+    /// error toasts depending on `status`.
+    #[serde(rename = "hook_status")]
+    HookStatus {
+        agent_id: AgentId,
+        session_id: String,
+        run_id: String,
+        event_name: String,
+        kind: String, // "started" | "completed"
+        status: String, // running | completed | failed | blocked | stopped
+        duration_ms: Option<u64>,
+    },
+
     #[serde(rename = "capabilities_discovered")]
     CapabilitiesDiscovered {
         agent_id: AgentId,
@@ -645,6 +714,18 @@ pub trait AgentProcessHandle: Send + Sync {
         ))
     }
 
+    /// Update the reasoning effort that will apply on the next turn.
+    /// Codex passes `effort` per-turn so this is a cheap mutex update +
+    /// `EffortChanged` emit; Claude's `--effort` is spawn-time only and
+    /// returns `CapabilityNotSupported` here. UI surfaces (EffortSelector)
+    /// already branch on agent and only call this for Codex sessions.
+    async fn set_effort(&self, _effort: String) -> Result<(), AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "set_effort (default impl — Claude --effort is spawn-time only)",
+        ))
+    }
+
     /// Respond to a previously-routed server-initiated approval. Codex
     /// uses this for its 4 `*/requestApproval` kinds (spec §4.5); Claude's
     /// HTTP approval-server path is unchanged so its impl returns
@@ -742,6 +823,9 @@ pub fn chat_channel(agent_id: AgentId, session_id: &str) -> String {
 /// this to pick the right Tauri channel.
 #[allow(dead_code)]
 pub fn is_activity_event(ev: &NormalizedEvent) -> bool {
+    // EffortChanged / ReviewMode* / HookPrompt / HookStatus are
+    // session-lifecycle events (mirror ModelChanged) — chat channel, not
+    // activity. Tool / sub-agent variants stay on activity.
     matches!(
         ev,
         NormalizedEvent::ToolUseStart { .. }

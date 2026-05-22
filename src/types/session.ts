@@ -36,7 +36,10 @@ export type SessionMode =
   | "plan"
   | "auto"
   | "dont-ask"
-  | "bypass-permissions";
+  | "bypass-permissions"
+  /** Codex-only — set by the `enteredReviewMode` ThreadItem; cleared on
+   * `exitedReviewMode`. Drives the ReviewModeBanner above the chat. */
+  | "review";
 
 /**
  * The CLI emits whatever effort label the active model supports

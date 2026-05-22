@@ -5,8 +5,12 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { handleError } from "../../lib/error-handler";
 import { showToast } from "../../stores/toastStore";
-import { pauseSessionProcess, resumeSessionProcess } from "../../lib/tauri-commands";
-import type { CliModelInfo } from "../../types/claude-events";
+import {
+  pauseSessionProcess,
+  resumeSessionProcess,
+  setSessionEffort as setSessionEffortCmd,
+} from "../../lib/tauri-commands";
+import type { CliModelInfo } from "../../types/agent-events";
 
 /**
  * Resolve which `CliModelInfo` corresponds to the running CLI session.
@@ -160,11 +164,30 @@ export default function EffortSelector() {
     !sessionBusy &&
     !restarting;
 
+  const isCodex = (session?.agent_id ?? "claude_code") === "codex";
+
   const handleSelect = (next: string) => {
-    if (next === persistedDefault) {
+    if (next === persistedDefault && !isCodex) {
       setOpen(false);
       return;
     }
+    // Codex applies effort per-turn — commit immediately via the Tauri
+    // command (no process restart needed). The optimistic local update
+    // means the label reflects the click instantly; the EffortChanged
+    // event from the adapter confirms it (or surfaces an error).
+    if (isCodex && activeSessionId) {
+      const previous = runningLevel;
+      setSessionEffort(activeSessionId, next);
+      setOpen(false);
+      setSessionEffortCmd(activeSessionId, next).catch((err) => {
+        if (previous) setSessionEffort(activeSessionId, previous);
+        handleError("EffortSelector.codexSetEffort", err);
+        showToast("Failed to update Codex effort.", "error");
+      });
+      return;
+    }
+    // Claude: persisted setting drives the next spawn; the restart button
+    // is the only way to make it take effect on the live session.
     updateSettings({ defaultThinkingEffort: next }).catch((err) =>
       handleError("EffortSelector.persist", err),
     );
@@ -176,13 +199,16 @@ export default function EffortSelector() {
     setOpen(false);
     const previous = runningLevel;
     try {
-      // The CLI in stream-json mode has no runtime path to change effort
-      // (`set_effort` unsupported, `/effort` TTY-gated). The only way to
-      // make the change take effect is to close + respawn. The new spawn
-      // reads `defaultThinkingEffort` from settings and passes it as the
-      // documented `--effort` flag (see process.rs::spawn). The existing
-      // CLI session_id is preserved via `--resume`, so the conversation
-      // continues from where it left off.
+      // Claude only — Codex doesn't reach here because handleSelect commits
+      // directly via setSessionEffortCmd (per-turn application).
+      //
+      // The Claude CLI in stream-json mode has no runtime path to change
+      // effort (`set_effort` unsupported, `/effort` TTY-gated). The only
+      // way to make the change take effect is to close + respawn. The new
+      // spawn reads `defaultThinkingEffort` from settings and passes it
+      // as the documented `--effort` flag (see process.rs::spawn). The
+      // existing CLI session_id is preserved via `--resume`, so the
+      // conversation continues from where it left off.
       await pauseSessionProcess(activeSessionId);
       await resumeSessionProcess(activeSessionId, undefined);
       setSessionEffort(activeSessionId, restartTarget);

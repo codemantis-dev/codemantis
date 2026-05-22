@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Session, Message, TurnStats, SessionStats, SessionMode, SessionStatus, ThinkingEffort } from "../types/session";
-import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
+import type { CapabilitiesDiscoveredEvent } from "../types/agent-events";
 import type { SubAgentInfo } from "../types/activity";
 import { useSettingsStore } from "./settingsStore";
 import { useFileViewerStore } from "./fileViewerStore";
@@ -53,6 +53,10 @@ interface SessionState {
   sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
   activeSubAgents: Map<string, SubAgentInfo[]>;  // sessionId → running sub-agents
   sessionThinking: Map<string, { isThinking: boolean; content: string }>;
+  /** Codex review-mode content: populated by ReviewModeEntered, kept
+   * across the lifecycle so ReviewModeBanner can render the latest
+   * review text even after ReviewModeExited flips sessionModes back. */
+  sessionReviewContent: Map<string, string>;
   tabOrder: string[];
 
   // Project grouping
@@ -103,6 +107,7 @@ interface SessionState {
   startThinking: (sessionId: string) => void;
   appendThinkingContent: (sessionId: string, text: string) => void;
   finalizeThinking: (sessionId: string, fullText?: string) => void;
+  setSessionReviewContent: (sessionId: string, review: string) => void;
 
   // Help session (not added to tabOrder or sessions map)
   initHelpSessionMaps: (sessionId: string) => void;
@@ -153,6 +158,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionCapabilities: new Map(),
   activeSubAgents: new Map(),
   sessionThinking: new Map(),
+  sessionReviewContent: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -236,6 +242,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeSubAgents.delete(sessionId);
       const sessionThinking = new Map(state.sessionThinking);
       sessionThinking.delete(sessionId);
+      const sessionReviewContent = new Map(state.sessionReviewContent);
+      sessionReviewContent.delete(sessionId);
       // Clean up the 8 Maps that were previously leaked
       const sessionActivity = new Map(state.sessionActivity);
       sessionActivity.delete(sessionId);
@@ -302,6 +310,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionEffort,
         activeSubAgents,
         sessionThinking,
+        sessionReviewContent,
         sessionActivity,
         sessionCompacting,
         busySince,
@@ -541,6 +550,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessionEffort };
     }),
 
+  setSessionReviewContent: (sessionId, review) =>
+    set((state) => {
+      const sessionReviewContent = new Map(state.sessionReviewContent);
+      if (review === "") {
+        sessionReviewContent.delete(sessionId);
+      } else {
+        sessionReviewContent.set(sessionId, review);
+      }
+      return { sessionReviewContent };
+    }),
+
   updateSessionStatus: (sessionId, status) =>
     set((state) => {
       const sessions = new Map(state.sessions);
@@ -584,7 +604,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeSubAgents.delete(sessionId);
       const sessionThinking = new Map(state.sessionThinking);
       sessionThinking.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking };
+      const sessionReviewContent = new Map(state.sessionReviewContent);
+      sessionReviewContent.delete(sessionId);
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
     }),
 
   setRetryState: (sessionId, retryState) =>

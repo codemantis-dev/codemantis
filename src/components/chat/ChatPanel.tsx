@@ -10,6 +10,7 @@ import SelfDriveDecisionCard from "./SelfDriveDecisionCard";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
 import ChatSearchBar from "./ChatSearchBar";
+import ReviewModeBanner from "./ReviewModeBanner";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
 import { useChatSearchStore } from "../../stores/chatSearchStore";
 
@@ -203,6 +204,10 @@ export default function ChatPanel() {
           className="h-full overflow-y-auto px-6 py-4"
         >
           <div className="max-w-[1080px] mx-auto">
+            {/* Codex review-mode surface. Hidden for Claude sessions
+                (no review content); rendered above all messages so
+                users see the review state context before the chat. */}
+            <ReviewModeBanner />
             {messages.length === 0 && !streaming.isStreaming && (
               <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: "calc(100vh - 240px)" }}>
                 <img src="/CodeMantisIcon.png" alt="CodeMantis" className="w-20 h-20 opacity-30" />

@@ -27,6 +27,11 @@ export type FrontendEvent =
   | UsageUpdateEvent
   | InterruptResultEvent
   | ModelChangedEvent
+  | EffortChangedEvent
+  | ReviewModeEnteredEvent
+  | ReviewModeExitedEvent
+  | HookPromptEvent
+  | HookStatusEvent
   | CapabilitiesDiscoveredEvent
   | AgentPreparingEvent
   | SubAgentStartedEvent
@@ -214,6 +219,62 @@ export interface ModelChangedEvent {
   error: string | null;
 }
 
+/** Fired when the per-session reasoning effort changes. Codex emits it
+ * after `set_session_effort`; Claude does not (its `--effort` is
+ * spawn-time only and EffortSelector restarts the process instead). */
+export interface EffortChangedEvent {
+  type: "effort_changed";
+  agent_id?: AgentId;
+  session_id: string;
+  effort: string;
+  success: boolean;
+  error: string | null;
+}
+
+/** Codex `enteredReviewMode` ThreadItem at item/completed. */
+export interface ReviewModeEnteredEvent {
+  type: "review_mode_entered";
+  agent_id?: AgentId;
+  session_id: string;
+  item_id: string;
+  review: string;
+}
+
+/** Codex `exitedReviewMode` ThreadItem at item/completed. */
+export interface ReviewModeExitedEvent {
+  type: "review_mode_exited";
+  agent_id?: AgentId;
+  session_id: string;
+  item_id: string;
+  final_review: string;
+}
+
+export interface HookPromptFragment {
+  hook_run_id: string;
+  text: string;
+}
+
+/** Codex `hookPrompt` ThreadItem — fragment-list of injected hook prompts. */
+export interface HookPromptEvent {
+  type: "hook_prompt";
+  agent_id?: AgentId;
+  session_id: string;
+  item_id: string;
+  fragments: HookPromptFragment[];
+}
+
+/** Codex hook lifecycle (`hook/started` / `hook/completed` RPC). */
+export interface HookStatusEvent {
+  type: "hook_status";
+  agent_id?: AgentId;
+  session_id: string;
+  run_id: string;
+  event_name: string;
+  kind: "started" | "completed";
+  status: string;
+  duration_ms?: number | null;
+}
+
 export interface CapabilitiesDiscoveredEvent {
   type: "capabilities_discovered";
   agent_id?: AgentId;
@@ -235,6 +296,10 @@ export interface CliModelInfo {
   isDefault?: boolean;
   supportsEffort?: boolean;
   supportedEffortLevels?: string[];
+  /** The effort the CLI would pick if none is sent. Codex `model/list`
+   * provides this per-model; Claude's `--effort` defaults are global so
+   * Claude leaves this undefined. */
+  defaultEffort?: string;
   supportsAdaptiveThinking?: boolean;
   supportsFastMode?: boolean;
   supportsAutoMode?: boolean;

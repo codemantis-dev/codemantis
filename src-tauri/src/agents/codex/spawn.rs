@@ -234,6 +234,26 @@ impl AgentProcessHandle for CodexProcessHandle {
             .map(|_| ())
     }
 
+    async fn set_effort(&self, effort: String) -> Result<(), AgentError> {
+        // Codex applies effort per turn (turn/start), so this is just a
+        // mutex swap + an EffortChanged emit so chat.ts can update
+        // sessionEffort. Mirrors the hotfix-#10 ModelChanged pattern —
+        // without the explicit emit the frontend never confirms the
+        // switch and EffortSelector falls back to its stale display.
+        *self.current_effort.lock().await = Some(effort.clone());
+        emit_event_for(
+            &self.app_handle,
+            &NormalizedEvent::EffortChanged {
+                agent_id: AgentId::Codex,
+                session_id: self.session_id.clone(),
+                effort,
+                success: true,
+                error: None,
+            },
+        );
+        Ok(())
+    }
+
     async fn respond_to_approval(
         &self,
         request_id: &str,
@@ -508,16 +528,40 @@ pub async fn spawn_codex_session(
                         .get("isDefault")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    // Surface `isDefault` as a structured field — the
-                    // frontend reads it to pick the resolved label when
-                    // `session.model` is still null (fresh session).
-                    // The old "(default)" suffix in displayName is gone
-                    // because ModelSelector now annotates it itself.
+                    // Codex's model/list returns supportedReasoningEfforts
+                    // as an array of objects `{ reasoningEffort: "low" }`
+                    // etc. Empirically (cli 0.130.0) every shipped model
+                    // supports [low, medium, high, xhigh]; older / hidden
+                    // models may add `none` / `minimal`. The frontend's
+                    // EffortSelector hides itself when this list is empty,
+                    // so dropping the data made the control invisible for
+                    // Codex sessions — Tier 0 of v1.4.0 closes that gap.
+                    let supported_efforts: Vec<String> = m
+                        .get("supportedReasoningEfforts")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|e| {
+                                    e.get("reasoningEffort")
+                                        .and_then(|v| v.as_str())
+                                        .map(str::to_string)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let default_effort = m
+                        .get("defaultReasoningEffort")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let supports_effort = !supported_efforts.is_empty();
                     json!({
                         "value": value,
                         "displayName": display,
                         "description": description,
                         "isDefault": is_default,
+                        "supportsEffort": supports_effort,
+                        "supportedEffortLevels": supported_efforts,
+                        "defaultEffort": default_effort,
                     })
                 })
                 .collect();
@@ -736,6 +780,11 @@ fn short_kind(ev: &NormalizedEvent) -> &'static str {
         NormalizedEvent::UsageUpdate { .. } => "UsageUpdate",
         NormalizedEvent::InterruptResult { .. } => "InterruptResult",
         NormalizedEvent::ModelChanged { .. } => "ModelChanged",
+        NormalizedEvent::EffortChanged { .. } => "EffortChanged",
+        NormalizedEvent::ReviewModeEntered { .. } => "ReviewModeEntered",
+        NormalizedEvent::ReviewModeExited { .. } => "ReviewModeExited",
+        NormalizedEvent::HookPrompt { .. } => "HookPrompt",
+        NormalizedEvent::HookStatus { .. } => "HookStatus",
         NormalizedEvent::CapabilitiesDiscovered { .. } => "CapabilitiesDiscovered",
         NormalizedEvent::AgentPreparing { .. } => "AgentPreparing",
         NormalizedEvent::SubAgentStarted { .. } => "SubAgentStarted",

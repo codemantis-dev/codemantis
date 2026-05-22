@@ -71,10 +71,45 @@ impl Translator {
             | "item/reasoning/textDelta"
             | "item/reasoning/summaryPartAdded" => self.on_reasoning_delta(params).await,
             "item/commandExecution/outputDelta" => self.on_command_output_delta(params).await,
+            // Hook lifecycle (HookStartedNotification / HookCompletedNotification).
+            // Separate from `hookPrompt` ThreadItems: lifecycle markers
+            // tell us a hook ran (started / failed / completed), while
+            // ThreadItems carry the *content* injected by the hook.
+            "hook/started" => self.on_hook_lifecycle(params, "started"),
+            "hook/completed" => self.on_hook_lifecycle(params, "completed"),
             "error" => self.map_error(params),
             // Unknown notification — log and swallow (S4 wires the logger).
             _ => Vec::new(),
         }
+    }
+
+    fn on_hook_lifecycle(&self, params: Value, kind: &str) -> Vec<NormalizedEvent> {
+        let run = params.get("run").cloned().unwrap_or(Value::Null);
+        let run_id = run
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let event_name = run
+            .get("eventName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let status = run
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let duration_ms = run.get("durationMs").and_then(|v| v.as_u64());
+        vec![NormalizedEvent::HookStatus {
+            agent_id: AgentId::Codex,
+            session_id: self.session_id.clone(),
+            run_id,
+            event_name,
+            kind: kind.to_string(),
+            status,
+            duration_ms,
+        }]
     }
 
     // ── Lifecycle ──
@@ -268,8 +303,113 @@ impl Translator {
                 is_compacting: true,
             }],
 
-            // Out-of-scope item types per spec §2.4.4 (plan, review modes,
-            // collabToolCall) — silently dropped.
+            // ── v1.4.0 ThreadItem types ──
+            // Phase 2 spec §2.4.4 deferred these as v1.4.0 work; the
+            // user-approved plan in /Users/hr/.claude/plans/i-want-to-add-gentle-duckling.md
+            // brings them forward.
+
+            // `plan` text is authoritative only at item/completed — see
+            // schema comment in ItemStartedNotification.json:617. We emit
+            // nothing on start; the completed handler synthesises an
+            // ExitPlanMode ToolUseStart so the existing PlanCompleteModal
+            // pipeline picks it up unchanged.
+            "plan" => Vec::new(),
+
+            // Review-mode lifecycle markers — the `review` field is
+            // populated on item/completed. Started is no-op.
+            "enteredReviewMode" | "exitedReviewMode" => Vec::new(),
+
+            // Hook prompt: fragments arrive at completion.
+            "hookPrompt" => Vec::new(),
+
+            // Image generation: the `result` URL / `savedPath` is
+            // authoritative at completion; nothing useful to surface on
+            // start beyond the activity badge.
+            "imageGeneration" => vec![NormalizedEvent::ToolUseStart {
+                agent_id: AgentId::Codex,
+                session_id: self.session_id.clone(),
+                tool_use_id: item_id,
+                tool_name: "ImageGeneration".to_string(),
+                tool_input: serde_json::json!({
+                    "revisedPrompt": item.get("revisedPrompt").cloned().unwrap_or(Value::Null),
+                }),
+            }],
+
+            // Dynamic tool call: namespaced name so the existing
+            // event-classifier / ActivityFeed `dyn__namespace__tool`
+            // branch (mirrors mcp__ convention) formats the badge as
+            // "namespace: tool" instead of dumping the raw string.
+            "dynamicToolCall" => {
+                let tool = item.get("tool").and_then(|v| v.as_str()).unwrap_or("?");
+                let namespace = item.get("namespace").and_then(|v| v.as_str());
+                let tool_name = match namespace {
+                    Some(ns) if !ns.is_empty() => format!("dyn__{ns}__{tool}"),
+                    _ => format!("dyn__{tool}"),
+                };
+                let args = item.get("arguments").cloned().unwrap_or(Value::Null);
+                vec![NormalizedEvent::ToolUseStart {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    tool_use_id: item_id,
+                    tool_name,
+                    tool_input: args,
+                }]
+            }
+
+            // collabAgentToolCall — OBSERVED-ONLY per Phase 2 anti-goal
+            // (multi-agent coordination was deliberately out of scope).
+            // We surface the call through the existing SubAgent
+            // infrastructure so users can see it happening, but we do
+            // NOT add any UI to spawn / steer / close sub-agents from
+            // CodeMantis. If a future contributor wants to add steering
+            // UI, that's a separate decision — see the plan file at
+            // /Users/hr/.claude/plans/i-want-to-add-gentle-duckling.md
+            // (Tier 3) for context.
+            "collabAgentToolCall" => {
+                let tool = item.get("tool").and_then(|v| v.as_str()).unwrap_or("?");
+                let receivers: Vec<String> = item
+                    .get("receiverThreadIds")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let receivers_label = if receivers.len() <= 2 {
+                    receivers.join(", ")
+                } else {
+                    format!("{}+{} more", receivers[..2].join(", "), receivers.len() - 2)
+                };
+                let description = format!("{tool} → {receivers_label}");
+                let tool_input = serde_json::json!({
+                    "tool": tool,
+                    "receiverThreadIds": receivers,
+                    "prompt": item.get("prompt").cloned().unwrap_or(Value::Null),
+                    "model": item.get("model").cloned().unwrap_or(Value::Null),
+                    "reasoningEffort": item.get("reasoningEffort").cloned().unwrap_or(Value::Null),
+                });
+                vec![
+                    NormalizedEvent::ToolUseStart {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id.clone(),
+                        tool_name: "Agent".to_string(),
+                        tool_input,
+                    },
+                    NormalizedEvent::SubAgentStarted {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id,
+                        description,
+                        subagent_type: tool.to_string(),
+                    },
+                ]
+            }
+
+            // Unknown item type — log and drop. Adding a new arm here
+            // (rather than silently swallowing) is the empirical-first
+            // path the drift detector enforces.
             _ => Vec::new(),
         }
     }
@@ -357,6 +497,203 @@ impl Translator {
                     trigger: "auto".to_string(),
                     pre_tokens,
                 }]
+            }
+
+            // ── v1.4.0 ThreadItem completions ──
+
+            // `plan` → synthesise an ExitPlanMode ToolUseStart so the
+            // existing activity.ts:119-193 handler pumps the plan text
+            // into uiStore.setPlanCompleteContent → PlanCompleteModal.
+            // Followed by a no-error ToolResult so the activity entry
+            // resolves cleanly. Schema: { id, text }.
+            "plan" => {
+                let text = item
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| buffer.as_ref().map(|b| b.text.clone()))
+                    .unwrap_or_default();
+                vec![
+                    NormalizedEvent::ToolUseStart {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id.clone(),
+                        tool_name: "ExitPlanMode".to_string(),
+                        tool_input: serde_json::json!({ "plan": text }),
+                    },
+                    NormalizedEvent::ToolResult {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id,
+                        content: None,
+                        is_error: false,
+                    },
+                ]
+            }
+
+            "enteredReviewMode" => {
+                let review = item
+                    .get("review")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                vec![NormalizedEvent::ReviewModeEntered {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    item_id,
+                    review,
+                }]
+            }
+
+            "exitedReviewMode" => {
+                let final_review = item
+                    .get("review")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                vec![NormalizedEvent::ReviewModeExited {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    item_id,
+                    final_review,
+                }]
+            }
+
+            "hookPrompt" => {
+                let fragments: Vec<crate::agents::HookPromptFragment> = item
+                    .get("fragments")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|f| {
+                                let hook_run_id = f
+                                    .get("hookRunId")
+                                    .and_then(|v| v.as_str())?
+                                    .to_string();
+                                let text =
+                                    f.get("text").and_then(|v| v.as_str())?.to_string();
+                                Some(crate::agents::HookPromptFragment {
+                                    hook_run_id,
+                                    text,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if fragments.is_empty() {
+                    return Vec::new();
+                }
+                vec![NormalizedEvent::HookPrompt {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    item_id,
+                    fragments,
+                }]
+            }
+
+            // imageGeneration — emit ToolResult with markdown image. The
+            // chat-level result renderer's markdown pipeline already
+            // renders inline images via remarkGfm. Prefer savedPath
+            // (absolute local) over `result` (may be a remote URL).
+            // Path safety: the frontend reads local images via
+            // read_file_bytes + Object URL (no file:// to the webview).
+            "imageGeneration" => {
+                let saved_path = item
+                    .get("savedPath")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let result_url = item
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let target = saved_path.or(result_url).unwrap_or_default();
+                let content = if target.is_empty() {
+                    None
+                } else {
+                    Some(format!("![Generated]({target})"))
+                };
+                let is_error = status != "completed";
+                vec![NormalizedEvent::ToolResult {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    tool_use_id: item_id,
+                    content,
+                    is_error,
+                }]
+            }
+
+            // dynamicToolCall completion — render contentItems. Text
+            // entries concatenate; inputImage entries become markdown
+            // images. The MCP-like name format is already in place from
+            // on_item_started so the badge renders correctly.
+            "dynamicToolCall" => {
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(items) =
+                    item.get("contentItems").and_then(|v| v.as_array())
+                {
+                    for ci in items {
+                        let kind = ci.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                        match kind {
+                            "inputText" => {
+                                if let Some(t) =
+                                    ci.get("text").and_then(|v| v.as_str())
+                                {
+                                    parts.push(t.to_string());
+                                }
+                            }
+                            "inputImage" => {
+                                if let Some(u) =
+                                    ci.get("imageUrl").and_then(|v| v.as_str())
+                                {
+                                    parts.push(format!("![dynamic tool output]({u})"));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let content = if parts.is_empty() { None } else { Some(parts.join("\n\n")) };
+                let success = item.get("success").and_then(|v| v.as_bool());
+                let is_error = match success {
+                    Some(s) => !s,
+                    None => status != "completed",
+                };
+                vec![NormalizedEvent::ToolResult {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    tool_use_id: item_id,
+                    content,
+                    is_error,
+                }]
+            }
+
+            "collabAgentToolCall" => {
+                let final_states = item
+                    .get("agentsStates")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let summary = serde_json::to_string(&final_states).unwrap_or_default();
+                let success = item
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "completed")
+                    .unwrap_or(false);
+                vec![
+                    NormalizedEvent::SubAgentComplete {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id.clone(),
+                        tool_count: None,
+                        token_count: None,
+                    },
+                    NormalizedEvent::ToolResult {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id,
+                        content: Some(format!("agents: {summary}")),
+                        is_error: !success,
+                    },
+                ]
             }
 
             _ => Vec::new(),
@@ -786,7 +1123,7 @@ mod tests {
         let events = t
             .on_notification(
                 "item/started",
-                json!({"item": {"type": "plan", "id": "i_p"}}),
+                json!({"item": {"type": "someUnknownFutureType", "id": "i_p"}}),
             )
             .await;
         assert!(events.is_empty());
@@ -1088,5 +1425,373 @@ mod tests {
             }
         }
         let _ = extract_session_id; // silence dead-code lint on the helper
+    }
+
+    // ── v1.4.0 ThreadItem types ──
+
+    #[tokio::test]
+    async fn plan_item_completed_emits_synthetic_exit_plan_mode() {
+        // Plan items reuse the Claude ExitPlanMode → PlanCompleteModal
+        // pipeline. Translator emits ToolUseStart + a no-error ToolResult
+        // so the existing activity.ts handler picks up tool_input.plan.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "plan",
+                    "id": "i_plan",
+                    "text": "1. Add X\n2. Test X\n3. Ship X",
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            NormalizedEvent::ToolUseStart { tool_name, tool_input, .. } => {
+                assert_eq!(tool_name, "ExitPlanMode");
+                assert_eq!(tool_input["plan"], "1. Add X\n2. Test X\n3. Ship X");
+            }
+            other => panic!("expected ToolUseStart, got {:?}", other),
+        }
+        match &events[1] {
+            NormalizedEvent::ToolResult { is_error, .. } => {
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn entered_review_mode_completed_emits_review_mode_entered() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "enteredReviewMode",
+                    "id": "i_er",
+                    "review": "Reviewing changes to foo.rs",
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ReviewModeEntered { item_id, review, .. } => {
+                assert_eq!(item_id, "i_er");
+                assert_eq!(review, "Reviewing changes to foo.rs");
+            }
+            other => panic!("expected ReviewModeEntered, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn exited_review_mode_completed_emits_review_mode_exited() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "exitedReviewMode",
+                    "id": "i_ex",
+                    "review": "Review summary: looks good.",
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ReviewModeExited { item_id, final_review, .. } => {
+                assert_eq!(item_id, "i_ex");
+                assert_eq!(final_review, "Review summary: looks good.");
+            }
+            other => panic!("expected ReviewModeExited, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn hook_prompt_completed_emits_hook_prompt_with_fragments() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "hookPrompt",
+                    "id": "i_hp",
+                    "fragments": [
+                        {"hookRunId": "r1", "text": "extra context"},
+                        {"hookRunId": "r2", "text": "more context"},
+                    ],
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::HookPrompt { fragments, .. } => {
+                assert_eq!(fragments.len(), 2);
+                assert_eq!(fragments[0].hook_run_id, "r1");
+                assert_eq!(fragments[1].text, "more context");
+            }
+            other => panic!("expected HookPrompt, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn hook_lifecycle_emits_hook_status() {
+        // Hook started + hook completed are RPC-level (separate from
+        // ThreadItem `hookPrompt`). Both produce HookStatus.
+        let t = translator();
+        let started = t
+            .on_notification(
+                "hook/started",
+                json!({
+                    "run": {
+                        "id": "run_1",
+                        "eventName": "preToolUse",
+                        "status": "running",
+                        "durationMs": null,
+                    },
+                    "threadId": "thr_1",
+                }),
+            )
+            .await;
+        match &started[0] {
+            NormalizedEvent::HookStatus { run_id, event_name, kind, status, .. } => {
+                assert_eq!(run_id, "run_1");
+                assert_eq!(event_name, "preToolUse");
+                assert_eq!(kind, "started");
+                assert_eq!(status, "running");
+            }
+            other => panic!("expected HookStatus, got {:?}", other),
+        }
+        let completed = t
+            .on_notification(
+                "hook/completed",
+                json!({
+                    "run": {
+                        "id": "run_1",
+                        "eventName": "preToolUse",
+                        "status": "completed",
+                        "durationMs": 42,
+                    },
+                    "threadId": "thr_1",
+                }),
+            )
+            .await;
+        match &completed[0] {
+            NormalizedEvent::HookStatus { kind, status, duration_ms, .. } => {
+                assert_eq!(kind, "completed");
+                assert_eq!(status, "completed");
+                assert_eq!(*duration_ms, Some(42));
+            }
+            other => panic!("expected HookStatus, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_tool_call_started_uses_dyn_prefix() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/started",
+                json!({"item": {
+                    "type": "dynamicToolCall",
+                    "id": "i_dyn",
+                    "tool": "calculate",
+                    "namespace": "mathkit",
+                    "arguments": {"x": 1},
+                    "status": "inProgress",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ToolUseStart { tool_name, tool_input, .. } => {
+                // Claude-style namespacing so event-classifier / ActivityFeed
+                // format the badge as "mathkit: calculate".
+                assert_eq!(tool_name, "dyn__mathkit__calculate");
+                assert_eq!(tool_input["x"], 1);
+            }
+            other => panic!("expected ToolUseStart, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_tool_call_started_without_namespace() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/started",
+                json!({"item": {
+                    "type": "dynamicToolCall",
+                    "id": "i_dyn",
+                    "tool": "ping",
+                    "arguments": {},
+                    "status": "inProgress",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ToolUseStart { tool_name, .. } => {
+                assert_eq!(tool_name, "dyn__ping");
+            }
+            other => panic!("expected ToolUseStart, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_tool_call_completed_renders_content_items() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "dynamicToolCall",
+                    "id": "i_dyn",
+                    "tool": "ping",
+                    "arguments": {},
+                    "status": "completed",
+                    "success": true,
+                    "contentItems": [
+                        {"type": "inputText", "text": "pong"},
+                        {"type": "inputImage", "imageUrl": "https://cdn/img.png"},
+                    ],
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ToolResult { content, is_error, .. } => {
+                let body = content.as_ref().expect("content");
+                assert!(body.contains("pong"));
+                assert!(body.contains("![dynamic tool output](https://cdn/img.png)"));
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn image_generation_started_emits_tool_use_start() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/started",
+                json!({"item": {
+                    "type": "imageGeneration",
+                    "id": "i_ig",
+                    "result": "",
+                    "status": "inProgress",
+                    "revisedPrompt": "an orange cat",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ToolUseStart { tool_name, tool_input, .. } => {
+                assert_eq!(tool_name, "ImageGeneration");
+                assert_eq!(tool_input["revisedPrompt"], "an orange cat");
+            }
+            other => panic!("expected ToolUseStart, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn image_generation_completed_renders_markdown_image_from_saved_path() {
+        // Prefer savedPath (absolute local) over result URL — the frontend
+        // serves local images via read_file_bytes Object URLs.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "imageGeneration",
+                    "id": "i_ig",
+                    "result": "https://cdn/img.png",
+                    "savedPath": "/Users/hr/.codex/images/gen.png",
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ToolResult { content, is_error, .. } => {
+                let body = content.as_ref().expect("content");
+                assert_eq!(body, "![Generated](/Users/hr/.codex/images/gen.png)");
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn collab_agent_tool_call_started_emits_sub_agent_pair() {
+        // Observed-only per Phase 2 anti-goal: surface via existing
+        // sub-agent activity-feed treatment, no steering UI.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/started",
+                json!({"item": {
+                    "type": "collabAgentToolCall",
+                    "id": "i_collab",
+                    "senderThreadId": "thr_parent",
+                    "receiverThreadIds": ["thr_child_1", "thr_child_2"],
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "agentsStates": {},
+                    "prompt": "do the thing",
+                    "model": "gpt-5.5",
+                }}),
+            )
+            .await;
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            NormalizedEvent::ToolUseStart { tool_name, tool_input, .. } => {
+                assert_eq!(tool_name, "Agent");
+                assert_eq!(tool_input["tool"], "spawnAgent");
+                assert_eq!(tool_input["receiverThreadIds"].as_array().unwrap().len(), 2);
+            }
+            other => panic!("expected ToolUseStart, got {:?}", other),
+        }
+        match &events[1] {
+            NormalizedEvent::SubAgentStarted {
+                description, subagent_type, ..
+            } => {
+                assert!(description.contains("spawnAgent"));
+                assert!(description.contains("thr_child_1"));
+                assert_eq!(subagent_type, "spawnAgent");
+            }
+            other => panic!("expected SubAgentStarted, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn collab_agent_tool_call_completed_emits_sub_agent_complete() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "collabAgentToolCall",
+                    "id": "i_collab",
+                    "senderThreadId": "thr_parent",
+                    "receiverThreadIds": ["thr_child_1"],
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "agentsStates": {
+                        "thr_child_1": {"status": "completed", "message": null}
+                    },
+                }}),
+            )
+            .await;
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            NormalizedEvent::SubAgentComplete { .. } => {}
+            other => panic!("expected SubAgentComplete, got {:?}", other),
+        }
+        match &events[1] {
+            NormalizedEvent::ToolResult { content, is_error, .. } => {
+                let body = content.as_ref().expect("content");
+                assert!(body.contains("thr_child_1"));
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {:?}", other),
+        }
     }
 }

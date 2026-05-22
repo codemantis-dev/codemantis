@@ -869,6 +869,29 @@ pub async fn set_session_model(
     Ok(())
 }
 
+/// Update the reasoning effort for a live session.
+/// For Codex sessions, applies on the next turn (mutex update + emit).
+/// For Claude sessions, returns an error — Claude's `--effort` is
+/// spawn-time only. The frontend's EffortSelector handles Claude via
+/// pause + resume (config-rebuild path) and only invokes this command
+/// for Codex sessions.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn set_session_effort(
+    state: State<'_, AppState>,
+    session_id: String,
+    effort: String,
+) -> Result<(), String> {
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+
+    process
+        .set_effort(effort)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn initialize_session(
     state: State<'_, AppState>,

@@ -4,7 +4,7 @@ import type {
   TextCompleteEvent,
   TurnCompleteEvent,
   ThinkingDeltaEvent,
-} from "../../types/claude-events";
+} from "../../types/agent-events";
 import type { TurnStats } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -443,6 +443,79 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       } else {
         showToast(`Model switch failed: ${event.error ?? "unknown error"}`, "error");
       }
+      break;
+    }
+
+    case "effort_changed": {
+      // Codex emits this from set_effort; mirrors model_changed. Updates
+      // sessionEffort so EffortSelector's label reflects the new pick.
+      if (event.success) {
+        store.setSessionEffort(sessionId, event.effort);
+        showToast(`Effort set to ${event.effort}`, "info", 2500);
+      } else {
+        showToast(`Effort change failed: ${event.error ?? "unknown error"}`, "error");
+      }
+      break;
+    }
+
+    case "hook_prompt": {
+      // Codex hook injected one or more prompt fragments. Each surfaces
+      // as its own info toast so users can see what context the hook
+      // added. If this becomes noisy in practice, the plan calls out a
+      // settings-toggle follow-up.
+      for (const f of event.fragments) {
+        showToast(f.text, "info", 4000);
+      }
+      break;
+    }
+
+    case "hook_status": {
+      // Lifecycle marker for a hook run. The `completed` notification is
+      // the meaningful one for users; `started` we surface only if it
+      // matters (currently silent — log-only).
+      if (event.kind !== "completed") break;
+      switch (event.status) {
+        case "completed":
+          // Quiet — successful hook runs would be too noisy to toast.
+          break;
+        case "failed":
+        case "stopped":
+          showToast(
+            `Hook ${event.event_name} ${event.status}`,
+            "error",
+            5000,
+          );
+          break;
+        case "blocked":
+          // toastStore has no "warning" type — surface blocks as info
+          // with a longer duration so they don't get missed.
+          showToast(
+            `Hook ${event.event_name} blocked this action`,
+            "info",
+            6000,
+          );
+          break;
+        default:
+          break;
+      }
+      break;
+    }
+
+    case "review_mode_entered": {
+      // Tier 2: flip the session into review mode and store the review
+      // text. ReviewModeBanner reads sessionReviewContent + sessionModes
+      // to render the banner above the chat message list.
+      store.setSessionMode(sessionId, "review");
+      store.setSessionReviewContent(sessionId, event.review);
+      break;
+    }
+
+    case "review_mode_exited": {
+      // Review ended. Restore normal mode but keep the review text
+      // available so the banner can show the final-review state until
+      // the user dismisses it.
+      store.setSessionMode(sessionId, "normal");
+      store.setSessionReviewContent(sessionId, event.final_review);
       break;
     }
 

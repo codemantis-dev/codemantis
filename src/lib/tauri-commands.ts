@@ -239,6 +239,14 @@ export async function setSessionModel(sessionId: string, model: string): Promise
   return invoke("set_session_model", { sessionId, model });
 }
 
+/** Update reasoning effort on a live session.
+ * Codex applies on the next turn (mutex update + EffortChanged emit);
+ * Claude's `--effort` is spawn-time only, so the EffortSelector handles
+ * Claude via pause+resume and only calls this for Codex sessions. */
+export async function setSessionEffort(sessionId: string, effort: string): Promise<void> {
+  return invoke("set_session_effort", { sessionId, effort });
+}
+
 export async function initializeSession(sessionId: string): Promise<void> {
   return invoke("initialize_session", { sessionId });
 }

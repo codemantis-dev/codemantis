@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { Session } from "../../types/session";
-import type { FrontendEvent } from "../../types/claude-events";
+import type { FrontendEvent } from "../../types/agent-events";
 import {
   handleChatEvent,
   nextMessageId,
@@ -487,6 +487,114 @@ describe("chat event handler — system events", () => {
     it("shows error toast on failure", () => {
       handleChatEvent("s1", { type: "model_changed", session_id: "s1", model: "bad", success: false, error: "unavailable" });
       expect(showToast).toHaveBeenCalledWith(expect.stringContaining("unavailable"), "error");
+    });
+  });
+
+  describe("effort_changed", () => {
+    it("updates sessionEffort and shows toast on success", () => {
+      handleChatEvent("s1", { type: "effort_changed", session_id: "s1", effort: "high", success: true, error: null });
+      expect(useSessionStore.getState().sessionEffort.get("s1")).toBe("high");
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("high"), "info", 2500);
+    });
+
+    it("shows error toast on failure", () => {
+      handleChatEvent("s1", { type: "effort_changed", session_id: "s1", effort: "high", success: false, error: "rejected" });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("rejected"), "error");
+    });
+  });
+
+  describe("hook_prompt", () => {
+    it("toasts every fragment", () => {
+      handleChatEvent("s1", {
+        type: "hook_prompt",
+        session_id: "s1",
+        item_id: "i_hp",
+        fragments: [
+          { hook_run_id: "r1", text: "extra context A" },
+          { hook_run_id: "r2", text: "extra context B" },
+        ],
+      });
+      expect(showToast).toHaveBeenCalledWith("extra context A", "info", 4000);
+      expect(showToast).toHaveBeenCalledWith("extra context B", "info", 4000);
+    });
+  });
+
+  describe("hook_status", () => {
+    it("does not toast successful hook completion (would be too noisy)", () => {
+      handleChatEvent("s1", {
+        type: "hook_status",
+        session_id: "s1",
+        run_id: "r1",
+        event_name: "preToolUse",
+        kind: "completed",
+        status: "completed",
+        duration_ms: 42,
+      });
+      expect(showToast).not.toHaveBeenCalled();
+    });
+
+    it("toasts errors for failed hook runs", () => {
+      handleChatEvent("s1", {
+        type: "hook_status",
+        session_id: "s1",
+        run_id: "r1",
+        event_name: "preToolUse",
+        kind: "completed",
+        status: "failed",
+        duration_ms: null,
+      });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("preToolUse"), "error", 5000);
+    });
+
+    it("toasts blocked events as info (toastStore has no warning type)", () => {
+      handleChatEvent("s1", {
+        type: "hook_status",
+        session_id: "s1",
+        run_id: "r1",
+        event_name: "permissionRequest",
+        kind: "completed",
+        status: "blocked",
+        duration_ms: null,
+      });
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("blocked"),
+        "info",
+        6000,
+      );
+    });
+  });
+
+  describe("review_mode_entered / exited", () => {
+    it("entered flips session into review mode and stores the review text", () => {
+      handleChatEvent("s1", {
+        type: "review_mode_entered",
+        session_id: "s1",
+        item_id: "i_er",
+        review: "Reviewing changes to foo.rs",
+      });
+      const store = useSessionStore.getState();
+      expect(store.sessionModes.get("s1")).toBe("review");
+      expect(store.sessionReviewContent.get("s1")).toBe("Reviewing changes to foo.rs");
+    });
+
+    it("exited restores normal mode but keeps the final review for the banner", () => {
+      handleChatEvent("s1", {
+        type: "review_mode_entered",
+        session_id: "s1",
+        item_id: "i_er",
+        review: "interim",
+      });
+      handleChatEvent("s1", {
+        type: "review_mode_exited",
+        session_id: "s1",
+        item_id: "i_ex",
+        final_review: "Review summary: looks good.",
+      });
+      const store = useSessionStore.getState();
+      expect(store.sessionModes.get("s1")).toBe("normal");
+      // Banner keeps showing the final review until the user dismisses
+      // it explicitly (handled in ReviewModeBanner.handleDismiss).
+      expect(store.sessionReviewContent.get("s1")).toBe("Review summary: looks good.");
     });
   });
 

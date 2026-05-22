@@ -328,6 +328,7 @@ pub fn run() {
             commands::session::acknowledge_crashed_sessions,
             commands::session::interrupt_session,
             commands::session::set_session_model,
+            commands::session::set_session_effort,
             commands::session::initialize_session,
             commands::files::read_file_tree,
             commands::files::read_file_content,
