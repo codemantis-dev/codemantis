@@ -284,6 +284,26 @@ export default function QuestionModal() {
     [pendingQuestion]
   );
 
+  /** Build the Codex structured-answer payload from positional answers.
+   * Codex requires `{ [questionId]: string[] }`; we already have the
+   * questions array with `id` fields preserved from the listener.
+   * Returns undefined for Claude sessions (which use formatAnswerForClaude). */
+  const buildStructuredAnswers = useCallback(
+    (rawAnswers: string[]): Record<string, string[]> | undefined => {
+      if (!pendingQuestion || pendingQuestion.agentKind !== "codex") return undefined;
+      if (!pendingQuestion.questions) return undefined;
+      const out: Record<string, string[]> = {};
+      pendingQuestion.questions.forEach((q, i) => {
+        if (!q.id) return; // skip questions without id — would be malformed
+        const ans = rawAnswers[i];
+        if (ans === undefined) return;
+        out[q.id] = [ans];
+      });
+      return out;
+    },
+    [pendingQuestion],
+  );
+
   const handleSubmit = useCallback(
     async (answer: string) => {
       if (!pendingQuestion || !questionSessionId) return;
@@ -292,7 +312,13 @@ export default function QuestionModal() {
       if (pendingQuestion.question || !pendingQuestion.questions) {
         try {
           const formatted = formatAnswerForClaude([answer]);
-          await submitQuestionAnswer(questionSessionId, pendingQuestion.requestId, formatted);
+          const structured = buildStructuredAnswers([answer]);
+          await submitQuestionAnswer(
+            questionSessionId,
+            pendingQuestion.requestId,
+            formatted,
+            structured,
+          );
         } catch (e) {
           handleError("Failed to send answer", e);
         }
@@ -311,7 +337,18 @@ export default function QuestionModal() {
         // All questions answered
         try {
           const formatted = formatAnswerForClaude(newAnswers);
-          await submitQuestionAnswer(questionSessionId, pendingQuestion.requestId, formatted);
+          // Codex (v1.4.1 Phase A.5) — pass the structured map so the
+          // Rust side routes via respond_to_approval with the correct
+          // `{ answers: { [id]: { answers: [] } } }` shape. Claude
+          // sessions leave structured undefined and run the original
+          // chat-message injection path.
+          const structured = buildStructuredAnswers(newAnswers);
+          await submitQuestionAnswer(
+            questionSessionId,
+            pendingQuestion.requestId,
+            formatted,
+            structured,
+          );
         } catch (e) {
           handleError("Failed to send answers", e);
         }
@@ -319,7 +356,7 @@ export default function QuestionModal() {
         setShowModal(false);
       }
     },
-    [pendingQuestion, questionSessionId, setShowModal, currentQuestionIdx, answers, formatAnswerForClaude]
+    [pendingQuestion, questionSessionId, setShowModal, currentQuestionIdx, answers, formatAnswerForClaude, buildStructuredAnswers]
   );
 
   if (!pendingQuestion) return null;

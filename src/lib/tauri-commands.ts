@@ -197,9 +197,22 @@ export async function resolveToolApproval(
 export async function submitQuestionAnswer(
   sessionId: string,
   requestId: string,
-  answer: string
+  answer: string,
+  /** Codex-only structured payload (v1.4.1 Phase A.5). When the
+   * PendingQuestion came from Codex's `item/tool/requestUserInput`, the
+   * QuestionModal collects per-question answers and passes them as a
+   * map `{ [questionId]: string[] }`. The Rust side wraps each into
+   * `{ answers: string[] }` and routes via `respond_to_approval`. Omit
+   * for Claude AskUserQuestion sessions — the existing chat-message
+   * injection path runs unchanged. */
+  structuredAnswers?: Record<string, string[]>
 ): Promise<void> {
-  return invoke("submit_question_answer", { sessionId, requestId, answer });
+  return invoke("submit_question_answer", {
+    sessionId,
+    requestId,
+    answer,
+    structuredAnswers,
+  });
 }
 
 export async function closeSession(sessionId: string): Promise<void> {

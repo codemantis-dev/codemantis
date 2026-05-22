@@ -466,23 +466,76 @@ pub async fn set_codex_policy(
 ///      transcript truthful: the host did not block the tool).
 ///   2. inject `answer` as a normal user message via the same path
 ///      `send_message` uses, so Claude sees it on the next turn.
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 pub async fn submit_question_answer(
     state: State<'_, AppState>,
     session_id: String,
     request_id: String,
     answer: String,
+    // Optional Codex-only payload (v1.4.1 Phase A.5). The QuestionModal
+    // passes a `Record<questionId, string[]>` map when the
+    // PendingQuestion came from Codex's `item/tool/requestUserInput`.
+    // Claude sessions leave this `None` and the existing chat-message
+    // injection path runs.
+    structured_answers: Option<serde_json::Value>,
 ) -> Result<(), String> {
     info!(
-        "[submit_question_answer] session_id={}, request_id={}, answer_len={}",
+        "[submit_question_answer] session_id={}, request_id={}, answer_len={}, has_structured={}",
         session_id,
         request_id,
-        answer.len()
+        answer.len(),
+        structured_answers.is_some(),
     );
 
-    // Step 1 — release the still-blocked PreToolUse hook so the CLI can
-    // continue its turn. The CLI will synthesise its own denial regardless;
-    // we pick `allow` to truthfully reflect that the host did not block.
+    let processes = state.processes.lock().await;
+    let process = processes
+        .get(&session_id)
+        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()).to_string())?;
+    if !process.is_running() {
+        return Err(AppError::ProcessNotRunning(session_id).to_string());
+    }
+
+    // Codex path: structured answers reach Codex via the JSON-RPC
+    // response on the pending server request. The CodexProcessHandle's
+    // `respond_to_approval` looks up the registered ServerRequestKind
+    // by request_id; for `ToolRequestUserInput` it builds the
+    // `{ answers: { [id]: { answers: [...] } } }` shape via
+    // approvals.rs::build_response.
+    if let Some(answers) = structured_answers {
+        // Wrap each answer array in the per-question
+        // `{ answers: string[] }` envelope the Codex schema requires.
+        // The frontend sends `Record<id, string[]>`; we lift each into
+        // `{ [id]: { answers: string[] } }`.
+        let wrapped = if let serde_json::Value::Object(map) = &answers {
+            let mut out = serde_json::Map::new();
+            for (id, arr) in map {
+                out.insert(id.clone(), serde_json::json!({ "answers": arr }));
+            }
+            serde_json::Value::Object(out)
+        } else {
+            answers
+        };
+        match process
+            .respond_to_approval(&request_id, true, Some(wrapped))
+            .await
+        {
+            Ok(true) => return Ok(()),
+            Ok(false) => {
+                warn!(
+                    "[submit_question_answer] structured-answer request_id={} not on Codex handle — falling through to Claude path",
+                    request_id
+                );
+                // Fall through: maybe a Claude session was misclassified.
+            }
+            Err(e) => {
+                return Err(format!("respond_to_approval failed: {e}"));
+            }
+        }
+    }
+
+    // Claude path — original behaviour. Step 1: release the
+    // still-blocked PreToolUse hook so the CLI can continue its turn.
+    // Step 2: inject the answer as a regular user message.
     let resolved = state
         .approval_state
         .resolve(&request_id, true, None)
@@ -492,15 +545,6 @@ pub async fn submit_question_answer(
             "[submit_question_answer] No pending approval for request_id={} (hook may have already timed out)",
             request_id
         );
-    }
-
-    // Step 2 — inject the answer as a regular user message.
-    let processes = state.processes.lock().await;
-    let process = processes
-        .get(&session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()).to_string())?;
-    if !process.is_running() {
-        return Err(AppError::ProcessNotRunning(session_id).to_string());
     }
     process
         .send_user_message(&answer)

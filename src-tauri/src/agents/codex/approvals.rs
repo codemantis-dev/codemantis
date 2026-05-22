@@ -142,12 +142,24 @@ pub async fn classify_server_request(
         }
         "item/permissions/requestApproval" => {
             let perms = params.get("permissions").cloned().unwrap_or(Value::Null);
+            // tool_name = "PermissionRequest" so the frontend's
+            // useToolApprovalListener routes this to the generic
+            // ToolApprovalModal → resolveToolApproval →
+            // respond_to_approval → build_response (which produces the
+            // correct `{scope, permissions}` JSON-RPC response below).
+            //
+            // Hotfix #18 (v1.4.1 Phase A.2): the previous tool_name
+            // "AskUserQuestion" misrouted to QuestionModal +
+            // submit_question_answer, which is Claude-specific —
+            // injecting the user's answer as a chat message and never
+            // sending the structured response back to Codex. The
+            // permissions request would then hang indefinitely.
             (
                 ServerRequestKind::PermissionRequest {
                     rpc_id: rpc_id.clone(),
                     item_id,
                 },
-                "AskUserQuestion".to_string(),
+                "PermissionRequest".to_string(),
                 json!({"permissions": perms}),
             )
         }
@@ -201,6 +213,79 @@ pub async fn classify_server_request(
                 },
                 "Edit".to_string(),
                 json!({"fileChanges": file_changes, "reason": reason}),
+            )
+        }
+        // v1.4.1 Phase A.5 — `item/tool/requestUserInput`. The
+        // ToolRequestUserInputParams schema's questions[] match Claude's
+        // AskUserQuestion field set exactly (header, question, options
+        // with label/description, isOther, isSecret). We emit tool_name
+        // "AskUserQuestion" so the frontend's useToolApprovalListener
+        // routes through the existing QuestionModal — but we also mark
+        // the PendingQuestion with `agentKind: "codex"` (added in the
+        // listener) so submit_question_answer knows to build the
+        // `{answers: {[id]: {answers: string[]}}}` JSON-RPC response
+        // shape Codex expects rather than the Claude chat-message path.
+        // Schema: docs/internal/codex-app-server-schemas/ToolRequestUserInputParams.json
+        "item/tool/requestUserInput" => {
+            let questions: Vec<Value> = params
+                .get("questions")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|q| {
+                            let options: Vec<Value> = q
+                                .get("options")
+                                .and_then(|v| v.as_array())
+                                .map(|opts| {
+                                    opts.iter()
+                                        .map(|o| {
+                                            let label = o
+                                                .get("label")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("")
+                                                .to_string();
+                                            let description = o
+                                                .get("description")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("")
+                                                .to_string();
+                                            json!({
+                                                // label doubles as value;
+                                                // QuestionModal accepts both.
+                                                "label": label,
+                                                "value": label,
+                                                "description": description,
+                                            })
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            json!({
+                                "id": q.get("id").cloned().unwrap_or(Value::Null),
+                                "header": q.get("header").cloned().unwrap_or(Value::Null),
+                                "question": q.get("question").cloned().unwrap_or(Value::Null),
+                                // Codex schema doesn't have multiSelect; default false.
+                                "multiSelect": false,
+                                "isOther": q.get("isOther").and_then(|v| v.as_bool()).unwrap_or(false),
+                                "isSecret": q.get("isSecret").and_then(|v| v.as_bool()).unwrap_or(false),
+                                "options": options,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                ServerRequestKind::ToolRequestUserInput {
+                    rpc_id: rpc_id.clone(),
+                    item_id,
+                },
+                "AskUserQuestion".to_string(),
+                json!({
+                    "questions": questions,
+                    // Marker the frontend reads to flip PendingQuestion.agentKind
+                    // so submit_question_answer routes correctly.
+                    "agentKind": "codex",
+                }),
             )
         }
         _ => return None,
@@ -291,6 +376,22 @@ pub fn build_response(
                 ApprovalDecision::Cancel => "abort",
             };
             json!({"decision": d})
+        }
+        ServerRequestKind::ToolRequestUserInput { .. } => {
+            // Schema: ToolRequestUserInputResponse.json
+            //   { answers: { [questionId]: { answers: string[] } } }
+            //
+            // `content` is the structured map produced by the frontend
+            // (submit_question_answer extracts it from QuestionModal's
+            // per-question answer collection). On Decline/Cancel we send
+            // an empty `answers` object — Codex's contract for "user
+            // refused" is an empty answer set, not an error.
+            json!({
+                "answers": match decision {
+                    ApprovalDecision::Accept => content.unwrap_or_else(|| json!({})),
+                    _ => json!({}),
+                }
+            })
         }
     };
 
@@ -383,7 +484,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn classifies_permission_request() {
+    async fn classifies_permission_request_with_permission_request_tool_name() {
+        // Hotfix #18 (Phase A.2) regression: tool_name must be
+        // "PermissionRequest" (not "AskUserQuestion") so the frontend
+        // routes through ToolApprovalModal → resolveToolApproval →
+        // respond_to_approval → build_response. The old "AskUserQuestion"
+        // routing hit a Claude-only QuestionModal path that never sent
+        // the JSON-RPC response back to Codex.
         let state = ThreadState::new();
         let req = classify_server_request(
             &state,
@@ -394,7 +501,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(req.tool_name, "AskUserQuestion");
+        assert_eq!(req.tool_name, "PermissionRequest");
         assert_eq!(req.tool_input["permissions"]["network"], true);
         let kind = state.take_server_request(&req.request_id).await.unwrap();
         assert!(matches!(kind, ServerRequestKind::PermissionRequest { .. }));
@@ -641,5 +748,101 @@ mod tests {
         };
         let approved = build_response(&kind, ApprovalDecision::Accept, None);
         assert_eq!(approved.result, json!({"decision": "approved"}));
+    }
+
+    // ── v1.4.1 Phase A.5 — item/tool/requestUserInput ──
+
+    #[tokio::test]
+    async fn classifies_tool_request_user_input_with_questions_array() {
+        // Empirical schema:
+        //   Params: { itemId, threadId, turnId, questions: [
+        //     { id, header, question, isOther?, isSecret?,
+        //       options?: [{label, description}] }
+        //   ]}
+        // We map this to QuestionModal's expected shape with the
+        // agentKind marker so the modal + submit_question_answer route
+        // through the Codex respond_to_approval path.
+        let state = ThreadState::new();
+        let req = classify_server_request(
+            &state,
+            "sess-q",
+            rpc(20),
+            "item/tool/requestUserInput",
+            json!({
+                "itemId": "i_q",
+                "threadId": "thr_1",
+                "turnId": "turn_1",
+                "questions": [
+                    {
+                        "id": "q1",
+                        "header": "Pick a colour",
+                        "question": "Which colour?",
+                        "isOther": false,
+                        "isSecret": false,
+                        "options": [
+                            {"label": "Red", "description": "warm"},
+                            {"label": "Blue", "description": "cool"},
+                        ],
+                    },
+                    {
+                        "id": "q2",
+                        "header": "Secret",
+                        "question": "API key?",
+                        "isSecret": true,
+                    },
+                ],
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(req.tool_name, "AskUserQuestion");
+        assert_eq!(req.tool_input["agentKind"], "codex");
+        let questions = req.tool_input["questions"].as_array().unwrap();
+        assert_eq!(questions.len(), 2);
+        assert_eq!(questions[0]["id"], "q1");
+        assert_eq!(questions[0]["header"], "Pick a colour");
+        assert_eq!(questions[0]["multiSelect"], false); // schema has none → default
+        let opts = questions[0]["options"].as_array().unwrap();
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0]["label"], "Red");
+        // label doubles as value so QuestionModal's existing render path works.
+        assert_eq!(opts[0]["value"], "Red");
+        assert_eq!(questions[1]["isSecret"], true);
+        let kind = state.take_server_request(&req.request_id).await.unwrap();
+        match kind {
+            ServerRequestKind::ToolRequestUserInput { item_id, .. } => {
+                assert_eq!(item_id, "i_q");
+            }
+            other => panic!("expected ToolRequestUserInput, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_response_tool_request_user_input_wraps_answers() {
+        // The frontend's submit_question_answer hands us
+        //   { [id]: { answers: string[] } }
+        // pre-wrapped (the Rust command wraps per-id arrays). We just
+        // surface it inside `{ answers: { … } }` per the schema.
+        let kind = ServerRequestKind::ToolRequestUserInput {
+            rpc_id: rpc(3),
+            item_id: "i_q".into(),
+        };
+        let payload = json!({
+            "q1": {"answers": ["Red"]},
+            "q2": {"answers": ["sk-abc"]},
+        });
+        let approved =
+            build_response(&kind, ApprovalDecision::Accept, Some(payload.clone()));
+        assert_eq!(approved.result, json!({"answers": payload}));
+    }
+
+    #[test]
+    fn build_response_tool_request_user_input_decline_sends_empty_answers() {
+        let kind = ServerRequestKind::ToolRequestUserInput {
+            rpc_id: rpc(3),
+            item_id: "i_q".into(),
+        };
+        let declined = build_response(&kind, ApprovalDecision::Decline, None);
+        assert_eq!(declined.result, json!({"answers": {}}));
     }
 }

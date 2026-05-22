@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
+import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/agent-events";
 import type { Blocker, ImplementationGuide, OrchestratorDecision, OrchestratorInput } from "../types/implementation-guide";
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────
@@ -71,6 +71,22 @@ vi.mock("../lib/tauri-commands", () => ({
   deleteSelfDriveState: vi.fn(() => Promise.resolve()),
   // Cross-system action parity gate — used by attemptMarkSessionComplete.
   verifyActionParity: mockVerifyActionParity,
+
+  // Mirror the production listenChatEvents: subscribes to both
+  // claude-chat-* and codex-chat-* via the same `listen` mock so the
+  // existing `mockListen.mock.calls` assertions still observe the
+  // listener channels (now dual). v1.4.1 Phase A.1 — Self-Drive
+  // dual-channel subscription.
+  listenChatEvents: vi.fn((sessionId: string, callback: (e: FrontendEvent) => void) => {
+    const handler = (e: { payload: FrontendEvent }): void => callback(e.payload);
+    return Promise.all([
+      mockListen(`claude-chat-${sessionId}`, handler),
+      mockListen(`codex-chat-${sessionId}`, handler),
+    ]).then(([unA, unB]) => () => {
+      unA();
+      unB();
+    });
+  }),
 }));
 
 vi.mock("../lib/self-drive-orchestrator", () => ({

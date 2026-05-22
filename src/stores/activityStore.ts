@@ -21,6 +21,13 @@ export interface QuestionItem {
   question: string;
   multiSelect: boolean;
   options: QuestionOption[];
+  /** Codex `item/tool/requestUserInput` carries a per-question `id` that
+   * keys the structured response (`{ answers: { [id]: { answers: [] } } }`).
+   * Claude's AskUserQuestion has no id — the question text itself is the
+   * key in the synthesised reply paragraph. Optional so both paths work. */
+  id?: string;
+  isOther?: boolean;
+  isSecret?: boolean;
 }
 
 export interface PendingQuestion {
@@ -29,6 +36,12 @@ export interface PendingQuestion {
   sessionId: string;
   question?: string;
   questions?: QuestionItem[];
+  /** Discriminator: "claude" → answers route through send_user_message
+   * (the existing Claude flow). "codex" → answers route through
+   * respond_to_approval with a structured `{ answers: { [id]: ... } }`
+   * payload. Set by useToolApprovalListener when classifying the
+   * tool-approval-request event. */
+  agentKind?: "claude" | "codex";
 }
 
 interface ActivityState {

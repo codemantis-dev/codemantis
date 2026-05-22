@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import { create } from "zustand";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   SelfDriveStatus,
   SelfDrivePhase,
@@ -17,7 +17,7 @@ import type {
   ImplementationGuide,
   CrossSystemAction,
 } from "../types/implementation-guide";
-import type { FrontendEvent, TurnCompleteEvent, ProcessExitedEvent } from "../types/claude-events";
+import type { TurnCompleteEvent, ProcessExitedEvent } from "../types/agent-events";
 import type { SessionMode, SelfDriveInjectionKind } from "../types/session";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
@@ -33,6 +33,7 @@ import {
   deleteSelfDriveState,
   verifyActionParity,
   preflightStatus,
+  listenChatEvents,
   type ActionParityResult,
 } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
@@ -1270,10 +1271,14 @@ async function startListeners(sessionId: string): Promise<void> {
   // log its first compaction event.
   lastCompactionLogAt = 0;
 
-  // Listen on the session-specific channel — the backend emits ALL events
-  // (turn_complete, process_exited, compacting_status, etc.) on claude-chat-{id}
-  chatEventUnlisten = await listen<FrontendEvent>(`claude-chat-${sessionId}`, (event) => {
-    const payload = event.payload;
+  // Dual-channel subscription via the shared listenChatEvents helper:
+  // Claude sessions emit on `claude-chat-{id}`, Codex on `codex-chat-{id}`.
+  // The helper merges both unlisten fns into one so stopListeners stays
+  // a one-liner. Hotfix #18 (v1.4.1 Phase A.1) — before this, Self-Drive
+  // was pinned to `claude-chat-` and silently received zero events from
+  // Codex sessions, causing `turn_complete` to never arrive and the
+  // driver loop to hang indefinitely.
+  chatEventUnlisten = await listenChatEvents(sessionId, (payload) => {
     switch (payload.type) {
       case "turn_complete":
         handleTurnComplete(payload);

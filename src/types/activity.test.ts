@@ -83,4 +83,13 @@ describe("getActivityType", () => {
     expect(getActivityType("dyn__mathkit__calculate")).toBe("mcp");
     expect(getActivityType("dyn__ping")).toBe("mcp");
   });
+
+  it("classifies PermissionRequest as question (Codex item/permissions/requestApproval)", () => {
+    // v1.4.1 Phase A.2 regression: Codex permission requests used to
+    // emit tool_name "AskUserQuestion" which misrouted to QuestionModal
+    // → submit_question_answer (Claude-only path). They now emit
+    // "PermissionRequest" → ToolApprovalModal → respond_to_approval.
+    // The Q? badge stays correct for the user's mental model.
+    expect(getActivityType("PermissionRequest")).toBe("question");
+  });
 });

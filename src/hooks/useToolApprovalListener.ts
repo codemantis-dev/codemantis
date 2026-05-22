@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { listenToolApprovalRequests, listenSessionModeChanged, resolveToolApproval } from "../lib/tauri-commands";
-import type { ToolApprovalRequestEvent } from "../types/claude-events";
+import type { ToolApprovalRequestEvent } from "../types/agent-events";
 import type { SessionMode } from "../types/session";
 import { useActivityStore, type PendingQuestion } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
@@ -16,10 +16,17 @@ function parseAskUserQuestion(
   requestId: string,
   sessionId: string,
 ): PendingQuestion {
+  // `agentKind` marker is set by the Codex translator (approvals.rs) on
+  // `item/tool/requestUserInput` to flip the answer routing. Claude
+  // sessions don't send it → defaults to "claude".
+  const agentKind =
+    toolInput.agentKind === "codex" ? "codex" : "claude";
+
   const pq: PendingQuestion = {
     toolUseId: requestId,
     requestId,
     sessionId,
+    agentKind,
   };
 
   // Simple text question
@@ -30,9 +37,15 @@ function parseAskUserQuestion(
   // Multi-question with options
   if (Array.isArray(toolInput.questions)) {
     pq.questions = (toolInput.questions as Record<string, unknown>[]).map((q) => ({
+      // Codex carries a per-question `id` that keys the structured
+      // response (`{ answers: { [id]: { answers: [] } } }`). Claude
+      // leaves it undefined → response goes via send_user_message.
+      id: typeof q.id === "string" ? q.id : undefined,
       header: typeof q.header === "string" ? q.header : "",
       question: typeof q.question === "string" ? q.question : "",
       multiSelect: q.multiSelect === true,
+      isOther: q.isOther === true,
+      isSecret: q.isSecret === true,
       options: Array.isArray(q.options)
         ? (q.options as unknown[]).map((o) => {
             if (typeof o === "object" && o !== null) {

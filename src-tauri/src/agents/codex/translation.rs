@@ -85,6 +85,14 @@ impl Translator {
             "hook/started" => self.on_hook_lifecycle(params, "started"),
             "hook/completed" => self.on_hook_lifecycle(params, "completed"),
             "error" => self.map_error(params),
+            // Intentionally NOT handled (v1.4.1 Phase A.4):
+            //   `item/fileChange/outputDelta` — the schema at
+            //   docs/internal/codex-app-server-schemas/v2/FileChangeOutputDeltaNotification.json
+            //   line 4 marks this notification as deprecated; the server
+            //   no longer emits it. Adding an arm here would be dead code.
+            //   If a future Codex version revives the method, add the arm
+            //   alongside item/commandExecution/outputDelta — they share
+            //   the same `{itemId, delta}` shape.
             // Unknown notification — log and swallow (S4 wires the logger).
             _ => Vec::new(),
         }

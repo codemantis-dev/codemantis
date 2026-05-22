@@ -32,6 +32,8 @@ export type FrontendEvent =
   | ReviewModeExitedEvent
   | HookPromptEvent
   | HookStatusEvent
+  | AuthTokenRefreshRequestedEvent
+  | DynamicToolCallDeniedEvent
   | CapabilitiesDiscoveredEvent
   | AgentPreparingEvent
   | SubAgentStartedEvent
@@ -279,6 +281,30 @@ export interface HookStatusEvent {
   kind: "started" | "completed";
   status: string;
   duration_ms?: number | null;
+}
+
+/** Codex `account/chatgptAuthTokens/refresh` — Codex hit a 401 and asked
+ * the client to refresh the ChatGPT token. v1.4.1 implements a
+ * graceful-deny: the spawn loop emits this event + responds with a
+ * structured JSON-RPC error so Codex doesn't hang. */
+export interface AuthTokenRefreshRequestedEvent {
+  type: "auth_token_refresh_requested";
+  agent_id?: AgentId;
+  session_id: string;
+  previous_account_id?: string | null;
+  reason: string;
+}
+
+/** Codex `item/tool/call` — Codex asked the client to execute a dynamic
+ * tool. CodeMantis has no client-side tool registry yet, so the spawn
+ * loop responds {success: false, contentItems: [...]} and emits this
+ * event so the chat handler can toast the user. */
+export interface DynamicToolCallDeniedEvent {
+  type: "dynamic_tool_call_denied";
+  agent_id?: AgentId;
+  session_id: string;
+  tool: string;
+  namespace?: string | null;
 }
 
 export interface CapabilitiesDiscoveredEvent {

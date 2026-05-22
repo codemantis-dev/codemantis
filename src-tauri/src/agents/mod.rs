@@ -497,6 +497,31 @@ pub enum NormalizedEvent {
         duration_ms: Option<u64>,
     },
 
+    /// Codex requested a ChatGPT auth-token refresh (`reason: "unauthorized"`).
+    /// CodeMantis doesn't yet implement the OAuth handoff, so the spawn
+    /// loop emits this event + responds with a structured JSON-RPC error.
+    /// The frontend surfaces a toast prompting the user to run
+    /// `codex login` in a terminal. Tracked as v1.5.0 work.
+    #[serde(rename = "auth_token_refresh_requested")]
+    AuthTokenRefreshRequested {
+        agent_id: AgentId,
+        session_id: String,
+        previous_account_id: Option<String>,
+        reason: String,
+    },
+
+    /// Codex pushed an `item/tool/call` (server-initiated dynamic tool
+    /// execution). CodeMantis has no client-side tool registry yet, so
+    /// the spawn loop responds with `{success: false, contentItems:[...]}`
+    /// and emits this event so the chat handler can toast the user.
+    #[serde(rename = "dynamic_tool_call_denied")]
+    DynamicToolCallDenied {
+        agent_id: AgentId,
+        session_id: String,
+        tool: String,
+        namespace: Option<String>,
+    },
+
     #[serde(rename = "capabilities_discovered")]
     CapabilitiesDiscovered {
         agent_id: AgentId,

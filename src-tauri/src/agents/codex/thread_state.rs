@@ -53,6 +53,12 @@ pub enum ServerRequestKind {
     /// delete / update with unified_diff). Schema:
     /// docs/internal/codex-app-server-schemas/ApplyPatchApprovalParams.json
     ApplyPatchApproval { rpc_id: RpcId, call_id: String },
+    /// `item/tool/requestUserInput` — Codex asks a structured form
+    /// (questions array, each with optional options[]). The response
+    /// shape is `{ answers: { [questionId]: { answers: string[] } } }`.
+    /// Schema:
+    /// docs/internal/codex-app-server-schemas/ToolRequestUserInputParams.json
+    ToolRequestUserInput { rpc_id: RpcId, item_id: String },
 }
 
 impl ServerRequestKind {
@@ -63,7 +69,8 @@ impl ServerRequestKind {
             | ServerRequestKind::McpElicitation { rpc_id, .. }
             | ServerRequestKind::PermissionRequest { rpc_id, .. }
             | ServerRequestKind::ExecCommandApproval { rpc_id, .. }
-            | ServerRequestKind::ApplyPatchApproval { rpc_id, .. } => rpc_id,
+            | ServerRequestKind::ApplyPatchApproval { rpc_id, .. }
+            | ServerRequestKind::ToolRequestUserInput { rpc_id, .. } => rpc_id,
         }
     }
 
@@ -72,7 +79,8 @@ impl ServerRequestKind {
             ServerRequestKind::CommandExecution { item_id, .. }
             | ServerRequestKind::FileChange { item_id, .. }
             | ServerRequestKind::McpElicitation { item_id, .. }
-            | ServerRequestKind::PermissionRequest { item_id, .. } => item_id,
+            | ServerRequestKind::PermissionRequest { item_id, .. }
+            | ServerRequestKind::ToolRequestUserInput { item_id, .. } => item_id,
             // The newer approval methods use `callId` rather than
             // `itemId`. The semantics are the same — a stable correlator
             // — so item_id() returns it transparently to callers.

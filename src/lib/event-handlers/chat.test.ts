@@ -598,6 +598,53 @@ describe("chat event handler — system events", () => {
     });
   });
 
+  describe("auth_token_refresh_requested (v1.4.1 Phase A.3)", () => {
+    it("toasts an actionable error when Codex requests a token refresh", () => {
+      handleChatEvent("s1", {
+        type: "auth_token_refresh_requested",
+        session_id: "s1",
+        previous_account_id: "acct_123",
+        reason: "unauthorized",
+      });
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("codex login"),
+        "error",
+        12000,
+      );
+    });
+  });
+
+  describe("dynamic_tool_call_denied (v1.4.1 Phase A.6)", () => {
+    it("toasts the tool name + namespace when Codex asks for dynamic tool execution", () => {
+      handleChatEvent("s1", {
+        type: "dynamic_tool_call_denied",
+        session_id: "s1",
+        tool: "calculate",
+        namespace: "mathkit",
+      });
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("mathkit.calculate"),
+        "info",
+        5000,
+      );
+    });
+
+    it("toasts the tool name alone when namespace is null", () => {
+      handleChatEvent("s1", {
+        type: "dynamic_tool_call_denied",
+        session_id: "s1",
+        tool: "ping",
+        namespace: null,
+      });
+      // No leading dot.
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringMatching(/'ping'/),
+        "info",
+        5000,
+      );
+    });
+  });
+
   describe("capabilities_discovered", () => {
     it("stores capabilities", () => {
       handleChatEvent("s1", {

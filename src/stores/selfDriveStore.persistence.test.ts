@@ -30,7 +30,7 @@ const {
   mockShowToast,
   mockGetCurrentSessionPlan,
 } = vi.hoisted(() => ({
-  mockListen: vi.fn(() => Promise.resolve(vi.fn())),
+  mockListen: vi.fn((_channel: string, _handler: (e: { payload: unknown }) => void) => Promise.resolve(vi.fn())),
   mockSendMessage: vi.fn(() => Promise.resolve()),
   mockSyncSessionMode: vi.fn(() => Promise.resolve()),
   mockCallOrchestrator: vi.fn<(i: OrchestratorInput, p: string, k: string, m: string) => Promise<OrchestratorDecision>>(),
@@ -63,6 +63,21 @@ vi.mock("../lib/tauri-commands", () => ({
   deleteSelfDriveState: mockDeleteSelfDriveState,
   listSelfDriveStates: vi.fn(() => Promise.resolve([])),
   loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
+
+  // v1.4.1 Phase A.1: production listenChatEvents subscribes to both
+  // claude-chat-* and codex-chat-*. The mock routes through mockListen
+  // so existing assertions against mockListen.mock.calls still observe
+  // the listener channels.
+  listenChatEvents: vi.fn((sessionId: string, callback: (e: unknown) => void) => {
+    const handler = (e: { payload: unknown }): void => callback(e.payload);
+    return Promise.all([
+      mockListen(`claude-chat-${sessionId}`, handler),
+      mockListen(`codex-chat-${sessionId}`, handler),
+    ]).then(([unA, unB]) => () => {
+      unA();
+      unB();
+    });
+  }),
 }));
 
 vi.mock("../lib/self-drive-orchestrator", () => ({

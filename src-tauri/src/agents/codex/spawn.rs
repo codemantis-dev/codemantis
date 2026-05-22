@@ -609,6 +609,103 @@ fn make_server_request_handler(
         let state = state.clone();
         let client_holder = client_holder.clone();
         tokio::spawn(async move {
+            // ── Early-branch graceful-deny paths (v1.4.1 Phase A) ──
+            //
+            // For methods CodeMantis doesn't yet implement, we respond
+            // with a structured JSON-RPC error / result so Codex doesn't
+            // hang. Each one emits a NormalizedEvent first so the chat
+            // handler can surface a user-facing toast explaining what
+            // happened.
+
+            // A.3 — `account/chatgptAuthTokens/refresh`: Codex hit a 401
+            // and is asking us to refresh the ChatGPT auth token. We
+            // don't yet implement the OAuth handoff, so we toast and
+            // return -32603 (internal error) with an actionable message.
+            // Schema: ChatgptAuthTokensRefreshParams.json
+            if method == "account/chatgptAuthTokens/refresh" {
+                let previous_account_id = params
+                    .get("previousAccountId")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let reason = params
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unauthorized")
+                    .to_string();
+                emit_event_for(
+                    &app_handle,
+                    &NormalizedEvent::AuthTokenRefreshRequested {
+                        agent_id: AgentId::Codex,
+                        session_id: session_id.clone(),
+                        previous_account_id,
+                        reason,
+                    },
+                );
+                if let Some(client) = client_holder.lock().await.as_ref() {
+                    let _ = client.respond_error(
+                        rpc_id,
+                        RpcError {
+                            code: -32603,
+                            message:
+                                "CodeMantis cannot refresh ChatGPT tokens yet — \
+                                 please run `codex login` in a terminal and reopen the session"
+                                    .to_string(),
+                            data: None,
+                        },
+                    );
+                }
+                return;
+            }
+
+            // A.6 — `item/tool/call`: Codex is asking the client to
+            // execute an arbitrary tool by name. We don't have a
+            // client-side tool registry, so we respond with
+            // `{success: false, contentItems: [...]}` — Codex's
+            // documented "client cannot execute" shape. Toast names the
+            // tool so users see the gap honestly.
+            // Schema: DynamicToolCallParams.json / DynamicToolCallResponse.json
+            if method == "item/tool/call" {
+                let tool = params
+                    .get("tool")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let namespace = params
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                emit_event_for(
+                    &app_handle,
+                    &NormalizedEvent::DynamicToolCallDenied {
+                        agent_id: AgentId::Codex,
+                        session_id: session_id.clone(),
+                        tool: tool.clone(),
+                        namespace: namespace.clone(),
+                    },
+                );
+                if let Some(client) = client_holder.lock().await.as_ref() {
+                    let ns_prefix = namespace
+                        .as_deref()
+                        .map(|n| format!("{n}."))
+                        .unwrap_or_default();
+                    let _ = client.respond(
+                        rpc_id,
+                        json!({
+                            "success": false,
+                            "contentItems": [{
+                                "type": "inputText",
+                                "text": format!(
+                                    "CodeMantis does not implement client-side dynamic tool execution. \
+                                     The tool '{ns_prefix}{tool}' was not run."
+                                ),
+                            }],
+                        }),
+                    );
+                }
+                return;
+            }
+
+            // ── Regular classify path ──
             match classify_server_request(&state, &session_id, rpc_id.clone(), &method, params)
                 .await
             {
@@ -801,6 +898,8 @@ fn short_kind(ev: &NormalizedEvent) -> &'static str {
         NormalizedEvent::ReviewModeExited { .. } => "ReviewModeExited",
         NormalizedEvent::HookPrompt { .. } => "HookPrompt",
         NormalizedEvent::HookStatus { .. } => "HookStatus",
+        NormalizedEvent::AuthTokenRefreshRequested { .. } => "AuthTokenRefreshRequested",
+        NormalizedEvent::DynamicToolCallDenied { .. } => "DynamicToolCallDenied",
         NormalizedEvent::CapabilitiesDiscovered { .. } => "CapabilitiesDiscovered",
         NormalizedEvent::AgentPreparing { .. } => "AgentPreparing",
         NormalizedEvent::SubAgentStarted { .. } => "SubAgentStarted",

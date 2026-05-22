@@ -519,6 +519,34 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
     }
 
+    case "auth_token_refresh_requested": {
+      // v1.4.1 Phase A.3 — Codex hit a 401 and asked us to refresh.
+      // We don't yet implement the OAuth handoff, so the spawn loop
+      // returned a structured error and we surface a clear toast with
+      // the actionable recovery step.
+      showToast(
+        "Codex needs to refresh its ChatGPT token. Quit CodeMantis, run `codex login` in a terminal, then reopen the session.",
+        "error",
+        12000,
+      );
+      break;
+    }
+
+    case "dynamic_tool_call_denied": {
+      // v1.4.1 Phase A.6 — Codex asked the client to execute a dynamic
+      // tool. CodeMantis has no client-side tool registry, so the spawn
+      // loop responded {success:false, contentItems:[...]} and Codex
+      // continues without hanging. This toast just surfaces the gap
+      // honestly so users know why a tool didn't run.
+      const ns = event.namespace ? `${event.namespace}.` : "";
+      showToast(
+        `Codex asked to run dynamic tool '${ns}${event.tool}', which CodeMantis doesn't yet implement.`,
+        "info",
+        5000,
+      );
+      break;
+    }
+
     case "capabilities_discovered": {
       store.setSessionCapabilities(sessionId, event);
       break;

@@ -77,7 +77,7 @@ export function getActivityType(toolName: string): ActivityType {
   // in the approval modal — without this entry they'd render as "EX".
   // Codex plans flow through the same ExitPlanMode synthetic tool name
   // via the v1.4.0 translator (see agents/codex/translation.rs).
-  const questionTools = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode"];
+  const questionTools = ["AskUserQuestion", "ExitPlanMode", "EnterPlanMode", "PermissionRequest"];
 
   if (readTools.includes(toolName)) return "read";
   if (writeTools.includes(toolName)) return "write";
