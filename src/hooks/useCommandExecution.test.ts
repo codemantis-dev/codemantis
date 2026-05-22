@@ -258,7 +258,7 @@ describe("useCommandExecution", () => {
         totalCacheCreationTokens: 0,
         totalCacheReadTokens: 200,
         turnCount: 3,
-        apiCallCount: 0,
+        apiCallCount: 0, totalReasoningOutputTokens: 0,
       }]]),
     });
 

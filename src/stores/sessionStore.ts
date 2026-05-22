@@ -99,7 +99,7 @@ interface SessionState {
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
-  accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number) => void;
+  accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number, reasoningTokens?: number) => void;
   addSubAgent: (sessionId: string, agent: SubAgentInfo) => void;
   updateSubAgent: (sessionId: string, toolUseId: string, update: Partial<SubAgentInfo>) => void;
   completeSubAgent: (sessionId: string, toolUseId: string) => void;
@@ -136,6 +136,7 @@ const DEFAULT_STATS: SessionStats = {
   totalCacheReadTokens: 0,
   turnCount: 0,
   apiCallCount: 0,
+  totalReasoningOutputTokens: 0,
 };
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -472,6 +473,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         totalCacheReadTokens: hadIncrementalUpdates ? prev.totalCacheReadTokens : prev.totalCacheReadTokens + stats.cacheReadTokens,
         turnCount: prev.turnCount + 1,
         apiCallCount: 0, // reset for next turn
+        // Reasoning tokens persist across turns — accumulateUsage owns
+        // the increment, this branch just preserves what's there.
+        totalReasoningOutputTokens: prev.totalReasoningOutputTokens,
       });
 
       return { sessionMessages, sessionStats };
@@ -754,7 +758,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { sessionThinking };
     }),
 
-  accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead) =>
+  accumulateUsage: (sessionId, inputTokens, outputTokens, cacheCreation, cacheRead, reasoningTokens = 0) =>
     set((state) => {
       const sessionStats = new Map(state.sessionStats);
       const prev = sessionStats.get(sessionId) ?? { ...DEFAULT_STATS };
@@ -765,6 +769,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         totalCacheCreationTokens: prev.totalCacheCreationTokens + cacheCreation,
         totalCacheReadTokens: prev.totalCacheReadTokens + cacheRead,
         apiCallCount: prev.apiCallCount + 1,
+        totalReasoningOutputTokens:
+          prev.totalReasoningOutputTokens + reasoningTokens,
       });
       return { sessionStats };
     }),

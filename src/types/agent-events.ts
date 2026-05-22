@@ -149,6 +149,12 @@ export interface UsageInfo {
   server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } | null;
   /** Per-iteration token breakdown, added in CLI v2.1.97+. */
   iterations?: UsageIteration[] | null;
+  /** Codex / o-series reasoning tokens. The text content is hidden by
+   * the protocol but the count is billed; we surface it as a "Codex
+   * reasoned for N tokens" chip in the Reasoning panel so users see
+   * *that* reasoning happened even when the content is unavailable.
+   * Claude leaves this undefined. */
+  reasoning_output_tokens?: number | null;
 }
 
 export interface UsageIteration {

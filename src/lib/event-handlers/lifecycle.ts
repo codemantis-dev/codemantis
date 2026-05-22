@@ -1,6 +1,6 @@
 import type {
   UsageUpdateEvent,
-} from "../../types/claude-events";
+} from "../../types/agent-events";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -23,6 +23,9 @@ export function handleUsageUpdate(sessionId: string, event: UsageUpdateEvent, st
     event.usage.output_tokens ?? 0,
     event.usage.cache_creation_input_tokens ?? 0,
     event.usage.cache_read_input_tokens ?? 0,
+    // Codex-only: reasoning_output_tokens — the model's hidden reasoning
+    // count. Claude leaves this undefined.
+    event.usage.reasoning_output_tokens ?? 0,
   );
   // Real-time context update: each usage_update represents a single API
   // call, so the total tokens IS the context window size at that point.

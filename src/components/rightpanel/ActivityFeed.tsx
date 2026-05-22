@@ -104,6 +104,15 @@ export default function ActivityFeed() {
       ? "Codex"
       : "Claude Code";
   });
+  // Codex-only reasoning-token counter. The text is hidden by the
+  // protocol so this counter is the only visible signal that reasoning
+  // happened. Sourced from `thread/tokenUsage/updated.last` via the
+  // usage_update event → accumulateUsage. Claude leaves it at 0.
+  const reasoningTokens = useSessionStore((s) =>
+    activeSessionId
+      ? s.sessionStats.get(activeSessionId)?.totalReasoningOutputTokens ?? 0
+      : 0,
+  );
   const lastThinkingContent = useSessionStore((s) => {
     if (!activeSessionId) return undefined;
     const msgs = s.sessionMessages.get(activeSessionId);
@@ -217,7 +226,20 @@ export default function ActivityFeed() {
   const reasoningPane = showReasoningPanel && (
     <div className="shrink-0 max-h-[33%] flex flex-col border-b border-border-light">
       <div className="flex items-center justify-between px-3 pt-1.5 pb-1 shrink-0">
-        <span className="text-ui text-text-dim font-medium">{activeAgentLabel} Reasoning</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-ui text-text-dim font-medium">{activeAgentLabel} Reasoning</span>
+          {/* Codex-only token chip — the only visible signal that
+              reasoning happened, since the text is protocol-hidden.
+              Hidden until we see at least one reasoning token. */}
+          {activeAgentLabel === "Codex" && reasoningTokens > 0 && (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-fine font-mono text-accent bg-accent/10 shrink-0"
+              title="Codex reasoning tokens for this session — billed by OpenAI but text is hidden by the protocol"
+            >
+              {reasoningTokens.toLocaleString()} tok
+            </span>
+          )}
+        </div>
         {reasoningToggle}
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-2 min-h-0">
@@ -225,13 +247,26 @@ export default function ActivityFeed() {
           <ThinkingContent content={reasoningContent} isStreaming={reasoningIsStreaming} maxHeight={undefined} initialExpanded />
         ) : (
           <p className="text-text-faint text-ui text-center py-4">
-            No reasoning yet
-            {activeAgentLabel === "Codex" && (
-              <span className="block text-fine mt-1 leading-relaxed">
-                Codex reasons internally but doesn&apos;t stream the text over the
-                app-server protocol — only the token count is reported. The
-                panel will populate if a future Codex version exposes it.
-              </span>
+            {activeAgentLabel === "Codex" && reasoningTokens > 0 ? (
+              <>
+                Codex used <span className="text-text-secondary font-medium">{reasoningTokens.toLocaleString()}</span> reasoning tokens this session
+                <span className="block text-fine mt-1 leading-relaxed">
+                  but doesn&apos;t stream the reasoning text over its app-server
+                  protocol — only the token count is reported. The panel
+                  will populate if a future Codex version exposes it.
+                </span>
+              </>
+            ) : (
+              <>
+                No reasoning yet
+                {activeAgentLabel === "Codex" && (
+                  <span className="block text-fine mt-1 leading-relaxed">
+                    Codex reasons internally but doesn&apos;t stream the text over the
+                    app-server protocol — only the token count is reported. The
+                    panel will populate if a future Codex version exposes it.
+                  </span>
+                )}
+              </>
             )}
           </p>
         )}

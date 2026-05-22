@@ -131,6 +131,12 @@ export interface SessionStats {
   totalCacheReadTokens: number;
   turnCount: number;
   apiCallCount: number;  // incremented on each usage_update (per API call within a turn)
+  /** Codex / o-series reasoning tokens. Reset on session start; grows
+   * by the `last` delta on each `thread/tokenUsage/updated`. Surfaced
+   * as a chip in the Reasoning panel — the only visible signal that
+   * Codex reasoning happened, since the text is hidden by the
+   * protocol (see docs/internal/codex-0.130.0-protocol-report.md). */
+  totalReasoningOutputTokens: number;
 }
 
 export interface PersistedSession {

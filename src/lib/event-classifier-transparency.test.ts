@@ -26,7 +26,7 @@ function resetStores(): void {
     sessionMessages: new Map([[SESSION_ID, []]]),
     sessionStreaming: new Map([[SESSION_ID, { isStreaming: false, streamingContent: "", currentMessageId: null }]]),
     sessionContext: new Map([[SESSION_ID, { used: 0, max: 1000000 }]]),
-    sessionStats: new Map([[SESSION_ID, { totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheCreationTokens: 0, totalCacheReadTokens: 0, turnCount: 0, apiCallCount: 0 }]]),
+    sessionStats: new Map([[SESSION_ID, { totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheCreationTokens: 0, totalCacheReadTokens: 0, turnCount: 0, apiCallCount: 0, totalReasoningOutputTokens: 0 }]]),
     sessionBusy: new Map([[SESSION_ID, true]]),
     sessionActivity: new Map(),
     sessionCompacting: new Map(),

@@ -67,7 +67,7 @@ describe("SessionStatusBar", () => {
         totalCacheCreationTokens: 0,
         totalCacheReadTokens: 0,
         turnCount: 3,
-        apiCallCount: 3,
+        apiCallCount: 3, totalReasoningOutputTokens: 0,
       }]]),
     });
     render(<SessionStatusBar sessionId={sessionId} />);

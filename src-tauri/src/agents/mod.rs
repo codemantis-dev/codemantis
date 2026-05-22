@@ -135,7 +135,7 @@ pub struct AgentCapabilitySet {
 // ─────────────────────────────────────────────────────────────────────
 
 /// Per-API-call token usage emitted from each agent's message-delta-equivalent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[allow(dead_code)]
 pub struct UsageInfo {
     pub input_tokens: Option<u64>,
@@ -146,6 +146,19 @@ pub struct UsageInfo {
     pub server_tool_use: Option<ServerToolUse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iterations: Option<Vec<UsageIteration>>,
+    /// Codex / OpenAI o-series reasoning tokens. Hidden by the protocol
+    /// (the reasoning text is never streamed) but the count is billed
+    /// and reported. CodeMantis surfaces this as a "Codex reasoned for
+    /// N tokens" chip in the Reasoning panel so users see *that*
+    /// reasoning happened even when the content is unavailable.
+    /// Field name aliases `reasoningOutputTokens` so Codex's camelCase
+    /// notification payload deserialises directly.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "reasoningOutputTokens"
+    )]
+    pub reasoning_output_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1112,6 +1125,7 @@ mod tests {
                 service_tier: None,
                 server_tool_use: None,
                 iterations: None,
+                reasoning_output_tokens: None,
             }),
             cost_usd: Some(0.01),
             duration_api_ms: Some(900),

@@ -5,7 +5,7 @@ import { useActivityStore } from "../../stores/activityStore";
 import { useChangelogStore } from "../../stores/changelogStore";
 import { useToastStore } from "../../stores/toastStore";
 import type { Session } from "../../types/session";
-import type { UsageUpdateEvent } from "../../types/claude-events";
+import type { UsageUpdateEvent } from "../../types/agent-events";
 import type { ActivityEntry } from "../../types/activity";
 import {
   handleUsageUpdate,
@@ -106,6 +106,7 @@ function makeUsageEvent(overrides: Partial<UsageUpdateEvent["usage"]> = {}): Usa
       output_tokens: overrides.output_tokens ?? 0,
       cache_creation_input_tokens: overrides.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: overrides.cache_read_input_tokens ?? 0,
+      reasoning_output_tokens: overrides.reasoning_output_tokens,
     },
   };
 }
@@ -146,7 +147,8 @@ describe("handleUsageUpdate", () => {
 
     handleUsageUpdate("s1", event, store);
 
-    expect(accumulateSpy).toHaveBeenCalledWith("s1", 100, 50, 20, 10);
+    // 6th arg: Codex reasoning_output_tokens (Claude leaves undefined → 0).
+    expect(accumulateSpy).toHaveBeenCalledWith("s1", 100, 50, 20, 10, 0);
 
     // Verify the stats are actually updated in the store
     const stats = useSessionStore.getState().sessionStats.get("s1");
@@ -158,6 +160,43 @@ describe("handleUsageUpdate", () => {
     expect(stats!.apiCallCount).toBe(1);
 
     accumulateSpy.mockRestore();
+  });
+
+  it("accumulates Codex reasoning_output_tokens into totalReasoningOutputTokens", () => {
+    // Regression: hotfix #17 wired thread/tokenUsage/updated.last to flow
+    // through UsageUpdate. The reasoning chip in ActivityFeed reads this
+    // exact field, so a regression here makes the chip silently 0.
+    const store = useSessionStore.getState();
+
+    handleUsageUpdate("s1", makeUsageEvent({
+      input_tokens: 13374,
+      output_tokens: 73,
+      cache_read_input_tokens: 12160,
+      reasoning_output_tokens: 40,
+    }), store);
+
+    let stats = useSessionStore.getState().sessionStats.get("s1");
+    expect(stats?.totalReasoningOutputTokens).toBe(40);
+
+    // Second update — accumulator should add the delta.
+    handleUsageUpdate("s1", makeUsageEvent({
+      input_tokens: 100,
+      output_tokens: 50,
+      reasoning_output_tokens: 12,
+    }), store);
+
+    stats = useSessionStore.getState().sessionStats.get("s1");
+    expect(stats?.totalReasoningOutputTokens).toBe(52);
+  });
+
+  it("leaves totalReasoningOutputTokens at 0 when usage event omits reasoning_output_tokens (Claude path)", () => {
+    const store = useSessionStore.getState();
+    handleUsageUpdate("s1", makeUsageEvent({
+      input_tokens: 100,
+      output_tokens: 50,
+    }), store);
+    const stats = useSessionStore.getState().sessionStats.get("s1");
+    expect(stats?.totalReasoningOutputTokens).toBe(0);
   });
 
   it("updates context from per-call tokens", () => {

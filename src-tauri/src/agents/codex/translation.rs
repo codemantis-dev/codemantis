@@ -71,6 +71,13 @@ impl Translator {
             | "item/reasoning/textDelta"
             | "item/reasoning/summaryPartAdded" => self.on_reasoning_delta(params).await,
             "item/commandExecution/outputDelta" => self.on_command_output_delta(params).await,
+            // Per-turn token accumulation (incl. reasoningOutputTokens).
+            // Schema: docs/internal/codex-app-server-schemas/v2/ThreadTokenUsageUpdatedNotification.json
+            // We surface `last` (the most-recent step's delta) so the
+            // existing `accumulateUsage` accumulator pattern works without
+            // double-counting — `total` would re-add the running sum on
+            // every notification.
+            "thread/tokenUsage/updated" => self.on_token_usage_updated(params),
             // Hook lifecycle (HookStartedNotification / HookCompletedNotification).
             // Separate from `hookPrompt` ThreadItems: lifecycle markers
             // tell us a hook ran (started / failed / completed), while
@@ -81,6 +88,46 @@ impl Translator {
             // Unknown notification — log and swallow (S4 wires the logger).
             _ => Vec::new(),
         }
+    }
+
+    /// Translate `thread/tokenUsage/updated` → `UsageUpdate`.
+    /// Schema:
+    /// docs/internal/codex-app-server-schemas/v2/ThreadTokenUsageUpdatedNotification.json
+    ///
+    /// Codex sends `{ threadId, turnId, tokenUsage: { last, total,
+    /// modelContextWindow } }` where `last` is the most-recent step's
+    /// delta and `total` is the cumulative thread total. We forward
+    /// `last` so the existing frontend accumulator pattern adds without
+    /// double-counting.
+    ///
+    /// UsageInfo's serde field names are snake_case (Claude convention)
+    /// so we hand-build it from the camelCase Codex payload rather than
+    /// polluting the shared struct with Codex-only aliases.
+    fn on_token_usage_updated(&self, params: Value) -> Vec<NormalizedEvent> {
+        let breakdown = match params
+            .get("tokenUsage")
+            .and_then(|v| v.get("last"))
+        {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let usage = crate::agents::UsageInfo {
+            input_tokens: breakdown.get("inputTokens").and_then(|v| v.as_u64()),
+            output_tokens: breakdown.get("outputTokens").and_then(|v| v.as_u64()),
+            cache_creation_input_tokens: None, // Codex doesn't track this
+            cache_read_input_tokens: breakdown.get("cachedInputTokens").and_then(|v| v.as_u64()),
+            service_tier: None,
+            server_tool_use: None,
+            iterations: None,
+            reasoning_output_tokens: breakdown
+                .get("reasoningOutputTokens")
+                .and_then(|v| v.as_u64()),
+        };
+        vec![NormalizedEvent::UsageUpdate {
+            agent_id: AgentId::Codex,
+            session_id: self.session_id.clone(),
+            usage,
+        }]
     }
 
     fn on_hook_lifecycle(&self, params: Value, kind: &str) -> Vec<NormalizedEvent> {
@@ -1471,6 +1518,61 @@ mod tests {
     }
 
     // ── v1.4.0 ThreadItem types ──
+
+    #[tokio::test]
+    async fn token_usage_updated_emits_usage_update_with_reasoning_tokens() {
+        // Empirical Codex 0.130.0 payload — `last` carries the delta,
+        // `total` is the running thread sum. We forward `last` so the
+        // frontend accumulator doesn't double-count across notifications.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "thread/tokenUsage/updated",
+                json!({
+                    "threadId": "thr_1",
+                    "turnId": "turn_1",
+                    "tokenUsage": {
+                        "last": {
+                            "cachedInputTokens": 12160,
+                            "inputTokens": 13374,
+                            "outputTokens": 73,
+                            "reasoningOutputTokens": 40,
+                            "totalTokens": 13447,
+                        },
+                        "total": {
+                            "cachedInputTokens": 12160,
+                            "inputTokens": 13374,
+                            "outputTokens": 73,
+                            "reasoningOutputTokens": 40,
+                            "totalTokens": 13447,
+                        },
+                        "modelContextWindow": 200000,
+                    },
+                }),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::UsageUpdate { usage, .. } => {
+                assert_eq!(usage.input_tokens, Some(13374));
+                assert_eq!(usage.output_tokens, Some(73));
+                assert_eq!(usage.cache_read_input_tokens, Some(12160));
+                assert_eq!(usage.reasoning_output_tokens, Some(40));
+            }
+            other => panic!("expected UsageUpdate, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn token_usage_updated_missing_last_is_no_op() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "thread/tokenUsage/updated",
+                json!({"threadId": "thr_1", "turnId": "turn_1"}),
+            )
+            .await;
+        assert!(events.is_empty());
+    }
 
     #[tokio::test]
     async fn reasoning_completed_reads_array_fields() {

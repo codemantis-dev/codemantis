@@ -50,7 +50,7 @@ function resetStores(): void {
           totalCacheCreationTokens: 0,
           totalCacheReadTokens: 0,
           turnCount: 0,
-          apiCallCount: 0,
+          apiCallCount: 0, totalReasoningOutputTokens: 0,
         },
       ],
     ]),
