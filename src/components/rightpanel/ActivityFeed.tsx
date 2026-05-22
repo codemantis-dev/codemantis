@@ -227,8 +227,10 @@ export default function ActivityFeed() {
           <p className="text-text-faint text-ui text-center py-4">
             No reasoning yet
             {activeAgentLabel === "Codex" && (
-              <span className="block text-fine mt-1">
-                Codex emits reasoning only at medium effort or higher.
+              <span className="block text-fine mt-1 leading-relaxed">
+                Codex reasons internally but doesn&apos;t stream the text over the
+                app-server protocol — only the token count is reported. The
+                panel will populate if a future Codex version exposes it.
               </span>
             )}
           </p>

@@ -112,6 +112,54 @@ The live response listed these as read-only inside writable roots:
 Confirms spec §2.3 (`.codex/.git/.agents`). CodeMantis's multi-agent
 protected-path detector in `chat.ts` uses this set.
 
+## Reasoning text is not exposed by the protocol
+
+**Empirically discovered 2026-05-22** by probing a real turn at
+`effort: high` against `gpt-5.5`:
+
+```
+=== METHODS RECEIVED DURING TURN ===
+  27× item/agentMessage/delta
+   3× item/started        (userMessage, reasoning, agentMessage)
+   3× item/completed      (userMessage, reasoning, agentMessage)
+   1× turn/started
+   1× turn/completed
+   1× thread/tokenUsage/updated     ← reasoningOutputTokens: 40
+
+  0× item/reasoning/textDelta
+  0× item/reasoning/summaryTextDelta
+  0× item/reasoning/summaryPartAdded
+```
+
+The reasoning ThreadItem arrives but with both `summary: []` and
+`content: []` (the schema's `ReasoningThreadItem` allows them to be
+populated, but in practice the model's reasoning text is *not*
+written to either). **No delta notifications fire for reasoning at
+all** — only `tokenUsage` reports the `reasoningOutputTokens` count
+(40 in this example, billed by OpenAI but text-hidden).
+
+This is by design: OpenAI's o-series and GPT-5 reasoning is hidden by
+default — only the tokens are exposed.
+
+Implications for CodeMantis:
+- The Reasoning panel will stay empty for Codex turns regardless of
+  effort. The chat-handler / store flow are correct; there's just
+  nothing to display.
+- The empty-state copy in `ActivityFeed.tsx` was changed in
+  hotfix #16 from "Codex emits reasoning only at medium effort or
+  higher" (misleading — that implies high-effort would populate it)
+  to a clear "reasons internally but doesn't stream the text"
+  statement.
+- The translator now reads `summary` and `content` AS ARRAYS rather
+  than scalar strings, so if a future Codex version exposes the
+  reasoning text the panel populates automatically.
+- If we want to surface that reasoning *happened*, we can extract
+  `reasoningOutputTokens` from `thread/tokenUsage/updated`
+  notifications and show it as a token counter (future work).
+
+The hypothesis from earlier (hotfix #12) that "reasoning needs medium
+effort or higher" was wrong — even high effort doesn't expose the text.
+
 ## Crash-recovery / `thread/resume` contract
 
 **Empirically discovered by the smoke harness** (S02), 2026-05-22:

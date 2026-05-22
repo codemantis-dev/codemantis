@@ -454,11 +454,54 @@ impl Translator {
             }
 
             "reasoning" => {
-                let full = item
+                // Empirical (cli 0.130.0, verified 2026-05-22):
+                //   ReasoningThreadItem schema is `{ id, type: "reasoning",
+                //   summary: array<string>, content: array<string> }`
+                //   with both arrays defaulting to []. In practice Codex
+                //   leaves them empty and emits NO delta notifications,
+                //   so the reasoning panel stays blank for Codex turns.
+                //   This is by design — OpenAI's o-series reasoning text
+                //   is hidden by default; only `reasoningOutputTokens` in
+                //   the usage block tells us reasoning happened.
+                // We read both arrays AS arrays (not as_str — the old code
+                // assumed scalar fields and silently fell through to the
+                // empty fallback) so when Codex eventually exposes the
+                // reasoning text (or older / non-default models do), it
+                // will land in the Reasoning panel automatically.
+                let summary_parts: Vec<String> = item
                     .get("summary")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| item.get("text").and_then(|v| v.as_str()))
-                    .map(str::to_string)
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let content_parts: Vec<String> = item
+                    .get("content")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let from_arrays = if !content_parts.is_empty() {
+                    Some(content_parts.join("\n\n"))
+                } else if !summary_parts.is_empty() {
+                    Some(summary_parts.join("\n\n"))
+                } else {
+                    None
+                };
+                // Back-compat: a future schema variant might use scalar
+                // `summary` / `text` fields; try those before the buffer.
+                let full = from_arrays
+                    .or_else(|| {
+                        item.get("summary")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    })
+                    .or_else(|| item.get("text").and_then(|v| v.as_str()).map(str::to_string))
                     .or_else(|| buffer.as_ref().map(|b| b.text.clone()))
                     .unwrap_or_default();
                 vec![NormalizedEvent::ThinkingComplete {
@@ -1428,6 +1471,91 @@ mod tests {
     }
 
     // ── v1.4.0 ThreadItem types ──
+
+    #[tokio::test]
+    async fn reasoning_completed_reads_array_fields() {
+        // Empirical: Codex 0.130.0 emits reasoning ThreadItems with
+        // `summary: []` and `content: []` (text-hidden by design). When
+        // a future version DOES populate them, our handler must read
+        // them as arrays rather than scalars. Regression test: the
+        // pre-hotfix-#16 code called `.as_str()` on `summary`, which
+        // silently fell through to the empty fallback even if a string
+        // array was present.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "reasoning",
+                    "id": "rs_x",
+                    "summary": ["First, I considered…", "Then I weighed…"],
+                    "content": [],
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ThinkingComplete { full_thinking, .. } => {
+                assert!(full_thinking.contains("First, I considered"));
+                assert!(full_thinking.contains("Then I weighed"));
+            }
+            other => panic!("expected ThinkingComplete, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn reasoning_completed_prefers_content_array_over_summary() {
+        // When both are non-empty, content carries the full text and
+        // summary is a higher-level synopsis; we surface the richer
+        // signal.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "reasoning",
+                    "id": "rs_x",
+                    "summary": ["one-line synopsis"],
+                    "content": ["paragraph 1", "paragraph 2"],
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ThinkingComplete { full_thinking, .. } => {
+                assert!(full_thinking.contains("paragraph 1"));
+                assert!(full_thinking.contains("paragraph 2"));
+                assert!(!full_thinking.contains("one-line synopsis"));
+            }
+            other => panic!("expected ThinkingComplete, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn reasoning_completed_empty_arrays_emit_blank_thinking_complete() {
+        // The current empirical shape: both arrays present but empty.
+        // We still emit ThinkingComplete (the lifecycle event) so the
+        // store flips off the isThinking flag; full_thinking is "".
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {
+                    "type": "reasoning",
+                    "id": "rs_x",
+                    "summary": [],
+                    "content": [],
+                    "status": "completed",
+                }}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ThinkingComplete { full_thinking, .. } => {
+                assert_eq!(full_thinking, "");
+            }
+            other => panic!("expected ThinkingComplete, got {:?}", other),
+        }
+    }
 
     #[tokio::test]
     async fn plan_item_completed_emits_synthetic_exit_plan_mode() {
