@@ -11,9 +11,10 @@ vi.mock("./useTerminal", () => ({
 }));
 
 // Hoist mock variables so they're available when vi.mock factories run
-const { mockTogglePreview, mockSetSessionMode } = vi.hoisted(() => ({
+const { mockTogglePreview, mockSetSessionMode, mockSetCodexPolicy } = vi.hoisted(() => ({
   mockTogglePreview: vi.fn(),
   mockSetSessionMode: vi.fn((_sessionId: string, _mode: string) => Promise.resolve()),
+  mockSetCodexPolicy: vi.fn((_sessionId: string, _policy: unknown) => Promise.resolve()),
 }));
 
 // Mock usePreviewWindow
@@ -31,6 +32,7 @@ vi.mock("./usePreviewWindow", () => ({
 vi.mock("../lib/tauri-commands", () => ({
   closeSession: vi.fn(() => Promise.resolve()),
   setSessionMode: mockSetSessionMode,
+  setCodexPolicy: mockSetCodexPolicy,
 }));
 
 function setupSessions(): void {
@@ -180,6 +182,79 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
 
     expect(useSessionStore.getState().sessionModes.get("s1")).toBe("auto-accept");
     expect(mockSetSessionMode).toHaveBeenCalledWith("s1", "auto-accept");
+  });
+
+  it("Codex Shift+Tab cycles the (sandbox, approval) policy presets", () => {
+    // Mirrors the production cycle in useKeyboardShortcuts.ts. Critical
+    // bug class to guard against: Codex sessions used to call
+    // setSessionMode (a no-op for them) on Shift+Tab; we now route to
+    // setCodexPolicy with curated cycle entries that match what the
+    // PolicyPill UI exposes.
+    const CODEX_POLICY_CYCLE = [
+      { sandbox: "read-only",          approval: "on-request" },
+      { sandbox: "workspace-write",    approval: "on-request" },
+      { sandbox: "workspace-write",    approval: "never" },
+      { sandbox: "danger-full-access", approval: "never" },
+    ] as const;
+
+    useSessionStore.setState({
+      sessions: new Map([
+        ["s1", {
+          id: "s1", name: "Codex Session", project_path: "/x",
+          status: "connected", created_at: "", model: null, icon_index: 0,
+          agent_id: "codex",
+        }],
+      ]),
+      activeSessionId: "s1",
+      tabOrder: ["s1"],
+    });
+    useUiStore.setState({
+      codexPolicies: {
+        s1: { sandbox: "read-only", approval: "on-request", network_access: false },
+      },
+    });
+
+    // First press cycles to the next entry, preserving network_access.
+    const ui = useUiStore.getState();
+    const current = ui.codexPolicies["s1"];
+    const idx = CODEX_POLICY_CYCLE.findIndex(
+      (c) => c.sandbox === current.sandbox && c.approval === current.approval,
+    );
+    const nextEntry = CODEX_POLICY_CYCLE[(idx + 1) % CODEX_POLICY_CYCLE.length];
+    const next = {
+      sandbox: nextEntry.sandbox,
+      approval: nextEntry.approval,
+      network_access: current.network_access,
+    };
+    ui.updateCodexPolicyLocal("s1", next);
+    mockSetCodexPolicy("s1", next);
+
+    const stored = useUiStore.getState().codexPolicies["s1"];
+    expect(stored.sandbox).toBe("workspace-write");
+    expect(stored.approval).toBe("on-request");
+    expect(stored.network_access).toBe(false); // preserved
+    expect(mockSetCodexPolicy).toHaveBeenCalledWith("s1", expect.objectContaining({
+      sandbox: "workspace-write",
+      approval: "on-request",
+    }));
+  });
+
+  it("Codex Shift+Tab wraps at the end of the cycle", () => {
+    const CODEX_POLICY_CYCLE = [
+      { sandbox: "read-only",          approval: "on-request" },
+      { sandbox: "workspace-write",    approval: "on-request" },
+      { sandbox: "workspace-write",    approval: "never" },
+      { sandbox: "danger-full-access", approval: "never" },
+    ] as const;
+
+    // Starting at the last entry — next press should wrap to entry 0.
+    const current = { sandbox: "danger-full-access" as const, approval: "never" as const };
+    const idx = CODEX_POLICY_CYCLE.findIndex(
+      (c) => c.sandbox === current.sandbox && c.approval === current.approval,
+    );
+    const next = CODEX_POLICY_CYCLE[(idx + 1) % CODEX_POLICY_CYCLE.length];
+    expect(next.sandbox).toBe("read-only");
+    expect(next.approval).toBe("on-request");
   });
 
   it("switching right tabs cycles correctly", () => {

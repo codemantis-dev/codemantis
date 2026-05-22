@@ -7,7 +7,11 @@ import { useClaudeSession } from "./useClaudeSession";
 import { usePreviewWindow } from "./usePreviewWindow";
 import { useSpecWriterStore } from "../stores/specWriterStore";
 import { useChatSearchStore } from "../stores/chatSearchStore";
-import { setSessionMode as setSessionModeCmd } from "../lib/tauri-commands";
+import {
+  setSessionMode as setSessionModeCmd,
+  setCodexPolicy,
+} from "../lib/tauri-commands";
+import type { CodexSessionPolicy } from "../lib/tauri-commands";
 import type { SessionMode } from "../types/session";
 
 const MODE_CYCLE: SessionMode[] = [
@@ -18,6 +22,32 @@ const MODE_CYCLE: SessionMode[] = [
   "dont-ask",
   "bypass-permissions",
 ];
+
+// Codex's equivalent of mode-cycle: a curated sweep across the
+// (sandbox, approval) product, ordered from safest to most permissive.
+// Matches the four meaningful presets the PolicyPill UI exposes; cycling
+// through them keeps `network_access` whatever the user last set.
+const CODEX_POLICY_CYCLE: Array<
+  Pick<CodexSessionPolicy, "sandbox" | "approval">
+> = [
+  { sandbox: "read-only",           approval: "on-request" },  // safest
+  { sandbox: "workspace-write",     approval: "on-request" },  // Auto (default)
+  { sandbox: "workspace-write",     approval: "never" },       // Auto-accept
+  { sandbox: "danger-full-access",  approval: "never" },       // Bypass
+];
+
+function findCodexCycleIndex(p: CodexSessionPolicy | undefined): number {
+  if (!p) return -1;
+  return CODEX_POLICY_CYCLE.findIndex(
+    (c) => c.sandbox === p.sandbox && c.approval === p.approval,
+  );
+}
+
+const DEFAULT_CODEX_POLICY: CodexSessionPolicy = {
+  sandbox: "workspace-write",
+  approval: "on-request",
+  network_access: false,
+};
 
 export function useKeyboardShortcuts(): void {
   const { createTerminal } = useTerminal();
@@ -59,12 +89,31 @@ export function useKeyboardShortcuts(): void {
         }
       }
 
-      // Shift+Tab — cycle working mode (no Cmd/Ctrl required)
+      // Shift+Tab — cycle the working mode (Claude) / sandbox+approval
+      // policy (Codex). Agent-aware so Codex sessions don't silently call
+      // the no-op `setSessionMode` Tauri command on every press.
       if (e.key === "Tab" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         const store = useSessionStore.getState();
         const activeId = store.activeSessionId;
-        if (activeId) {
+        if (!activeId) return;
+
+        const session = store.sessions.get(activeId);
+        const isCodex = (session?.agent_id ?? "claude_code") === "codex";
+
+        if (isCodex) {
+          const ui = useUiStore.getState();
+          const current = ui.codexPolicies[activeId];
+          const idx = findCodexCycleIndex(current);
+          const nextEntry = CODEX_POLICY_CYCLE[(idx + 1) % CODEX_POLICY_CYCLE.length];
+          const next: CodexSessionPolicy = {
+            sandbox: nextEntry.sandbox,
+            approval: nextEntry.approval,
+            network_access: current?.network_access ?? DEFAULT_CODEX_POLICY.network_access,
+          };
+          ui.updateCodexPolicyLocal(activeId, next);
+          setCodexPolicy(activeId, next).catch(console.error);
+        } else {
           const current = store.sessionModes.get(activeId) ?? "normal";
           const idx = MODE_CYCLE.indexOf(current);
           const next = MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];

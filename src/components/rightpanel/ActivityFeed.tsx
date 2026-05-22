@@ -92,6 +92,18 @@ export default function ActivityFeed() {
   const thinking = useSessionStore((s) =>
     activeSessionId ? s.sessionThinking.get(activeSessionId) : undefined
   );
+  // Agent-aware reasoning panel labelling. Header text + tooltip used to
+  // be hardcoded "Claude Code Reasoning" / "Show Claude reasoning" which
+  // looked broken on Codex sessions (where the panel still works the
+  // same way — both adapters emit ThinkingDelta/ThinkingComplete into
+  // sessionThinking).
+  const activeAgentLabel = useSessionStore((s) => {
+    if (!activeSessionId) return "Reasoning";
+    const sess = s.sessions.get(activeSessionId);
+    return (sess?.agent_id ?? "claude_code") === "codex"
+      ? "Codex"
+      : "Claude Code";
+  });
   const lastThinkingContent = useSessionStore((s) => {
     if (!activeSessionId) return undefined;
     const msgs = s.sessionMessages.get(activeSessionId);
@@ -184,7 +196,7 @@ export default function ActivityFeed() {
           ? "text-accent bg-accent/10"
           : "text-text-ghost hover:text-text-secondary hover:bg-bg-elevated"
       }`}
-      title={showReasoningPanel ? "Hide reasoning panel" : "Show Claude reasoning"}
+      title={showReasoningPanel ? "Hide reasoning panel" : `Show ${activeAgentLabel} reasoning`}
     >
       <Brain size={12} />
       Reasoning
@@ -205,14 +217,21 @@ export default function ActivityFeed() {
   const reasoningPane = showReasoningPanel && (
     <div className="shrink-0 max-h-[33%] flex flex-col border-b border-border-light">
       <div className="flex items-center justify-between px-3 pt-1.5 pb-1 shrink-0">
-        <span className="text-ui text-text-dim font-medium">Claude Code Reasoning</span>
+        <span className="text-ui text-text-dim font-medium">{activeAgentLabel} Reasoning</span>
         {reasoningToggle}
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-2 min-h-0">
         {reasoningContent ? (
           <ThinkingContent content={reasoningContent} isStreaming={reasoningIsStreaming} maxHeight={undefined} initialExpanded />
         ) : (
-          <p className="text-text-faint text-ui text-center py-4">No reasoning yet</p>
+          <p className="text-text-faint text-ui text-center py-4">
+            No reasoning yet
+            {activeAgentLabel === "Codex" && (
+              <span className="block text-fine mt-1">
+                Codex emits reasoning only at medium effort or higher.
+              </span>
+            )}
+          </p>
         )}
       </div>
     </div>

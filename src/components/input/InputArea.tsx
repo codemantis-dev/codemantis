@@ -547,13 +547,14 @@ export default function InputArea() {
             </div>
           </div>
 
-          {/* Keyboard shortcut hints — Codex has no Shift+Tab mode-cycle
-              (sandbox + approval live on the Policy pill); show the
-              correct hint per agent. */}
+          {/* Keyboard shortcut hints — both agents support Shift+Tab now.
+              For Codex it cycles the (sandbox, approval) presets the same
+              way it cycles Claude's permission modes; see
+              useKeyboardShortcuts.ts::CODEX_POLICY_CYCLE. */}
           {session && (
             <div className="flex items-center justify-center gap-4 pb-1.5 -mt-0.5 text-label text-text-ghost select-none">
               {(session.agent_id ?? "claude_code") === "codex" ? (
-                <span>Click Policy to change sandbox / approval</span>
+                <span>Shift+Tab to cycle Policy</span>
               ) : (
                 <span>Shift+Tab to switch mode</span>
               )}
