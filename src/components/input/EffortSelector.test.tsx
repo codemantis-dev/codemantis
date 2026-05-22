@@ -5,7 +5,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { resetAllStores } from "../../test/helpers/store-reset";
 import type { Session } from "../../types/session";
-import type { CapabilitiesDiscoveredEvent } from "../../types/claude-events";
+import type { CapabilitiesDiscoveredEvent } from "../../types/agent-events";
 import { invoke } from "@tauri-apps/api/core";
 
 const SESSION: Session = {
@@ -113,6 +113,61 @@ describe("EffortSelector", () => {
     });
     const { container } = render(<EffortSelector />);
     expect(container.innerHTML).toBe("");
+  });
+
+  it("renders for a fresh Codex session (model still null) by resolving to the isDefault model", () => {
+    // Regression: EffortSelector used to hide itself when session.model
+    // was null because findManifestEntry returned null. Codex sessions
+    // never auto-set session.model on spawn (the CLI applies its own
+    // default), so the EffortSelector was invisible end-to-end — the
+    // exact UX gap that motivated the v1.4.0 work. We now resolve via
+    // the isDefault flag (same shape as ModelSelector) so the manifest
+    // lookup succeeds even before the user picks a model explicitly.
+    const codexCaps: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [
+        {
+          value: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Codex default",
+          isDefault: true,
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "medium", "high", "xhigh"],
+          defaultEffort: "medium",
+        },
+        {
+          value: "gpt-5.4",
+          displayName: "GPT-5.4",
+          description: "older Codex",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "medium", "high", "xhigh"],
+        },
+      ],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    const codexSession: Session = {
+      ...SESSION,
+      model: null,
+      agent_id: "codex",
+    };
+    useSessionStore.setState({
+      sessions: new Map([[codexSession.id, codexSession]]),
+      activeSessionId: codexSession.id,
+      sessionEffort: new Map(),
+      sessionBusy: new Map(),
+      sessionStreaming: new Map(),
+      tabOrder: [codexSession.id],
+    });
+    useSessionStore.getState().setSessionCapabilities("s1", codexCaps);
+
+    render(<EffortSelector />);
+    // The button shows the model's defaultEffort ("medium") rather than
+    // the alphabetical first level ("low") — see displayLevel logic.
+    expect(screen.getByText("Medium")).toBeInTheDocument();
   });
 
   it("renders nothing for a model that does not support effort (e.g. Haiku)", () => {

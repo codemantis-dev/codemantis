@@ -130,9 +130,25 @@ export default function EffortSelector() {
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  // Resolved-model lookup: when the user hasn't picked a model yet,
+  // `session.model` is null and findManifestEntry returns null, which
+  // would hide the EffortSelector forever on a fresh Codex session
+  // (the user's first turn would land at whatever effort the CLI
+  // defaults to, with no way to change it). Fall back to the model
+  // marked isDefault (or the first entry) so the manifest lookup
+  // succeeds — same resolved-default pattern as ModelSelector.
+  const resolvedModelValue = useMemo(() => {
+    if (session?.model) return session.model;
+    const list = Array.isArray(caps?.models) ? caps?.models as CliModelInfo[] : [];
+    return (
+      list.find((m) => m.isDefault === true)?.value ??
+      list[0]?.value ??
+      null
+    );
+  }, [session?.model, caps?.models]);
   const activeModel = useMemo(
-    () => findManifestEntry(caps?.models, session?.model),
-    [caps?.models, session?.model],
+    () => findManifestEntry(caps?.models, resolvedModelValue),
+    [caps?.models, resolvedModelValue],
   );
 
   const supportsEffort = activeModel?.supportsEffort === true;
@@ -144,9 +160,15 @@ export default function EffortSelector() {
 
   const persistedDefault = settings.defaultThinkingEffort ?? null;
   const runningLevel = sessionEffort ?? null;
+  // Final fallback: prefer the model's own defaultEffort (Codex
+  // surfaces this from model/list — e.g. gpt-5.5 default = medium).
+  // Without this we'd show levels[0] ("low" for Codex models, which
+  // is misleading because the CLI would actually run at medium).
+  const modelDefault = activeModel?.defaultEffort ?? null;
   const displayLevel =
     (runningLevel && levels.includes(runningLevel) ? runningLevel : null) ??
     (persistedDefault && levels.includes(persistedDefault) ? persistedDefault : null) ??
+    (modelDefault && levels.includes(modelDefault) ? modelDefault : null) ??
     levels[0];
 
   // The "pending" level is whichever one the user has marked as the default
