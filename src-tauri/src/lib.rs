@@ -371,6 +371,7 @@ pub fn run() {
             commands::api_logs::get_api_logs,
             commands::api_logs::get_api_cost_summary,
             commands::api_logs::cleanup_api_logs,
+            commands::stats::agent_usage_breakdown,
             commands::assistant_chat::send_assistant_chat,
             commands::assistant_chat::cancel_assistant_chat,
             commands::openrouter::fetch_openrouter_models,

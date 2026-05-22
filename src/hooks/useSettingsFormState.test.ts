@@ -274,6 +274,8 @@ selfDriveAutoCommit: true,
       selfDriveEnableRecheckLoop: true,
       selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
+      defaultAgentByTask: {},
+      secondOpinionPrivacyAcknowledged: false,
     });
 
     act(() => {

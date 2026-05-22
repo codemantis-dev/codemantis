@@ -15,6 +15,7 @@ import {
 } from "../lib/tauri-commands";
 import { handleChatEvent } from "../lib/event-classifier";
 import { showToast } from "../stores/toastStore";
+import { resolveAgentForTaskNow } from "../lib/agent-resolver";
 
 // Module-level listener storage — persists across re-renders
 let helpUnlistenFn: UnlistenFn | null = null;
@@ -63,8 +64,13 @@ export function useHelpSession(): UseHelpSessionReturn {
       const activeProject = useSessionStore.getState().activeProjectPath;
       const workDir = activeProject ?? (await homeDir());
 
-      // Create the session
-      const session = await createSession(workDir, "CodeMantis Help");
+      // Create the session. v1.5.0 Phase 1: route via the per-task
+      // resolver ("help" category). Defaults to claude_code (unchanged)
+      // unless the user opts the Help session into Codex.
+      const helpAgent = resolveAgentForTaskNow("help");
+      const session = await createSession(
+        workDir, "CodeMantis Help", undefined, helpAgent,
+      );
       useUiStore.getState().setHelpSessionId(session.id);
 
       // Initialize per-session maps (without adding to tabs)
@@ -79,12 +85,15 @@ export function useHelpSession(): UseHelpSessionReturn {
       // Discover CLI capabilities
       await initializeSession(session.id);
 
-      // Switch to Haiku model
+      // Switch to a fast/cheap model — agent-aware (Haiku for Claude,
+      // gpt-5.4-mini for Codex). Help answers should be quick + light.
+      const helpModel =
+        helpAgent === "codex" ? "gpt-5.4-mini" : "claude-haiku-4-5";
       try {
-        await setSessionModel(session.id, "claude-haiku-4-5");
+        await setSessionModel(session.id, helpModel);
       } catch {
-        // Fall back to default model if Haiku unavailable
-        console.warn("Failed to set Haiku model for help session, using default");
+        // Fall back to default model if the fast model is unavailable
+        console.warn("Failed to set fast model for help session, using default");
       }
 
       // Lock to Plan mode

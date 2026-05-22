@@ -103,9 +103,15 @@ export default function App() {
     // BOTH have resolved so the splash reflects the full picture
     // ("Claude Code 2.1.145 · OpenAI Codex 0.130.0" can't be assembled
     // until codexStatus is in).
+    // v1.5.0 Phase 1: capture install state into the UI store so the
+    // per-task agent resolver (agent-resolver.ts) can avoid routing to
+    // an uninstalled CLI. Both probes feed `setAgentInstall` once.
+    let claudeInstalled = true;
+    let codexInstalled = true;
     const claudePromise = checkClaudeStatus()
       .then((status) => {
         setClaudeStatus(status);
+        claudeInstalled = status.installed;
         if (status.binary_path) {
           useUiStore.getState().setClaudeBinaryPath(status.binary_path);
         }
@@ -115,16 +121,24 @@ export default function App() {
         showToast("Failed to check Claude CLI status", "error");
       });
     const codexPromise = checkCodexStatus()
-      .then(setCodexStatus)
+      .then((status) => {
+        setCodexStatus(status);
+        codexInstalled = status.installed;
+      })
       .catch((e) => {
         // Codex probe failures are non-fatal — log + leave codexStatus
         // null so the UI just won't offer Codex.
         console.warn("Codex status check failed:", e);
         setCodexStatus(null);
+        codexInstalled = false;
       });
-    void Promise.allSettled([claudePromise, codexPromise]).finally(() =>
-      setChecking(false),
-    );
+    void Promise.allSettled([claudePromise, codexPromise]).finally(() => {
+      useUiStore.getState().setAgentInstall({
+        claude_code: claudeInstalled,
+        codex: codexInstalled,
+      });
+      setChecking(false);
+    });
     loadSettings();
     // Rehydrate Self-Drive runs paused at the previous shutdown. Each row
     // is hydrated as paused + needsSessionAttach; the user explicitly

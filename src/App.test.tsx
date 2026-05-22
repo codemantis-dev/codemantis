@@ -145,6 +145,8 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     selfDriveEnableRecheckLoop: true,
     selfDriveConfirmCapabilities: true,
     defaultThinkingEffort: null,
+    defaultAgentByTask: {},
+    secondOpinionPrivacyAcknowledged: false,
     ...overrides,
   };
 }

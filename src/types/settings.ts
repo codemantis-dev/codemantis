@@ -1,5 +1,7 @@
 import type { AIProvider } from "./assistant-provider";
 import { getDefaultModelPricing } from "./assistant-provider";
+import type { AgentId } from "./agent-events";
+import type { TaskCategory } from "./task-category";
 
 export interface QuickCommand {
   label: string;
@@ -146,6 +148,25 @@ export interface AppSettings {
    * it from `sessionCapabilities` and validate against it.
    */
   defaultThinkingEffort: string | null;
+
+  /**
+   * v1.5.0 Phase 1 — per-task agent routing. Sparse map: a category
+   * absent from this object means "use the primary agent" (the global
+   * default picked in Settings → Agents, stored as `selectedAgentId`
+   * in the UI store). Existing installs deserialize this as `{}` so
+   * behaviour is unchanged until the user opts in.
+   *
+   * The resolver (`src/lib/agent-resolver.ts`) is the single consumer —
+   * never read this map directly from spawn callsites.
+   */
+  defaultAgentByTask: Partial<Record<TaskCategory, AgentId>>;
+
+  /**
+   * v1.5.0 Phase 3 — set once the user has acknowledged the
+   * `/second-opinion` privacy disclosure (recent chat content is sent
+   * to the other local CLI). Mirrors `apiKeyBannerDismissed`.
+   */
+  secondOpinionPrivacyAcknowledged: boolean;
 }
 
 export { getDefaultModelPricing };

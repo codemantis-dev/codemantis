@@ -275,6 +275,8 @@ function setupReadyState(): void {
       selfDriveEnableRecheckLoop: true,
       selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
+      defaultAgentByTask: {},
+      secondOpinionPrivacyAcknowledged: false,
     },
     loaded: true,
   });

@@ -80,6 +80,8 @@ selfDriveAutoCommit: false,
   selfDriveEnableRecheckLoop: true,
   selfDriveConfirmCapabilities: true,
   defaultThinkingEffort: null,
+  defaultAgentByTask: {},
+  secondOpinionPrivacyAcknowledged: false,
 };
 
 function resetStore(): void {

@@ -33,6 +33,15 @@ interface UiState {
    */
   selectedAgentId: import("../types/agent-events").AgentId;
   /**
+   * v1.5.0 Phase 1 — cached agent install state, refreshed at app
+   * startup (and whenever the Agents settings tab probes). The
+   * per-task resolver reads this to avoid routing to an uninstalled
+   * agent. Defaults to both-true (optimistic) until the first probe —
+   * a wrong optimistic guess just fails the spawn loudly, same as
+   * today's behaviour, so it's a safe default.
+   */
+  agentInstall: { claude_code: boolean; codex: boolean };
+  /**
    * Phase 2 §6.1: per-Codex-session sandbox+approval policy, keyed by
    * session id. Missing entries default to the spec §2.3 "Auto" preset
    * (workspace-write × on-request). The backend is authoritative; this
@@ -88,6 +97,7 @@ interface UiState {
   setShowMcpModal: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setSelectedAgentId: (id: import("../types/agent-events").AgentId) => void;
+  setAgentInstall: (state: { claude_code: boolean; codex: boolean }) => void;
   /** Local-only update; IPC commit happens via tauri-commands.setCodexPolicy. */
   updateCodexPolicyLocal: (
     sessionId: string,
@@ -140,6 +150,7 @@ export const useUiStore = create<UiState>((set) => ({
   showMcpModal: false,
   showProjectPicker: false,
   selectedAgentId: "claude_code",
+  agentInstall: { claude_code: true, codex: true },
   codexPolicies: {},
   projectPickerTab: "templates",
   showCliOverlay: false,
@@ -210,6 +221,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowMcpModal: (show) => set({ showMcpModal: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
+  setAgentInstall: (state) => set({ agentInstall: state }),
   updateCodexPolicyLocal: (sessionId, policy) =>
     set((state) => ({
       codexPolicies: { ...state.codexPolicies, [sessionId]: policy },

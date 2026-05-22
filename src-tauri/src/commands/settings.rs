@@ -127,6 +127,22 @@ pub struct AppSettings {
     /// (see `claude::session::ControlRequestKind::SetMaxThinkingTokens`).
     #[serde(default)]
     pub default_thinking_effort: Option<String>,
+
+    // --- v1.5.0 Phase 1: per-task agent routing ---
+    /// Sparse map of task-category → agent_id. A category absent from
+    /// this map means "use the primary agent". Keys are TaskCategory
+    /// strings ("main_chat", "spec_writer", …), values are AgentId
+    /// strings ("claude_code" | "codex"). Empty by default so existing
+    /// installs are unaffected. The frontend resolver
+    /// (src/lib/agent-resolver.ts) is the only consumer.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub default_agent_by_task: HashMap<String, String>,
+
+    // --- v1.5.0 Phase 3: /second-opinion privacy gate ---
+    /// True once the user has acknowledged that `/second-opinion`
+    /// sends recent chat content to the other local CLI.
+    #[serde(default)]
+    pub second_opinion_privacy_acknowledged: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,6 +291,8 @@ impl Default for AppSettings {
             super_bro_provider: default_super_bro_provider(),
             super_bro_model: default_super_bro_model(),
             default_thinking_effort: None,
+            default_agent_by_task: HashMap::new(),
+            second_opinion_privacy_acknowledged: false,
         }
     }
 }

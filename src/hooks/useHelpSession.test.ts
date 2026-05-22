@@ -88,7 +88,14 @@ describe("useHelpSession", () => {
 
     await initPromise;
 
-    expect(mockCreateSession).toHaveBeenCalledWith("/test/project", "CodeMantis Help");
+    // v1.5.0 Phase 1: Help session spawns via the per-task resolver,
+    // passing agent_id (defaults to "claude_code" with no override).
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      "/test/project",
+      "CodeMantis Help",
+      undefined,
+      "claude_code",
+    );
     expect(mockInitializeSession).toHaveBeenCalledWith("help-1");
     expect(mockSetSessionModel).toHaveBeenCalledWith("help-1", "claude-haiku-4-5");
     expect(mockSetSessionMode).toHaveBeenCalledWith("help-1", "plan");

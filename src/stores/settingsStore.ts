@@ -81,6 +81,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   selfDriveEnableRecheckLoop: true,
   selfDriveConfirmCapabilities: true,
   defaultThinkingEffort: null,
+  // v1.5.0 Phase 1 — empty map = every task category uses the primary
+  // agent, so existing installs behave exactly as before until the
+  // user opts into per-task routing.
+  defaultAgentByTask: {},
+  // v1.5.0 Phase 3 — privacy disclosure not yet acknowledged.
+  secondOpinionPrivacyAcknowledged: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

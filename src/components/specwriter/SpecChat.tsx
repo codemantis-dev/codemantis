@@ -18,6 +18,7 @@ import type { SpecAttachment } from "../../types/spec-writer";
 import SpecChatMessage from "./SpecChatMessage";
 import SpecChatInput from "./SpecChatInput";
 import { CapabilityHandshakeBanner } from "./CapabilityHandshakeBanner";
+import { resolveAgentForTaskNow } from "../../lib/agent-resolver";
 
 interface Props {
   projectPath: string;
@@ -58,12 +59,23 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isStreaming, cancelStream, projectPath]);
 
-  // Init a fresh conversation if none exists — default to Claude Code (Sonnet 4.6)
+  // Init a fresh conversation if none exists. v1.5.0 Phase 1: the
+  // initial provider comes from the per-task resolver ("spec_writer"
+  // category) — defaults to Claude Code unless the user routed
+  // SpecWriter to Codex in Settings → Agents. Codex picks its own
+  // default model so we pass an empty model string for it.
   useEffect(() => {
     if (!conversation) {
-      useSpecWriterStore.getState().initConversation(
-        projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL, "feature"
-      );
+      const resolved = resolveAgentForTaskNow("spec_writer");
+      if (resolved === "codex") {
+        useSpecWriterStore.getState().initConversation(
+          projectPath, "codex", "", "feature"
+        );
+      } else {
+        useSpecWriterStore.getState().initConversation(
+          projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL, "feature"
+        );
+      }
     }
   }, [projectPath, conversation]);
 

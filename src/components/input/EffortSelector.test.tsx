@@ -92,6 +92,8 @@ describe("EffortSelector", () => {
       settings: {
         ...useSettingsStore.getState().settings,
         defaultThinkingEffort: null,
+        defaultAgentByTask: {},
+        secondOpinionPrivacyAcknowledged: false,
       },
     });
     vi.mocked(invoke).mockReset();

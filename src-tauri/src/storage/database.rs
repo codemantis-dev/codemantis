@@ -65,6 +65,16 @@ pub struct ApiCostSummaryRow {
     pub by_provider: Vec<ProviderCostRow>,
 }
 
+/// v1.5.0 Phase 1 — per-agent session count for the Settings cost panel.
+/// CLI sessions are subscription-billed (Codex via ChatGPT, Claude via
+/// the Pro/Max or — after 15 Jun 2026 — metered Agent-SDK pool), so we
+/// surface session COUNT rather than an invented dollar figure.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentUsageRow {
+    pub agent_id: String,
+    pub session_count: u32,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -833,6 +843,48 @@ impl Database {
             total_calls: total_calls as u32,
             by_provider,
         })
+    }
+
+    /// v1.5.0 Phase 1 — session count grouped by `agent_id`, filtered to
+    /// sessions created within the last `days` days. `created_at` is an
+    /// RFC-3339 string, which compares lexically for date windows.
+    /// Powers the Settings → Agents cost-transparency panel.
+    pub fn agent_usage_breakdown(
+        &self,
+        days: i64,
+    ) -> Result<Vec<AgentUsageRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+
+        // Cutoff = now - `days`. Format matches the rfc3339 strings
+        // written by `insert_session`.
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(days.max(0)))
+            .to_rfc3339();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT agent_id, COUNT(*) FROM sessions \
+                 WHERE created_at >= ?1 GROUP BY agent_id ORDER BY agent_id",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+
+        let rows = stmt
+            .query_map([&cutoff], |row| {
+                Ok(AgentUsageRow {
+                    agent_id: row.get(0)?,
+                    session_count: row.get::<_, i64>(1)? as u32,
+                })
+            })
+            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| {
+                AppError::DatabaseError(format!("Row error: {}", e))
+            })?);
+        }
+        Ok(out)
     }
 
     // ── Session Messages ──────────────────────────────────────────────

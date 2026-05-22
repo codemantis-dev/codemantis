@@ -160,6 +160,8 @@ selfDriveAutoCommit: false,
       selfDriveEnableRecheckLoop: true,
       selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
+      defaultAgentByTask: {},
+      secondOpinionPrivacyAcknowledged: false,
     } as unknown as ReturnType<typeof useSettingsStore.getState>["settings"],
     loaded: true,
   });

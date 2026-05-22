@@ -94,6 +94,8 @@ selfDriveAutoCommit: false,
     selfDriveEnableRecheckLoop: true,
     selfDriveConfirmCapabilities: true,
     defaultThinkingEffort: null,
+    defaultAgentByTask: {},
+    secondOpinionPrivacyAcknowledged: false,
     ...overrides,
   } as AppSettings;
 }

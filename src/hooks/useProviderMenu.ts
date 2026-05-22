@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { handleError } from "../lib/error-handler";
 import { AI_MODELS, isLocalCliProvider } from "../types/assistant-provider";
+import { resolveAgentForTaskNow } from "../lib/agent-resolver";
 import type { AIProvider, APIProvider } from "../types/assistant-provider";
 import { useOpenRouterStore } from "../stores/openRouterStore";
 
@@ -39,8 +40,15 @@ export function useProviderMenu({
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
 
-  const handleCreate = useCallback(async (provider: AIProvider = "claude-code", model?: string) => {
+  const handleCreate = useCallback(async (providerArg?: AIProvider, model?: string) => {
     if (!activeProjectPath || !activeSessionId || creating) return;
+
+    // v1.5.0 Phase 1: the bare "+ Assistant" button passes no provider —
+    // resolve it via the per-task router ("assistant" category). An
+    // explicit pick from the provider menu always wins.
+    const provider: AIProvider =
+      providerArg ??
+      (resolveAgentForTaskNow("assistant") === "codex" ? "codex" : "claude-code");
 
     // Check API key for HTTPS API providers (local CLIs don't need one)
     if (!isLocalCliProvider(provider) && !(apiKeys[provider] ?? "").trim()) {

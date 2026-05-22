@@ -52,6 +52,18 @@ export async function checkClaudeStatus(): Promise<ClaudeStatus> {
   return invoke<ClaudeStatus>("check_claude_status");
 }
 
+/** v1.5.0 Phase 1 — per-agent session count over the last `days` days.
+ * Powers the Settings → Agents cost-transparency panel. CLI sessions
+ * are subscription-billed so this is a count, not a dollar figure. */
+export interface AgentUsageEntry {
+  agentId: string;
+  sessionCount: number;
+}
+
+export async function agentUsageBreakdown(days: number): Promise<AgentUsageEntry[]> {
+  return invoke<AgentUsageEntry[]>("agent_usage_breakdown", { days });
+}
+
 export async function setClaudeBinaryOverride(path: string): Promise<ClaudeStatus> {
   return invoke<ClaudeStatus>("set_claude_binary_override", { path });
 }

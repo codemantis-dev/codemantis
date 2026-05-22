@@ -33,6 +33,7 @@ import { handleError } from "../lib/error-handler";
 import { translateErrorForToast } from "../lib/error-messages";
 import { inputDrafts } from "../lib/input-drafts";
 import { scheduleFlushTranscript } from "../lib/session-transcript";
+import { resolveAgentForTaskNow } from "../lib/agent-resolver";
 
 const MAX_SESSIONS = 10;
 
@@ -74,9 +75,12 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
     }
 
-    // Phase 2 §5: route to the agent the user picked in the project
-    // picker (defaults to claude_code so existing flows are unchanged).
-    const agentId = useUiStore.getState().selectedAgentId;
+    // v1.5.0 Phase 1: route through the per-task resolver. With no
+    // per-task override set, this is exactly `selectedAgentId` (the
+    // global default) — so existing flows are unchanged. With a
+    // "Main chat sessions → Codex" override, new main sessions spawn
+    // on Codex.
+    const agentId = resolveAgentForTaskNow("main_chat");
     const session = await createSession(projectPath, undefined, undefined, agentId);
     sessionStore.getState().addSession(session);
 
