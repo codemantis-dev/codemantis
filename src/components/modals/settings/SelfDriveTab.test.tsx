@@ -118,7 +118,7 @@ describe("SelfDriveTab", () => {
       (o) => o.textContent,
     );
     expect(optionTexts).toContain("Gemini 2.5 Flash Lite");
-    expect(optionTexts).toContain("Gemini 2.5 Pro");
+    expect(optionTexts).toContain("Gemini 3.5 Flash");
     expect(optionTexts).not.toContain("Claude Opus 4.7");
   });
 

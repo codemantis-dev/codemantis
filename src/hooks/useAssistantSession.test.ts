@@ -112,7 +112,7 @@ function resetStores(): void {
       changelogPrompt: "",
       assistantShortcuts: [],
       assistantDefaultProvider: "claude-code",
-      assistantDefaultModel: { gemini: "gemini-2.5-pro" },
+      assistantDefaultModel: { gemini: "gemini-3.1-pro-preview" },
       previewDefaultWidth: 1024,
       previewDefaultHeight: 768,
       previewAutoStart: false,
@@ -126,7 +126,7 @@ function resetStores(): void {
       lastCloneDirectory: null,
       previewConsoleAutoOpen: true,
       previewLastUrls: {},
-      taskBoardPlanningModel: "gemini-3-flash-preview",
+      taskBoardPlanningModel: "gemini-3.5-flash",
       taskBoardMaxTokens: 64000,
       taskBoardMaxRetries: 3,
       taskBoardAutoStartNext: true,
@@ -226,7 +226,7 @@ describe("useAssistantSession", () => {
         parentSessionId: "main-s1",
         name: `Asst ${i}`,
         provider: "openai",
-        model: "gpt-4.1",
+        model: "gpt-5.4-mini",
         sortOrder: i,
         createdAt: new Date().toISOString(),
       });
@@ -255,7 +255,7 @@ describe("useAssistantSession", () => {
     expect(assistants).toHaveLength(1);
     expect(assistants[0].provider).toBe("openai");
     // Should use first model in catalog since no default model for openai
-    expect(assistants[0].model).toBe("gpt-4.1");
+    expect(assistants[0].model).toBe("gpt-5.4-mini");
   });
 
   it("createAssistant with gemini resolves model from settings", async () => {
@@ -266,7 +266,7 @@ describe("useAssistantSession", () => {
     });
 
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);
-    expect(assistants[0].model).toBe("gemini-2.5-pro");
+    expect(assistants[0].model).toBe("gemini-3.1-pro-preview");
   });
 
   it("createAssistant generates sequential names (GPT 1, GPT 2...)", async () => {
@@ -333,7 +333,7 @@ describe("useAssistantSession", () => {
 
     let id: string = "";
     await act(async () => {
-      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai", "gpt-4.1");
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai", "gpt-5.4-mini");
     });
 
     act(() => {
@@ -346,7 +346,7 @@ describe("useAssistantSession", () => {
         expect.objectContaining({
           assistantId: id,
           provider: "openai",
-          model: "gpt-4.1",
+          model: "gpt-5.4-mini",
         })
       );
     });

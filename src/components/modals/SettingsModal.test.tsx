@@ -36,7 +36,7 @@ const mockState = {
   previewCustomDevCommand: "",
   previewConsoleAutoOpen: false,
   previewLastUrls: {},
-  taskBoardPlanningModel: "gemini-3.1-flash-lite-preview",
+  taskBoardPlanningModel: "gemini-3.1-flash-lite",
   taskBoardMaxTokens: 64000,
   handleThemeChange: vi.fn(),
   setFontSize: vi.fn(),

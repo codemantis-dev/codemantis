@@ -91,7 +91,7 @@ function setupSettings(overrides?: Partial<ReturnType<typeof useSettingsStore.ge
       previewCustomDevCommand: null,
       previewConsoleAutoOpen: true,
       previewLastUrls: {},
-      taskBoardPlanningModel: "gemini-3-flash-preview",
+      taskBoardPlanningModel: "gemini-3.5-flash",
       taskBoardMaxTokens: 64000,
       taskBoardMaxRetries: 3,
       taskBoardAutoStartNext: true,

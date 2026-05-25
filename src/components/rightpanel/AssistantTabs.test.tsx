@@ -9,7 +9,7 @@ vi.mock("../../stores/settingsStore", () => ({
     const state = {
       settings: {
         modelPricing: {
-          "gpt-4.1": { input: 2.0, output: 8.0 },
+          "gpt-5.4-mini": { input: 2.0, output: 8.0 },
           "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
         },
       },
@@ -60,7 +60,7 @@ describe("AssistantTabs", () => {
     render(
       <AssistantTabs
         {...defaultProps}
-        assistants={[makeAssistant({ id: "s2", provider: "openai", model: "gpt-4.1", name: "GPT 1" })]}
+        assistants={[makeAssistant({ id: "s2", provider: "openai", model: "gpt-5.4-mini", name: "GPT 1" })]}
         activeAssistantId="s2"
       />
     );
@@ -88,7 +88,7 @@ describe("AssistantTabs", () => {
         {...defaultProps}
         assistants={[
           makeAssistant({ id: "s1", name: "Claude 1" }),
-          makeAssistant({ id: "s2", name: "GPT 1", provider: "openai", model: "gpt-4.1", sortOrder: 2 }),
+          makeAssistant({ id: "s2", name: "GPT 1", provider: "openai", model: "gpt-5.4-mini", sortOrder: 2 }),
         ]}
       />
     );
@@ -103,7 +103,7 @@ describe("AssistantTabs", () => {
     render(
       <AssistantTabs
         {...defaultProps}
-        assistants={[makeAssistant({ id: "s2", provider: "openai", model: "gpt-4.1", name: "GPT 1" })]}
+        assistants={[makeAssistant({ id: "s2", provider: "openai", model: "gpt-5.4-mini", name: "GPT 1" })]}
         activeAssistantId="s2"
         costMap={costMap}
       />

@@ -49,7 +49,7 @@ describe("assistantStore", () => {
   it("addAssistant supports multiple instances per project", () => {
     const store = useAssistantStore.getState();
     store.addAssistant("/tmp/project", makeInstance({ id: "s1" }));
-    store.addAssistant("/tmp/project", makeInstance({ id: "s2", name: "GPT 2", provider: "openai", model: "gpt-4.1", sortOrder: 2 }));
+    store.addAssistant("/tmp/project", makeInstance({ id: "s2", name: "GPT 2", provider: "openai", model: "gpt-5.4-mini", sortOrder: 2 }));
 
     expect(store.getAssistants("/tmp/project")).toHaveLength(2);
     // Last added (same parentSessionId) becomes active
@@ -176,12 +176,12 @@ describe("assistantStore", () => {
   it("findAssistantInstance finds across projects", () => {
     const store = useAssistantStore.getState();
     store.addAssistant("/tmp/project", makeInstance({ id: "s1" }));
-    store.addAssistant("/tmp/other", makeInstance({ id: "s2", projectPath: "/tmp/other", provider: "openai", model: "gpt-4.1" }));
+    store.addAssistant("/tmp/other", makeInstance({ id: "s2", projectPath: "/tmp/other", provider: "openai", model: "gpt-5.4-mini" }));
 
     const found = store.findAssistantInstance("s2");
     expect(found).toBeDefined();
     expect(found?.provider).toBe("openai");
-    expect(found?.model).toBe("gpt-4.1");
+    expect(found?.model).toBe("gpt-5.4-mini");
   });
 
   it("findAssistantInstance returns undefined for missing", () => {
@@ -229,12 +229,12 @@ describe("assistantStore", () => {
     store.addAssistant("/tmp", makeInstance({
       id: "api-1",
       provider: "openai",
-      model: "gpt-4.1",
+      model: "gpt-5.4-mini",
       name: "GPT 1",
     }));
 
     const instances = store.getAssistants("/tmp");
     expect(instances[0].provider).toBe("openai");
-    expect(instances[0].model).toBe("gpt-4.1");
+    expect(instances[0].model).toBe("gpt-5.4-mini");
   });
 });

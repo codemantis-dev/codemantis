@@ -55,7 +55,7 @@ describe("SpecChat", () => {
   });
 
   it("renders messages", () => {
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "new_application");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "new_application");
     useSpecWriterStore.getState().addMessage(PROJECT, {
       id: "msg-1",
       role: "user",
@@ -69,7 +69,7 @@ describe("SpecChat", () => {
 
   it("shows API key warning banner when API model has no key", () => {
     // Explicitly init with an API provider that has no key
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     // apiKeys is {} — no keys set
     renderChat();
     expect(screen.getByText(/no api key set/i)).toBeTruthy();
@@ -79,14 +79,14 @@ describe("SpecChat", () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key-123" } },
     });
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     renderChat();
     expect(screen.queryByText(/no api key set/i)).toBeNull();
   });
 
   it("calls onOptionAction before sendMessage when option is selected", () => {
     const onOptionAction = vi.fn().mockReturnValue(true);
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     useSpecWriterStore.getState().addMessage(PROJECT, {
       id: "msg-1",
       role: "assistant",
@@ -103,7 +103,7 @@ describe("SpecChat", () => {
 
   it("falls through to sendMessage when onOptionAction returns false", () => {
     const onOptionAction = vi.fn().mockReturnValue(false);
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     useSpecWriterStore.getState().addMessage(PROJECT, {
       id: "msg-1",
       role: "assistant",
@@ -159,7 +159,7 @@ describe("SpecChat", () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3-flash-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.5-flash", "feature");
     renderChat();
     expect(screen.queryByText(/may struggle with complex specifications/i)).toBeNull();
   });
@@ -195,7 +195,7 @@ describe("SpecChat", () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, apiKeys: { gemini: "gm-key" } },
     });
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     renderChat();
     expect(screen.getByText("Gemini 3.1 Flash Lite")).toBeTruthy();
   });
@@ -283,7 +283,7 @@ describe("SpecChat", () => {
   });
 
   it("passes sendMessage prop to option handler fallthrough", () => {
-    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite-preview", "feature");
+    useSpecWriterStore.getState().initConversation(PROJECT, "gemini", "gemini-3.1-flash-lite", "feature");
     useSpecWriterStore.getState().addMessage(PROJECT, {
       id: "msg-1",
       role: "assistant",

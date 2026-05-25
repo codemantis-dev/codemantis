@@ -198,7 +198,7 @@ fn default_preview_height() -> u32 {
     768
 }
 fn default_task_board_model() -> String {
-    "gemini-3-flash-preview".to_string()
+    "gemini-3.5-flash".to_string()
 }
 fn default_task_board_max_tokens() -> u32 {
     64000
@@ -208,16 +208,14 @@ fn default_task_board_retries() -> u32 {
 }
 fn default_model_pricing() -> HashMap<String, ModelPricing> {
     let mut m = HashMap::new();
-    m.insert("gpt-4.1".into(), ModelPricing { input: 2.0, output: 8.0 });
-    m.insert("gpt-5.4-nano".into(), ModelPricing { input: 0.20, output: 1.25 });
     m.insert("gpt-5.4-mini".into(), ModelPricing { input: 0.75, output: 4.50 });
     m.insert("gpt-5.4".into(), ModelPricing { input: 2.50, output: 15.0 });
+    m.insert("gpt-5.5".into(), ModelPricing { input: 5.0, output: 30.0 });
     m.insert("gemini-2.5-flash-lite".into(), ModelPricing { input: 0.10, output: 0.40 });
     m.insert("gemini-2.5-flash".into(), ModelPricing { input: 0.15, output: 0.60 });
-    m.insert("gemini-2.5-pro".into(), ModelPricing { input: 1.25, output: 10.0 });
-    m.insert("gemini-3-flash-preview".into(), ModelPricing { input: 0.15, output: 0.60 });
+    m.insert("gemini-3.1-flash-lite".into(), ModelPricing { input: 0.25, output: 1.50 });
+    m.insert("gemini-3.5-flash".into(), ModelPricing { input: 1.50, output: 9.0 });
     m.insert("gemini-3.1-pro-preview".into(), ModelPricing { input: 1.25, output: 10.0 });
-    m.insert("gemini-3.1-flash-lite-preview".into(), ModelPricing { input: 0.25, output: 1.50 });
     m.insert("claude-opus-4-7".into(), ModelPricing { input: 5.0, output: 25.0 });
     m.insert("claude-sonnet-4-6".into(), ModelPricing { input: 3.0, output: 15.0 });
     m.insert("claude-haiku-4-5".into(), ModelPricing { input: 0.80, output: 4.0 });
@@ -453,7 +451,7 @@ mod tests {
 
     #[test]
     fn default_task_board_settings() {
-        assert_eq!(default_task_board_model(), "gemini-3-flash-preview");
+        assert_eq!(default_task_board_model(), "gemini-3.5-flash");
         assert_eq!(default_task_board_max_tokens(), 64000);
         assert_eq!(default_task_board_retries(), 3);
     }
@@ -466,7 +464,7 @@ mod tests {
         assert!(pricing.contains_key("gemini-2.5-flash-lite"));
         assert!(pricing.contains_key("claude-opus-4-7"));
         assert!(pricing.contains_key("claude-sonnet-4-6"));
-        assert!(pricing.contains_key("gpt-4.1"));
+        assert!(pricing.contains_key("gpt-5.4-mini"));
     }
 
     #[test]
@@ -478,15 +476,15 @@ mod tests {
     }
 
     #[test]
-    fn default_model_pricing_opus_is_most_expensive() {
+    fn default_model_pricing_gpt_5_5_is_most_expensive() {
         let pricing = default_model_pricing();
-        let opus = pricing.get("claude-opus-4-7").unwrap();
-        // Opus should be the most expensive by output price
+        let top = pricing.get("gpt-5.5").unwrap();
+        // GPT-5.5 is the top of the current API lineup by output price ($30/1M).
         for (name, p) in &pricing {
             assert!(
-                opus.output >= p.output,
-                "Expected opus output ({}) >= {} output ({})",
-                opus.output,
+                top.output >= p.output,
+                "Expected gpt-5.5 output ({}) >= {} output ({})",
+                top.output,
                 name,
                 p.output
             );

@@ -47,7 +47,7 @@ function resetStore(): void {
       lastCloneDirectory: null,
       previewConsoleAutoOpen: true,
       previewLastUrls: {},
-      taskBoardPlanningModel: "gemini-3-flash-preview",
+      taskBoardPlanningModel: "gemini-3.5-flash",
       taskBoardMaxTokens: 64000,
       taskBoardMaxRetries: 3,
       taskBoardAutoStartNext: true,
@@ -220,7 +220,7 @@ describe("settingsStore", () => {
       expect(settings.sessionLogsRetentionDays).toBe(30);
 
       // Task Board fields filled from defaults
-      expect(settings.taskBoardPlanningModel).toBe("gemini-3-flash-preview");
+      expect(settings.taskBoardPlanningModel).toBe("gemini-3.5-flash");
       expect(settings.taskBoardMaxTokens).toBe(64000);
       expect(settings.taskBoardMaxRetries).toBe(3);
       expect(settings.taskBoardAutoStartNext).toBe(true);
@@ -245,7 +245,7 @@ describe("settingsStore", () => {
     it("persisted values override defaults when both exist", async () => {
       mockGetSettings.mockResolvedValueOnce(partialSettings({
         selfDriveProvider: "openai",
-        selfDriveModel: "gpt-4.1",
+        selfDriveModel: "gpt-5.4-mini",
         selfDriveMaxFixAttempts: 5,
         selfDriveRunBuildCheck: false,
         selfDriveRunTests: false,
@@ -264,7 +264,7 @@ selfDriveAutoCommit: true,
       const { settings } = useSettingsStore.getState();
 
       expect(settings.selfDriveProvider).toBe("openai");
-      expect(settings.selfDriveModel).toBe("gpt-4.1");
+      expect(settings.selfDriveModel).toBe("gpt-5.4-mini");
       expect(settings.selfDriveMaxFixAttempts).toBe(5);
       expect(settings.selfDriveRunBuildCheck).toBe(false);
       expect(settings.selfDriveRunTests).toBe(false);

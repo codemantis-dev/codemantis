@@ -86,7 +86,7 @@ function resolveSuperBroProvider(settings: ReturnType<typeof useSettingsStore.ge
   const priorityOrder: Array<{ provider: string; model: string }> = [
     { provider: "openrouter", model: "auto" },
     { provider: "gemini", model: "gemini-2.5-flash-lite" },
-    { provider: "openai", model: "gpt-5.4-nano" },
+    { provider: "openai", model: "gpt-5.4-mini" },
     { provider: "anthropic", model: "claude-haiku-4-5" },
   ];
 

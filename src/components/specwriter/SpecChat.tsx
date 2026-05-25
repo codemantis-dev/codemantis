@@ -341,7 +341,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
             color: "#f59e0b",
           }}
         >
-          <span>This model may struggle with complex specifications. For best results, use Sonnet 4.6, Gemini 3.0 Flash, or GPT-5.4.</span>
+          <span>This model may struggle with complex specifications. For best results, use Sonnet 4.6, Gemini 3.5 Flash, or GPT-5.4.</span>
         </div>
       )}
 

@@ -72,7 +72,7 @@ describe("AssistantProviderMenu", () => {
         expandedProvider="openai"
       />
     );
-    expect(screen.getByText("GPT-4.1")).toBeInTheDocument();
+    expect(screen.getByText("GPT-5.4 Mini")).toBeInTheDocument();
   });
 
   it("calls onCreate with provider and model when model clicked", () => {
@@ -85,8 +85,8 @@ describe("AssistantProviderMenu", () => {
         onCreate={onCreate}
       />
     );
-    fireEvent.click(screen.getByText("GPT-4.1"));
-    expect(onCreate).toHaveBeenCalledWith("openai", "gpt-4.1");
+    fireEvent.click(screen.getByText("GPT-5.4 Mini"));
+    expect(onCreate).toHaveBeenCalledWith("openai", "gpt-5.4-mini");
   });
 
   it("renders popover variant with correct styles", () => {

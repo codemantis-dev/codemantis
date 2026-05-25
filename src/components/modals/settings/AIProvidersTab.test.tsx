@@ -15,7 +15,7 @@ vi.mock("../../../types/assistant-provider", () => ({
   ],
   AI_MODELS: {
     openai: [
-      { id: "gpt-4.1", label: "GPT-4.1", defaultPricing: { input: 2.0, output: 8.0 } },
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", defaultPricing: { input: 2.0, output: 8.0 } },
     ],
     gemini: [
       { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", defaultPricing: { input: 0.15, output: 0.60 } },

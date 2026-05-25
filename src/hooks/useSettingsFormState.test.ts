@@ -300,7 +300,7 @@ selfDriveAutoCommit: true,
 
     act(() => {
       result.current.setSelfDriveProvider("openai");
-      result.current.setSelfDriveModel("gpt-4.1");
+      result.current.setSelfDriveModel("gpt-5.4-mini");
       result.current.setSelfDriveMaxFixAttempts(7);
       result.current.setSelfDriveAutoCommit(true);
     });
@@ -311,7 +311,7 @@ selfDriveAutoCommit: true,
 
     const { settings } = useSettingsStore.getState();
     expect(settings.selfDriveProvider).toBe("openai");
-    expect(settings.selfDriveModel).toBe("gpt-4.1");
+    expect(settings.selfDriveModel).toBe("gpt-5.4-mini");
     expect(settings.selfDriveMaxFixAttempts).toBe(7);
     expect(settings.selfDriveAutoCommit).toBe(true);
   });

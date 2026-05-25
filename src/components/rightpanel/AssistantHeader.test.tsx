@@ -41,7 +41,7 @@ function makeAssistant(overrides?: Partial<AssistantInstance>): AssistantInstanc
     parentSessionId: "main-1",
     name: "My Assistant",
     provider: "openai" as AIProvider,
-    model: "gpt-4.1",
+    model: "gpt-5.4-mini",
     sortOrder: 1,
     createdAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -86,7 +86,7 @@ describe("AssistantHeader", () => {
 
   it("shows model name", () => {
     render(<AssistantHeader {...defaultProps} />);
-    expect(screen.getByText("gpt-4.1")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.4-mini")).toBeInTheDocument();
   });
 
   it("close button triggers onClose callback", () => {

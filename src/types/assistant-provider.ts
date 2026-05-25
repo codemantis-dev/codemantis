@@ -37,18 +37,16 @@ export const AI_PROVIDERS: ProviderOption[] = [
 
 export const AI_MODELS: Record<APIProvider, ModelOption[]> = {
   openai: [
-    { id: "gpt-4.1", label: "GPT-4.1", defaultPricing: { input: 2.0, output: 8.0 } },
-    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano", defaultPricing: { input: 0.20, output: 1.25 } },
     { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", defaultPricing: { input: 0.75, output: 4.50 } },
     { id: "gpt-5.4", label: "GPT-5.4", defaultPricing: { input: 2.50, output: 15.0 } },
+    { id: "gpt-5.5", label: "GPT-5.5", defaultPricing: { input: 5.0, output: 30.0 } },
   ],
   gemini: [
     { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", defaultPricing: { input: 0.10, output: 0.40 } },
     { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", defaultPricing: { input: 0.15, output: 0.60 } },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", defaultPricing: { input: 1.25, output: 10.0 } },
-    { id: "gemini-3-flash-preview", label: "Gemini 3.0 Flash", defaultPricing: { input: 0.15, output: 0.60 } },
+    { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", defaultPricing: { input: 0.25, output: 1.50 } },
+    { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", defaultPricing: { input: 1.50, output: 9.0 } },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", defaultPricing: { input: 1.25, output: 10.0 } },
-    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", defaultPricing: { input: 0.25, output: 1.50 } },
   ],
   anthropic: [
     { id: "claude-opus-4-7", label: "Claude Opus 4.7", defaultPricing: { input: 5.0, output: 25.0 } },
@@ -102,16 +100,16 @@ export interface SpecModelOption {
 
 /** Models available for SpecWriter, ordered by auto-select priority (lower cost first). */
 export const SPEC_WRITING_MODELS: SpecModelOption[] = [
-  { id: "gemini-3-flash-preview",        provider: "gemini",    label: "Gemini 3.0 Flash" },
-  { id: "gpt-5.4-mini",                  provider: "openai",    label: "GPT-5.4 Mini" },
-  { id: "claude-sonnet-4-6",             provider: "anthropic", label: "Claude Sonnet 4.6" },
-  { id: "gemini-3.1-flash-lite-preview", provider: "gemini",    label: "Gemini 3.1 Flash Lite" },
-  { id: "gemini-3.1-pro-preview",        provider: "gemini",    label: "Gemini 3.1 Pro" },
-  { id: "gpt-5.4",                       provider: "openai",    label: "GPT-5.4" },
-  { id: "claude-opus-4-7",               provider: "anthropic", label: "Claude Opus 4.7" },
+  { id: "gemini-3.5-flash",       provider: "gemini",    label: "Gemini 3.5 Flash" },
+  { id: "gpt-5.4-mini",           provider: "openai",    label: "GPT-5.4 Mini" },
+  { id: "claude-sonnet-4-6",      provider: "anthropic", label: "Claude Sonnet 4.6" },
+  { id: "gemini-3.1-flash-lite",  provider: "gemini",    label: "Gemini 3.1 Flash Lite" },
+  { id: "gemini-3.1-pro-preview", provider: "gemini",    label: "Gemini 3.1 Pro" },
+  { id: "gpt-5.4",                provider: "openai",    label: "GPT-5.4" },
+  { id: "claude-opus-4-7",        provider: "anthropic", label: "Claude Opus 4.7" },
 ];
 
-export const DEFAULT_SPEC_MODEL = "gemini-3-flash-preview";
+export const DEFAULT_SPEC_MODEL = "gemini-3.5-flash";
 
 // ── SpecWriter Claude Code model selection ──────────────────────
 
@@ -133,8 +131,7 @@ export const DEFAULT_SPEC_CLAUDE_CODE_MODEL = "claude-sonnet-4-6";
 /** Models too weak for complex SpecWriter sessions — show warning, don't block. */
 export const SPECWRITER_WEAK_MODELS = [
   "gemini-2.5-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-  "gpt-5.4-nano",
+  "gemini-3.1-flash-lite",
 ];
 
 /**

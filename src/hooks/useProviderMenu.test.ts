@@ -72,14 +72,14 @@ describe("useProviderMenu", () => {
     const { result } = renderHook(() => useProviderMenu(defaultParams));
 
     await act(async () => {
-      await result.current.handleCreate("openai", "gpt-4.1");
+      await result.current.handleCreate("openai", "gpt-5.4-mini");
     });
 
     expect(defaultParams.createAssistant).toHaveBeenCalledWith(
       "/project",
       "session-1",
       "openai",
-      "gpt-4.1",
+      "gpt-5.4-mini",
     );
   });
 

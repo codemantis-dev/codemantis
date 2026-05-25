@@ -12,8 +12,8 @@ fn validate_model_for_provider(provider: &str, model: &str) -> String {
         return model.to_string();
     }
     let valid_models: &[&str] = match provider {
-        "gemini" => &["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview"],
-        "openai" => &["gpt-4.1", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4"],
+        "gemini" => &["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
+        "openai" => &["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
         "anthropic" => &["claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-opus-4-7"],
         _ => &[],
     };
@@ -272,15 +272,15 @@ mod tests {
 
     #[test]
     fn valid_openai_model_accepted() {
-        let result = validate_model_for_provider("openai", "gpt-4.1");
-        assert_eq!(result, "gpt-4.1");
+        let result = validate_model_for_provider("openai", "gpt-5.4-mini");
+        assert_eq!(result, "gpt-5.4-mini");
     }
 
     #[test]
     fn invalid_openai_model_returns_fallback() {
         let result = validate_model_for_provider("openai", "gpt-nonexistent");
         // Should return the first valid model for openai
-        assert_eq!(result, "gpt-4.1");
+        assert_eq!(result, "gpt-5.4-mini");
     }
 
     #[test]
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn empty_model_string_returns_fallback() {
         let result = validate_model_for_provider("openai", "");
-        assert_eq!(result, "gpt-4.1");
+        assert_eq!(result, "gpt-5.4-mini");
     }
 
     #[test]
@@ -321,10 +321,10 @@ mod tests {
     }
 
     #[test]
-    fn openai_default_is_gpt_4_1() {
+    fn openai_default_is_gpt_5_4_mini() {
         // The first model in the openai list is the default fallback
         let result = validate_model_for_provider("openai", "invalid");
-        assert_eq!(result, "gpt-4.1");
+        assert_eq!(result, "gpt-5.4-mini");
     }
 
     #[test]

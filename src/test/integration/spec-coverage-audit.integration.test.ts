@@ -67,7 +67,7 @@ describe("spec coverage audit — Knowledge Workbench v3.1 regression", () => {
     const driftHits = report.failures
       .filter((f) => f.kind === "fidelity-drift")
       .filter((f) => f.kind === "fidelity-drift" && f.zone.kind === "model-name");
-    // Input mentions grok-4.20-*, gemini-3-flash-preview, claude-sonnet-4-6 — none in output.
+    // Input mentions grok-4.20-*, gemini-3.5-flash, claude-sonnet-4-6 — none in output.
     expect(driftHits.length).toBeGreaterThan(2);
   });
 

@@ -81,13 +81,13 @@ describe("assistant-provider types", () => {
     expect(Object.keys(pricing).length).toBeGreaterThan(0);
 
     // Check specific models
-    expect(pricing["gpt-4.1"]).toBeDefined();
+    expect(pricing["gpt-5.4-mini"]).toBeDefined();
     expect(pricing["gemini-2.5-flash-lite"]).toBeDefined();
     expect(pricing["claude-sonnet-4-6"]).toBeDefined();
   });
 
   it("getModelLabel returns label for known model", () => {
-    expect(getModelLabel("openai", "gpt-4.1")).toBe("GPT-4.1");
+    expect(getModelLabel("openai", "gpt-5.4-mini")).toBe("GPT-5.4 Mini");
     expect(getModelLabel("gemini", "gemini-2.5-flash")).toBe("Gemini 2.5 Flash");
     expect(getModelLabel("anthropic", "claude-haiku-4-5")).toBe("Claude Haiku 4.5");
   });
@@ -110,10 +110,10 @@ describe("assistant-provider types", () => {
   });
 
   it("calculateCost handles small token counts", () => {
-    const pricing = { "gpt-4.1": { input: 2.0, output: 8.0 } };
+    const pricing = { "gpt-5.4-mini": { input: 2.0, output: 8.0 } };
     // 500 input tokens = 500/1M * 2.0 = 0.001
     // 200 output tokens = 200/1M * 8.0 = 0.0016
-    const cost = calculateCost("gpt-4.1", 500, 200, pricing);
+    const cost = calculateCost("gpt-5.4-mini", 500, 200, pricing);
     expect(cost).toBeCloseTo(0.0026, 5);
   });
 
@@ -133,13 +133,13 @@ describe("SPEC_WRITING_MODELS", () => {
 
   it("first model is the default (cheapest)", () => {
     expect(SPEC_WRITING_MODELS[0].id).toBe(DEFAULT_SPEC_MODEL);
-    expect(SPEC_WRITING_MODELS[0].id).toBe("gemini-3-flash-preview");
+    expect(SPEC_WRITING_MODELS[0].id).toBe("gemini-3.5-flash");
   });
 
   it("includes all required models", () => {
     const ids = SPEC_WRITING_MODELS.map((m) => m.id);
-    expect(ids).toContain("gemini-3-flash-preview");
-    expect(ids).toContain("gemini-3.1-flash-lite-preview");
+    expect(ids).toContain("gemini-3.5-flash");
+    expect(ids).toContain("gemini-3.1-flash-lite");
     expect(ids).toContain("gemini-3.1-pro-preview");
     expect(ids).toContain("gpt-5.4-mini");
     expect(ids).toContain("gpt-5.4");
@@ -170,7 +170,7 @@ describe("SPECWRITER_WEAK_MODELS", () => {
   });
 
   it("does not include any recommended models", () => {
-    expect(SPECWRITER_WEAK_MODELS).not.toContain("gemini-3-flash-preview");
+    expect(SPECWRITER_WEAK_MODELS).not.toContain("gemini-3.5-flash");
     expect(SPECWRITER_WEAK_MODELS).not.toContain("claude-sonnet-4-6");
     expect(SPECWRITER_WEAK_MODELS).not.toContain("gpt-5.4");
   });
@@ -182,7 +182,7 @@ describe("autoSelectSpecModel", () => {
   });
 
   it("returns gemini model when only gemini key is set", () => {
-    expect(autoSelectSpecModel({ gemini: "gm-key" })).toBe("gemini-3-flash-preview");
+    expect(autoSelectSpecModel({ gemini: "gm-key" })).toBe("gemini-3.5-flash");
   });
 
   it("returns gpt-5.4-mini when only openai key is set (cheapest openai)", () => {
@@ -194,7 +194,7 @@ describe("autoSelectSpecModel", () => {
   });
 
   it("returns first match in priority order when all keys set", () => {
-    expect(autoSelectSpecModel({ gemini: "g", openai: "o", anthropic: "a" })).toBe("gemini-3-flash-preview");
+    expect(autoSelectSpecModel({ gemini: "g", openai: "o", anthropic: "a" })).toBe("gemini-3.5-flash");
   });
 
   it("skips gemini when only openai and anthropic keys set", () => {
@@ -208,13 +208,13 @@ describe("autoSelectSpecModel", () => {
 
 describe("isSpecModelAvailable", () => {
   it("returns true when provider has API key", () => {
-    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", { gemini: "key" })).toBe(true);
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite", { gemini: "key" })).toBe(true);
     expect(isSpecModelAvailable("gpt-5.4-mini", { openai: "key" })).toBe(true);
     expect(isSpecModelAvailable("claude-sonnet-4-6", { anthropic: "key" })).toBe(true);
   });
 
   it("returns false when provider has no API key", () => {
-    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", {})).toBe(false);
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite", {})).toBe(false);
     expect(isSpecModelAvailable("gpt-5.4-mini", { gemini: "key" })).toBe(false);
   });
 
@@ -223,13 +223,13 @@ describe("isSpecModelAvailable", () => {
   });
 
   it("returns false for empty/whitespace API key", () => {
-    expect(isSpecModelAvailable("gemini-3.1-flash-lite-preview", { gemini: "  " })).toBe(false);
+    expect(isSpecModelAvailable("gemini-3.1-flash-lite", { gemini: "  " })).toBe(false);
   });
 });
 
 describe("getSpecModelLabel", () => {
   it("returns label for known spec model", () => {
-    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite");
+    expect(getSpecModelLabel("gemini-3.1-flash-lite")).toBe("Gemini 3.1 Flash Lite");
     expect(getSpecModelLabel("claude-opus-4-7")).toBe("Claude Opus 4.7");
   });
 
@@ -298,7 +298,7 @@ describe("getSpecModelLabel with Claude Code models", () => {
   });
 
   it("returns label for API spec models (existing behavior)", () => {
-    expect(getSpecModelLabel("gemini-3.1-flash-lite-preview")).toBe("Gemini 3.1 Flash Lite");
+    expect(getSpecModelLabel("gemini-3.1-flash-lite")).toBe("Gemini 3.1 Flash Lite");
     expect(getSpecModelLabel("gpt-5.4-mini")).toBe("GPT-5.4 Mini");
   });
 
@@ -467,7 +467,7 @@ describe("getProviderForModel with OpenRouter lookup", () => {
 
   it("prefers hardcoded provider over OpenRouter lookup", () => {
     const lookup = () => true;
-    expect(getProviderForModel("gpt-4.1", lookup)).toBe("openai");
+    expect(getProviderForModel("gpt-5.4-mini", lookup)).toBe("openai");
   });
 
   it("returns null when no match and no lookup", () => {

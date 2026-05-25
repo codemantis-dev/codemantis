@@ -121,8 +121,8 @@ describe("SuperBroTab", () => {
     );
     const modelSelect = screen.getByDisplayValue("Auto — best available");
     const options = modelSelect.querySelectorAll("option");
-    // auto + 6 Gemini models from AI_MODELS
-    expect(options.length).toBe(7);
+    // auto + 5 Gemini models from AI_MODELS
+    expect(options.length).toBe(6);
   });
 
   it("shows all OpenRouter models from store", () => {
@@ -153,8 +153,8 @@ describe("SuperBroTab", () => {
     );
     const modelSelect = screen.getByDisplayValue("Auto — best available");
     const options = modelSelect.querySelectorAll("option");
-    // auto + 4 OpenAI models
-    expect(options.length).toBe(5);
+    // auto + 3 OpenAI models
+    expect(options.length).toBe(4);
   });
 
   it("model change callback fires", () => {
