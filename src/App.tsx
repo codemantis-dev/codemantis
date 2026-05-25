@@ -124,6 +124,12 @@ export default function App() {
       .then((status) => {
         setCodexStatus(status);
         codexInstalled = status.installed;
+        // v1.5.0 — capture the Codex binary path so CliOverlay can spawn
+        // `codex` interactively for Codex sessions (parallel to the
+        // claudeBinaryPath capture above).
+        if (status.binary_path) {
+          useUiStore.getState().setCodexBinaryPath(status.binary_path);
+        }
       })
       .catch((e) => {
         // Codex probe failures are non-fatal — log + leave codexStatus

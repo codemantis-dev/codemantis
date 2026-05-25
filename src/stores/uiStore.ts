@@ -53,6 +53,10 @@ interface UiState {
   cliOverlaySessionId: string | null;
   cliOverlayProjectPath: string | null;
   claudeBinaryPath: string | null;
+  /** v1.5.0 — Codex binary path, captured at startup from
+   * `check_codex_status`. Used by CliOverlay to spawn `codex` in a PTY
+   * for Codex sessions (parallel to Claude's `claudeBinaryPath`). */
+  codexBinaryPath: string | null;
   showProjectLog: boolean;
   showClaudeHistory: boolean;
   draftInput: string | null;
@@ -110,6 +114,7 @@ interface UiState {
   setCliOverlaySessionId: (id: string | null) => void;
   setCliOverlayProjectPath: (path: string | null) => void;
   setClaudeBinaryPath: (path: string | null) => void;
+  setCodexBinaryPath: (path: string | null) => void;
   setShowProjectLog: (show: boolean) => void;
   setShowClaudeHistory: (show: boolean) => void;
   setDraftInput: (text: string | null) => void;
@@ -158,6 +163,7 @@ export const useUiStore = create<UiState>((set) => ({
   cliOverlaySessionId: null,
   cliOverlayProjectPath: null,
   claudeBinaryPath: null,
+  codexBinaryPath: null,
   showProjectLog: false,
   showClaudeHistory: false,
   draftInput: null,
@@ -233,6 +239,7 @@ export const useUiStore = create<UiState>((set) => ({
   setCliOverlaySessionId: (id) => set({ cliOverlaySessionId: id }),
   setCliOverlayProjectPath: (path) => set({ cliOverlayProjectPath: path }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
+  setCodexBinaryPath: (path) => set({ codexBinaryPath: path }),
   setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
   setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
   setDraftInput: (text) => set({ draftInput: text }),

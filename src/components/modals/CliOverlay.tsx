@@ -21,6 +21,7 @@ export default function CliOverlay() {
   const showOverlay = useUiStore((s) => s.showCliOverlay);
   const setShowOverlay = useUiStore((s) => s.setShowCliOverlay);
   const claudeBinaryPath = useUiStore((s) => s.claudeBinaryPath);
+  const codexBinaryPath = useUiStore((s) => s.codexBinaryPath);
   const cliOverlaySessionId = useUiStore((s) => s.cliOverlaySessionId);
   const cliOverlayProjectPath = useUiStore((s) => s.cliOverlayProjectPath);
   const mainActiveSessionId = useSessionStore((s) => s.activeSessionId);
@@ -42,9 +43,23 @@ export default function CliOverlay() {
   const assistantCliSessionId = useAssistantStore((s) => activeSessionId ? s.cliSessionIds.get(activeSessionId) : undefined);
   const cliSessionId = mainSession?.cli_session_id ?? assistantCliSessionId;
 
-  // Open flow: pause stream-json → spawn interactive claude --resume → user interacts
+  // v1.5.0 — agent-aware dispatch. Claude sessions spawn `claude
+  // --resume <cli_session_id>`; Codex sessions spawn `codex` (bare TUI)
+  // or `codex <subcommand>` from cliOverlayInitialInput like
+  // "/login" / "/mcp" / "/logout". Codex's subcommands are
+  // top-level argv entries, NOT TUI slash commands — so we pass them
+  // as args instead of sending them as keystrokes.
+  const agentId = mainSession?.agent_id ?? "claude_code";
+  const isCodex = agentId === "codex";
+  const binaryPath = isCodex ? codexBinaryPath : claudeBinaryPath;
+  const overlayTitle = isCodex ? "Codex CLI" : "Claude CLI";
+  const overlayHint = isCodex
+    ? "— /login, /logout, /mcp, /plugin, /config"
+    : "— /model, /config, /doctor, /help";
+
+  // Open flow: pause stream-json → spawn interactive CLI → user interacts
   useEffect(() => {
-    if (!showOverlay || !activeSessionId || !projectPath || !claudeBinaryPath) return;
+    if (!showOverlay || !activeSessionId || !projectPath || !binaryPath) return;
 
     let cancelled = false;
     sessionIdRef.current = activeSessionId;
@@ -53,23 +68,51 @@ export default function CliOverlay() {
 
     const openOverlay = async () => {
       try {
-        // Step 1: Pause the stream-json process
+        // Step 1: Pause the stream-json process (works for both Claude
+        // and Codex — the Tauri layer dispatches by agent).
         await pauseSessionProcess(activeSessionId);
 
         if (cancelled) return;
 
-        // Step 2: Build args for interactive claude
+        // Step 2: Build args for the interactive CLI. Two protocols:
+        //   • Claude → bare CLI with `--resume <cli_session_id>` so the
+        //     user lands in the conversation they were having. The
+        //     initial slash command (e.g. /config) is sent as
+        //     keystrokes via Claude's TUI slash-command grammar.
+        //   • Codex → subcommands are top-level argv (e.g. `codex
+        //     login`, `codex mcp`), NOT TUI slash commands. We parse
+        //     the initialInput (e.g. "/login") into argv and DON'T
+        //     send keystrokes — argv carries the intent. With no
+        //     initialInput we spawn bare `codex` (interactive TUI).
+        //     Resume isn't argv-friendly here: `codex resume` opens a
+        //     picker that needs user choice anyway, so we let the user
+        //     pick or invoke their subcommand directly.
+        const initialInput = useUiStore.getState().cliOverlayInitialInput;
         const termArgs: string[] = [];
-        if (cliSessionId) {
-          termArgs.push("--resume", cliSessionId);
+        let consumedInitialInput = false;
+        if (isCodex) {
+          if (initialInput) {
+            // "/login" → ["login"], "/mcp list" → ["mcp", "list"]
+            const stripped = initialInput.replace(/^\//, "").trim();
+            if (stripped) {
+              termArgs.push(...stripped.split(/\s+/));
+              consumedInitialInput = true;
+            }
+          }
+          // else: bare `codex` opens the interactive TUI.
+        } else {
+          if (cliSessionId) {
+            termArgs.push("--resume", cliSessionId);
+          }
+          // Claude's initial input flows through keystrokes below.
         }
 
-        // Step 3: Spawn interactive claude CLI in PTY
+        // Step 3: Spawn the interactive CLI in a PTY
         const info = await createTerminalCmd(
           activeSessionId,
           projectPath,
-          claudeBinaryPath,
-          "Claude CLI",
+          binaryPath,
+          overlayTitle,
           termArgs.length > 0 ? termArgs : undefined
         );
 
@@ -91,15 +134,21 @@ export default function CliOverlay() {
         setTerminalId(info.id);
         setLoading(false);
 
-        // Send pre-typed command if set (from command palette cli-only routing)
-        const initialInput = useUiStore.getState().cliOverlayInitialInput;
-        if (initialInput) {
+        // For Claude (or Codex with no argv-consumed initial input):
+        // send the pre-typed command as keystrokes. Codex consumes its
+        // initial input via argv above so this branch only fires for
+        // the Claude path.
+        if (initialInput && !consumedInitialInput) {
           setTimeout(() => {
             sendTerminalInput(info.id, initialInput + "\n").catch((e) =>
               console.error("[cli-overlay] Failed to send initial input:", e)
             );
             useUiStore.getState().setCliOverlayInitialInput(null);
           }, 800);
+        } else if (consumedInitialInput) {
+          // Codex consumed argv — clear the staged input so it doesn't
+          // re-fire on the next overlay open.
+          useUiStore.getState().setCliOverlayInitialInput(null);
         }
       } catch (e) {
         if (!cancelled) {
@@ -119,7 +168,7 @@ export default function CliOverlay() {
     return () => {
       cancelled = true;
     };
-  }, [showOverlay, activeSessionId, projectPath, claudeBinaryPath, cliSessionId]);
+  }, [showOverlay, activeSessionId, projectPath, binaryPath, cliSessionId, isCodex, overlayTitle]);
 
   // Close flow: kill PTY → resume stream-json with --resume
   const handleClose = useCallback(async () => {
@@ -180,13 +229,13 @@ export default function CliOverlay() {
             <div className="flex items-center gap-2">
               <TerminalSquare size={15} className="text-accent" />
               <Dialog.Title className="text-ui text-text-primary font-medium">
-                Claude CLI
+                {overlayTitle}
               </Dialog.Title>
               <Dialog.Description className="sr-only">
-                Claude CLI terminal overlay
+                {overlayTitle} terminal overlay
               </Dialog.Description>
               <span className="text-label text-text-ghost">
-                — /model, /config, /doctor, /help
+                {overlayHint}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -206,7 +255,7 @@ export default function CliOverlay() {
             {loading && (
               <div className="h-full flex items-center justify-center">
                 <p className="text-text-dim text-ui">
-                  Pausing session and starting Claude CLI...
+                  Pausing session and starting {overlayTitle}...
                 </p>
               </div>
             )}

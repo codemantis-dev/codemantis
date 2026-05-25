@@ -241,6 +241,43 @@ fn builtin_commands() -> Vec<SlashCommand> {
         .collect()
 }
 
+/// v1.5.0 — Codex equivalents of `cli_only_commands` (Claude). Each
+/// entry maps to a top-level `codex <name>` subcommand verified
+/// against `codex --help` on cli 0.130.0. Selecting one opens
+/// `CliOverlay` and spawns `codex <name>` directly in a PTY (NOT a
+/// TUI slash command — Codex's interactive commands are top-level
+/// argv). Missing entries: `exec` / `review` / `debug` /
+/// `mcp-server` / `app-server` / `remote-control` / `cloud` /
+/// `exec-server` / `completion` — those are non-interactive or
+/// protocol modes that don't belong in the user-facing palette.
+fn codex_cli_only_commands() -> Vec<SlashCommand> {
+    let cli_only = [
+        ("apply", "Apply the latest diff to your working tree"),
+        ("features", "Inspect feature flags"),
+        ("fork", "Fork a previous interactive session"),
+        ("login", "Manage Codex login"),
+        ("logout", "Sign out of Codex"),
+        ("mcp", "Manage external MCP servers"),
+        ("plugin", "Manage Codex plugins"),
+        ("resume", "Resume a previous interactive session"),
+        ("sandbox", "Run a command in the Codex sandbox"),
+        ("update", "Update Codex to the latest version"),
+    ];
+
+    cli_only
+        .iter()
+        .map(|(name, desc)| SlashCommand {
+            name: name.to_string(),
+            description: desc.to_string(),
+            category: "cli-only".to_string(),
+            source_path: None,
+            argument_hint: None,
+            model: None,
+            user_invocable: true,
+        })
+        .collect()
+}
+
 fn cli_only_commands() -> Vec<SlashCommand> {
     let cli_only = [
         ("add-dir", "Add a directory to context"),
@@ -350,11 +387,15 @@ pub async fn discover_commands(
     // compact / exit / help / rename) — agent-agnostic, always shown.
     all_commands.extend(builtin_commands());
 
-    // Claude's CLI-only commands (/bug, /init, /login, /model, …) are
-    // Claude-specific. Codex sessions don't get them — they'd be wrong
-    // (e.g. "Report a bug to Anthropic") and aren't wired to a Codex
-    // overlay anyway.
-    if !is_codex {
+    // CLI-only commands open the agent's interactive CLI in a PTY
+    // overlay (CliOverlay.tsx). Each agent has its own subcommand
+    // grammar — Claude's /bug, /init, /login etc. vs Codex's /login,
+    // /mcp, /apply etc. — so we surface them per-agent. The overlay
+    // pauses the stream-json process, spawns the binary with the
+    // chosen subcommand as argv, and resumes when the user closes it.
+    if is_codex {
+        all_commands.extend(codex_cli_only_commands());
+    } else {
         all_commands.extend(cli_only_commands());
     }
 
@@ -745,6 +786,46 @@ mod tests {
         }
     }
 
+    // ── v1.5.0 — Codex cli-only commands ──
+
+    #[test]
+    fn codex_cli_only_commands_returns_non_empty() {
+        assert!(!codex_cli_only_commands().is_empty());
+    }
+
+    #[test]
+    fn codex_cli_only_commands_contains_login_and_mcp_and_apply() {
+        // Empirically verified against `codex --help` on cli 0.130.0.
+        // login + mcp are the most common configuration commands;
+        // apply is the most common workflow command.
+        let cmds = codex_cli_only_commands();
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"login"));
+        assert!(names.contains(&"mcp"));
+        assert!(names.contains(&"apply"));
+    }
+
+    #[test]
+    fn codex_cli_only_commands_excludes_non_interactive_subcommands() {
+        // exec / review / debug / mcp-server / app-server etc. are
+        // non-interactive or protocol modes — surfacing them in the
+        // user-facing palette would be misleading.
+        let cmds = codex_cli_only_commands();
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        assert!(!names.contains(&"exec"));
+        assert!(!names.contains(&"review"));
+        assert!(!names.contains(&"debug"));
+        assert!(!names.contains(&"mcp-server"));
+        assert!(!names.contains(&"app-server"));
+    }
+
+    #[test]
+    fn codex_cli_only_commands_all_have_cli_only_category() {
+        for cmd in &codex_cli_only_commands() {
+            assert_eq!(cmd.category, "cli-only");
+        }
+    }
+
     // ── expand_shell_commands (template expansion) ──
 
     #[tokio::test]
@@ -962,8 +1043,9 @@ mod tests {
 
         let path = project.path().to_string_lossy().to_string();
 
-        // Codex session: sees the Codex prompt, NOT the Claude skill,
-        // and NOT Claude's CLI-only commands (e.g. /bug).
+        // Codex session: sees the Codex prompt + Codex CLI commands
+        // (login, mcp, apply, ...), NOT the Claude skill, NOT Claude's
+        // CLI-only commands (/bug "Report to Anthropic" etc.).
         let codex_cmds = discover_commands(path.clone(), Some("codex".into()))
             .await
             .unwrap();
@@ -973,6 +1055,12 @@ mod tests {
         assert!(!names.contains(&"bug"), "claude CLI command leaked into codex");
         // Built-ins are agent-agnostic — still present.
         assert!(names.contains(&"clear"), "built-in /clear missing for codex");
+        // Codex CLI commands ARE present (v1.5.0 — overlay dispatch
+        // spawns `codex <name>` directly).
+        assert!(names.contains(&"login"), "codex /login missing");
+        assert!(names.contains(&"mcp"), "codex /mcp missing");
+        assert!(names.contains(&"apply"), "codex /apply missing");
+        assert!(!names.contains(&"doctor"), "claude /doctor leaked into codex");
 
         // Claude session: sees the Claude skill + CLI commands, NOT the
         // Codex prompt.
