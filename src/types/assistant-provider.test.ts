@@ -492,3 +492,29 @@ describe("OpenRouter in AI_PROVIDERS and AI_MODELS", () => {
     expect(AI_MODELS.openrouter).toEqual([]);
   });
 });
+
+describe("AI_MODELS regression guard (Self-Drive picker)", () => {
+  // Every static model entry must have a non-empty label and positive pricing.
+  // A zero or NaN here would silently break the cost-estimator + cheap→expensive
+  // sort that the Self-Drive picker relies on.
+  for (const provider of ["openai", "gemini", "anthropic"] as const) {
+    it(`${provider}: every entry has non-empty label and positive pricing`, () => {
+      const models = AI_MODELS[provider];
+      expect(models.length).toBeGreaterThan(0);
+      for (const m of models) {
+        expect(m.id.length).toBeGreaterThan(0);
+        expect(m.label.length).toBeGreaterThan(0);
+        expect(m.defaultPricing.input).toBeGreaterThan(0);
+        expect(m.defaultPricing.output).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  it("getProviderForModel round-trips every static model ID", () => {
+    for (const [provider, models] of Object.entries(AI_MODELS)) {
+      for (const m of models) {
+        expect(getProviderForModel(m.id)).toBe(provider);
+      }
+    }
+  });
+});

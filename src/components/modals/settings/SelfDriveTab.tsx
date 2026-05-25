@@ -7,6 +7,7 @@ import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
 import { AI_MODELS } from "../../../types/assistant-provider";
 import { useSelfDriveStore } from "../../../stores/selfDriveStore";
+import { useOpenRouterStore } from "../../../stores/openRouterStore";
 
 interface SelfDriveTabProps {
   provider: string;
@@ -33,13 +34,30 @@ const PROVIDERS = [
   { id: "openrouter", label: "OpenRouter" },
 ];
 
-function getModelOptions(provider: string): { id: string; label: string }[] {
-  const models = AI_MODELS[provider as keyof typeof AI_MODELS];
-  if (models) {
-    return models.map((m) => ({ id: m.id, label: m.label }));
-  }
-  return [];
+interface ModelEntry {
+  id: string;
+  label: string;
 }
+
+/** Cheap → expensive ordering so Haiku-class lands at the top of the dropdown.
+ * Sort by output price first (dominant for orchestrator turns which are short
+ * in, longer out), then input as a tiebreaker. Stable across reorders. */
+function sortedStaticModels(provider: string): ModelEntry[] {
+  const models = AI_MODELS[provider as keyof typeof AI_MODELS];
+  if (!models) return [];
+  return [...models]
+    .sort((a, b) => {
+      const dOut = a.defaultPricing.output - b.defaultPricing.output;
+      if (dOut !== 0) return dOut;
+      return a.defaultPricing.input - b.defaultPricing.input;
+    })
+    .map((m) => ({ id: m.id, label: m.label }));
+}
+
+const OPENROUTER_LOADING_OPTION: ModelEntry = {
+  id: "",
+  label: "Loading OpenRouter models…",
+};
 
 export default function SelfDriveTab({
   provider,
@@ -58,7 +76,42 @@ export default function SelfDriveTab({
   onAutoCommitChange,
   onEnableRecheckLoopChange,
 }: SelfDriveTabProps) {
-  const models = useMemo(() => getModelOptions(provider), [provider]);
+  // OpenRouter models are fetched live from the user's account and cached by
+  // useOpenRouterStore. SelfDriveTab must consult that cache (and prime it on
+  // mount) so the Model dropdown isn't blank for OpenRouter-only users.
+  const orModels = useOpenRouterStore((s) => s.models);
+  const orLoading = useOpenRouterStore((s) => s.loading);
+  const orFetchModels = useOpenRouterStore((s) => s.fetchModels);
+
+  const openRouterKey = apiKeys["openrouter"]?.trim() ?? "";
+  useEffect(() => {
+    if (provider !== "openrouter") return;
+    if (!openRouterKey) return;
+    if (orModels.length > 0) return;
+    if (orLoading) return;
+    void orFetchModels(openRouterKey);
+  }, [provider, openRouterKey, orModels.length, orLoading, orFetchModels]);
+
+  const models: ModelEntry[] = useMemo(() => {
+    if (provider === "openrouter") {
+      if (orModels.length === 0) return [OPENROUTER_LOADING_OPTION];
+      // Free first, then paid by output price asc, then by context length desc
+      // (longer-context cheaper models are usually the more useful pick).
+      return [...orModels]
+        .sort((a, b) => {
+          if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+          const dOut = a.pricing.output - b.pricing.output;
+          if (dOut !== 0) return dOut;
+          return b.contextLength - a.contextLength;
+        })
+        .map((m) => ({
+          id: m.id,
+          label: m.isFree ? `${m.name} (free)` : m.name,
+        }));
+    }
+    return sortedStaticModels(provider);
+  }, [provider, orModels]);
+
   const availableProviders = useMemo(
     () => PROVIDERS.filter((p) => !!apiKeys[p.id]?.trim()),
     [apiKeys],
@@ -84,14 +137,22 @@ export default function SelfDriveTab({
     if (!availableProviders.some((p) => p.id === provider)) {
       const next = availableProviders[0].id;
       onProviderChange(next);
-      const nextModels = getModelOptions(next);
-      if (nextModels.length > 0) onModelChange(nextModels[0].id);
+      // Only auto-pick a model for static-list providers here. For OpenRouter
+      // the live cache may not have arrived yet — defer to the next effect run
+      // when `models` updates.
+      if (next !== "openrouter") {
+        const nextModels = sortedStaticModels(next);
+        if (nextModels.length > 0) onModelChange(nextModels[0].id);
+      }
       return;
     }
+    // Don't snap the saved model away while OpenRouter is still loading — the
+    // sole option would be the placeholder, and we'd lose the user's choice.
+    if (provider === "openrouter" && orModels.length === 0) return;
     if (models.length > 0 && !models.some((m) => m.id === model)) {
       onModelChange(models[0].id);
     }
-  }, [provider, model, availableProviders, models, onProviderChange, onModelChange]);
+  }, [provider, model, availableProviders, models, orModels.length, onProviderChange, onModelChange]);
 
   return (
     <div className="space-y-6">
@@ -119,10 +180,25 @@ export default function SelfDriveTab({
             <select
               value={provider}
               onChange={(e) => {
-                onProviderChange(e.target.value);
-                const newModels = getModelOptions(e.target.value);
-                if (newModels.length > 0) {
-                  onModelChange(newModels[0].id);
+                const nextProvider = e.target.value;
+                onProviderChange(nextProvider);
+                // Pick the cheapest (first sorted) model immediately for
+                // static providers. For OpenRouter the live cache may not be
+                // hydrated yet — the reconciliation effect picks once the
+                // models arrive.
+                if (nextProvider !== "openrouter") {
+                  const newModels = sortedStaticModels(nextProvider);
+                  if (newModels.length > 0) onModelChange(newModels[0].id);
+                } else if (orModels.length > 0) {
+                  // Cache is already populated; pre-select the top-sorted
+                  // option so the dropdown isn't stuck on a stale model id.
+                  const top = [...orModels].sort((a, b) => {
+                    if (a.isFree !== b.isFree) return a.isFree ? -1 : 1;
+                    const dOut = a.pricing.output - b.pricing.output;
+                    if (dOut !== 0) return dOut;
+                    return b.contextLength - a.contextLength;
+                  })[0];
+                  if (top) onModelChange(top.id);
                 }
               }}
               className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary"
