@@ -221,6 +221,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   removeSession: (sessionId) => {
     // Free the session's file-viewer state (open files, dirty buffers, etc.)
     useFileViewerStore.getState().clearSession(sessionId);
+    // Captured inside set() and consumed after — populated when removing this
+    // session also evicts its parent project (last session gone).
+    let projectFullyRemoved: string | null = null;
     set((state) => {
       const sessions = new Map(state.sessions);
       const removedSession = sessions.get(sessionId);
@@ -286,6 +289,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           if (activeProjectPath === projectPath) {
             activeProjectPath = projectOrder.length > 0 ? projectOrder[projectOrder.length - 1] : null;
           }
+          projectFullyRemoved = projectPath;
         } else if (projectActiveSession.get(projectPath) === sessionId) {
           // Switch to another session in this project
           projectActiveSession.set(projectPath, remainingInProject[0]);
@@ -327,6 +331,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         projectActiveSession,
       };
     });
+
+    // If we just evicted the project that owns the current Self-Drive run,
+    // force-reset Self-Drive so we don't leave a phantom paused run behind
+    // (the source of the "already paused for another project" stale-state
+    // bug). Dynamic import avoids the static cycle with selfDriveStore,
+    // which already imports useSessionStore.
+    if (projectFullyRemoved) {
+      const removed = projectFullyRemoved;
+      void import("./selfDriveStore")
+        .then(({ useSelfDriveStore }) => {
+          const sd = useSelfDriveStore.getState();
+          if (sd.projectPath === removed) {
+            void sd.forceReset();
+          }
+        })
+        .catch((e) => console.warn("[sessionStore] Self-Drive cleanup skipped:", e));
+    }
   },
 
   setActiveSession: (sessionId) =>

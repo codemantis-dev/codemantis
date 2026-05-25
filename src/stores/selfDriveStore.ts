@@ -31,6 +31,7 @@ import {
   updateGuideData,
   saveSelfDriveState,
   deleteSelfDriveState,
+  listSelfDriveStates,
   verifyActionParity,
   preflightStatus,
   listenChatEvents,
@@ -236,6 +237,15 @@ interface SelfDriveState {
   start: () => Promise<void>;
   resume: () => Promise<void>;
   stop: () => Promise<void>;
+  /**
+   * Bulletproof reset for stale / orphaned state — safe to call after a
+   * rehydration where the pinned Claude Code session is dead and
+   * previousSessionMode is null. Clears in-memory state to defaults,
+   * stops listeners, and deletes EVERY persisted row from disk (not just
+   * the current projectPath), giving the user a single recovery action
+   * from Settings → Self-Drive when normal stop() would not apply.
+   */
+  forceReset: () => Promise<void>;
   pause: () => void;
   /**
    * Lift a pause without auto-resuming. Used when the user resolves the
@@ -360,17 +370,35 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
   },
 
   start: async () => {
-    // Prevent starting if Self-Drive is already running/paused for another project
     const currentState = get();
-    if (currentState.status === "running" || currentState.status === "paused") {
-      showToast(`Self-Drive is already ${currentState.status} for another project. Stop it first.`, "error");
-      return;
-    }
-
     const sessionId = useSessionStore.getState().activeSessionId;
     const projectPath = useSessionStore.getState().activeProjectPath;
     if (!sessionId || !projectPath) {
       showToast("No active Claude Code session", "error");
+      return;
+    }
+
+    // Block only when Self-Drive is already running/paused — and produce a
+    // message that names the owning project so the user can recover. A
+    // generic "another project" toast (with no actual path comparison) was
+    // misleading and could fire for the *current* project after rehydration.
+    if (currentState.status === "running" || currentState.status === "paused") {
+      const owner = currentState.projectPath;
+      if (owner && owner !== projectPath) {
+        const otherName = owner.split("/").filter(Boolean).pop() ?? owner;
+        showToast(
+          `Self-Drive is ${currentState.status} for "${otherName}". Stop it from that project, or reset Self-Drive in Settings → Self-Drive.`,
+          "error",
+        );
+        return;
+      }
+      // Same project (or no path recorded — treat as same to avoid trapping the user).
+      showToast(
+        currentState.needsSessionAttach
+          ? "Self-Drive is waiting for you to attach a Claude Code session in this project."
+          : `Self-Drive is already ${currentState.status} in this project.`,
+        "error",
+      );
       return;
     }
 
@@ -701,6 +729,64 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     addLogEntry(sessionIdx, "stopped", "Self-Drive stopped by user");
     showToast("Self-Drive stopped. Mode restored.", "info");
+  },
+
+  forceReset: async () => {
+    // Bulletproof reset for orphaned / rehydrated state: never depends on a
+    // live Claude Code session or previousSessionMode. Used by the Settings
+    // recovery row and by sessionStore when the owning project is closed.
+    stopListeners();
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    // Best-effort: nuke every persisted row, not just the current one. The
+    // user's intent is "clear all stale Self-Drive runs", and individual
+    // failures should not block the in-memory reset.
+    try {
+      const rows = await listSelfDriveStates();
+      await Promise.all(
+        rows.map((r) =>
+          deleteSelfDriveState(r.projectPath).catch((e) =>
+            console.warn("[Self-Drive] forceReset: failed to delete row", r.projectPath, e),
+          ),
+        ),
+      );
+    } catch (e) {
+      console.warn("[Self-Drive] forceReset: failed to list persisted rows", e);
+    }
+    set({
+      status: "idle",
+      projectPath: null,
+      sessionId: null,
+      guide: null,
+      needsSessionAttach: false,
+      postRestartFreshResumeNeeded: false,
+      currentSessionIndex: null,
+      currentPhase: null,
+      previousSessionMode: null,
+      fixAttempt: 0,
+      previousFixPrompts: [],
+      lowConfidenceCount: 0,
+      recheckRoundsUsed: 0,
+      rechecksPerItem: {},
+      originalVerifierResponse: null,
+      recheckResponses: [],
+      pinnedCheckResults: [],
+      lastClaudeResponse: null,
+      lastSelfDrivePromptMessageId: null,
+      lastSelfDrivePromptInjection: null,
+      evidenceVocabHint: null,
+      preambleSent: [],
+      orchestratorLastUserMessageId: null,
+      pauseReason: null,
+      activeBlocker: null,
+      blockerHistory: [],
+      recentPauseSummaries: [],
+      startedAt: null,
+      sessionStartedAt: null,
+    });
+    showToast("Self-Drive state cleared.", "info");
   },
 
   pause: () => {

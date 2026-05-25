@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useSessionStore } from "./sessionStore";
+import { useSelfDriveStore } from "./selfDriveStore";
 import type { Session } from "../types/session";
 import type { CapabilitiesDiscoveredEvent } from "../types/claude-events";
 
@@ -449,5 +450,97 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessionMessages.get("s2")?.length).toBe(1);
     expect(useSessionStore.getState().sessionMessages.get("s1")?.[0].content).toBe("Session1");
     expect(useSessionStore.getState().sessionMessages.get("s2")?.[0].content).toBe("Session2");
+  });
+});
+
+// Auto-clear stale Self-Drive state when its owning project is evicted.
+// Regression for "Self-Drive is already paused for another project" toast
+// firing after the owning project had already been closed.
+describe("sessionStore — removes Self-Drive ownership when last session of a project is gone", () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: new Map(),
+      activeSessionId: null,
+      sessionMessages: new Map(),
+      sessionStreaming: new Map(),
+      sessionContext: new Map(),
+      activeSubAgents: new Map(),
+      sessionThinking: new Map(),
+      tabOrder: [],
+      projectOrder: [],
+      projectActiveSession: new Map(),
+      activeProjectPath: null,
+    });
+    useSelfDriveStore.setState({
+      status: "idle",
+      projectPath: null,
+      sessionId: null,
+      needsSessionAttach: false,
+      pauseReason: null,
+    });
+  });
+
+  it("force-resets Self-Drive when its owning project is fully removed", async () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    // Pretend Self-Drive is paused for this project (post-restart rehydration
+    // shape).
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: TEST_SESSION.project_path,
+      sessionId: "dead-session",
+      needsSessionAttach: true,
+      pauseReason: "Restart detected",
+    });
+
+    useSessionStore.getState().removeSession(TEST_SESSION.id);
+    // The cleanup uses a dynamic import + forceReset (which awaits the
+    // mocked listSelfDriveStates invoke). Flush the macrotask queue so
+    // those microtasks run before we assert.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const sd = useSelfDriveStore.getState();
+    expect(sd.status).toBe("idle");
+    expect(sd.projectPath).toBeNull();
+    expect(sd.sessionId).toBeNull();
+    expect(sd.needsSessionAttach).toBe(false);
+  });
+
+  it("leaves Self-Drive state alone when a session is removed but the project still has other sessions", async () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    useSessionStore
+      .getState()
+      .addSession({ ...TEST_SESSION, id: "s2", name: "Test2" });
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: TEST_SESSION.project_path,
+      sessionId: "live-session",
+      needsSessionAttach: false,
+    });
+
+    useSessionStore.getState().removeSession(TEST_SESSION.id);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Project still has s2 → Self-Drive ownership must be preserved.
+    const sd = useSelfDriveStore.getState();
+    expect(sd.projectPath).toBe(TEST_SESSION.project_path);
+    expect(sd.status).toBe("paused");
+  });
+
+  it("does not touch Self-Drive state when the removed project is not the owner", async () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/somewhere/else",
+      sessionId: "other-session",
+      needsSessionAttach: true,
+    });
+
+    useSessionStore.getState().removeSession(TEST_SESSION.id);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const sd = useSelfDriveStore.getState();
+    expect(sd.projectPath).toBe("/somewhere/else");
+    expect(sd.status).toBe("paused");
   });
 });

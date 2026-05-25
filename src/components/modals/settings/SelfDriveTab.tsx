@@ -6,6 +6,7 @@ import { useEffect, useMemo } from "react";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 import { Info } from "lucide-react";
 import { AI_MODELS } from "../../../types/assistant-provider";
+import { useSelfDriveStore } from "../../../stores/selfDriveStore";
 
 interface SelfDriveTabProps {
   provider: string;
@@ -63,6 +64,17 @@ export default function SelfDriveTab({
     [apiKeys],
   );
   const hasAnyKey = availableProviders.length > 0;
+
+  // ── Self-Drive recovery (clears stale paused/running state) ─────────
+  const sdStatus = useSelfDriveStore((s) => s.status);
+  const sdProject = useSelfDriveStore((s) => s.projectPath);
+  const sdNeedsAttach = useSelfDriveStore((s) => s.needsSessionAttach);
+  const forceReset = useSelfDriveStore((s) => s.forceReset);
+  const sdOwnerName = sdProject
+    ? sdProject.split("/").filter(Boolean).pop() ?? sdProject
+    : null;
+  const sdHasState =
+    sdStatus === "running" || sdStatus === "paused" || !!sdProject;
 
   // Reconcile drifted state: when the saved provider has no API key, the
   // <select> visually shows the first available option but `provider` state
@@ -219,6 +231,35 @@ export default function SelfDriveTab({
           </FieldRow>
         </>
       )}
+
+      {/* Recovery — clears stale paused/running Self-Drive state */}
+      <div className="space-y-2">
+        <SectionTitle>Recovery</SectionTitle>
+        <FieldRow label="Reset Self-Drive state">
+          <button
+            type="button"
+            onClick={async () => {
+              const owner = sdOwnerName ?? "all stored runs";
+              const ok = window.confirm(
+                `Clear Self-Drive state for ${owner}?\n\nThis stops any paused/running run and removes persisted state. Files Claude Code already changed remain.`,
+              );
+              if (!ok) return;
+              await forceReset();
+            }}
+            disabled={!sdHasState}
+            className="px-3 py-1.5 rounded-md border border-red/30 text-red bg-red/5 hover:bg-red/10 disabled:opacity-40 disabled:cursor-not-allowed text-label"
+          >
+            Clear stale Self-Drive
+          </button>
+        </FieldRow>
+        <p className="text-label text-text-dim leading-relaxed">
+          {sdHasState
+            ? sdNeedsAttach
+              ? `Currently paused for "${sdOwnerName}" — waiting for a Claude Code session attach.`
+              : `Currently ${sdStatus} for "${sdOwnerName}".`
+            : "No active Self-Drive run."}
+        </p>
+      </div>
 
       {/* Info box */}
       <div className="flex gap-2 px-3 py-2.5 rounded-lg border border-border bg-bg-elevated">

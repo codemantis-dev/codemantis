@@ -2025,7 +2025,7 @@ describe("selfDriveStore — project isolation", () => {
     await useSelfDriveStore.getState().start();
 
     expect(mockShowToast).toHaveBeenCalledWith(
-      "Self-Drive is already running for another project. Stop it first.",
+      `Self-Drive is running for "test". Stop it from that project, or reset Self-Drive in Settings → Self-Drive.`,
       "error",
     );
     // Should still be running for the original project
@@ -3811,5 +3811,152 @@ describe("H5 — resume skips recovery re-entry for 'verifying' blockers", () =>
     // Blocker status should NOT have been bumped back to "user-decided".
     const blockerAfter = useSelfDriveStore.getState().activeBlocker;
     expect(blockerAfter?.status).toBe("verifying");
+  });
+});
+
+// ── Stale-state recovery (start() guard fix + forceReset) ──────────────
+// Regression coverage for the "Self-Drive is already paused for another
+// project" toast firing when no other project was open. See plan in
+// /Users/hr/.claude/plans/image-3-i-get-jiggly-twilight.md.
+
+import * as tauriCommandsMocked from "../lib/tauri-commands";
+
+describe("start() guard — stale paused state (different project)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("names the owning project and points to Settings recovery", async () => {
+    setupReadyState(); // activeProjectPath = "/test"
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/some/where/project-Alpha",
+      needsSessionAttach: true,
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    // Should NOT advance into running
+    expect(useSelfDriveStore.getState().status).toBe("paused");
+    expect(useSelfDriveStore.getState().currentSessionIndex).toBeNull();
+    // Last toast should reference the named project and steer the user to
+    // the Settings → Self-Drive recovery option.
+    const calls = mockShowToast.mock.calls;
+    const lastToast = calls[calls.length - 1];
+    expect(lastToast?.[0]).toMatch(/project-Alpha/);
+    expect(lastToast?.[0]).toMatch(/Settings/);
+    expect(lastToast?.[1]).toBe("error");
+  });
+
+  it("does NOT block if the owning project equals the active project", async () => {
+    setupReadyState(); // activeProjectPath = "/test"
+    // Status is paused for the SAME project — but with needsSessionAttach=false
+    // (e.g. user paused manually mid-run, then clicked Start). Old guard fired
+    // a misleading "for another project" toast even though it's the same one.
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/test",
+      needsSessionAttach: false,
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    // The new guard still blocks (you can't start while paused), but the
+    // toast must NOT claim "another project" — it should say "in this
+    // project" instead.
+    const errorToasts = mockShowToast.mock.calls.filter((c) => c[1] === "error");
+    const joinedErrors = errorToasts.map((c) => c[0]).join(" | ");
+    expect(joinedErrors).not.toMatch(/another project/);
+    expect(joinedErrors).toMatch(/this project/);
+  });
+
+  it("tells the user to attach a session when paused in the same project after rehydration", async () => {
+    setupReadyState();
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/test",
+      needsSessionAttach: true, // hallmark of post-restart rehydrated state
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    const calls = mockShowToast.mock.calls;
+    const lastToast = calls[calls.length - 1];
+    expect(lastToast?.[0]).toMatch(/attach a Claude Code session/i);
+    expect(lastToast?.[1]).toBe("error");
+  });
+});
+
+describe("forceReset() — bulletproof clear for orphaned Self-Drive state", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStores();
+  });
+
+  it("clears all run state to defaults, even with no live session and null previousSessionMode", async () => {
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/stale/project",
+      sessionId: "dead-session-id",
+      guide: makeGuide({ projectPath: "/stale/project" }),
+      needsSessionAttach: true,
+      postRestartFreshResumeNeeded: false,
+      previousSessionMode: null, // rehydrated case — no live mode to restore
+      fixAttempt: 5,
+      currentPhase: "fixing",
+      currentSessionIndex: 2,
+      pauseReason: "Restart detected — attach a Claude Code session",
+      activeBlocker: null,
+    });
+
+    await useSelfDriveStore.getState().forceReset();
+
+    const s = useSelfDriveStore.getState();
+    expect(s.status).toBe("idle");
+    expect(s.projectPath).toBeNull();
+    expect(s.sessionId).toBeNull();
+    expect(s.guide).toBeNull();
+    expect(s.needsSessionAttach).toBe(false);
+    expect(s.postRestartFreshResumeNeeded).toBe(false);
+    expect(s.currentPhase).toBeNull();
+    expect(s.currentSessionIndex).toBeNull();
+    expect(s.pauseReason).toBeNull();
+    expect(s.fixAttempt).toBe(0);
+  });
+
+  it("deletes every persisted row returned by listSelfDriveStates", async () => {
+    vi.mocked(tauriCommandsMocked.listSelfDriveStates).mockResolvedValueOnce([
+      { projectPath: "/proj-a", dataJson: "{}" },
+      { projectPath: "/proj-b", dataJson: "{}" },
+      { projectPath: "/proj-c", dataJson: "{}" },
+    ]);
+
+    await useSelfDriveStore.getState().forceReset();
+
+    const deleteCalls = vi
+      .mocked(tauriCommandsMocked.deleteSelfDriveState)
+      .mock.calls.map((c) => c[0]);
+    expect(deleteCalls).toContain("/proj-a");
+    expect(deleteCalls).toContain("/proj-b");
+    expect(deleteCalls).toContain("/proj-c");
+  });
+
+  it("still resets in-memory state even when listSelfDriveStates throws", async () => {
+    vi.mocked(tauriCommandsMocked.listSelfDriveStates).mockRejectedValueOnce(
+      new Error("disk error"),
+    );
+    useSelfDriveStore.setState({
+      status: "paused",
+      projectPath: "/stale",
+      needsSessionAttach: true,
+    });
+
+    await useSelfDriveStore.getState().forceReset();
+
+    const s = useSelfDriveStore.getState();
+    expect(s.status).toBe("idle");
+    expect(s.projectPath).toBeNull();
+    expect(s.needsSessionAttach).toBe(false);
   });
 });
