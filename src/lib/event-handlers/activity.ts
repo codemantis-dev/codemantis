@@ -238,6 +238,13 @@ function handleToolResult(
   activityStore: ActivityStoreState,
   sessionStore: SessionStoreState,
 ): void {
+  // Bump the activity timestamp so useStuckActivityWatchdog observes
+  // forward progress. Without this, a tool that completes after the
+  // 30s threshold leaves `sessionStuck` set until the next non-result
+  // event arrives — which for a tool that returned an error could be
+  // never.
+  useSessionStore.getState().touchLastEvent(sessionId);
+
   // Mode-control tools were not added to the activity feed — skip their results
   if (modeControlToolIds.has(event.tool_use_id)) {
     modeControlToolIds.delete(event.tool_use_id);

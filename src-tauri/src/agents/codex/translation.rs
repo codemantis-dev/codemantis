@@ -90,7 +90,7 @@ impl Translator {
             //   v2/AccountRateLimitsUpdatedNotification.json
             "mcpServer/startupStatus/updated" => self.on_mcp_startup_status(params),
             "account/rateLimits/updated" => self.on_rate_limits_updated(params),
-            "error" => self.map_error(params),
+            "error" => self.map_error(params).await,
             // Intentionally NOT handled (v1.4.1 Phase A.4):
             //   `item/fileChange/outputDelta` — the schema at
             //   docs/internal/codex-app-server-schemas/v2/FileChangeOutputDeltaNotification.json
@@ -972,7 +972,7 @@ impl Translator {
     /// The classifier is structural: it reads `error.codexErrorInfo.type`
     /// (when present) and falls back to a generic `ProcessError` for
     /// anything unrecognised.
-    pub fn map_error(&self, params: Value) -> Vec<NormalizedEvent> {
+    pub async fn map_error(&self, params: Value) -> Vec<NormalizedEvent> {
         let error = params.get("error").unwrap_or(&params);
         let info_type = error
             .get("codexErrorInfo")
@@ -1006,12 +1006,104 @@ impl Translator {
                     "Codex authentication expired. Run `codex login` in a terminal, then retry. ({message})"
                 ),
             }],
-            Some("SandboxError") => {
-                // Synthesize a ProtectedPathDeny so the frontend's
-                // protected-path toast (chat.ts:213-275) picks it up.
+            Some("SandboxError") => self.map_sandbox_error(error, &message).await,
+            _ => vec![NormalizedEvent::ProcessError {
+                agent_id: AgentId::Codex,
+                session_id: self.session_id.clone(),
+                error: message,
+            }],
+        }
+    }
+
+    /// SandboxError needs special handling: the in-flight item the
+    /// sandbox denied is mid-`ToolUseStart`, and the existing
+    /// `Running command...` activity entry will spin forever unless we
+    /// emit a matching `ToolResult` for it. The previous implementation
+    /// always emitted `ProtectedPathDeny` with a hardcoded `tool_name:
+    /// "Write"`, which (a) didn't close the activity entry and (b)
+    /// misrouted Bash exec denials through the protected-path toast.
+    ///
+    /// New behaviour:
+    ///   * Look up the item by `itemId` in the in-flight buffer.
+    ///   * If it's a `commandExecution`: emit a `ToolResult{is_error:
+    ///     true}` for the Bash item + a `ProcessError` with an
+    ///     escalation hint pointing at the policy picker.
+    ///   * If it's a `fileChange`: keep the `ProtectedPathDeny` path
+    ///     (Write/Edit semantics — the existing chat handler shows the
+    ///     "settings file blocked" toast which is correct for writes).
+    ///   * If we can't identify the item: surface a generic
+    ///     `ProcessError` carrying the original Codex message.
+    async fn map_sandbox_error(&self, error: &Value, message: &str) -> Vec<NormalizedEvent> {
+        let item_id = error
+            .get("itemId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let snapshot = if item_id.is_empty() {
+            None
+        } else {
+            let buffers = self.state.item_buffers.lock().await;
+            buffers
+                .get(&item_id)
+                .and_then(|b| b.last_snapshot.clone())
+        };
+
+        let item_type = snapshot
+            .as_ref()
+            .and_then(|s| s.get("type"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        match item_type.as_deref() {
+            Some("commandExecution") => {
+                let command = snapshot
+                    .as_ref()
+                    .and_then(|s| s.get("command"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unknown command)")
+                    .to_string();
+                let toast = format!(
+                    "Sandbox denied `{command}`. Codex can't reach the host \
+                     for this command. Switch the Policy pill to \
+                     `workspace-write · on-failure` or `danger-full-access` \
+                     to allow it, then retry. ({message})"
+                );
+                vec![
+                    // Close the spinning activity entry first — without
+                    // this the "Running command..." indicator stays on
+                    // forever (defect #2 of the Codex-stuck bug).
+                    NormalizedEvent::ToolResult {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        tool_use_id: item_id,
+                        content: Some(format!(
+                            "Sandbox denied: {message}\n\nCommand: {command}\n\n\
+                             Hint: switch Policy to `workspace-write · on-failure` \
+                             or `danger-full-access` if you want Codex to run this."
+                        )),
+                        is_error: true,
+                    },
+                    // Plus a chat-channel toast so the failure is
+                    // visible even if the user has the Files panel open
+                    // instead of the Activity feed.
+                    NormalizedEvent::ProcessError {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        error: toast,
+                    },
+                ]
+            }
+            Some("fileChange") => {
                 let path = error
                     .get("path")
                     .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        snapshot
+                            .as_ref()
+                            .and_then(|s| s.get("path"))
+                            .and_then(|v| v.as_str())
+                    })
                     .unwrap_or("")
                     .to_string();
                 vec![NormalizedEvent::ProtectedPathDeny {
@@ -1019,20 +1111,20 @@ impl Translator {
                     session_id: self.session_id.clone(),
                     denials: vec![PermissionDenial {
                         tool_name: "Write".to_string(),
-                        tool_use_id: error
-                            .get("itemId")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
+                        tool_use_id: item_id,
                         tool_input: serde_json::json!({"file_path": path}),
                     }],
                 }]
             }
-            _ => vec![NormalizedEvent::ProcessError {
-                agent_id: AgentId::Codex,
-                session_id: self.session_id.clone(),
-                error: message,
-            }],
+            _ => {
+                // Unknown item type or no item lookup possible. Surface
+                // a generic error so the user at least sees something.
+                vec![NormalizedEvent::ProcessError {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    error: format!("Codex sandbox denied an operation: {message}"),
+                }]
+            }
         }
     }
 }
@@ -1555,24 +1647,109 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn error_sandbox_synthesises_protected_path_deny() {
+    async fn error_sandbox_for_file_change_synthesises_protected_path_deny() {
         let t = translator();
+        // Pre-register the in-flight item so the translator knows the
+        // sandbox denial was a write, not a Bash exec.
+        t.on_notification(
+            "item/started",
+            json!({"item": {
+                "id": "i_x",
+                "type": "fileChange",
+                "path": ".codex/forbidden",
+                "changeKind": "update",
+            }}),
+        )
+        .await;
         let events = t
-            .on_notification(
-                "error",
-                json!({"error": {
-                    "message": "blocked",
-                    "path": ".codex/forbidden",
-                    "itemId": "i_x",
-                    "codexErrorInfo": {"type": "SandboxError"},
-                }}),
-            )
+            .map_error(json!({"error": {
+                "message": "blocked",
+                "path": ".codex/forbidden",
+                "itemId": "i_x",
+                "codexErrorInfo": {"type": "SandboxError"},
+            }}))
             .await;
         match &events[0] {
             NormalizedEvent::ProtectedPathDeny { denials, .. } => {
                 assert_eq!(denials.len(), 1);
                 assert_eq!(denials[0].tool_name, "Write");
                 assert_eq!(denials[0].tool_input["file_path"], ".codex/forbidden");
+            }
+            other => panic!("got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn error_sandbox_for_command_execution_closes_tool_use_and_emits_toast() {
+        // Defect #2 of the Codex-stuck bug: previously, a SandboxError
+        // for a `commandExecution` item misclassified as a write deny
+        // and never emitted a ToolResult, so the activity bar stayed at
+        // "Running command..." forever. The fix: emit ToolResult{is_error}
+        // for the in-flight Bash item + a ProcessError toast with an
+        // escalation hint pointing at the Policy pill.
+        let t = translator();
+        t.on_notification(
+            "item/started",
+            json!({"item": {
+                "id": "i_bash",
+                "type": "commandExecution",
+                "command": "docker compose ps",
+                "cwd": "/Users/me/project",
+            }}),
+        )
+        .await;
+        let events = t
+            .map_error(json!({"error": {
+                "message": "permission denied while trying to connect to the docker API",
+                "itemId": "i_bash",
+                "codexErrorInfo": {"type": "SandboxError"},
+            }}))
+            .await;
+        assert_eq!(events.len(), 2, "expect ToolResult + ProcessError");
+        match &events[0] {
+            NormalizedEvent::ToolResult {
+                tool_use_id,
+                is_error,
+                content,
+                ..
+            } => {
+                assert_eq!(tool_use_id, "i_bash");
+                assert!(is_error);
+                let c = content.as_deref().unwrap_or("");
+                assert!(c.contains("Sandbox denied"));
+                assert!(c.contains("docker compose ps"));
+                // Hint must mention the policy switch so users have an
+                // actionable next step.
+                assert!(c.contains("workspace-write") || c.contains("danger-full-access"));
+            }
+            other => panic!("expected ToolResult first, got {:?}", other),
+        }
+        match &events[1] {
+            NormalizedEvent::ProcessError { error, .. } => {
+                assert!(error.contains("docker compose ps"));
+                assert!(error.contains("Policy"));
+            }
+            other => panic!("expected ProcessError second, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn error_sandbox_with_unknown_item_falls_back_to_process_error() {
+        let t = translator();
+        // No item registered → translator can't tell what was denied;
+        // surface a generic ProcessError so the user at least sees a
+        // toast and isn't stuck wondering.
+        let events = t
+            .map_error(json!({"error": {
+                "message": "denied",
+                "itemId": "i_missing",
+                "codexErrorInfo": {"type": "SandboxError"},
+            }}))
+            .await;
+        match &events[0] {
+            NormalizedEvent::ProcessError { error, .. } => {
+                assert!(error.contains("sandbox denied"));
+                assert!(error.contains("denied"));
             }
             other => panic!("got {:?}", other),
         }

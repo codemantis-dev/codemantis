@@ -36,6 +36,7 @@ export function resetAllStores(): void {
     lastEventTimestamp: new Map(),
     contextToastFired: new Map(),
     sessionActivity: new Map(),
+    sessionStuck: new Map(),
     sessionCompacting: new Map(),
     busySince: new Map(),
     rateLimitUtilization: new Map(),

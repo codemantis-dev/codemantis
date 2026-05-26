@@ -9,6 +9,7 @@ import MessageBubble from "./MessageBubble";
 import SelfDriveDecisionCard from "./SelfDriveDecisionCard";
 import ThinkingIndicator from "./ThinkingIndicator";
 import SessionStatusBar from "./SessionStatusBar";
+import StuckActivityBanner from "./StuckActivityBanner";
 import ChatSearchBar from "./ChatSearchBar";
 import ReviewModeBanner from "./ReviewModeBanner";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
@@ -355,6 +356,12 @@ export default function ChatPanel() {
             <ThinkingIndicator sessionId={activeSessionId} />
           </div>
         </div>
+      )}
+
+      {/* Stuck-activity banner — appears above status bar when watchdog
+          (useStuckActivityWatchdog) flags this session as stuck. */}
+      {activeSessionId && (
+        <StuckActivityBanner sessionId={activeSessionId} />
       )}
 
       {/* Session status bar — always visible at bottom */}

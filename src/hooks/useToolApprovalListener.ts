@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { info as logInfo } from "@tauri-apps/plugin-log";
 import { listenToolApprovalRequests, listenSessionModeChanged, resolveToolApproval } from "../lib/tauri-commands";
 import type { ToolApprovalRequestEvent } from "../types/agent-events";
 import type { SessionMode } from "../types/session";
@@ -96,6 +97,14 @@ export function useToolApprovalListener(): void {
 
       const { requestId, toolName, toolInput, forgeSessionId } = event;
 
+      // Symmetric with the Rust-side `[codex … server-request]` log
+      // (src-tauri/src/agents/codex/spawn.rs). Together they let us
+      // trace a lost-approval bug end-to-end from the JSON-RPC
+      // server-initiated request to the modal mount.
+      logInfo(
+        `[approval] received request_id=${requestId} tool=${toolName} session=${forgeSessionId}`
+      ).catch(() => {});
+
       // Route AskUserQuestion to the QuestionModal instead of the approval modal
       if (toolName === "AskUserQuestion") {
         if (import.meta.env.DEV) {
@@ -130,6 +139,9 @@ export function useToolApprovalListener(): void {
         resolveToolApproval(requestId, true).catch((e) =>
           console.error("Failed to auto-approve tool:", e)
         );
+        logInfo(
+          `[approval] auto-approved request_id=${requestId} (always-allow rule)`
+        ).catch(() => {});
         return;
       }
 
@@ -143,9 +155,17 @@ export function useToolApprovalListener(): void {
         timestamp: new Date().toISOString(),
       });
 
-      if (!uiStore.showApprovalModal) {
-        uiStore.setShowApprovalModal(true);
-      }
+      // Defect #4: previously this was gated by `!uiStore.showApprovalModal`.
+      // If the modal was already open (e.g., dismissed visually but
+      // still flagged true after a route change, or open for a
+      // different session whose entry already moved), a newly-queued
+      // approval was silently swallowed. The modal is idempotent
+      // against re-opens — call unconditionally and let it manage the
+      // queue.
+      uiStore.setShowApprovalModal(true);
+      logInfo(
+        `[approval] enqueued request_id=${requestId} tool=${toolName} queue_depth=${activityStore.getApprovalQueueSize()}`
+      ).catch(() => {});
     }).then((fn) => {
       if (cancelled) { fn(); return; }
       unlisten = fn;

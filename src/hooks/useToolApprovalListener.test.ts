@@ -223,6 +223,42 @@ describe("useToolApprovalListener", () => {
     expect(useUiStore.getState().showApprovalModal).toBe(true);
   });
 
+  it("opens modal unconditionally — second approval while modal already open still enqueues + reopens", async () => {
+    // Defect #4 of the Codex-stuck bug: the previous implementation
+    // gated `setShowApprovalModal(true)` behind a `!showApprovalModal`
+    // check. If the flag was stuck at true (route change, prior
+    // session, modal closed visually but flag not reset), the new
+    // approval went into the queue but no UI surfaced. Regression
+    // pin: with the modal already open, a fresh approval must still
+    // enqueue AND keep `showApprovalModal === true` after the call.
+    useUiStore.setState({ showApprovalModal: true });
+
+    renderHook(() => useToolApprovalListener());
+    await vi.waitFor(() => expect(toolApprovalCallback).not.toBeNull());
+
+    let setCallCount = 0;
+    const origSet = useUiStore.getState().setShowApprovalModal;
+    useUiStore.setState({
+      setShowApprovalModal: (next: boolean) => {
+        setCallCount += 1;
+        origSet(next);
+      },
+    });
+
+    toolApprovalCallback!({
+      requestId: "req-9",
+      toolName: "Execute",
+      toolInput: { command: "rm -rf /" },
+      forgeSessionId: "s1",
+    });
+
+    expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    expect(useUiStore.getState().showApprovalModal).toBe(true);
+    // The fix is precisely about NOT skipping this call when the
+    // modal is already open.
+    expect(setCallCount).toBe(1);
+  });
+
   it("session mode change updates sessionStore", async () => {
     renderHook(() => useToolApprovalListener());
     await vi.waitFor(() => expect(sessionModeCallback).not.toBeNull());

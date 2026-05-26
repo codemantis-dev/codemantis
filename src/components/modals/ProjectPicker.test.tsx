@@ -16,6 +16,12 @@ const { listRecentSessionsMock } = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/tauri-commands", () => ({
   listRecentSessions: listRecentSessionsMock,
+  // AgentPicker (nested in the Templates tab) probes both CLIs on mount
+  // via a fire-and-forget `void (async () => …)` IIFE. If we don't stub
+  // these here the IIFE throws an unhandled rejection *after* the test
+  // resolves — which Vitest reports as a top-level error.
+  checkClaudeStatus: () => Promise.resolve({ installed: true, version: "test" }),
+  checkCodexStatus: () => Promise.resolve({ installed: true, version: "test" }),
 }));
 
 // Mock TemplatePicker to avoid nested async issues

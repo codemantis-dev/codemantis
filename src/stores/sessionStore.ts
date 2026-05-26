@@ -33,6 +33,17 @@ const DEFAULT_ACTIVITY: SessionActivityInfo = {
   filePath: null,
 };
 
+/** Watchdog-detected "session has not made progress" state, surfaced
+ *  through StuckActivityBanner. Set by useStuckActivityWatchdog; cleared
+ *  on any new event (the watchdog re-evaluates every tick) or on
+ *  session-busy=false / session removal. */
+export interface SessionStuckInfo {
+  since: number;
+  /** "no-progress" → no events for >30s; "pending-approval-not-shown" →
+   *  approvalQueue has entries but the modal isn't open. */
+  reason: "no-progress" | "pending-approval-not-shown";
+}
+
 interface SessionState {
   sessions: Map<string, Session>;
   activeSessionId: string | null;
@@ -57,6 +68,10 @@ interface SessionState {
    * across the lifecycle so ReviewModeBanner can render the latest
    * review text even after ReviewModeExited flips sessionModes back. */
   sessionReviewContent: Map<string, string>;
+  /** Watchdog-detected stuck-session state. Keyed by sessionId; cleared
+   *  on busy-end / session removal / next event. See
+   *  useStuckActivityWatchdog. */
+  sessionStuck: Map<string, SessionStuckInfo>;
   tabOrder: string[];
 
   // Project grouping
@@ -96,6 +111,7 @@ interface SessionState {
   touchLastEvent: (sessionId: string) => void;
   markContextToastFired: (sessionId: string, threshold: number) => void;
   setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
+  setSessionStuck: (sessionId: string, info: SessionStuckInfo | null) => void;
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
@@ -160,6 +176,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeSubAgents: new Map(),
   sessionThinking: new Map(),
   sessionReviewContent: new Map(),
+  sessionStuck: new Map(),
   tabOrder: [],
 
   // Project grouping
@@ -267,6 +284,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       lastEventTimestamp.delete(sessionId);
       const contextToastFired = new Map(state.contextToastFired);
       contextToastFired.delete(sessionId);
+      const sessionStuck = new Map(state.sessionStuck);
+      sessionStuck.delete(sessionId);
       const tabOrder = state.tabOrder.filter((id) => id !== sessionId);
 
       // Update project grouping
@@ -324,6 +343,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionRetry,
         lastEventTimestamp,
         contextToastFired,
+        sessionStuck,
         tabOrder,
         activeSessionId,
         activeProjectPath,
@@ -544,6 +564,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionActivity = new Map(state.sessionActivity);
       const lastEventTimestamp = new Map(state.lastEventTimestamp);
       const activeSubAgents = new Map(state.activeSubAgents);
+      const sessionStuck = new Map(state.sessionStuck);
       if (busy) {
         busySince.set(sessionId, Date.now());
         sessionActivity.set(sessionId, { ...DEFAULT_ACTIVITY });
@@ -552,8 +573,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         busySince.delete(sessionId);
         sessionActivity.delete(sessionId);
         activeSubAgents.delete(sessionId);
+        sessionStuck.delete(sessionId);
       }
-      return { sessionBusy, busySince, sessionActivity, lastEventTimestamp, activeSubAgents };
+      return { sessionBusy, busySince, sessionActivity, lastEventTimestamp, activeSubAgents, sessionStuck };
     }),
 
   ensureBusy: (sessionId) =>
@@ -672,6 +694,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionActivity = new Map(state.sessionActivity);
       sessionActivity.set(sessionId, activity);
       return { sessionActivity };
+    }),
+
+  setSessionStuck: (sessionId, info) =>
+    set((state) => {
+      const sessionStuck = new Map(state.sessionStuck);
+      if (info === null) {
+        if (!sessionStuck.has(sessionId)) return {}; // already absent, skip update
+        sessionStuck.delete(sessionId);
+      } else {
+        const prev = sessionStuck.get(sessionId);
+        // Idempotent set: only re-emit when reason or since actually changes.
+        // Without this guard the watchdog's per-tick set() would force a
+        // re-render every 5s even when nothing changed.
+        if (prev && prev.reason === info.reason && prev.since === info.since) {
+          return {};
+        }
+        sessionStuck.set(sessionId, info);
+      }
+      return { sessionStuck };
     }),
 
   setSessionCompacting: (sessionId, compacting) =>

@@ -37,6 +37,7 @@ import { showToast } from "./stores/toastStore";
 import { translateError, translateErrorForToast } from "./lib/error-messages";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useToolApprovalListener } from "./hooks/useToolApprovalListener";
+import { useStuckActivityWatchdog } from "./hooks/useStuckActivityWatchdog";
 import { useExternalLinkGuard } from "./hooks/useExternalLinkGuard";
 import { useUpdatePoller } from "./hooks/useUpdatePoller";
 
@@ -94,6 +95,7 @@ export default function App() {
 
   useKeyboardShortcuts();
   useToolApprovalListener();
+  useStuckActivityWatchdog();
   useExternalLinkGuard();
   useUpdatePoller();
   useCrashRecoverySnapshot();

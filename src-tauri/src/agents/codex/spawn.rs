@@ -329,6 +329,60 @@ impl Drop for CodexProcessHandle {
     }
 }
 
+/// Build the JSON-RPC error to send back to Codex when we couldn't
+/// deliver `tool-approval-request` to the UI. Extracted so the unit
+/// test can pin the exact wording — Codex shows this in its own UI as
+/// the cause of the rolled-back turn, so it needs to be actionable.
+fn emit_failure_rpc_error(method: &str) -> RpcError {
+    RpcError {
+        code: -32603,
+        message: format!(
+            "CodeMantis lost the approval event for `{method}` \
+             (could not deliver tool-approval-request to the UI). \
+             Please retry."
+        ),
+        data: None,
+    }
+}
+
+/// Build the chat-channel toast we surface on emit failure. Same
+/// extraction rationale as [`emit_failure_rpc_error`].
+fn emit_failure_chat_event(session_id: &str, method: &str) -> NormalizedEvent {
+    NormalizedEvent::ProcessError {
+        agent_id: AgentId::Codex,
+        session_id: session_id.to_string(),
+        error: format!(
+            "CodeMantis couldn't show an approval prompt for `{method}`. \
+             The Codex turn was rolled back — please try again."
+        ),
+    }
+}
+
+/// Build the argv that launches `codex app-server`.
+///
+/// Centralised so a unit test can pin the exact shape (notably the
+/// `shell_environment_policy.inherit=all` override that keeps host tools
+/// like docker/gh/aws/ssh working — see Entitlements.plist for why we
+/// don't double-restrict the sub-shell).
+///
+/// `extra_dir`, if `Some`, is appended as `--add-dir <path>` (SpecWriter
+/// mode: the project path is exposed to Codex even though cwd is the
+/// ephemeral AGENTS.override.md tree).
+fn build_app_server_args(extra_dir: Option<&str>) -> Vec<String> {
+    let mut argv = vec![
+        "-c".to_string(),
+        "shell_environment_policy.inherit=all".to_string(),
+        "app-server".to_string(),
+        "--listen".to_string(),
+        "stdio://".to_string(),
+    ];
+    if let Some(p) = extra_dir {
+        argv.push("--add-dir".to_string());
+        argv.push(p.to_string());
+    }
+    argv
+}
+
 /// Build + spawn a Codex session. Called by [`super::CodexAdapter::spawn_session`].
 pub async fn spawn_codex_session(
     app_handle: AppHandle,
@@ -362,12 +416,12 @@ pub async fn spawn_codex_session(
         .unwrap_or_else(|| std::path::PathBuf::from(&config.project_path));
 
     let mut cmd = Command::new(binary_path);
-    cmd.args(["app-server", "--listen", "stdio://"]);
-    if agents_md_dir.is_some() {
-        // SpecWriter mode: grant Codex access to the user's actual project
-        // even though cwd is the ephemeral dir (spec §2.5).
-        cmd.args(["--add-dir", &config.project_path]);
-    }
+    // See `build_app_server_args` — the `-c shell_environment_policy.inherit=all`
+    // override is the reason host tools (docker/gh/aws/ssh) work inside
+    // Codex sessions; without it Codex strips HOME/DOCKER_HOST/etc. from
+    // sub-shells and tools silently fail with EACCES.
+    let extra_dir = agents_md_dir.as_ref().map(|_| config.project_path.as_str());
+    cmd.args(build_app_server_args(extra_dir));
     cmd.current_dir(&cwd)
         .env("PATH", login_shell_path())
         .stdin(std::process::Stdio::piped())
@@ -706,33 +760,89 @@ fn make_server_request_handler(
             }
 
             // ── Regular classify path ──
+            //
+            // Every branch below MUST either (a) successfully emit
+            // `tool-approval-request` so the modal opens, or (b) send a
+            // structured JSON-RPC error back to Codex. The previous
+            // implementation could silently drop on emit failure and
+            // leave Codex blocked forever (defect #1 of the Codex-stuck
+            // bug). Tracing at every branch lets us trace lost approvals
+            // in the log without needing to repro live.
+            info!(
+                "[codex {} server-request] received method=`{}`",
+                session_id, method
+            );
             match classify_server_request(&state, &session_id, rpc_id.clone(), &method, params)
                 .await
             {
                 Some(req) => {
-                    // Existing modal layer listens on the global
-                    // tool-approval-request event.
-                    if let Err(e) = app_handle.emit("tool-approval-request", &req) {
-                        warn!(
-                            "[codex {}] Failed to emit tool-approval-request: {}",
-                            session_id, e
-                        );
+                    let request_id = req.request_id.clone();
+                    let tool_name = req.tool_name.clone();
+                    match app_handle.emit("tool-approval-request", &req) {
+                        Ok(()) => {
+                            info!(
+                                "[codex {} server-request] emitted tool-approval-request \
+                                 request_id={} tool={} method=`{}`",
+                                session_id, request_id, tool_name, method
+                            );
+                        }
+                        Err(e) => {
+                            // Emit failed. The pending registration in
+                            // ThreadState is now orphaned — Codex is
+                            // waiting on a JSON-RPC response that no
+                            // modal will ever produce. Take it back out
+                            // so a future stale-id resolve doesn't trip
+                            // on it, send a structured error back to
+                            // Codex so the turn unblocks, and surface a
+                            // toast so the user knows what just
+                            // happened.
+                            log::error!(
+                                "[codex {} server-request] emit failed for request_id={} \
+                                 tool={} method=`{}`: {} — unblocking Codex with -32603",
+                                session_id, request_id, tool_name, method, e
+                            );
+                            let _ = state.take_server_request(&request_id).await;
+                            if let Some(client) = client_holder.lock().await.as_ref() {
+                                if let Err(send_err) =
+                                    client.respond_error(rpc_id, emit_failure_rpc_error(&method))
+                                {
+                                    log::error!(
+                                        "[codex {} server-request] respond_error also failed: {:?}",
+                                        session_id, send_err
+                                    );
+                                }
+                            }
+                            emit_event_for(
+                                &app_handle,
+                                &emit_failure_chat_event(&session_id, &method),
+                            );
+                        }
                     }
                 }
                 None => {
+                    // Unknown method. Respond -32601 so Codex moves on
+                    // (and pings us with the next message). This is the
+                    // intended behaviour for protocol-drift safety —
+                    // versions can add new server-initiated methods and
+                    // we should fail gracefully, not hang.
                     warn!(
-                        "[codex {}] Unknown server-initiated method `{}` — replying -32601",
+                        "[codex {} server-request] unknown method `{}` — replying -32601",
                         session_id, method
                     );
                     if let Some(client) = client_holder.lock().await.as_ref() {
-                        let _ = client.respond_error(
+                        if let Err(e) = client.respond_error(
                             rpc_id,
                             RpcError {
                                 code: -32601,
                                 message: format!("method not found: {method}"),
                                 data: None,
                             },
-                        );
+                        ) {
+                            log::error!(
+                                "[codex {} server-request] respond_error for unknown method failed: {:?}",
+                                session_id, e
+                            );
+                        }
                     }
                 }
             }
@@ -1001,5 +1111,109 @@ mod tests {
             denials: vec![],
         };
         assert_eq!(short_kind(&ev2), "ProtectedPathDeny");
+    }
+
+    #[test]
+    fn build_app_server_args_includes_env_policy_override() {
+        // Bug fix: without `-c shell_environment_policy.inherit=all`, Codex
+        // strips HOME/DOCKER_HOST/SSH_AUTH_SOCK/etc. from spawned sub-shells
+        // and host tools fail with EACCES even on `danger-full-access`.
+        // Asserting exact shape so a refactor that drops the override fails
+        // loudly here instead of silently breaking docker/gh/aws inside
+        // Codex sessions.
+        let argv = build_app_server_args(None);
+        assert_eq!(
+            argv,
+            vec![
+                "-c".to_string(),
+                "shell_environment_policy.inherit=all".to_string(),
+                "app-server".to_string(),
+                "--listen".to_string(),
+                "stdio://".to_string(),
+            ]
+        );
+        // The override must precede the subcommand: clap accepts both
+        // positions, but the documented form in `codex --help` puts global
+        // options before the subcommand.
+        let env_idx = argv.iter().position(|a| a == "-c").unwrap();
+        let sub_idx = argv.iter().position(|a| a == "app-server").unwrap();
+        assert!(env_idx < sub_idx);
+        // Override appears exactly once.
+        assert_eq!(argv.iter().filter(|a| a.as_str() == "-c").count(), 1);
+    }
+
+    #[test]
+    fn emit_failure_rpc_error_carries_method_and_actionable_text() {
+        // Codex displays this message verbatim when it rolls back the
+        // turn. It must (a) name the method so users searching logs can
+        // correlate, (b) say "retry" so they know they're not stuck.
+        let err = emit_failure_rpc_error("execCommandApproval");
+        assert_eq!(err.code, -32603);
+        assert!(err.message.contains("execCommandApproval"));
+        assert!(err.message.contains("retry"));
+        assert!(err.data.is_none());
+    }
+
+    #[test]
+    fn emit_failure_chat_event_surfaces_session_and_method() {
+        let ev = emit_failure_chat_event("sid-1", "applyPatchApproval");
+        match ev {
+            NormalizedEvent::ProcessError {
+                agent_id,
+                session_id,
+                error,
+            } => {
+                assert!(matches!(agent_id, AgentId::Codex));
+                assert_eq!(session_id, "sid-1");
+                assert!(error.contains("applyPatchApproval"));
+                assert!(error.contains("rolled back"));
+            }
+            other => panic!("expected ProcessError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn take_server_request_cleans_up_when_emit_fails() {
+        // Defect #1 of the Codex-stuck bug: if app_handle.emit returned
+        // Err, the pending registration stayed in ThreadState forever
+        // and the modal-resolve path would later trip on a stale id.
+        // The fix calls take_server_request to evict the entry; this
+        // pin asserts the eviction is observable (the second take
+        // returns None).
+        use super::super::thread_state::{ServerRequestKind, ThreadState};
+        let state = ThreadState::new();
+        state
+            .register_server_request(
+                "req-1".to_string(),
+                ServerRequestKind::ExecCommandApproval {
+                    rpc_id: super::super::jsonrpc::Id::Number(7),
+                    call_id: "call-1".to_string(),
+                },
+            )
+            .await;
+        let first = state.take_server_request("req-1").await;
+        assert!(first.is_some(), "first take should yield the registered kind");
+        let second = state.take_server_request("req-1").await;
+        assert!(
+            second.is_none(),
+            "after eviction, a later resolve must not find the id"
+        );
+    }
+
+    #[test]
+    fn build_app_server_args_appends_add_dir_when_specwriter_mode() {
+        let argv = build_app_server_args(Some("/Users/hr/project"));
+        assert_eq!(
+            argv,
+            vec![
+                "-c".to_string(),
+                "shell_environment_policy.inherit=all".to_string(),
+                "app-server".to_string(),
+                "--listen".to_string(),
+                "stdio://".to_string(),
+                "--add-dir".to_string(),
+                "/Users/hr/project".to_string(),
+            ]
+        );
     }
 }
