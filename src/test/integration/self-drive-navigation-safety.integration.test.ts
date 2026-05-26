@@ -47,6 +47,16 @@ vi.mock("../../lib/tauri-commands", () => ({
   loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
   listSelfDriveStates: vi.fn(() => Promise.resolve([])),
   deleteSelfDriveState: vi.fn(() => Promise.resolve()),
+  // selfDriveStore.start() subscribes to chat events via this helper
+  // (instead of calling the raw `listen()` directly). Route the
+  // payload-shaped callback through `mockListen` so the existing
+  // `rigListen` / `capturedHandler` test machinery still works — the
+  // mock receives a `{ payload }`-shaped wrapper just like the real
+  // tauri `listen()` would.
+  listenChatEvents: vi.fn(async (sessionId: string, cb: (p: unknown) => void) => {
+    await mockListen(`claude-chat-${sessionId}`, (e: { payload: unknown }) => cb(e.payload));
+    return () => {};
+  }),
 }));
 
 vi.mock("../../stores/toastStore", () => ({

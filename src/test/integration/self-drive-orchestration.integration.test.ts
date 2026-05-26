@@ -36,6 +36,9 @@ vi.mock("../../lib/tauri-commands", () => ({
   loadSelfDriveState: vi.fn(() => Promise.resolve(null)),
   listSelfDriveStates: vi.fn(() => Promise.resolve([])),
   deleteSelfDriveState: vi.fn(() => Promise.resolve()),
+  // selfDriveStore.start() subscribes to chat events to detect
+  // turn_complete for Codex sessions. Stub returns a no-op unlisten.
+  listenChatEvents: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 // Mock toastStore

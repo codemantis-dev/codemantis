@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ShieldAlert, ChevronLeft, ChevronRight } from "lucide-react";
 import { useActivityStore } from "../../stores/activityStore";
@@ -9,6 +9,7 @@ import { resolveToolApproval } from "../../lib/tauri-commands";
 import { handleError } from "../../lib/error-handler";
 import { useModalSettle } from "../../hooks/useModalSettle";
 import ToolBadge from "../shared/ToolBadge";
+import ApprovalSummary from "./ApprovalSummary";
 
 export default function ToolApproval() {
   const approvalQueue = useActivityStore((s) => s.approvalQueue);
@@ -29,6 +30,18 @@ export default function ToolApproval() {
       : undefined;
   const projectPath = session?.project_path ?? assistantInstance?.projectPath ?? "";
   const projectName = projectPath.split("/").pop() ?? projectPath;
+
+  // Agent-aware subtitle. The session may not be resolved yet (e.g. the
+  // approval landed before the session list refreshed); fall back to a
+  // neutral "An agent" so we don't lie about which CLI is asking.
+  const agentLabel =
+    session?.agent_id === "codex"
+      ? "Codex"
+      : session?.agent_id === "claude_code" || (session && !session.agent_id)
+        ? "Claude"
+        : assistantInstance
+          ? "The assistant"
+          : "An agent";
 
   // Auto-open modal when items enqueue
   useEffect(() => {
@@ -125,11 +138,6 @@ export default function ToolApproval() {
     [isSettling, handleResponse, navigateQueue, handleApproveAll]
   );
 
-  const inputStr = useMemo(
-    () => currentApproval ? JSON.stringify(currentApproval.toolInput, null, 2) : "",
-    [currentApproval]
-  );
-
   if (!currentApproval) return null;
 
   return (
@@ -171,7 +179,7 @@ export default function ToolApproval() {
                 Approve Tool?
               </Dialog.Title>
               <Dialog.Description className="text-ui text-text-dim">
-                Claude wants to use a tool
+                {agentLabel} wants to use a tool
                 {projectName && (
                   <> in <span className="text-accent font-medium">{projectName}</span></>
                 )}
@@ -206,12 +214,15 @@ export default function ToolApproval() {
             <div className="flex items-center gap-2 mb-2">
               <ToolBadge toolName={currentApproval.toolName} />
               <span className="text-ui text-text-primary font-medium">
-                {currentApproval.toolName}
+                {currentApproval.toolName || "Unknown tool"}
               </span>
             </div>
-            <pre className="text-label text-text-dim font-mono whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
-              {inputStr}
-            </pre>
+            <div className="max-h-[200px] overflow-y-auto">
+              <ApprovalSummary
+                toolName={currentApproval.toolName}
+                toolInput={currentApproval.toolInput}
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

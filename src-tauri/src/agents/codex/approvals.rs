@@ -32,7 +32,16 @@ use super::thread_state::{ServerRequestKind, ThreadState};
 /// The unified payload the spawn loop emits on `tool-approval-request`.
 /// `forge_session_id` mirrors the Claude approval-event field name so the
 /// existing frontend handler (`resolve_tool_approval`) works unchanged.
+///
+/// `rename_all = "camelCase"` must match
+/// `claude_code::approval_server::ToolApprovalRequest` — the frontend
+/// listener destructures `requestId`/`toolName`/`toolInput`/`forgeSessionId`
+/// regardless of which agent emitted the event. Without this attribute
+/// every destructured field arrives `undefined`, which produces the
+/// "EX" badge / empty body / "invalid args 'requestId'" cascade observed
+/// in v1.3.0–v1.4.x.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ApprovalRequest {
     pub request_id: String,
     pub forge_session_id: String,
@@ -408,6 +417,41 @@ mod tests {
 
     fn rpc(n: i64) -> Id {
         Id::Number(n)
+    }
+
+    // ── Wire-format regression guard ──
+
+    #[test]
+    fn approval_request_serializes_as_camel_case() {
+        // The frontend listener (useToolApprovalListener.ts) destructures
+        // requestId/toolName/toolInput/forgeSessionId. If this struct ever
+        // drops `rename_all = "camelCase"`, every destructured field on the
+        // JS side becomes undefined and the modal breaks (badge "EX",
+        // empty body, "invalid args 'requestId'" on Approve). Match the
+        // Claude side (claude_code::approval_server::ToolApprovalRequest)
+        // exactly.
+        let req = ApprovalRequest {
+            request_id: "req-1".into(),
+            forge_session_id: "sess-1".into(),
+            tool_name: "Bash".into(),
+            tool_input: json!({"command": "ls"}),
+        };
+        let v = serde_json::to_value(&req).unwrap();
+        assert!(v.get("requestId").is_some(), "missing camelCase requestId");
+        assert!(
+            v.get("forgeSessionId").is_some(),
+            "missing camelCase forgeSessionId"
+        );
+        assert!(v.get("toolName").is_some(), "missing camelCase toolName");
+        assert!(v.get("toolInput").is_some(), "missing camelCase toolInput");
+        assert!(
+            v.get("request_id").is_none(),
+            "snake_case request_id leaked to wire"
+        );
+        assert!(
+            v.get("tool_name").is_none(),
+            "snake_case tool_name leaked to wire"
+        );
     }
 
     // ── classify_server_request ──

@@ -203,8 +203,15 @@ describe("useAssistantSession (Integration)", () => {
       await result.current.createAssistant(PROJECT_PATH, PARENT_SESSION_ID, "claude-code");
     });
 
-    // CLI session should have been created
-    expect(createSession).toHaveBeenCalledWith(PROJECT_PATH, "Claude 1");
+    // CLI session should have been created. `createSession` takes
+    // (projectPath, name, resumeCliSessionId?, agentId?) — assistants
+    // are spawned without resuming, with agent_id "claude_code".
+    expect(createSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      "Claude 1",
+      undefined,
+      "claude_code",
+    );
 
     // The assistant ID should match the CLI session ID
     const assistants = useAssistantStore.getState().getAssistants(PROJECT_PATH);

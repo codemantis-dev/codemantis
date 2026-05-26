@@ -84,6 +84,7 @@ import { useToolApprovalListener } from "../../hooks/useToolApprovalListener";
 import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import type { Session } from "../../types/session";
 
 const SESSION_ID = "session-rt-1";
 
@@ -312,6 +313,77 @@ describe("Tool Approval Round-Trip (Integration)", () => {
         reason: undefined,
       });
     });
+  });
+
+  it("Codex session: subtitle says 'Codex wants to use a tool' and resolve passes a defined requestId", async () => {
+    // Regression for the v1.3.0–v1.4.x cascade: missing
+    // `rename_all = "camelCase"` on `codex::approvals::ApprovalRequest`
+    // caused the listener to destructure undefined for every field
+    // (badge "EX", empty body, "invalid args 'requestId'" on Approve).
+    // The Rust regression test asserts the wire shape; this asserts the
+    // post-shape end-to-end behaviour: the modal must read the Codex
+    // session correctly and resolve with a real requestId.
+    const codexSession: Session = {
+      id: "session-codex-1",
+      agent_id: "codex",
+      name: "Codex Session",
+      project_path: "/tmp/codex-proj",
+      status: "connected",
+      created_at: "",
+      model: "gpt-5.5",
+      icon_index: 0,
+    };
+    useSessionStore.setState((s) => {
+      const next = new Map(s.sessions);
+      next.set(codexSession.id, codexSession);
+      return { sessions: next };
+    });
+
+    render(<ApprovalHarness />);
+    await waitForListenerReady();
+
+    act(() => {
+      fireToolApprovalEvent({
+        requestId: "req-codex-perm-1",
+        toolName: "PermissionRequest",
+        toolInput: { permissions: { network: true } },
+        forgeSessionId: "session-codex-1",
+      });
+    });
+
+    await waitFor(() => {
+      expect(useActivityStore.getState().approvalQueue).toHaveLength(1);
+    });
+
+    // Agent-aware subtitle.
+    expect(
+      screen.getByText(/Codex wants to use a tool/i),
+    ).toBeInTheDocument();
+    // The new ApprovalSummary renders permissions as readable bullets,
+    // not raw JSON.
+    expect(
+      screen.getByText(/Codex requests these permissions/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("network:")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Approve$/ }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("resolve_tool_approval", {
+        requestId: "req-codex-perm-1",
+        approved: true,
+        reason: undefined,
+      });
+    });
+    // The original symptom was an undefined requestId hitting Tauri —
+    // explicitly guard against it returning.
+    const call = invokeMock.mock.calls.find(
+      ([cmd]) => cmd === "resolve_tool_approval",
+    );
+    expect(call).toBeDefined();
+    expect((call![1] as { requestId: unknown }).requestId).toBe(
+      "req-codex-perm-1",
+    );
   });
 
   it("Modal stays attached if the resolve call fails — the queue still drains, error surfaces via handleError", async () => {
