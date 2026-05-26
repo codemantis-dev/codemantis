@@ -38,7 +38,7 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use log::{info, warn};
 use tauri::{AppHandle, Emitter, Manager};
@@ -54,6 +54,14 @@ const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 /// (or the host process was suspended). When detected, we run an
 /// immediate liveness check rather than waiting for the next tick.
 const LONG_GAP_THRESHOLD: Duration = Duration::from_secs(60);
+/// Grace window after wake (from either `NSWorkspaceDidWakeNotification`
+/// or a wall-clock gap) during which we treat missed pongs as expected.
+/// The WKWebView's WebContent XPC service routinely takes 10–30 s to
+/// thaw after a real macOS sleep; counting those ticks against the
+/// reload threshold causes spurious last-resort reloads. See the May
+/// 2026 "wake-observer reloaded a recovering webview" incident behind
+/// `~/.claude/plans/why-did-codemantis-crash-gentle-elephant.md`.
+const POST_WAKE_GRACE: Duration = Duration::from_secs(45);
 /// Polling resolution for the pong wait.
 const POLL_STEP: Duration = Duration::from_millis(100);
 /// Consecutive stale ticks at which we escalate from a cheap repaint to
@@ -116,6 +124,53 @@ pub fn recovery_action_for(consecutive: u32) -> RecoveryAction {
     }
 }
 
+/// Why a stale-pong tick is being treated as expected (no escalation).
+/// Returned by [`suppression_for_tick`] so the diagnostic breadcrumb can
+/// record which signal triggered the suppression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuppressReason {
+    /// `NSWorkspaceWillSleepNotification` fired and `DidWake` hasn't yet.
+    SystemAsleep,
+    /// Within `POST_WAKE_GRACE` of an `NSWorkspaceDidWakeNotification`.
+    PostWakeGrace,
+    /// Fallback: NSWorkspace observer didn't fire (e.g. the macOS-only
+    /// observer was unavailable, or the notification was delivered after
+    /// our first post-wake tick), but the wall-clock elapsed for this
+    /// tick is so long that a sleep almost certainly happened.
+    WallClockGap,
+}
+
+/// Decide whether the current tick falls inside a known sleep / post-wake
+/// window — in which case a missed pong should not count against the
+/// reload escalation counter. Pure function so the policy is testable
+/// without spinning up an AppHandle or an NSWorkspace.
+///
+/// `now_epoch` is the current Unix-epoch seconds; passing it in (vs
+/// reading `SystemTime::now()` inside) keeps the function deterministic
+/// for tests.
+pub fn suppression_for_tick(
+    is_asleep: bool,
+    last_wake_at_epoch: i64,
+    elapsed: Duration,
+    now_epoch: i64,
+) -> Option<SuppressReason> {
+    if is_asleep {
+        return Some(SuppressReason::SystemAsleep);
+    }
+    if last_wake_at_epoch > 0 {
+        let since_wake_s = now_epoch.saturating_sub(last_wake_at_epoch);
+        if since_wake_s >= 0
+            && Duration::from_secs(since_wake_s as u64) < POST_WAKE_GRACE
+        {
+            return Some(SuppressReason::PostWakeGrace);
+        }
+    }
+    if elapsed > LONG_GAP_THRESHOLD {
+        return Some(SuppressReason::WallClockGap);
+    }
+    None
+}
+
 /// Spawn the periodic health-check loop. Idempotent at the call site —
 /// callers should invoke once during `.setup`.
 pub fn spawn(app: AppHandle) {
@@ -125,8 +180,12 @@ pub fn spawn(app: AppHandle) {
 }
 
 async fn run_loop(app: AppHandle) {
-    let counter = match app.try_state::<AppState>() {
-        Some(state) => state.last_wake_pong.clone(),
+    let (counter, is_asleep, last_wake_at) = match app.try_state::<AppState>() {
+        Some(state) => (
+            state.last_wake_pong.clone(),
+            state.is_system_asleep.clone(),
+            state.last_wake_at_epoch.clone(),
+        ),
         None => {
             warn!("[lifecycle] AppState unavailable — health-check loop exiting");
             return;
@@ -140,6 +199,10 @@ async fn run_loop(app: AppHandle) {
         let now = SystemTime::now();
         let elapsed = now.duration_since(last_tick).unwrap_or_default();
         last_tick = now;
+        let now_epoch = now
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
 
         if elapsed > LONG_GAP_THRESHOLD {
             info!(
@@ -158,6 +221,31 @@ async fn run_loop(app: AppHandle) {
                 crate::commands::lifecycle::write_diagnostic_log("wake", "rs:check-alive");
             }
             CheckResult::Stale => {
+                // Before counting this against the escalation threshold,
+                // check whether we're in a known sleep / post-wake window.
+                // A WKWebView's WebContent XPC service routinely needs
+                // 10–30 s to thaw after a real macOS sleep — counting
+                // those ticks against STALE_BEFORE_RELOAD caused the
+                // May 2026 incident where the observer reloaded a
+                // recovering webview.
+                if let Some(reason) = suppression_for_tick(
+                    is_asleep.load(Ordering::SeqCst),
+                    last_wake_at.load(Ordering::SeqCst),
+                    elapsed,
+                    now_epoch,
+                ) {
+                    consecutive_stale = 0;
+                    info!(
+                        "[lifecycle] missed pong suppressed ({:?}) — not escalating",
+                        reason
+                    );
+                    crate::commands::lifecycle::write_diagnostic_log(
+                        "wake",
+                        &format!("rs:stale-suppressed | reason={:?}", reason),
+                    );
+                    continue;
+                }
+
                 consecutive_stale = consecutive_stale.saturating_add(1);
                 crate::commands::lifecycle::write_diagnostic_log(
                     "wake",
@@ -234,6 +322,20 @@ fn run_recovery(app: &AppHandle, action: RecoveryAction) {
                 "[lifecycle] {} consecutive missed pongs — reloading webview as last resort",
                 STALE_BEFORE_RELOAD
             );
+            // Signal the post-reload frontend that this is a wake-recovery,
+            // not a fresh launch: the Rust backend (and its per-session CLI
+            // subprocesses in `AppState.processes`) is still alive, so the
+            // boot path should re-attach via `list_live_sessions` rather
+            // than routing every session through the Resume list. Set the
+            // flag *before* reload() so a race-fast frontend that pongs
+            // back during reload still observes it on its first IPC call.
+            if let Some(state) = app.try_state::<AppState>() {
+                state
+                    .wake_recovery_reload
+                    .store(true, Ordering::SeqCst);
+            } else {
+                warn!("[lifecycle] AppState missing — cannot set wake_recovery_reload flag");
+            }
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 match window.reload() {
                     Ok(()) => crate::commands::lifecycle::write_diagnostic_log(
@@ -380,6 +482,76 @@ mod tests {
         // the build, not just the test run.
         const { assert!(STALE_BEFORE_RELOAD >= 4) };
         const { assert!(STALE_BEFORE_EVAL < STALE_BEFORE_RELOAD) };
+    }
+
+    #[test]
+    fn suppression_fires_while_system_asleep() {
+        // NSWorkspaceWillSleep set the flag and DidWake hasn't reset it.
+        // Every missed pong in this state must be suppressed — the
+        // kernel paused the WebContent process; it physically cannot pong.
+        let r = suppression_for_tick(true, 0, Duration::from_secs(30), 1_700_000_000);
+        assert_eq!(r, Some(SuppressReason::SystemAsleep));
+    }
+
+    #[test]
+    fn suppression_fires_during_post_wake_grace() {
+        // Wake stamped 10s ago; POST_WAKE_GRACE is 45s. WebContent
+        // routinely takes 10–30s to thaw — we want zero escalation here.
+        let r = suppression_for_tick(
+            false,
+            1_700_000_000,
+            Duration::from_secs(30),
+            1_700_000_010,
+        );
+        assert_eq!(r, Some(SuppressReason::PostWakeGrace));
+    }
+
+    #[test]
+    fn suppression_ends_after_post_wake_grace_expires() {
+        // Wake stamped POST_WAKE_GRACE seconds ago — grace expired.
+        // A genuine hang past this point should escalate normally.
+        let now = 1_700_000_000;
+        let waked_at = now - POST_WAKE_GRACE.as_secs() as i64 - 1;
+        let r = suppression_for_tick(false, waked_at, Duration::from_secs(30), now);
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn suppression_fires_on_wall_clock_gap_when_nsworkspace_silent() {
+        // Fallback path: NSWorkspace observer didn't fire (non-macOS
+        // build, or notification raced past our first post-wake tick),
+        // but the tick's wall-clock elapsed is so long that a sleep
+        // almost certainly happened.
+        let r = suppression_for_tick(
+            false,
+            0,
+            LONG_GAP_THRESHOLD + Duration::from_secs(1),
+            1_700_000_000,
+        );
+        assert_eq!(r, Some(SuppressReason::WallClockGap));
+    }
+
+    #[test]
+    fn suppression_returns_none_for_normal_tick() {
+        // The hot path: nothing weird about this tick. The caller should
+        // escalate exactly as before. Regression guard against accidentally
+        // suppressing every stale pong.
+        let r = suppression_for_tick(false, 0, Duration::from_secs(30), 1_700_000_000);
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn suppression_handles_clock_skew_without_panicking() {
+        // last_wake_at_epoch > now_epoch (clock skew or NTP step back).
+        // `since_wake_s` would be negative — guard against ambiguous
+        // suppression (we conservatively do NOT suppress).
+        let r = suppression_for_tick(
+            false,
+            1_700_000_100,
+            Duration::from_secs(30),
+            1_700_000_000,
+        );
+        assert_eq!(r, None);
     }
 
     #[test]

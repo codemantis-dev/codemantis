@@ -919,6 +919,49 @@ pub async fn acknowledge_crashed_sessions(
     Ok(())
 }
 
+/// Read-once: returns `true` if the wake observer set the recovery flag
+/// before its last-resort `WebviewWindow::reload()`, then clears it. The
+/// frontend calls this exactly once during boot to decide between the
+/// crashed-sessions Resume flow and the re-attach-live-sessions flow.
+///
+/// `swap` is `SeqCst` so a second caller during the same boot will
+/// observe `false` — re-attach happens once per reload, full stop.
+#[tauri::command]
+pub fn consume_wake_recovery_flag(state: State<'_, AppState>) -> bool {
+    state
+        .wake_recovery_reload
+        .swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Returns the `SessionInfo` for every session whose CLI subprocess is
+/// **still alive** in `AppState.processes`. Used post-wake-recovery-reload
+/// so the frontend can re-attach event listeners (events are session-id
+/// keyed via `claude-chat-<id>` / `codex-chat-<id>`) without re-spawning
+/// the CLI via `--resume`.
+///
+/// Sessions whose entry exists in `processes` but whose `is_running()`
+/// returns `false` (process crashed while we weren't watching) are
+/// filtered out — the caller will pick them up via `list_crashed_sessions`
+/// instead.
+#[tauri::command]
+pub async fn list_live_sessions(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
+    let processes = state.processes.lock().await;
+    let live_ids: Vec<String> = processes
+        .iter()
+        .filter_map(|(id, p)| if p.is_running() { Some(id.clone()) } else { None })
+        .collect();
+    drop(processes);
+
+    let sessions = state.sessions.lock().await;
+    let mut out: Vec<SessionInfo> = Vec::with_capacity(live_ids.len());
+    for id in live_ids {
+        if let Some(info) = sessions.get(&id) {
+            out.push(info.clone());
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn interrupt_session(
     state: State<'_, AppState>,

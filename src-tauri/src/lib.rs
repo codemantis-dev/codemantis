@@ -1,8 +1,17 @@
 mod agents;
+
+/// Re-exports for integration tests under `tests/`. Lets them construct
+/// an `AppState` for harnesses without forcing `agents` to be `pub mod`
+/// (which surfaces every internal helper and triggers downstream
+/// `clippy::new_without_default` lints on long-private constructors).
+#[doc(hidden)]
+pub mod testing_exports {
+    pub use crate::agents::claude_code::session::AppState;
+}
 mod changelog;
 mod commands;
 pub mod errors;
-mod lifecycle;
+pub mod lifecycle;
 mod preflight;
 mod preview;
 pub mod storage;
@@ -286,6 +295,22 @@ pub fn run() {
                 }
             });
 
+            // Subscribe to NSWorkspace sleep/wake notifications so the
+            // wake_observer can distinguish "WebContent is hung" from
+            // "the whole machine is asleep" and skip the last-resort
+            // reload during legitimate sleep windows.
+            // See `lifecycle::sleep_observer`.
+            if let Some(state) = app.try_state::<AppState>() {
+                lifecycle::sleep_observer::register(std::sync::Arc::new(
+                    lifecycle::sleep_observer::SleepState {
+                        is_system_asleep: state.is_system_asleep.clone(),
+                        last_wake_at_epoch: state.last_wake_at_epoch.clone(),
+                    },
+                ));
+            } else {
+                log::warn!("[setup] AppState missing — skipping sleep_observer registration");
+            }
+
             // Periodic WKWebView liveness check. On a missed pong, asks
             // AppKit to repaint (non-destructive). See
             // `lifecycle::wake_observer`.
@@ -326,6 +351,8 @@ pub fn run() {
             commands::session::list_recent_sessions,
             commands::session::list_crashed_sessions,
             commands::session::acknowledge_crashed_sessions,
+            commands::session::consume_wake_recovery_flag,
+            commands::session::list_live_sessions,
             commands::session::interrupt_session,
             commands::session::set_session_model,
             commands::session::set_session_effort,

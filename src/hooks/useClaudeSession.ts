@@ -56,6 +56,14 @@ interface UseClaudeSessionReturn {
    */
   restorePausedSession: (entry: SessionHistoryEntry) => Promise<void>;
   /**
+   * Wake-recovery: re-attach to a session whose CLI subprocess is still
+   * alive in the Rust backend (because only the WKWebView renderer was
+   * reloaded, not the whole Tauri process). Creates the frontend tab,
+   * loads the stored transcript, and re-binds the session-keyed Tauri
+   * event listeners so streaming events resume. No `--resume` spawn.
+   */
+  reattachLiveSession: (info: Session) => Promise<void>;
+  /**
    * Resume a paused-recovered tab: spawn a fresh CLI via --resume, then
    * replace the placeholder tab in-place so its position is preserved.
    */
@@ -402,6 +410,67 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
+  const reattachLiveSession = useCallback(async (info: Session): Promise<void> => {
+    const state = sessionStore.getState();
+    if (state.sessions.has(info.id)) {
+      // Already attached — second startup pass during the same boot. Idempotent.
+      return;
+    }
+    console.info(
+      `[reattachLiveSession] id=${info.id} name=${JSON.stringify(info.name)} project_path=${JSON.stringify(info.project_path)}`
+    );
+    // Take SessionInfo as-is from the backend. The status field is
+    // whatever the backend currently reports — typically "connected" or
+    // "idle". Crucially NOT "paused-recovered": there is a live CLI
+    // subprocess on the other end and the chat surface should treat
+    // this as a normal running tab.
+    sessionStore.getState().addSession(info);
+
+    // Mirror restorePausedSession's transcript hydration so the chat
+    // paints with content on first render. The live CLI may also be
+    // mid-stream — those events will arrive via the listeners below
+    // and the existing stream handler appends to whatever is in the
+    // store, so a stale autosave + a fresh streaming delta interleave
+    // correctly.
+    try {
+      const stored = await loadSessionMessages(info.id);
+      if (stored.length > 0) {
+        const restoredMessages: Message[] = stored.map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: m.timestamp,
+          activityIds: [],
+          isStreaming: false,
+          thinkingContent: m.thinkingContent ?? undefined,
+          isRestored: true,
+        }));
+        const sessionMessages = new Map(sessionStore.getState().sessionMessages);
+        sessionMessages.set(info.id, restoredMessages);
+        sessionStore.setState({ sessionMessages });
+      }
+    } catch (e) {
+      console.error("[reattachLiveSession] Failed to load stored messages:", e);
+    }
+
+    // Re-bind the session-keyed event listeners. The backend emits to
+    // `claude-chat-<id>` / `codex-chat-<id>` regardless of whether
+    // anyone is listening, so the events the live CLI is currently
+    // producing land in the new listener as soon as it's installed —
+    // no events are replayed (a brief gap is possible) but no events
+    // are duplicated either.
+    const unlistenChat = await listenChatEvents(info.id, (event) =>
+      handleChatEvent(info.id, event)
+    );
+    const unlistenActivity = await listenActivityEvents(info.id, (event) =>
+      handleActivityEvent(info.id, event)
+    );
+    sessionListeners.set(info.id, [unlistenChat, unlistenActivity]);
+
+    startStaleDetection(info.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+  }, []);
+
   const resumeRecoveredSession = useCallback(async (pausedSessionId: string): Promise<string | null> => {
     const state = sessionStore.getState();
     const session = state.sessions.get(pausedSessionId);
@@ -477,6 +546,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     renameSession: renameSessionFn,
     resumeFromHistory,
     restorePausedSession,
+    reattachLiveSession,
     resumeRecoveredSession,
   };
 }

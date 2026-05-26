@@ -4,7 +4,7 @@ use crate::storage::Database;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -79,6 +79,23 @@ pub struct AppState {
     /// observer reads this before/after emitting `wake-from-sleep` to detect
     /// a dead WKWebView content process — see `crate::lifecycle::wake_observer`.
     pub last_wake_pong: Arc<AtomicU64>,
+    /// Set to `true` by the wake observer immediately before it calls
+    /// `WebviewWindow::reload()` as a last-resort recovery. The frontend
+    /// consumes this on boot via `consume_wake_recovery_flag` so it can take
+    /// the re-attach path (live CLI processes are still in `processes`)
+    /// instead of treating sessions as crashed and routing them through the
+    /// Resume list. See `crate::lifecycle::wake_observer`.
+    pub wake_recovery_reload: Arc<AtomicBool>,
+    /// `true` between `NSWorkspaceWillSleepNotification` and
+    /// `NSWorkspaceDidWakeNotification`. The wake observer treats missed
+    /// pongs as expected while this is set so a long sleep doesn't escalate
+    /// to a reload. macOS-only; non-macOS builds leave this at `false`.
+    pub is_system_asleep: Arc<AtomicBool>,
+    /// Unix-epoch seconds at which the system last woke (from
+    /// `NSWorkspaceDidWakeNotification`). `0` means "never observed."
+    /// Used by the wake observer to grant a short post-wake grace window
+    /// before counting missed pongs.
+    pub last_wake_at_epoch: Arc<AtomicI64>,
 }
 
 impl AppState {
@@ -97,6 +114,9 @@ impl AppState {
             openrouter_model_cache: Mutex::new(None),
             cli_latest_version_cache: tokio::sync::Mutex::new(None),
             last_wake_pong: Arc::new(AtomicU64::new(0)),
+            wake_recovery_reload: Arc::new(AtomicBool::new(false)),
+            is_system_asleep: Arc::new(AtomicBool::new(false)),
+            last_wake_at_epoch: Arc::new(AtomicI64::new(0)),
         }
     }
 

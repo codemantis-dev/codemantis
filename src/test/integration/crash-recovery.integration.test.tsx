@@ -23,11 +23,15 @@ const {
   acknowledgeCrashedSessionsMock,
   loadSessionMessagesMock,
   createSessionMock,
+  consumeWakeRecoveryFlagMock,
+  listLiveSessionsMock,
 } = vi.hoisted(() => ({
   listCrashedSessionsMock: vi.fn<(...args: unknown[]) => Promise<SessionHistoryEntry[]>>(),
   acknowledgeCrashedSessionsMock: vi.fn<(ids: string[]) => Promise<void>>(),
   loadSessionMessagesMock: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(),
   createSessionMock: vi.fn<(...args: unknown[]) => Promise<Session>>(),
+  consumeWakeRecoveryFlagMock: vi.fn<() => Promise<boolean>>(),
+  listLiveSessionsMock: vi.fn<() => Promise<Session[]>>(),
 }));
 
 vi.mock("../../lib/tauri-commands", () => ({
@@ -35,6 +39,8 @@ vi.mock("../../lib/tauri-commands", () => ({
   acknowledgeCrashedSessions: acknowledgeCrashedSessionsMock,
   loadSessionMessages: loadSessionMessagesMock,
   createSession: createSessionMock,
+  consumeWakeRecoveryFlag: consumeWakeRecoveryFlagMock,
+  listLiveSessions: listLiveSessionsMock,
   closeSession: vi.fn().mockResolvedValue(undefined),
   sendMessage: vi.fn().mockResolvedValue(undefined),
   renameSession: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +102,10 @@ describe("crash-recovery hydration", () => {
     acknowledgeCrashedSessionsMock.mockReset().mockResolvedValue(undefined);
     loadSessionMessagesMock.mockReset().mockResolvedValue([]);
     createSessionMock.mockReset();
+    // Default: not a wake-recovery boot, no live processes. Tests that
+    // exercise the wake-recovery branch override these per-case.
+    consumeWakeRecoveryFlagMock.mockReset().mockResolvedValue(false);
+    listLiveSessionsMock.mockReset().mockResolvedValue([]);
   });
 
   it("clean exit (empty crashed list) wipes snapshot and adds no tabs", async () => {
@@ -325,5 +335,114 @@ describe("crash-recovery hydration", () => {
     expect(newMsgs.map((m) => m.content)).toEqual(["history-line-1", "history-line-2"]);
     // isRestored is preserved/applied on the new session's messages.
     expect(newMsgs.every((m) => m.isRestored === true)).toBe(true);
+  });
+});
+
+function liveSession(id: string, project = "/p"): Session {
+  return {
+    id,
+    name: id,
+    project_path: project,
+    status: "connected",
+    created_at: "2026-01-01T00:00:00Z",
+    model: null,
+    icon_index: 0,
+  };
+}
+
+describe("wake-recovery integration — reload-after-wake restores workspace", () => {
+  beforeEach(() => {
+    resetAllStores();
+    window.localStorage.clear();
+    __resetCrashRecoverySnapshotMemoForTests();
+    listCrashedSessionsMock.mockReset();
+    acknowledgeCrashedSessionsMock.mockReset().mockResolvedValue(undefined);
+    loadSessionMessagesMock.mockReset().mockResolvedValue([]);
+    createSessionMock.mockReset();
+    consumeWakeRecoveryFlagMock.mockReset();
+    listLiveSessionsMock.mockReset();
+  });
+
+  it("re-attaches every live session in the snapshot's tab order without spawning new CLI processes", async () => {
+    // The headline rule: a wake-observer reload must not surface as a
+    // crash. Tabs come back in the exact pre-reload order, the prior
+    // active selection is restored, and createSession (the --resume
+    // spawn) is never called for the live sessions.
+    consumeWakeRecoveryFlagMock.mockResolvedValue(true);
+    listLiveSessionsMock.mockResolvedValue([
+      liveSession("alpha"),
+      liveSession("beta"),
+      liveSession("gamma"),
+    ]);
+    listCrashedSessionsMock.mockResolvedValue([]);
+
+    // The pre-reload workspace snapshot had gamma first, alpha selected.
+    window.localStorage.setItem(
+      SNAPSHOT_KEY,
+      JSON.stringify({
+        version: 1,
+        savedAt: 0,
+        tabOrder: ["gamma", "alpha", "beta"],
+        projectOrder: ["/p"],
+        activeSessionId: "alpha",
+        activeProjectPath: "/p",
+        projectActiveSession: [["/p", "alpha"]],
+      }),
+    );
+
+    const { result } = renderHook(() => useClaudeSession());
+    await act(async () => {
+      await hydratePersistedOpenSessions(
+        result.current.restorePausedSession,
+        result.current.reattachLiveSession,
+      );
+    });
+
+    expect(useSessionStore.getState().tabOrder).toEqual(["gamma", "alpha", "beta"]);
+    expect(useSessionStore.getState().activeSessionId).toBe("alpha");
+    // No --resume spawn. createSession is *the* hot signal that we
+    // didn't take the wake-recovery short path.
+    expect(createSessionMock).not.toHaveBeenCalled();
+    // None of the tabs are paused-recovered — they're live, running sessions.
+    for (const id of ["alpha", "beta", "gamma"]) {
+      const s = useSessionStore.getState().sessions.get(id)!;
+      expect(s.status).not.toBe("paused-recovered");
+    }
+  });
+
+  it("falls back to disk-resume for a session whose CLI died between reload and boot", async () => {
+    // Mixed scenario: two CLI processes survived the renderer reload,
+    // one died (e.g. the user OOM-killed it manually). The dead one
+    // still has to come back — just via the paused-recovered tab path
+    // so the user explicitly chooses to spend a --resume round-trip.
+    consumeWakeRecoveryFlagMock.mockResolvedValue(true);
+    listLiveSessionsMock.mockResolvedValue([
+      liveSession("alive-1"),
+      liveSession("alive-2"),
+    ]);
+    listCrashedSessionsMock.mockResolvedValue([
+      { ...entry("alive-1", "Alive 1"), has_stored_messages: true },
+      { ...entry("alive-2", "Alive 2"), has_stored_messages: true },
+      { ...entry("dead-1", "Dead 1"), has_stored_messages: true },
+    ]);
+
+    const { result } = renderHook(() => useClaudeSession());
+    await act(async () => {
+      await hydratePersistedOpenSessions(
+        result.current.restorePausedSession,
+        result.current.reattachLiveSession,
+      );
+    });
+
+    const sessions = useSessionStore.getState().sessions;
+    expect(sessions.get("alive-1")!.status).not.toBe("paused-recovered");
+    expect(sessions.get("alive-2")!.status).not.toBe("paused-recovered");
+    expect(sessions.get("dead-1")!.status).toBe("paused-recovered");
+
+    // Acknowledge clears was_open for everything that came back via
+    // either path (live or paused) — so on the next boot we don't get
+    // a duplicate recovery surface.
+    const acked = acknowledgeCrashedSessionsMock.mock.calls[0]?.[0] ?? [];
+    expect(new Set(acked)).toEqual(new Set(["alive-1", "alive-2", "dead-1"]));
   });
 });

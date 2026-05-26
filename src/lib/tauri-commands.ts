@@ -308,6 +308,30 @@ export async function acknowledgeCrashedSessions(
   return invoke("acknowledge_crashed_sessions", { sessionIds });
 }
 
+/**
+ * Read-once: returns `true` when the previous frontend was reloaded by the
+ * Rust wake observer (its last-resort `WebviewWindow::reload()` path) rather
+ * than by a real cold start. The Rust backend (and per-session CLI subprocesses)
+ * is still alive in this case, so the boot path should re-attach via
+ * {@link listLiveSessions} instead of routing every session through the
+ * Resume list. Clears the flag on read — `false` from then on for this boot.
+ */
+export async function consumeWakeRecoveryFlag(): Promise<boolean> {
+  return invoke<boolean>("consume_wake_recovery_flag");
+}
+
+/**
+ * Returns the `Session`s whose CLI subprocess is still alive in
+ * `AppState.processes`. Used post-wake-recovery-reload so the frontend can
+ * re-attach session-keyed event listeners (`claude-chat-<id>` / `codex-chat-<id>`)
+ * without re-spawning the CLI via `--resume`. Sessions whose process has
+ * died in the meantime are filtered out — they'll surface via
+ * {@link listCrashedSessions} instead.
+ */
+export async function listLiveSessions(): Promise<Session[]> {
+  return invoke<Session[]>("list_live_sessions");
+}
+
 export async function saveSessionMessages(
   sessionId: string,
   messages: SessionMessagePayload[]

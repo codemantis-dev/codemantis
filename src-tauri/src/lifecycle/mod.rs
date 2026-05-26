@@ -24,4 +24,5 @@
 
 pub mod activity_assertion;
 pub mod repaint;
+pub mod sleep_observer;
 pub mod wake_observer;

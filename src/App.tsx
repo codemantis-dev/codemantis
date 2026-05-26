@@ -85,7 +85,7 @@ export default function App() {
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const openSettingsToTab = useUiStore((s) => s.openSettingsToTab);
-  const { startSession, resumeFromHistory, restorePausedSession } = useClaudeSession();
+  const { startSession, resumeFromHistory, restorePausedSession, reattachLiveSession } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const onboardingCompleted = useSettingsStore((s) => s.settings.onboardingCompleted);
@@ -154,8 +154,12 @@ export default function App() {
     void hydratePersistedSelfDriveRuns();
     // Crash-recovery: if the previous shutdown was violent, the sessions
     // table holds rows with was_open=1. Redraw each as a paused tab so the
-    // user can resume on demand.
-    void hydratePersistedOpenSessions(restorePausedSession);
+    // user can resume on demand. The reattachLiveSession arg also lets
+    // the recovery code take a different path when the boot was triggered
+    // by the wake observer reloading a hung WebContent process rather
+    // than by a real crash — live CLI processes get re-attached in place
+    // (no --resume spawn) so the workspace comes back as it was.
+    void hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restorePausedSession is a stable callback
   }, [loadSettings]);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { hydratePersistedOpenSessions } from "./crash-recovery";
-import type { SessionHistoryEntry } from "../types/session";
+import type { Session, SessionHistoryEntry } from "../types/session";
 
 const showToast = vi.fn();
 vi.mock("../stores/toastStore", () => ({
@@ -9,9 +9,13 @@ vi.mock("../stores/toastStore", () => ({
 
 const listCrashedSessions = vi.fn<() => Promise<SessionHistoryEntry[]>>();
 const acknowledgeCrashedSessions = vi.fn<(ids: string[]) => Promise<void>>(() => Promise.resolve());
+const consumeWakeRecoveryFlag = vi.fn<() => Promise<boolean>>(() => Promise.resolve(false));
+const listLiveSessions = vi.fn<() => Promise<Session[]>>(() => Promise.resolve([]));
 vi.mock("./tauri-commands", () => ({
   listCrashedSessions: () => listCrashedSessions(),
   acknowledgeCrashedSessions: (ids: string[]) => acknowledgeCrashedSessions(ids),
+  consumeWakeRecoveryFlag: () => consumeWakeRecoveryFlag(),
+  listLiveSessions: () => listLiveSessions(),
 }));
 
 const readWorkspaceSnapshot = vi.fn(() => null);
@@ -21,9 +25,10 @@ vi.mock("../hooks/useCrashRecoverySnapshot", () => ({
   clearWorkspaceSnapshot: () => clearWorkspaceSnapshot(),
 }));
 
+const setActiveSession = vi.fn();
 vi.mock("../stores/sessionStore", () => ({
   useSessionStore: {
-    getState: () => ({ setActiveSession: vi.fn() }),
+    getState: () => ({ setActiveSession }),
   },
 }));
 
@@ -41,9 +46,23 @@ function makeEntry(id: string): SessionHistoryEntry {
   } as unknown as SessionHistoryEntry;
 }
 
+function makeLive(id: string, project = "/proj"): Session {
+  return {
+    id,
+    name: id,
+    project_path: project,
+    status: "connected",
+    created_at: new Date().toISOString(),
+    model: null,
+    icon_index: 0,
+  };
+}
+
 describe("crash-recovery toast count", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    consumeWakeRecoveryFlag.mockResolvedValue(false);
+    listLiveSessions.mockResolvedValue([]);
   });
 
   it("toast counts only sessions that actually restored — not failures", async () => {
@@ -104,6 +123,8 @@ describe("crash-recovery toast count", () => {
 describe("crash-recovery acknowledge semantics — Bug 2 regression", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    consumeWakeRecoveryFlag.mockResolvedValue(false);
+    listLiveSessions.mockResolvedValue([]);
   });
 
   it("acknowledges ONLY the sessions that actually restored", async () => {
@@ -157,5 +178,153 @@ describe("crash-recovery acknowledge semantics — Bug 2 regression", () => {
       "Recovered 1 session from an unexpected shutdown",
       "info",
     );
+  });
+});
+
+describe("wake-recovery branch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consumeWakeRecoveryFlag.mockResolvedValue(false);
+    listLiveSessions.mockResolvedValue([]);
+    acknowledgeCrashedSessions.mockResolvedValue(undefined);
+    setActiveSession.mockClear();
+    readWorkspaceSnapshot.mockReturnValue(null);
+  });
+
+  it("does NOT consult listLiveSessions when no reattachLiveSession callback is supplied", async () => {
+    // Backwards-compat guard: callers that don't pass the second arg
+    // (older code, focused unit tests) must take the legacy crash path
+    // even if the backend would have reported a wake-recovery reload.
+    // Otherwise old call sites silently change behaviour on upgrade.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listCrashedSessions.mockResolvedValue([makeEntry("a")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+
+    await hydratePersistedOpenSessions(restorePausedSession);
+
+    expect(consumeWakeRecoveryFlag).not.toHaveBeenCalled();
+    expect(listLiveSessions).not.toHaveBeenCalled();
+    expect(restorePausedSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-attaches live sessions in place without routing them through restorePausedSession", async () => {
+    // The headline wake-recovery scenario: WebContent hung after wake,
+    // the Rust observer reloaded the renderer, and the CLI subprocesses
+    // for all 3 sessions are still alive in AppState.processes. The
+    // frontend must re-attach via the live path — no --resume spawn,
+    // no paused-recovered tab.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listLiveSessions.mockResolvedValue([makeLive("a"), makeLive("b"), makeLive("c")]);
+    listCrashedSessions.mockResolvedValue([]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const reattachLiveSession = vi.fn(() => Promise.resolve());
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(reattachLiveSession).toHaveBeenCalledTimes(3);
+    expect(restorePausedSession).not.toHaveBeenCalled();
+    // Toast confirms the "still running" path — the win the
+    // wake_state_must_restore rule asks for.
+    const [msg, severity] = showToast.mock.calls[0];
+    expect(msg).toContain("still running");
+    expect(severity).toBe("info");
+  });
+
+  it("falls back to restorePausedSession for dead CLI processes on the wake branch", async () => {
+    // Mixed scenario: 2 sessions still alive, 1 died while WebContent
+    // was hung (e.g. the user's Mac OOM-killed it during sleep). The
+    // dead one must still come back — just via the existing
+    // paused-recovered tab path so the user can decide to --resume.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listLiveSessions.mockResolvedValue([makeLive("a"), makeLive("b")]);
+    listCrashedSessions.mockResolvedValue([makeEntry("a"), makeEntry("b"), makeEntry("c")]);
+    const restorePausedSession = vi.fn(async (_e: SessionHistoryEntry) => {});
+    const reattachLiveSession = vi.fn(async (_s: Session) => {});
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(reattachLiveSession).toHaveBeenCalledTimes(2);
+    // Only the dead session takes the paused path; the two live ones
+    // must NOT — otherwise we'd briefly show a Resume banner on a
+    // running session, which is exactly what the rule forbids.
+    expect(restorePausedSession).toHaveBeenCalledTimes(1);
+    expect(restorePausedSession.mock.calls[0][0].session_id).toBe("c");
+  });
+
+  it("acknowledges only the live sessions that have a crashed-list row to clear", async () => {
+    // A session that is live but never had was_open=1 set (rare: brand-new
+    // session created between snapshot and reload) doesn't need to be
+    // acknowledged. Acknowledging an id that isn't in the crashed list
+    // is harmless but wasteful — verify we don't bother.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listLiveSessions.mockResolvedValue([makeLive("live-only"), makeLive("live-and-crashed")]);
+    listCrashedSessions.mockResolvedValue([makeEntry("live-and-crashed")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const reattachLiveSession = vi.fn(() => Promise.resolve());
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(acknowledgeCrashedSessions).toHaveBeenCalledTimes(1);
+    expect(acknowledgeCrashedSessions.mock.calls[0][0]).toEqual(["live-and-crashed"]);
+  });
+
+  it("keeps was_open=1 for a session whose re-attach throws", async () => {
+    // Same failure semantics as the crash branch: a session that throws
+    // during re-attach must NOT be acknowledged. It stays in was_open=1
+    // so the user finds it in Open → Resume Session on next launch.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listLiveSessions.mockResolvedValue([makeLive("ok"), makeLive("broken")]);
+    listCrashedSessions.mockResolvedValue([makeEntry("ok"), makeEntry("broken")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const reattachLiveSession = vi.fn(async (s: Session) => {
+      if (s.id === "broken") throw new Error("re-attach blew up");
+    });
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(acknowledgeCrashedSessions).toHaveBeenCalledTimes(1);
+    const acked = acknowledgeCrashedSessions.mock.calls[0][0];
+    expect(acked).toEqual(["ok"]);
+    expect(acked).not.toContain("broken");
+  });
+
+  it("treats a consumeWakeRecoveryFlag throw as 'not a wake recovery' and proceeds normally", async () => {
+    // Defensive: the new Tauri command must never wedge crash-recovery.
+    // If it errors (backend mismatch, IPC race), fall through to the
+    // legacy crash path so the user still gets their sessions back.
+    consumeWakeRecoveryFlag.mockRejectedValueOnce(new Error("ipc dead"));
+    listCrashedSessions.mockResolvedValue([makeEntry("a")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const reattachLiveSession = vi.fn(() => Promise.resolve());
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(reattachLiveSession).not.toHaveBeenCalled();
+    expect(restorePausedSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the workspace-snapshot active selection after a wake-recovery reload", async () => {
+    // The wake_state_must_restore rule covers active selection, not just
+    // tab presence — landing on the wrong tab after a reload is still a
+    // regression. Verify the snapshot's activeSessionId is honoured even
+    // on the wake branch.
+    consumeWakeRecoveryFlag.mockResolvedValue(true);
+    listLiveSessions.mockResolvedValue([makeLive("a"), makeLive("b")]);
+    listCrashedSessions.mockResolvedValue([]);
+    readWorkspaceSnapshot.mockReturnValue({
+      version: 1,
+      savedAt: 0,
+      tabOrder: ["b", "a"],
+      projectOrder: ["/proj"],
+      activeSessionId: "b",
+      activeProjectPath: "/proj",
+      projectActiveSession: [],
+    } as unknown as ReturnType<typeof readWorkspaceSnapshot>);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const reattachLiveSession = vi.fn(() => Promise.resolve());
+
+    await hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+
+    expect(setActiveSession).toHaveBeenCalledWith("b");
   });
 });
