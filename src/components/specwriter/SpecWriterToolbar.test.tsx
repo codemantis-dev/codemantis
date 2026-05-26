@@ -6,7 +6,6 @@ const baseProps = {
   lastSavedFile: null as string | null,
   activeSessionId: "s1" as string | null,
   canWrite: false,
-  hasMessages: false,
   isStreaming: false,
   conversationMode: "feature" as string | undefined,
   hasGuide: false,
@@ -102,14 +101,27 @@ describe("SpecWriterToolbar", () => {
 
   // ── Reset button ──
 
-  it("hides Reset when no messages", () => {
-    render(<SpecWriterToolbar {...baseProps} hasMessages={false} />);
-    expect(screen.queryByText("Reset")).not.toBeInTheDocument();
+  it("always renders Reset (fresh project must be able to clear leaked state)", () => {
+    render(<SpecWriterToolbar {...baseProps} />);
+    expect(screen.getByText("Reset")).toBeInTheDocument();
   });
 
-  it("shows Reset when messages exist", () => {
-    render(<SpecWriterToolbar {...baseProps} hasMessages={true} />);
+  it("Reset stays visible after messages exist", () => {
+    render(<SpecWriterToolbar {...baseProps} lastSavedFile="spec.md" />);
     expect(screen.getByText("Reset")).toBeInTheDocument();
+  });
+
+  it("invokes onReset when Reset is clicked", () => {
+    const onReset = vi.fn();
+    render(<SpecWriterToolbar {...baseProps} onReset={onReset} />);
+    fireEvent.click(screen.getByText("Reset"));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Reset while streaming", () => {
+    render(<SpecWriterToolbar {...baseProps} isStreaming={true} />);
+    const button = screen.getByText("Reset").closest("button");
+    expect(button).toBeDisabled();
   });
 
   // ── Suggest Features ──

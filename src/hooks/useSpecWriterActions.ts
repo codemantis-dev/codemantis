@@ -136,6 +136,18 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
 
   const { refreshSavedSpecs } = useSavedSpecs(activeProjectPath);
 
+  // The SpecWriter slide-over is always mounted (display:none when closed),
+  // so React-local state survives a project switch. Reset it whenever the
+  // active project changes so values from project A cannot leak into B.
+  useEffect(() => {
+    setLastSavedFile(null);
+    setLastSavedAuditFile(null);
+    setIsEditing(false);
+    setPendingGuideLoad(null);
+    setContextLoading(false);
+    setContextError(null);
+  }, [activeProjectPath]);
+
   // One-time project init: load persisted state and gather context
   useEffect(() => {
     if (!activeProjectPath) return;
@@ -249,12 +261,28 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
       clearConversation(activeProjectPath);
       setCurrentSpecContent(activeProjectPath, null);
       setCurrentAuditContent(activeProjectPath, null);
+      setProjectContext(activeProjectPath, "");
+      setContextLoaded(activeProjectPath, false);
+      setSelectedSavedSpec(activeProjectPath, null);
       setLastSavedFile(null);
       setLastSavedAuditFile(null);
       setIsEditing(false);
+      setPendingGuideLoad(null);
+      setContextError(null);
+      // Allow the per-project auto-init effect (loadState + gatherSpecContext)
+      // to run again for this project after a manual reset.
+      initCheckedRef.current = null;
       saveTaskBoardState(activeProjectPath, JSON.stringify({ conversation: null })).catch(() => {});
     }
-  }, [activeProjectPath, clearConversation, setCurrentSpecContent, setCurrentAuditContent]);
+  }, [
+    activeProjectPath,
+    clearConversation,
+    setCurrentSpecContent,
+    setCurrentAuditContent,
+    setProjectContext,
+    setContextLoaded,
+    setSelectedSavedSpec,
+  ]);
 
   const handleWriteSpec = useCallback(() => {
     if (activeProjectPath) writeSpec(activeProjectPath);

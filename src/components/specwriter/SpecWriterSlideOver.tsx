@@ -36,7 +36,6 @@ export default function SpecWriterSlideOver() {
   const isOpen = uiState?.is_open ?? false;
   const chatWidth = uiState?.chat_width ?? 40;
   const conversationMode = conversation?.mode;
-  const hasMessages = (conversation?.messages.length ?? 0) > 0;
   const canWrite = conversation?.status === 'ready_to_write' && !isStreaming;
   const canSave = !!currentSpecContent && !isStreaming;
   const canGenerateAudit = !!currentSpecContent && !currentAuditContent && !isStreaming;
@@ -96,7 +95,6 @@ export default function SpecWriterSlideOver() {
           lastSavedFile={actions.lastSavedFile}
           activeSessionId={activeSessionId}
           canWrite={canWrite}
-          hasMessages={hasMessages}
           isStreaming={isStreaming}
           conversationMode={conversationMode}
           hasGuide={actions.hasGuide}

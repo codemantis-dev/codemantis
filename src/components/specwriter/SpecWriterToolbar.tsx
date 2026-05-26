@@ -4,7 +4,6 @@ interface Props {
   lastSavedFile: string | null;
   activeSessionId: string | null;
   canWrite: boolean;
-  hasMessages: boolean;
   isStreaming: boolean;
   conversationMode: string | undefined;
   hasGuide: boolean;
@@ -22,7 +21,6 @@ export default function SpecWriterToolbar({
   lastSavedFile,
   activeSessionId,
   canWrite,
-  hasMessages,
   isStreaming,
   conversationMode,
   hasGuide,
@@ -120,23 +118,21 @@ export default function SpecWriterToolbar({
         Generate Spec
       </button>
 
-      {/* Reset */}
-      {hasMessages && (
-        <button
-          onClick={onReset}
-          disabled={isStreaming}
-          title="Reset — clear conversation and start fresh"
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95 disabled:opacity-40"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <RotateCcw size={14} />
-          Reset
-        </button>
-      )}
+      {/* Reset — always available so a fresh project can clear leaked state */}
+      <button
+        onClick={onReset}
+        disabled={isStreaming}
+        title="Reset — clear conversation and start fresh"
+        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-label font-medium transition-colors hover:brightness-95 disabled:opacity-40"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text-secondary)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <RotateCcw size={14} />
+        Reset
+      </button>
 
       {/* Spacer */}
       <div className="flex-1" />

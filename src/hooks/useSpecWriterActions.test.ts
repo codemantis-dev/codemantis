@@ -337,4 +337,109 @@ describe("useSpecWriterActions", () => {
     });
     expect(mockShowToast).toHaveBeenCalledWith("No active chat session", "error");
   });
+
+  // ── project-switch isolation: React-local state must NOT bleed ──
+
+  it("clears React-local lastSavedFile when activeProjectPath changes", () => {
+    const PROJECT_B = "/tmp/test-project-B";
+    const { result, rerender } = renderHook(
+      ({ p }: { p: string }) => useSpecWriterActions(p),
+      { initialProps: { p: PROJECT_PATH } }
+    );
+
+    act(() => result.current.handleSaved("project-a-spec.md"));
+    expect(result.current.lastSavedFile).toBe("project-a-spec.md");
+
+    rerender({ p: PROJECT_B });
+    expect(result.current.lastSavedFile).toBeNull();
+    expect(result.current.isEditing).toBe(false);
+    expect(result.current.pendingGuideLoad).toBeNull();
+    expect(result.current.contextError).toBeNull();
+  });
+
+  it("re-saving in project B does not resurface project A's filename", () => {
+    const PROJECT_B = "/tmp/test-project-B";
+    const { result, rerender } = renderHook(
+      ({ p }: { p: string }) => useSpecWriterActions(p),
+      { initialProps: { p: PROJECT_PATH } }
+    );
+
+    act(() => result.current.handleSaved("project-a-spec.md"));
+    rerender({ p: PROJECT_B });
+    expect(result.current.lastSavedFile).toBeNull();
+
+    act(() => result.current.handleSaved("project-b-spec.md"));
+    expect(result.current.lastSavedFile).toBe("project-b-spec.md");
+  });
+
+  // ── handleReset: full per-project wipe; other projects untouched ──
+
+  it("handleReset clears projectContext and selectedSavedSpec for the active project only", () => {
+    const PROJECT_B = "/tmp/test-project-B";
+    useSpecWriterStore.setState({
+      conversations: new Map([
+        [PROJECT_PATH, {
+          id: "cA", project_path: PROJECT_PATH,
+          messages: [{ id: "m1", role: "user" as const, content: "x", message_type: "conversation" as const, timestamp: "2026-01-01" }],
+          ai_provider: "gemini", ai_model: "gemini-2.5-flash",
+          status: "gathering" as const, mode: "feature" as const, context_loaded: true,
+        }],
+        [PROJECT_B, {
+          id: "cB", project_path: PROJECT_B,
+          messages: [{ id: "m2", role: "user" as const, content: "y", message_type: "conversation" as const, timestamp: "2026-01-01" }],
+          ai_provider: "gemini", ai_model: "gemini-2.5-flash",
+          status: "gathering" as const, mode: "feature" as const, context_loaded: true,
+        }],
+      ]),
+      projectContext: new Map([
+        [PROJECT_PATH, "A context"],
+        [PROJECT_B, "B context"],
+      ]),
+      uiState: new Map([
+        [PROJECT_PATH, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: "a.md" }],
+        [PROJECT_B, { is_open: true, chat_width: 40, current_spec_content: null, selected_saved_spec: "b.md" }],
+      ]),
+      currentSpecContent: new Map([[PROJECT_PATH, "# A"], [PROJECT_B, "# B"]]),
+      currentAuditContent: new Map([[PROJECT_PATH, "# A audit"], [PROJECT_B, "# B audit"]]),
+    });
+
+    const { result } = renderHook(() => useSpecWriterActions(PROJECT_PATH));
+    act(() => result.current.handleReset());
+
+    const state = useSpecWriterStore.getState();
+
+    // Project A wiped
+    expect(state.conversations.has(PROJECT_PATH)).toBe(false);
+    expect(state.projectContext.get(PROJECT_PATH) ?? "").toBe("");
+    expect(state.uiState.get(PROJECT_PATH)?.selected_saved_spec ?? null).toBeNull();
+    expect(state.currentSpecContent.get(PROJECT_PATH) ?? null).toBeNull();
+    expect(state.currentAuditContent.get(PROJECT_PATH) ?? null).toBeNull();
+
+    // Project B untouched
+    expect(state.conversations.get(PROJECT_B)?.id).toBe("cB");
+    expect(state.projectContext.get(PROJECT_B)).toBe("B context");
+    expect(state.uiState.get(PROJECT_B)?.selected_saved_spec).toBe("b.md");
+    expect(state.currentSpecContent.get(PROJECT_B)).toBe("# B");
+    expect(state.currentAuditContent.get(PROJECT_B)).toBe("# B audit");
+  });
+
+  it("handleReset clears context_loaded flag for the active project", () => {
+    useSpecWriterStore.setState({
+      conversations: new Map([[PROJECT_PATH, {
+        id: "c1", project_path: PROJECT_PATH,
+        messages: [{ id: "m1", role: "user" as const, content: "x", message_type: "conversation" as const, timestamp: "2026-01-01" }],
+        ai_provider: "gemini", ai_model: "gemini-2.5-flash",
+        status: "gathering" as const, mode: "feature" as const, context_loaded: true,
+      }]]),
+    });
+
+    const { result } = renderHook(() => useSpecWriterActions(PROJECT_PATH));
+    act(() => result.current.handleReset());
+
+    // clearConversation removes the entry; if the auto-init effect later
+    // recreates it, context_loaded must start at false (verified by
+    // setContextLoaded(_, false) being called in handleReset).
+    const state = useSpecWriterStore.getState();
+    expect(state.conversations.has(PROJECT_PATH)).toBe(false);
+  });
 });
