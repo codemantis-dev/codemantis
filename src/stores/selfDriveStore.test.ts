@@ -2210,6 +2210,104 @@ describe("selfDriveStore — auto-commit live config", () => {
       expect(useSelfDriveStore.getState().currentPhase).toBe("committing");
     });
   });
+
+  // Regression: commit subject must not double-up "Session N: Session N" when
+  // the parsed plan name is a self-referential fallback (e.g. the spec
+  // heading was `### Session 1` with no descriptive title and no scope to
+  // derive from). The dedup in selfDriveStore + the parser's name derivation
+  // are what makes git log readable for those guides.
+  it("commit message strips a `Session N` self-prefix from plan.name", async () => {
+    setupReadyState();
+    const guide = useGuideStore.getState().guide!;
+    guide.sessions[0].verifyChecks.forEach((c) => (c.checked = true));
+    useGuideStore.setState({ guide });
+
+    useSettingsStore.setState((prev) => ({
+      settings: { ...prev.settings, selfDriveAutoCommit: true },
+    }));
+
+    // Force getCurrentSessionPlan to return the bad "Session 1" name — the
+    // exact shape the parser used to emit before this fix.
+    mockGetCurrentSessionPlan.mockImplementation((idx: number) => ({
+      index: idx,
+      name: `Session ${idx}`,
+      scope: "",
+      prompt: "Do thing",
+      verifyChecks: [{ label: "Check A" }],
+      isLastSession: false,
+      hasAuditDocument: false,
+    }));
+
+    await useSelfDriveStore.getState().start();
+    mockSendMessage.mockClear();
+
+    mockCallOrchestrator.mockResolvedValue({
+      action: "advance",
+      summary: "Session complete",
+      confidence: "high",
+      checkResults: [],
+    });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentPhase).toBe("committing");
+    });
+
+    const commitCall = mockSendMessage.mock.calls.find(
+      (c) => typeof c[1] === "string" && c[1].includes("Commit the current changes"),
+    );
+    expect(commitCall).toBeDefined();
+    const commitText = commitCall![1] as string;
+    expect(commitText).toContain('"Session 1"');
+    expect(commitText).not.toMatch(/Session 1:\s*Session 1/);
+    expect(commitText).not.toContain("implementation");
+  });
+
+  it("commit message preserves a descriptive plan.name", async () => {
+    setupReadyState();
+    const guide = useGuideStore.getState().guide!;
+    guide.sessions[0].verifyChecks.forEach((c) => (c.checked = true));
+    useGuideStore.setState({ guide });
+
+    useSettingsStore.setState((prev) => ({
+      settings: { ...prev.settings, selfDriveAutoCommit: true },
+    }));
+
+    mockGetCurrentSessionPlan.mockImplementation((idx: number) => ({
+      index: idx,
+      name: "Database Foundation",
+      scope: "Schema + auth",
+      prompt: "Do thing",
+      verifyChecks: [{ label: "Check A" }],
+      isLastSession: false,
+      hasAuditDocument: false,
+    }));
+
+    await useSelfDriveStore.getState().start();
+    mockSendMessage.mockClear();
+
+    mockCallOrchestrator.mockResolvedValue({
+      action: "advance",
+      summary: "Session complete",
+      confidence: "high",
+      checkResults: [],
+    });
+
+    const emit = captureListenCallback();
+    emit(makeTurnCompleteEvent());
+
+    await vi.waitFor(() => {
+      expect(useSelfDriveStore.getState().currentPhase).toBe("committing");
+    });
+
+    const commitCall = mockSendMessage.mock.calls.find(
+      (c) => typeof c[1] === "string" && c[1].includes("Commit the current changes"),
+    );
+    expect(commitCall).toBeDefined();
+    expect(commitCall![1] as string).toContain('"Session 1: Database Foundation"');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

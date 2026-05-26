@@ -16,6 +16,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSelfDriveStore, useSelfDriveActiveForActiveProject } from "../../stores/selfDriveStore";
 import { buildSessionVerifyPrompt } from "../../lib/guide-verify-prompt";
+import { formatSessionLabel } from "../../lib/parse-session-plan";
 
 interface Props {
   session: GuideSession;
@@ -131,7 +132,7 @@ export default function GuideSessionCard({
           className="flex-1 text-xs font-medium truncate"
           style={{ color: isDone ? "var(--text-secondary)" : "var(--text-primary)" }}
         >
-          Session {session.index}: {session.name}
+          {formatSessionLabel(session.index, session.name)}
         </span>
 
         {/* Active badge */}

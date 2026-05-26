@@ -3,6 +3,8 @@
 // Used by GuideSessionCard (single session) and Super-Bro (all sessions)
 // ═══════════════════════════════════════════════════════════════════════
 
+import { formatSessionLabel } from "./parse-session-plan";
+
 interface SessionForVerify {
   index: number;
   name: string;
@@ -190,7 +192,7 @@ export function buildSessionVerifyPrompt(
       return `${VERIFY_MODE_PREAMBLE}\n${session.verificationPrompt}`;
     }
     return `${VERIFY_MODE_PREAMBLE}
-Verify Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
+Verify ${formatSessionLabel(session.index, session.name)} of the spec in docs/specs/${specFilename}.
 
 This session has no explicit verify checks. At minimum:
 - Run \`pnpm tsc --noEmit\` and quote the final output line as evidence.
@@ -224,7 +226,7 @@ MANDATORY CHECKLIST — ${total} items. Answer every one below.
     : "";
 
   return `${VERIFY_MODE_PREAMBLE}
-Verify the implementation for Session ${session.index}: ${session.name} of the spec in docs/specs/${specFilename}.
+Verify the implementation for ${formatSessionLabel(session.index, session.name)} of the spec in docs/specs/${specFilename}.
 ${guidanceBlock}
 Items to verify (${total} total) — report PASS or FAIL for each. The
 [kind] tag on each item dictates what kind of evidence is required

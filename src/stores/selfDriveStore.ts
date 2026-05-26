@@ -39,6 +39,7 @@ import {
 } from "../lib/tauri-commands";
 import { callOrchestrator } from "../lib/self-drive-orchestrator";
 import { buildSessionVerifyPrompt } from "../lib/guide-verify-prompt";
+import { formatSessionLabel, stripSessionPrefix } from "../lib/parse-session-plan";
 import { buildRecoveryVerifyPrompt } from "../lib/recovery-prompt";
 import { classifyRecheckBatch } from "../lib/self-drive-loop-guard";
 import {
@@ -512,7 +513,7 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
 
     // Send first build prompt
     set({ currentPhase: "building" });
-    addLogEntry(firstActive.index, "building", `Starting Session ${firstActive.index}: ${firstActive.name}`, undefined, firstActive.prompt);
+    addLogEntry(firstActive.index, "building", `Starting ${formatSessionLabel(firstActive.index, firstActive.name)}`, undefined, firstActive.prompt);
 
     try {
       // Add user message to chat so the prompt is visible
@@ -2259,7 +2260,16 @@ async function handleAdvance(decision: OrchestratorDecision, previousPhase?: Sel
   if (liveConfig.autoCommit && previousPhase !== "committing") {
     useSelfDriveStore.setState({ currentPhase: "committing" });
     const plan = getCurrentSessionPlan(sessionIndex, useSelfDriveStore.getState().guide);
-    const commitPrompt = `Commit the current changes with message: "Session ${sessionIndex}: ${plan?.name ?? "implementation"}"`;
+    // Build a meaningful commit subject: drop any "Session N" self-reference
+    // the parser may have produced, never emit `Session N: Session N`, and
+    // never fall back to a generic "implementation" tag — the parser now
+    // always derives a descriptive name from Scope/Files/Prompt when the
+    // heading lacks one.
+    const cleanName = stripSessionPrefix(plan?.name, sessionIndex);
+    const commitSubject = cleanName
+      ? `Session ${sessionIndex}: ${cleanName}`
+      : `Session ${sessionIndex}`;
+    const commitPrompt = `Commit the current changes with message: "${commitSubject}"`;
     addLogEntry(sessionIndex, "committing", `Committing Session ${sessionIndex}`, undefined, commitPrompt);
     await sendMessageToSession(commitPrompt, "commit-gate");
     return; // wait for turn_complete → then advance
@@ -2664,7 +2674,7 @@ async function startNextSession(): Promise<void> {
     sessionStartedAt: Date.now(),
   });
 
-  addLogEntry(nextSession.index, "building", `Starting Session ${nextSession.index}: ${nextSession.name}`, undefined, nextSession.prompt);
+  addLogEntry(nextSession.index, "building", `Starting ${formatSessionLabel(nextSession.index, nextSession.name)}`, undefined, nextSession.prompt);
   await sendMessageToSession(
     wrapWithPreambleTracking("build", nextSession.index, nextSession.prompt),
   );

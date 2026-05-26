@@ -713,7 +713,23 @@ Implementation Guide. For this to work, you MUST follow this exact format
 for EVERY session. Deviation will cause the guide to fail silently.
 
 RULES:
-- The ### heading MUST start with "### Session " followed by a number
+- The ### heading MUST be of the form:
+    ### Session {N}: {DescriptiveTitle} (~{N} files)
+  The colon AND a descriptive title are REQUIRED for EVERY session
+  (including foundation sessions and the final audit / wrap-up
+  session). NEVER emit \`### Session N\` alone, NEVER
+  \`### Session N: Session N\`, NEVER \`### Session N: (foundation)\`.
+  The DescriptiveTitle must be 2–8 words and name the concrete work
+  (component, table, route, action, scaffold step) — not a generic
+  placeholder like "Setup", "Step 1", "Initial Phase", or the session
+  number repeated. The same DescriptiveTitle is reused verbatim by the
+  IDE as the auto-commit message subject (\`Session N: <Title>\`), so
+  pick something that will read well in \`git log\`.
+  - Foundation sessions: descriptive title is still required (e.g.
+    "Database schema + auth scaffolding"). The \`(foundation)\` marker
+    goes on the \`**User-visible outcome:**\` line, NOT in the heading.
+  - Final audit / wrap-up session: descriptive title is still required
+    (e.g. "Full-spec verification audit").
 - **Prompt for Claude Code:** MUST be followed by a fenced code block (\`\`\`)
 - The fenced code block MUST contain the actual prompt text
 - **Verify** items MUST use "- [ ]" checkbox format

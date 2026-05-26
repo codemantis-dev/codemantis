@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import {
   parseSessionPlan,
   diagnoseSessionPlanFailure,
+  deriveSessionName,
+  stripSessionPrefix,
+  formatSessionLabel,
+  isSelfReferentialName,
 } from "./parse-session-plan";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1023,5 +1027,179 @@ Build feature.
       "VERIFY: app boots",
     );
     expect(result!.sessions[1].verificationPrompt).toBeNull();
+  });
+});
+
+// ── Session-name fallback derivation ──────────────────────────────────
+//
+// Regression guard for the "Session N: Session N" bug: when the LLM emits a
+// `### Session N` heading without a descriptive title, the parser must derive
+// one from Scope / Files / Prompt instead of parroting the index back. The
+// UI label, log entries, auto-commit message, and verify prompt all flow off
+// of this — so the test surface lives next to the parser.
+
+function makeHeadlessSession(
+  index: number,
+  body: {
+    scope?: string;
+    files?: string[];
+    prompt?: string;
+  },
+): string {
+  let s = `### Session ${index} (~${(body.files ?? []).length} files)\n`;
+  if (body.scope) s += `**Scope:** ${body.scope}\n`;
+  if (body.files && body.files.length > 0) {
+    s += `**Files:**\n`;
+    for (const f of body.files) s += `- \`${f}\` (create)\n`;
+  }
+  s += `\n**Prompt for Claude Code:**\n`;
+  s += "```\n";
+  s += (body.prompt ?? `Implement phase ${index}.`) + "\n";
+  s += "```\n";
+  s += `\n**Verify before next session:**\n`;
+  s += `- [ ] pnpm tsc --noEmit passes\n`;
+  s += `- [ ] Tests pass\n`;
+  return s;
+}
+
+describe("parseSessionPlan — session name fallback derivation", () => {
+  it("derives the name from **Scope:** when the heading has no title", () => {
+    const spec = makeSpec(
+      `${makeHeadlessSession(1, {
+        scope:
+          "Build the dashboard with a placeholder card grid and empty state.",
+        files: ["src/pages/Dashboard.tsx"],
+      })}\n${makeSession(2, { name: "Auth" })}`,
+    );
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    const s1 = result!.sessions[0];
+    expect(s1.name.toLowerCase()).toContain("build the dashboard");
+    expect(s1.nameIsFallback).toBe(true);
+    // Must not be the degenerate "Session 1" placeholder.
+    expect(s1.name).not.toMatch(/^session\s*1$/i);
+  });
+
+  it("falls back to the first file basename when scope is missing", () => {
+    const spec = makeSpec(
+      `${makeHeadlessSession(1, {
+        files: ["src/edge/tech-stack-edge-function.ts"],
+      })}\n${makeSession(2, { name: "Wrap-up" })}`,
+    );
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    const s1 = result!.sessions[0];
+    expect(s1.name.toLowerCase()).toContain("tech");
+    expect(s1.name).not.toMatch(/^session\s*1$/i);
+    expect(s1.nameIsFallback).toBe(true);
+  });
+
+  it("derives the name from the first prompt line when scope + files are missing", () => {
+    const spec = makeSpec(
+      `${makeHeadlessSession(1, {
+        prompt:
+          "Wire up the proposal handoff workflow between worker and orchestrator.",
+      })}\n${makeSession(2, { name: "Polish" })}`,
+    );
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    const s1 = result!.sessions[0];
+    expect(s1.name.toLowerCase()).toContain("proposal handoff");
+    expect(s1.nameIsFallback).toBe(true);
+  });
+
+  it("treats `### Session N: Session N` as self-referential and re-derives", () => {
+    // Build a heading whose title literally repeats the index.
+    const body =
+      "### Session 7: Session 7 (~1 files)\n" +
+      "**Scope:** Add the rate-limiter middleware to the gateway.\n" +
+      "**Files:**\n- `src/gateway/rate-limiter.ts` (create)\n\n" +
+      "**Prompt for Claude Code:**\n```\nDo it.\n```\n\n" +
+      "**Verify before next session:**\n- [ ] tsc passes\n- [ ] tests pass\n";
+    const spec = makeSpec(`${body}\n${makeSession(8, { name: "Polish" })}`);
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    const s = result!.sessions[0];
+    expect(s.name).not.toMatch(/^session\s*7$/i);
+    expect(s.name.toLowerCase()).toContain("rate-limiter");
+    expect(s.nameIsFallback).toBe(true);
+  });
+
+  it("preserves descriptive names already in the heading", () => {
+    const spec = makeSpec(
+      `${makeSession(1, { name: "Database Foundation" })}\n${makeSession(2, {
+        name: "Auth Setup",
+      })}`,
+    );
+    const result = parseSessionPlan(spec);
+    expect(result).not.toBeNull();
+    expect(result!.sessions[0].name).toBe("Database Foundation");
+    expect(result!.sessions[0].nameIsFallback).toBeUndefined();
+    expect(result!.sessions[1].name).toBe("Auth Setup");
+  });
+});
+
+describe("session-label helpers", () => {
+  it("deriveSessionName clamps long scope sentences to a single clause", () => {
+    const out = deriveSessionName(
+      "Add the tech-stack edge function with get/update_fields/lock/relock actions; also write tests.",
+      [],
+      "",
+    );
+    expect(out.length).toBeLessThanOrEqual(60);
+    expect(out).toContain("tech-stack edge function");
+    // Should drop everything after the first `;`.
+    expect(out).not.toContain("write tests");
+  });
+
+  it("deriveSessionName turns a kebab filename into a Title Case phrase", () => {
+    const out = deriveSessionName("", ["src/orchestrator/proposal-trigger.ts"], "");
+    expect(out).toBe("Proposal Trigger");
+  });
+
+  it("deriveSessionName appends a +N suffix for multi-file sessions", () => {
+    const out = deriveSessionName(
+      "",
+      ["src/worker/proposal-stage.ts", "src/worker/index.ts", "src/types/stage.ts"],
+      "",
+    );
+    expect(out).toMatch(/^Proposal Stage \+2$/);
+  });
+
+  it("deriveSessionName returns empty when every source is blank", () => {
+    expect(deriveSessionName("", [], "")).toBe("");
+  });
+
+  it("stripSessionPrefix peels a `Session N:` self-prefix off a name", () => {
+    expect(stripSessionPrefix("Session 5: Session 5", 5)).toBe("");
+    expect(stripSessionPrefix("Session 5", 5)).toBe("");
+    expect(stripSessionPrefix("Session 5: Database Foundation", 5)).toBe(
+      "Database Foundation",
+    );
+    expect(stripSessionPrefix("Database Foundation", 5)).toBe("Database Foundation");
+    expect(stripSessionPrefix("", 5)).toBe("");
+    expect(stripSessionPrefix(null, 5)).toBe("");
+  });
+
+  it("formatSessionLabel never emits the duplicated `Session N: Session N` form", () => {
+    expect(formatSessionLabel(1, "Session 1")).toBe("Session 1");
+    expect(formatSessionLabel(1, "Session 1: Session 1")).toBe("Session 1");
+    expect(formatSessionLabel(1, "")).toBe("Session 1");
+    expect(formatSessionLabel(1, null)).toBe("Session 1");
+    expect(formatSessionLabel(7, "Rate Limiter")).toBe("Session 7: Rate Limiter");
+    expect(formatSessionLabel(7, "Session 7: Rate Limiter")).toBe(
+      "Session 7: Rate Limiter",
+    );
+  });
+
+  it("isSelfReferentialName flags `Session N`-style placeholders", () => {
+    expect(isSelfReferentialName("Session 3", 3)).toBe(true);
+    expect(isSelfReferentialName("session 3", 3)).toBe(true);
+    expect(isSelfReferentialName("Session 03", 3)).toBe(true);
+    expect(isSelfReferentialName("Session 3:", 3)).toBe(true);
+    expect(isSelfReferentialName("Session 3: Session 3", 3)).toBe(true);
+    expect(isSelfReferentialName("Database Foundation", 3)).toBe(false);
+    expect(isSelfReferentialName("", 3)).toBe(true);
+    expect(isSelfReferentialName(null, 3)).toBe(true);
   });
 });

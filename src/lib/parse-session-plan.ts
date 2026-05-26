@@ -14,6 +14,13 @@ export interface ParsedCrossSystemAction {
 export interface ParsedSession {
   index: number;
   name: string;
+  /**
+   * True when `name` was synthesized by the parser because the spec heading
+   * lacked a descriptive title (`### Session N` with no `: <title>` part).
+   * UI / commit code uses this to avoid emitting `Session N: Session N`-style
+   * self-referential labels.
+   */
+  nameIsFallback?: boolean;
   scope: string;
   readSections: string;
   files: string[];
@@ -21,6 +28,133 @@ export interface ParsedSession {
   verifyChecks: { label: string; kind?: ParsedCheckKind }[];
   verificationPrompt?: string | null;
   crossSystemActions?: ParsedCrossSystemAction[];
+}
+
+/**
+ * Strip surrounding markdown/punctuation noise from a derived title fragment
+ * and clamp to a sane display width.
+ */
+function tidyTitleFragment(raw: string, maxLen = 60): string {
+  let s = raw.replace(/[`*_]+/g, "").trim();
+  // Drop a leading bullet/numbering remnant.
+  s = s.replace(/^[-*•]\s+/, "").replace(/^\d+[.)]\s+/, "");
+  // Collapse internal whitespace.
+  s = s.replace(/\s+/g, " ");
+  if (s.length <= maxLen) return s;
+  // Cut at the last word boundary inside the limit so we never dangle a
+  // partial word.
+  const cut = s.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 20 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\-—]+$/, "").trim();
+}
+
+/**
+ * Convert a kebab/snake/path filename into a Title-Case-ish phrase usable as
+ * a session title (e.g. `tech-stack-edge-function.ts` → `Tech Stack Edge
+ * Function`). Returns "" when the input doesn't yield anything readable.
+ */
+function fileBasenameToTitle(filePath: string): string {
+  const base = filePath.split("/").pop() ?? filePath;
+  // Drop one trailing extension (.ts, .tsx, .test.ts handled below in two
+  // passes by stripping again if a leading ".test"/".spec" remains).
+  let stem = base.replace(/\.[A-Za-z0-9]+$/, "");
+  stem = stem.replace(/\.(test|spec)$/i, "");
+  const words = stem.split(/[-_.\s]+/).filter(Boolean);
+  if (words.length === 0) return "";
+  return words
+    .map((w) => (w.length <= 3 ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+/**
+ * Derive a meaningful session title when the spec heading lacks one.
+ * Priority: Scope sentence → first file basename → first prompt line.
+ * Returns "" only when none of those sources yielded content (caller decides
+ * how to label that — see `parseOneSession`).
+ */
+export function deriveSessionName(
+  scope: string,
+  files: readonly string[],
+  prompt: string,
+): string {
+  if (scope) {
+    // First clause = up to the first sentence-ending punctuation.
+    const clause = scope.split(/[.;]|\s—\s|\s-\s/)[0] ?? scope;
+    const tidy = tidyTitleFragment(clause);
+    if (tidy) return tidy;
+  }
+  if (files.length > 0) {
+    const head = fileBasenameToTitle(files[0]);
+    if (head) {
+      return files.length > 1 ? `${head} +${files.length - 1}` : head;
+    }
+  }
+  if (prompt) {
+    const firstLine = prompt
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !/^read\s+docs\/specs\//i.test(l));
+    if (firstLine) {
+      const tidy = tidyTitleFragment(firstLine);
+      if (tidy) return tidy;
+    }
+  }
+  return "";
+}
+
+/**
+ * Returns true when `name` is a "Session N"-style self-reference that
+ * shouldn't be appended after `Session N:` in display strings or commit
+ * messages. Matches "Session 7", "Session 7:", "Session 7: Session 7", and
+ * also a bare numeric "7" or "Session 07".
+ */
+export function isSelfReferentialName(name: string | null | undefined, index: number): boolean {
+  if (!name) return true;
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  // Strip a leading "Session N" prefix (with optional zero-pad + colon) and
+  // see if anything remains.
+  const stripped = trimmed
+    .replace(new RegExp(`^session\\s*0*${index}\\b:?\\s*`, "i"), "")
+    .trim();
+  if (stripped.length === 0) return true;
+  // The recursive `Session N: Session N` pattern.
+  return new RegExp(`^session\\s*0*${index}\\b`, "i").test(stripped);
+}
+
+/**
+ * Strip a `Session N` / `Session N:` self-prefix off `name`, returning the
+ * remaining descriptive part. Returns "" if nothing descriptive remains.
+ */
+export function stripSessionPrefix(
+  name: string | null | undefined,
+  index: number,
+): string {
+  if (!name) return "";
+  let s = name.trim();
+  // Peel off "Session N" / "Session N:" possibly multiple times for the
+  // double-up "Session 1: Session 1" case.
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(new RegExp(`^session\\s*0*${index}\\b:?\\s*`, "i"), "").trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+/**
+ * Build the canonical display label for a guide session:
+ * "Session N: <descriptive>" — or just "Session N" when the descriptive part
+ * is empty or self-referential. Used by the guide UI, log entries, commit
+ * message construction, and the verify prompt builder so every surface
+ * agrees on how a session is named.
+ */
+export function formatSessionLabel(
+  index: number,
+  name: string | null | undefined,
+): string {
+  const clean = stripSessionPrefix(name, index);
+  return clean ? `Session ${index}: ${clean}` : `Session ${index}`;
 }
 
 /**
@@ -283,7 +417,19 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
   // Extract session name from the heading remainder
   // Input: ": Database & Infrastructure (~5 files)\n..."
   const nameMatch = chunk.match(/^:\s*(.+?)(?:\s*\(~?\d+\s*files?\))?\s*$/m);
-  const name = nameMatch?.[1]?.trim() ?? `Session ${index}`;
+  const headingName = nameMatch?.[1]?.trim() ?? "";
+  // Detect when the heading-supplied name is effectively a self-reference
+  // (e.g. `### Session 1: Session 1` or `### Session 7: Session 7`) and
+  // treat it as "no name" so the fallback derivation kicks in below.
+  // We accept ANY `Session \d+` placeholder here — not just one matching
+  // `index` — because:
+  //   1. The result-array index is sequential and may diverge from the
+  //      heading number when the spec contains [DEFER] or Phase blocks.
+  //   2. No realistic spec uses literally `Session 12` as a descriptive
+  //      title for a different session — it's always a placeholder.
+  const headingIsPlaceholder =
+    headingName.length === 0 || /^session\s*0*\d+\b:?\s*(?:session\s*0*\d+\b:?\s*)?$/i.test(headingName);
+  const headingIsUseful = !headingIsPlaceholder;
 
   // Extract **Scope:** line
   const scopeMatch = chunk.match(/\*\*Scope:\*\*\s*(.+)/);
@@ -347,9 +493,30 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
 
   const crossSystemActions = extractCrossSystemActions(chunk);
 
+  // Settle the final session name. When the heading didn't carry a useful
+  // descriptive title, derive one from Scope / Files / Prompt so the UI and
+  // auto-commit text never emit "Session N: Session N".
+  let name: string;
+  let nameIsFallback = false;
+  if (headingIsUseful) {
+    name = headingName;
+  } else {
+    const derived = deriveSessionName(scope, files, prompt);
+    if (derived) {
+      name = derived;
+      nameIsFallback = true;
+    } else {
+      // Truly nothing to derive from — leave name empty and let the UI/commit
+      // code render just "Session N" without a redundant suffix.
+      name = "";
+      nameIsFallback = true;
+    }
+  }
+
   return {
     index,
     name,
+    nameIsFallback: nameIsFallback || undefined,
     scope,
     readSections,
     files,
