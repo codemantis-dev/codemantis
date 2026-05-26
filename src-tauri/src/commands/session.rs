@@ -121,6 +121,34 @@ pub async fn create_session(
         log::warn!("Failed to set was_open flag: {}", e);
     }
 
+    // Resume sessions: persist the inbound `resume_cli_session_id` immediately
+    // so the row is recoverable BEFORE the CLI's first System/init reaches us.
+    // Without this, a crash between spawn and the init event would leave the
+    // sessions row with cli_session_id=NULL forever — and the Resume Session
+    // tab filters on `cli_session_id IS NOT NULL`, so the session becomes
+    // invisible despite its messages being preserved. Regression for the
+    // "Spec-Forge 4 lost after dev crash" incident (2026-05-26).
+    //
+    // The CLI may report a different cli_session_id back in its init event
+    // (especially on resume — Claude can mint a fresh forked id); the normal
+    // message-router path will overwrite this value if so, which is fine.
+    // What we MUST avoid is leaving the row unmarked when we already know the
+    // resume token.
+    if let Some(ref resume_id) = resume_cli_session_id {
+        if let Err(e) = state.database.set_cli_session_id(&session_info.id, resume_id) {
+            log::warn!(
+                "[create_session] Failed to persist resume cli_session_id for {}: {} \
+                 (session will still spawn but may not surface in Resume on next crash)",
+                session_info.id, e
+            );
+        } else {
+            log::info!(
+                "[create_session] Persisted resume cli_session_id={} for new session {}",
+                resume_id, session_info.id
+            );
+        }
+    }
+
     // Get approval server port (Claude only — Codex ignores this).
     let approval_port = {
         let port = state.approval_server_port.lock().await;
@@ -787,6 +815,11 @@ pub async fn list_recent_sessions(
 /// the cli_session_id needed for `claude --resume` and the icon/name needed
 /// to redraw the tab. Sessions without a cli_session_id (CLI never returned
 /// System/init) are skipped — they can't be resumed.
+///
+/// Empty placeholders (`has_stored_messages=false`) are also skipped and have
+/// their `was_open` flag cleared inline — they contribute nothing to recovery
+/// and previously polluted the Resume list once auto-ack promoted them to
+/// `status='closed'`.
 #[tauri::command]
 pub async fn list_crashed_sessions(
     state: State<'_, AppState>,
@@ -798,6 +831,24 @@ pub async fn list_crashed_sessions(
 
     let mut entries = Vec::new();
     for session in crashed {
+        if !session.has_stored_messages {
+            // Empty placeholder — never used. Clear was_open so it doesn't
+            // keep surfacing on every restart, but DO NOT promote to 'closed'
+            // (that would put it in the Resume list).
+            if let Err(e) = state.database.set_session_was_open(&session.id, false) {
+                log::warn!(
+                    "[list_crashed_sessions] failed to clear was_open for empty placeholder {}: {}",
+                    session.id, e
+                );
+            } else {
+                log::info!(
+                    "[list_crashed_sessions] skipping + cleaning empty placeholder id={} name={:?}",
+                    session.id, session.name
+                );
+            }
+            continue;
+        }
+
         let headlines: Vec<String> = state
             .database
             .list_changelog_entries(&session.id)
@@ -845,9 +896,15 @@ pub async fn acknowledge_crashed_sessions(
     state: State<'_, AppState>,
     session_ids: Vec<String>,
 ) -> Result<(), String> {
-    let now = Utc::now().to_rfc3339();
-    for id in &session_ids {
-        match state.database.mark_session_closed_if_stale(id, &now) {
+    // Stagger closed_at by 1ms per entry so the Resume list (which orders by
+    // closed_at DESC) has a stable, predictable order even when the entire
+    // batch is acknowledged in one tick. Without this, every row received the
+    // same RFC3339 second and SQLite's natural row order broke the tie —
+    // interleaving real sessions with empty placeholders unpredictably.
+    let base = Utc::now();
+    for (i, id) in session_ids.iter().enumerate() {
+        let ts = (base + chrono::Duration::milliseconds(i as i64)).to_rfc3339();
+        match state.database.mark_session_closed_if_stale(id, &ts) {
             Ok(true) => log::info!(
                 "[acknowledge_crashed_sessions] Promoted {} to closed for Resume list",
                 id

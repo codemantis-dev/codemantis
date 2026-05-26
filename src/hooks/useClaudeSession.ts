@@ -48,7 +48,7 @@ interface UseClaudeSessionReturn {
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
-  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string) => Promise<string>;
+  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string, preloadedMessages?: Message[]) => Promise<string>;
   /**
    * Add a tab in 'paused-recovered' status from a crash-recovery entry.
    * Loads the stored transcript but does NOT spawn a CLI subprocess; the user
@@ -280,7 +280,8 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     projectPath: string,
     cliSessionId: string,
     originalName: string,
-    originalSessionId?: string
+    originalSessionId?: string,
+    preloadedMessages?: Message[],
   ): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
@@ -297,9 +298,17 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         sessionStore.getState().setSessionEffort(session.id, spawnEffort);
       }
 
-      // Always load stored messages if they exist (regardless of current sessionLogsEnabled toggle —
-      // the toggle controls saving, not loading; previously saved messages should always be accessible)
-      if (originalSessionId) {
+      // Populate messages synchronously right after addSession so the chat
+      // renders with content on its very first paint — no empty flash.
+      // Preloaded path is used by resumeRecoveredSession (we already have the
+      // messages in memory from the paused-recovered tab); the DB-load path
+      // is used by the Recent Sessions picker.
+      if (preloadedMessages && preloadedMessages.length > 0) {
+        const storeState = sessionStore.getState();
+        const sessionMessages = new Map(storeState.sessionMessages);
+        sessionMessages.set(session.id, preloadedMessages.map((m) => ({ ...m, isRestored: true })));
+        sessionStore.setState({ sessionMessages });
+      } else if (originalSessionId) {
         try {
           const stored = await loadSessionMessages(originalSessionId);
           console.info(`[resumeFromHistory] Loaded ${stored.length} stored messages for ${originalSessionId} → new session ${session.id}`);
@@ -408,9 +417,24 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       `[resumeRecoveredSession] paused session name=${JSON.stringify(session.name)} cli_session_id=${cliSessionId} project_path=${JSON.stringify(session.project_path)}`
     );
 
-    // Detach the placeholder before resumeFromHistory so its tab slot frees up
-    // (also avoids tripping the MAX_SESSIONS guard on full workspaces).
-    sessionStore.getState().removeSession(pausedSessionId);
+    // Capture the in-memory messages from the paused tab BEFORE we modify
+    // the store. Passing them to resumeFromHistory lets the new session paint
+    // with content immediately, eliminating the empty-flash users reported
+    // when the old code did `removeSession → createSession → loadFromDB`.
+    const pausedMessages = sessionStore.getState().sessionMessages.get(pausedSessionId) ?? [];
+
+    // Tab-slot accounting: temporarily reserve the slot by NOT removing the
+    // paused tab yet. If resumeFromHistory hits MAX_SESSIONS we'd refuse the
+    // resume but leave the user without their tab. Instead, check capacity
+    // here and rely on the fact that we'll remove the paused tab right after
+    // the new one is in place.
+    const tabCount = sessionStore.getState().tabOrder.length;
+    if (tabCount >= MAX_SESSIONS) {
+      // The paused tab itself occupies a slot, so removing it before resume
+      // is the only way to stay under the cap. Accept the brief flash in
+      // this edge case — it's the only path that doesn't drop the user's tab.
+      sessionStore.getState().removeSession(pausedSessionId);
+    }
 
     let newSessionId: string;
     try {
@@ -419,10 +443,18 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         cliSessionId,
         session.name,
         pausedSessionId,
+        pausedMessages,
       );
     } catch (e) {
       handleError("Failed to resume recovered session", e);
       return null;
+    }
+
+    // Atomic swap: the new tab is now in place WITH its messages. Remove the
+    // paused placeholder. The user perceives a single transition rather than
+    // empty-then-populated.
+    if (sessionStore.getState().sessions.has(pausedSessionId)) {
+      sessionStore.getState().removeSession(pausedSessionId);
     }
 
     if (oldIndex >= 0) {

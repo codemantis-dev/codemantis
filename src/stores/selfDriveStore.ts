@@ -1528,10 +1528,19 @@ async function handleTurnComplete(payload: TurnCompleteEvent): Promise<void> {
   try {
     decision = await callOrchestrator(orchestratorInput, config.provider, apiKey, config.model);
 
-    // Retry once on parse failure (transient LLM format errors)
+    // Retry once on parse failure. Pass the previous pauseReason as a
+    // retry hint so the retry call appends a corrective addendum to the
+    // system prompt — without that, a deterministic model produces the
+    // same wrong shape twice and Self-Drive pauses on a recoverable error.
     if (decision.action === "pause" && decision.pauseReason?.includes("Could not parse AI response")) {
       addLogEntry(state.currentSessionIndex!, "evaluating", "Orchestrator parse error — retrying...");
-      decision = await callOrchestrator(orchestratorInput, config.provider, apiKey, config.model);
+      decision = await callOrchestrator(
+        orchestratorInput,
+        config.provider,
+        apiKey,
+        config.model,
+        decision.pauseReason,
+      );
     }
   } catch (err) {
     handlePause(`AI orchestrator error: ${err}. Check your API key and network.`);

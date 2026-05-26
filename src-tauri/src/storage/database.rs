@@ -611,12 +611,22 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
+        // Defensive filter: only surface sessions that actually have stored
+        // messages (see comment on list_recent_closed_sessions). We accept
+        // both cleanly-closed sessions AND `was_open=1` rows — the latter are
+        // sessions whose previous shutdown was violent and whose recovery
+        // hydration either didn't fire or failed; Resume Session is their
+        // safety net so they never become invisible to the user. The
+        // `closed_at IS NULL` fallback to `created_at` keeps sorting sane.
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
                  EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
-                 FROM sessions s WHERE s.project_path = ?1 AND s.status = 'closed' AND s.cli_session_id IS NOT NULL \
-                 ORDER BY s.closed_at DESC LIMIT ?2"
+                 FROM sessions s WHERE s.project_path = ?1 \
+                 AND (s.status = 'closed' OR s.was_open = 1) \
+                 AND s.cli_session_id IS NOT NULL \
+                 AND EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 ORDER BY COALESCE(s.closed_at, s.created_at) DESC LIMIT ?2"
             )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
@@ -695,12 +705,27 @@ impl Database {
         let conn = self.conn.lock().map_err(|e| {
             AppError::DatabaseError(format!("Lock poisoned: {}", e))
         })?;
+        // Defensive filter: only surface sessions that actually have stored
+        // messages. Without this, empty placeholders that crash-recovery
+        // promoted to 'closed' (pre-fix DBs) would pollute the Resume list.
+        //
+        // We accept BOTH cleanly-closed sessions AND `was_open=1` rows.
+        // The latter are sessions whose previous shutdown was violent and
+        // whose recovery hydration either never ran or silently failed —
+        // surfacing them in Resume Session ensures the user can always find
+        // a session they once worked on, even when the dedicated crash-
+        // recovery banner missed it. Ordering by `COALESCE(closed_at,
+        // created_at)` keeps cleanly-closed sessions sorting by close time
+        // while was_open=1 rows (closed_at IS NULL) sort by when they opened.
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
-                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
-                 FROM sessions s WHERE s.status = 'closed' AND s.cli_session_id IS NOT NULL \
-                 ORDER BY s.closed_at DESC LIMIT ?1"
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) AS has_msgs \
+                 FROM sessions s \
+                 WHERE (s.status = 'closed' OR s.was_open = 1) \
+                 AND s.cli_session_id IS NOT NULL \
+                 AND EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 ORDER BY COALESCE(s.closed_at, s.created_at) DESC LIMIT ?1"
             )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
 
@@ -1924,6 +1949,8 @@ mod tests {
 
     #[test]
     fn test_has_stored_messages_in_closed_sessions_listing() {
+        // Updated for the empty-placeholder filter: sessions without stored
+        // messages are no longer surfaced in the per-project closed list.
         let db = Database::new(":memory:").unwrap();
         db.insert_session("s1", "With msgs", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
@@ -1933,10 +1960,9 @@ mod tests {
         db.save_session_messages("s1", &make_test_messages("s1", 2)).unwrap();
 
         let sessions = db.list_closed_sessions_for_project("/project", 20).unwrap();
-        let s1 = sessions.iter().find(|s| s.id == "s1").unwrap();
-        let s2 = sessions.iter().find(|s| s.id == "s2").unwrap();
-        assert!(s1.has_stored_messages);
-        assert!(!s2.has_stored_messages);
+        let ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["s1"], "s2 (empty placeholder) must be filtered out");
+        assert!(sessions[0].has_stored_messages);
     }
 
     #[test]
@@ -1949,6 +1975,8 @@ mod tests {
             let closed_at = format!("2026-01-01T00:00:{:02}Z", i);
             db.insert_session(&id, &id, &project, "closed", &closed_at, None, 0, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli-{:02}", i)), None, &closed_at).unwrap();
+            // Empty-placeholder filter requires at least one stored message.
+            db.save_session_messages(&id, &make_test_messages(&id, 1)).unwrap();
         }
         // Also seed an active and a closed-without-cli row that must be excluded.
         db.insert_session("active", "Active", "/p0", "connected", "2026-02-01T00:00:00Z", None, 0, "claude_code").unwrap();
@@ -1984,6 +2012,7 @@ mod tests {
             let closed_at = format!("2026-01-01T00:00:0{}Z", i);
             db.insert_session(&id, &id, "/p", "closed", &closed_at, None, 0, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli-{}", i)), None, &closed_at).unwrap();
+            db.save_session_messages(&id, &make_test_messages(&id, 1)).unwrap();
         }
         let recent = db.list_recent_closed_sessions(3).unwrap();
         assert_eq!(recent.len(), 3);
@@ -2001,19 +2030,35 @@ mod tests {
     }
 
     #[test]
-    fn test_list_recent_closed_sessions_reflects_has_stored_messages() {
+    fn test_list_recent_closed_sessions_filters_out_empty_placeholders() {
+        // Empty placeholders (closed sessions with no stored messages) used to
+        // pollute the Resume list when crash-recovery auto-promoted them. The
+        // defensive SQL filter must now hide them entirely.
         let db = Database::new(":memory:").unwrap();
         db.insert_session("s1", "With msgs", "/pa", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
-        db.insert_session("s2", "Without msgs", "/pb", "closed", "2026-01-02T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.insert_session("s2", "Empty placeholder", "/pb", "closed", "2026-01-02T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
         db.save_session_messages("s1", &make_test_messages("s1", 1)).unwrap();
 
         let recent = db.list_recent_closed_sessions(20).unwrap();
-        let s1 = recent.iter().find(|s| s.id == "s1").unwrap();
-        let s2 = recent.iter().find(|s| s.id == "s2").unwrap();
-        assert!(s1.has_stored_messages);
-        assert!(!s2.has_stored_messages);
+        let ids: Vec<&str> = recent.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["s1"], "empty placeholder s2 must be filtered out");
+        assert!(recent[0].has_stored_messages);
+    }
+
+    #[test]
+    fn test_list_closed_sessions_for_project_filters_out_empty_placeholders() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("real", "Real", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.close_session_with_details("real", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.insert_session("empty", "Empty Claude 1", "/project", "closed", "2026-01-02T00:00:00Z", None, 0, "claude_code").unwrap();
+        db.close_session_with_details("empty", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+        db.save_session_messages("real", &make_test_messages("real", 2)).unwrap();
+
+        let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
+        let ids: Vec<&str> = closed.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["real"], "empty placeholder must not appear in per-project picker");
     }
 
     #[test]
@@ -2362,11 +2407,13 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
         db.insert_session("s1", "Closed", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", Some("cli1"), None, "2026-01-01T01:00:00Z").unwrap();
+        db.save_session_messages("s1", &make_test_messages("s1", 1)).unwrap();
 
         db.insert_session("s2", "Active", "/project", "connected", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
 
         db.insert_session("s3", "Other project", "/other", "closed", "2026-01-03T00:00:00Z", None, 2, "claude_code").unwrap();
         db.close_session_with_details("s3", Some("cli3"), None, "2026-01-03T01:00:00Z").unwrap();
+        db.save_session_messages("s3", &make_test_messages("s3", 1)).unwrap();
 
         let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
         assert_eq!(closed.len(), 1);
@@ -2380,10 +2427,12 @@ mod tests {
         // Closed but without cli_session_id
         db.insert_session("s1", "Closed no CLI", "/project", "closed", "2026-01-01T00:00:00Z", None, 0, "claude_code").unwrap();
         db.close_session_with_details("s1", None, None, "2026-01-01T01:00:00Z").unwrap();
+        db.save_session_messages("s1", &make_test_messages("s1", 1)).unwrap();
 
         // Closed with cli_session_id
         db.insert_session("s2", "Closed with CLI", "/project", "closed", "2026-01-02T00:00:00Z", None, 1, "claude_code").unwrap();
         db.close_session_with_details("s2", Some("cli2"), None, "2026-01-02T01:00:00Z").unwrap();
+        db.save_session_messages("s2", &make_test_messages("s2", 1)).unwrap();
 
         let closed = db.list_closed_sessions_for_project("/project", 10).unwrap();
         assert_eq!(closed.len(), 1);
@@ -2398,6 +2447,7 @@ mod tests {
             let closed_at = format!("2026-01-{:02}T01:00:00Z", i + 1);
             db.insert_session(&id, "Session", "/project", "closed", &format!("2026-01-{:02}T00:00:00Z", i + 1), None, i, "claude_code").unwrap();
             db.close_session_with_details(&id, Some(&format!("cli{}", i)), None, &closed_at).unwrap();
+            db.save_session_messages(&id, &make_test_messages(&id, 1)).unwrap();
         }
 
         let closed = db.list_closed_sessions_for_project("/project", 3).unwrap();

@@ -266,4 +266,64 @@ describe("crash-recovery hydration", () => {
 
     expect(useSessionStore.getState().tabOrder).toEqual([]);
   });
+
+  it("resumeRecoveredSession carries paused-tab messages into the new session WITHOUT re-fetching from DB (anti-flicker fix)", async () => {
+    // Regression: pre-fix resumeRecoveredSession did
+    //   removeSession(pausedId) → createSession → loadSessionMessages → setState
+    // The await on loadSessionMessages caused the new tab to render empty
+    // before the messages arrived. Users observed "content briefly shows
+    // then clears". The fix: capture in-memory messages from the paused tab
+    // and pass them to resumeFromHistory as `preloadedMessages` so the new
+    // session is populated synchronously after addSession.
+    loadSessionMessagesMock.mockImplementation(async (sessionId: unknown) => {
+      if (sessionId === "paused-id") {
+        return [
+          { id: "m1", role: "user", content: "history-line-1", timestamp: "2026-01-01T00:00:00Z", thinkingContent: null, sortOrder: 0 },
+          { id: "m2", role: "assistant", content: "history-line-2", timestamp: "2026-01-01T00:00:01Z", thinkingContent: null, sortOrder: 1 },
+        ];
+      }
+      return [];
+    });
+    listCrashedSessionsMock.mockResolvedValue([entry("paused-id", "Paused tab")]);
+    createSessionMock.mockResolvedValue({
+      id: "new-id",
+      name: "Paused tab",
+      project_path: "/p",
+      status: "connected",
+      created_at: "2026-01-01T00:00:00Z",
+      model: null,
+      icon_index: 0,
+      cli_session_id: "cli-paused-id",
+    } as unknown as Session);
+
+    const { result } = renderHook(() => useClaudeSession());
+
+    // First: hydrate so the paused tab exists with messages in the store.
+    await act(async () => {
+      await hydratePersistedOpenSessions(result.current.restorePausedSession);
+    });
+    expect(useSessionStore.getState().sessionMessages.get("paused-id") ?? []).toHaveLength(2);
+
+    // Reset the loadSessionMessages mock to verify it isn't called again
+    // during the resume — the messages must come from in-memory state.
+    loadSessionMessagesMock.mockClear();
+
+    // Now resume the paused tab.
+    let newId: string | null = null;
+    await act(async () => {
+      newId = await result.current.resumeRecoveredSession("paused-id");
+    });
+
+    expect(newId).toBe("new-id");
+    // The paused tab is gone, the new tab is in place.
+    expect(useSessionStore.getState().sessions.has("paused-id")).toBe(false);
+    expect(useSessionStore.getState().sessions.has("new-id")).toBe(true);
+    // Critically: messages were carried over without a DB round-trip.
+    expect(loadSessionMessagesMock).not.toHaveBeenCalled();
+    const newMsgs = useSessionStore.getState().sessionMessages.get("new-id") ?? [];
+    expect(newMsgs).toHaveLength(2);
+    expect(newMsgs.map((m) => m.content)).toEqual(["history-line-1", "history-line-2"]);
+    // isRestored is preserved/applied on the new session's messages.
+    expect(newMsgs.every((m) => m.isRestored === true)).toBe(true);
+  });
 });

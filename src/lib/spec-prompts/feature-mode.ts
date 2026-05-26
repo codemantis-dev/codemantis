@@ -924,6 +924,13 @@ ceiling — these are the soft heuristics that should keep you under it):
   a clean context window with focused instructions. Suffix sub-sessions
   (Session 3a / 3b / 3c) are cheap; oversized sessions cost a recheck
   round and may still ship broken
+- When splitting into suffix sub-sessions, the parent \`### Session N:\`
+  wrapper heading is OPTIONAL. If you emit one (for the reader's
+  navigation), it MUST contain an \`**Indivisible note:**\` line so the
+  guide recognizer treats it as a wrapper and skips it — otherwise the
+  wrapper will be reported as a session missing its Prompt for Claude
+  Code fenced block. The real implementation prompts live in the
+  suffix-numbered children (\`### Session 1a:\`, \`### Session 1b:\`, …).
 
 DEPLOYMENT ACTIONS — MANDATORY IN SESSION PROMPTS:
 If a session creates or modifies any of the following, the session

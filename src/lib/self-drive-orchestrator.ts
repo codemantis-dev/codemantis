@@ -412,8 +412,22 @@ export async function callOrchestrator(
   provider: string,
   apiKey: string,
   model: string,
+  retryHint?: string,
 ): Promise<OrchestratorDecision> {
-  const systemPrompt = buildSystemPrompt();
+  let systemPrompt = buildSystemPrompt();
+  if (retryHint && retryHint.trim().length > 0) {
+    // Retry path — the previous call failed to parse. Append a corrective
+    // addendum that names the previous error and reinforces the strict
+    // top-level JSON contract. This is the only difference between the
+    // first attempt and the retry; without it, a deterministic model
+    // produces the same wrong shape twice and pauses Self-Drive.
+    systemPrompt +=
+      `\n\nRETRY — your previous response failed to parse. Reason: ${retryHint.trim()}.` +
+      ` Return ONLY a single JSON object at the TOP LEVEL with the required fields` +
+      ` (action, summary, confidence). Do NOT wrap it in any container object such as` +
+      ` "decision", "output", or "reasoning". Do NOT include any prose, markdown, or` +
+      ` example objects before the JSON.`;
+  }
   const userMessage = buildUserMessage(input);
 
   // Set up response accumulation
@@ -473,9 +487,22 @@ export async function callOrchestrator(
           }
           resolve(guarded.decision);
         } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          // Surface what the model actually returned so the failure is
+          // self-diagnosing. Console gets the long preview for devtools;
+          // pauseReason carries a short preview that lands in the UI.
+          console.error("[self-drive] orchestrator parse failed", {
+            error: errMsg,
+            contentLength: content.length,
+            contentPreview: content.slice(0, 4000),
+          });
+          const preview = content
+            .slice(0, 300)
+            .replace(/\s+/g, " ")
+            .trim();
           resolve({
             action: "pause",
-            pauseReason: `Could not parse AI response: ${e instanceof Error ? e.message : String(e)}`,
+            pauseReason: `Could not parse AI response: ${errMsg}${preview ? ` | preview: ${preview}` : ""}`,
             summary: "Parse error — pausing",
             confidence: "low",
           });
@@ -574,7 +601,26 @@ function parseOrchestratorResponse(content: string): OrchestratorDecision {
     throw wrapped;
   }
 
-  // Validate required fields
+  // Validate required fields. Some models (notably reasoning variants
+  // and Gemini under strict-JSON instructions) wrap the decision in a
+  // container like {"decision":{...}} or {"reasoning":"...","output":{...}}.
+  // Before failing, scan one level down for a child object that has an
+  // action field — this absorbs the most common LLM wrapper-shape failure
+  // without changing the success path.
+  if (!parsed.action || typeof parsed.action !== "string") {
+    for (const key of Object.keys(parsed)) {
+      const v = parsed[key];
+      if (
+        v &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        typeof (v as { action?: unknown }).action === "string"
+      ) {
+        parsed = v;
+        break;
+      }
+    }
+  }
   if (!parsed.action || typeof parsed.action !== "string") {
     throw new Error("Missing or invalid 'action' field");
   }

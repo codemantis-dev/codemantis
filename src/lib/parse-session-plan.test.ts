@@ -1203,3 +1203,329 @@ describe("session-label helpers", () => {
     expect(isSelfReferentialName(null, 3)).toBe(true);
   });
 });
+
+// ── Resilience: suffix sub-sessions, wrapper headings, fence/casing
+// variations — regression for the juliam-twin-v1-2-enhancement.md class
+// of spec where `### Session 1:` is a parent wrapper for `### Session 1a:`,
+// `### Session 1b:`, `### Session 1c:`. ────────────────────────────────
+
+describe("parseSessionPlan — sub-session suffix resilience", () => {
+  it("parses suffix-numbered sub-sessions (1a, 1b, 1c) as independent sessions", () => {
+    const content = `
+### Session 1a: Migrations
+**Prompt for Claude Code:**
+\`\`\`
+Migrations step.
+\`\`\`
+
+### Session 1b: Edge functions
+**Prompt for Claude Code:**
+\`\`\`
+Edge fn step.
+\`\`\`
+
+### Session 1c: Deploy
+**Prompt for Claude Code:**
+\`\`\`
+Deploy step.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(3);
+    expect(result!.sessions.map((s) => s.name)).toEqual([
+      "Migrations",
+      "Edge functions",
+      "Deploy",
+    ]);
+    expect(result!.sessions.map((s) => s.prompt)).toEqual([
+      "Migrations step.",
+      "Edge fn step.",
+      "Deploy step.",
+    ]);
+  });
+
+  it("skips a `### Session N:` wrapper that carries an explicit **Indivisible note:**", () => {
+    const content = `
+### Session 1: MS365 connection state fix (~7 files)
+
+**Indivisible note:** This session is split into three suffix-numbered sub-sessions (1a / 1b / 1c) per the size ceiling. Sessions 1a–1c collectively deliver C1.
+
+**User-visible outcome:** (foundation)
+
+### Session 1a: Migrations
+**Prompt for Claude Code:**
+\`\`\`
+Migrations step.
+\`\`\`
+
+### Session 1b: Functions
+**Prompt for Claude Code:**
+\`\`\`
+Functions step.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].name).toBe("Migrations");
+    expect(result!.sessions[1].name).toBe("Functions");
+  });
+
+  it("structurally skips a `### Session N:` wrapper followed by `### Session Na:` even WITHOUT the Indivisible-note marker", () => {
+    // Resilience case: LLM forgot the marker but the structural pattern
+    // is unambiguous — parent w/o prompt immediately shadowed by child 1a.
+    const content = `
+### Session 1: Wrapper without marker
+
+Just a paragraph here, no prompt block, no Indivisible note line.
+
+### Session 1a: First child
+**Prompt for Claude Code:**
+\`\`\`
+First child work.
+\`\`\`
+
+### Session 1b: Second child
+**Prompt for Claude Code:**
+\`\`\`
+Second child work.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].name).toBe("First child");
+  });
+
+  it("preserves the spec's full `Na`-style label in the diagnose error message", () => {
+    // Sub-session whose own prompt is missing should be named "Session 1b",
+    // not "Session 1" (which would point at the wrong block). The fixture
+    // needs at least two prompted sessions so we reach the offending-session
+    // branch instead of the "only one usable session" early-out.
+    const content = `
+### Session 1a: First child
+**Prompt for Claude Code:**
+\`\`\`
+First child work.
+\`\`\`
+
+### Session 1b: Second child — accidentally has no prompt
+**Scope:** Phase 1b
+
+### Session 2: Real session
+**Prompt for Claude Code:**
+\`\`\`
+Real work.
+\`\`\`
+`;
+    const reason = diagnoseSessionPlanFailure(makeSpec(content));
+    expect(reason).toMatch(/Session 1b\b/);
+    expect(reason).toMatch(/Prompt for Claude Code/);
+    expect(reason).toMatch(/Indivisible note/);
+  });
+
+  it("parses dotted (1.1) and dashed (1-1) sub-session numbering", () => {
+    const content = `
+### Session 1.1: Dotted child
+**Prompt for Claude Code:**
+\`\`\`
+Dotted work.
+\`\`\`
+
+### Session 1-2: Dashed child
+**Prompt for Claude Code:**
+\`\`\`
+Dashed work.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions.map((s) => s.name)).toEqual([
+      "Dotted child",
+      "Dashed child",
+    ]);
+  });
+
+  it("treats `### Session 1:` with its OWN prompt as a real session, not a wrapper, even when 1a follows", () => {
+    // Edge case: the parent both has a prompt AND is followed by 1a. The
+    // parent stays — only marker-less wrappers without prompts get skipped.
+    const content = `
+### Session 1: Standalone parent
+**Prompt for Claude Code:**
+\`\`\`
+Parent work.
+\`\`\`
+
+### Session 1a: Follow-up
+**Prompt for Claude Code:**
+\`\`\`
+Follow-up work.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].prompt).toBe("Parent work.");
+  });
+});
+
+describe("parseSessionPlan — fence + casing tolerance", () => {
+  it("accepts ~~~ as a fence in addition to ```", () => {
+    const content = `
+### Session 1: Tilde fence
+**Prompt for Claude Code:**
+~~~
+Tilde-fenced prompt.
+~~~
+
+### Session 2: Backtick fence
+**Prompt for Claude Code:**
+\`\`\`
+Backtick-fenced prompt.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].prompt).toBe("Tilde-fenced prompt.");
+  });
+
+  it("tolerates blank lines and `**Prompt for Claude Code**:` colon-outside-bold", () => {
+    const content = `
+### Session 1: Loose label
+**Prompt for Claude Code**:
+
+\`\`\`
+Loose label still works.
+\`\`\`
+
+### Session 2: Tight label
+**Prompt for Claude Code:**
+\`\`\`
+Tight label too.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+    expect(result!.sessions[0].prompt).toBe("Loose label still works.");
+  });
+
+  it("accepts H4 (####) Session headings as well as H3", () => {
+    const content = `
+#### Session 1: H4 heading
+**Prompt for Claude Code:**
+\`\`\`
+H4 work.
+\`\`\`
+
+#### Session 2: Another H4
+**Prompt for Claude Code:**
+\`\`\`
+More H4 work.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+  });
+
+  it("accepts zero-padded session numbers (Session 01, Session 02)", () => {
+    const content = `
+### Session 01: Padded one
+**Prompt for Claude Code:**
+\`\`\`
+First.
+\`\`\`
+
+### Session 02: Padded two
+**Prompt for Claude Code:**
+\`\`\`
+Second.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    expect(result!.sessions).toHaveLength(2);
+  });
+});
+
+describe("parseSessionPlan — juliam-twin-v1-2 wrapper regression", () => {
+  it("recognises a Session Plan that mixes wrapper headings, suffix children, audit wrap-up, and indivisible notes", () => {
+    // Microcosm of the user's juliam-twin-v1-2-enhancement.md scenario:
+    // wrapped Session 1 → 1a/1b/1c; plain Sessions 2 & 3; wrapped Session 4
+    // → 4a/4b; final Session 5 is an audit wrap-up.
+    const content = `
+### Session 1: MS365 connection state fix (~7 files)
+
+**Indivisible note:** Split into 1a / 1b / 1c.
+
+### Session 1a: Migrations
+**Prompt for Claude Code:**
+\`\`\`
+Migrations step.
+\`\`\`
+
+### Session 1b: Functions
+**Prompt for Claude Code:**
+\`\`\`
+Functions step.
+\`\`\`
+
+### Session 1c: Deploy
+**Prompt for Claude Code:**
+\`\`\`
+Deploy step.
+\`\`\`
+
+### Session 2: Onboarding decouple
+**Prompt for Claude Code:**
+\`\`\`
+Onboarding work.
+\`\`\`
+
+### Session 3: User-self identity
+**Prompt for Claude Code:**
+\`\`\`
+Identity work.
+\`\`\`
+
+### Session 4: Sender intent (~7 files)
+
+**Indivisible note:** Split into 4a / 4b.
+
+### Session 4a: Migration
+**Prompt for Claude Code:**
+\`\`\`
+Migration.
+\`\`\`
+
+### Session 4b: UI
+**Prompt for Claude Code:**
+\`\`\`
+UI.
+\`\`\`
+
+### Session 5: Full-spec verification audit
+**Verify (full audit):**
+\`\`\`
+Run the full audit.
+\`\`\`
+`;
+    const result = parseSessionPlan(makeSpec(content));
+    expect(result).not.toBeNull();
+    // 1a, 1b, 1c, 2, 3, 4a, 4b — wrappers skipped, audit wrap-up skipped.
+    expect(result!.sessions).toHaveLength(7);
+    expect(result!.sessions.map((s) => s.name)).toEqual([
+      "Migrations",
+      "Functions",
+      "Deploy",
+      "Onboarding decouple",
+      "User-self identity",
+      "Migration",
+      "UI",
+    ]);
+  });
+});

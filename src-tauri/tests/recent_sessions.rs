@@ -6,9 +6,13 @@
 //! `SessionHistoryEntry` records. These tests verify that combination behaves
 //! correctly end-to-end against a real SQLite database.
 
-use codemantis_lib::storage::database::Database;
+use codemantis_lib::storage::database::{Database, SessionMessageRow};
 
-/// Helper to create a closed session in one call.
+/// Helper to create a closed session with one stored message in one call.
+/// As of the empty-placeholder filter (see analyse-what-happened-over-…)
+/// `list_recent_closed_sessions` and `list_closed_sessions_for_project` only
+/// surface sessions that actually have stored messages, so every test fixture
+/// that expects a row to appear must include at least one message.
 fn seed_closed_session(
     db: &Database,
     id: &str,
@@ -21,6 +25,19 @@ fn seed_closed_session(
         .unwrap();
     db.close_session_with_details(id, Some(cli_session_id), None, closed_at)
         .unwrap();
+    db.save_session_messages(
+        id,
+        &[SessionMessageRow {
+            id: format!("{}-m1", id),
+            session_id: id.to_string(),
+            role: "user".to_string(),
+            content: "seed".to_string(),
+            timestamp: closed_at.to_string(),
+            thinking_content: None,
+            sort_order: 0,
+        }],
+    )
+    .unwrap();
 }
 
 #[test]
@@ -61,32 +78,23 @@ fn recent_sessions_caps_changelog_to_top_three() {
 }
 
 #[test]
-fn recent_sessions_has_stored_messages_flag_round_trips() {
-    use codemantis_lib::storage::database::SessionMessageRow;
-
+fn recent_sessions_filters_out_sessions_without_stored_messages() {
+    // Updated for the empty-placeholder filter: sessions without stored
+    // messages (e.g. "Claude 1" tabs the user opened but never used) are
+    // no longer surfaced in the Resume list.
     let db = Database::new(":memory:").unwrap();
-    seed_closed_session(&db, "s-with",    "With",    "/proj-a", "2026-04-01T10:00:00Z", "cli-1");
-    seed_closed_session(&db, "s-without", "Without", "/proj-b", "2026-04-02T10:00:00Z", "cli-2");
-
-    db.save_session_messages(
-        "s-with",
-        &[SessionMessageRow {
-            id: "m1".to_string(),
-            session_id: "s-with".to_string(),
-            role: "user".to_string(),
-            content: "hi".to_string(),
-            timestamp: "2026-04-01T10:00:01Z".to_string(),
-            thinking_content: None,
-            sort_order: 0,
-        }],
-    )
-    .unwrap();
+    // Real closed session with messages — must appear
+    seed_closed_session(&db, "s-with", "With", "/proj-a", "2026-04-01T10:00:00Z", "cli-1");
+    // Empty placeholder — directly insert + close without messages
+    db.insert_session("s-without", "Without", "/proj-b", "closed", "2026-04-02T10:00:00Z", None, 0, "claude_code")
+        .unwrap();
+    db.close_session_with_details("s-without", Some("cli-2"), None, "2026-04-02T10:00:00Z")
+        .unwrap();
 
     let rows = db.list_recent_closed_sessions(20).unwrap();
-    let with    = rows.iter().find(|r| r.id == "s-with").unwrap();
-    let without = rows.iter().find(|r| r.id == "s-without").unwrap();
-    assert!(with.has_stored_messages);
-    assert!(!without.has_stored_messages);
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, vec!["s-with"], "empty placeholder must not appear");
+    assert!(rows[0].has_stored_messages);
 }
 
 #[test]
@@ -102,4 +110,94 @@ fn recent_sessions_ordering_is_global_not_per_project() {
     let rows = db.list_recent_closed_sessions(20).unwrap();
     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
     assert_eq!(ids, vec!["a2".to_string(), "c1".to_string(), "b1".to_string(), "a1".to_string()]);
+}
+
+/// Regression for the "lost dev sessions" bug: a session that was open when
+/// the previous run crashed (status='connected', was_open=1) must still be
+/// reachable through Resume Session, even if the crash-recovery banner never
+/// got to acknowledge it. Without this, sessions become invisible to every
+/// UI surface and the user concludes they were deleted.
+#[test]
+fn recent_sessions_includes_was_open_rows_alongside_closed() {
+    let db = Database::new(":memory:").unwrap();
+
+    // Cleanly closed session — the baseline case.
+    seed_closed_session(&db, "clean", "Clean", "/proj-a", "2026-04-01T10:00:00Z", "cli-clean");
+
+    // Crashed-but-unacknowledged session: status stays 'connected', was_open=1,
+    // closed_at is NULL. We still seed a stored message so the
+    // "has stored messages" filter is satisfied — that filter is intentional;
+    // empty placeholders remain hidden by design.
+    db.insert_session(
+        "crashed",
+        "Crashed",
+        "/proj-b",
+        "connected",
+        "2026-04-02T10:00:00Z",
+        None,
+        0,
+        "claude_code",
+    )
+    .unwrap();
+    db.set_cli_session_id("crashed", "cli-crashed").unwrap();
+    db.set_session_was_open("crashed", true).unwrap();
+    db.save_session_messages(
+        "crashed",
+        &[SessionMessageRow {
+            id: "crashed-m1".to_string(),
+            session_id: "crashed".to_string(),
+            role: "user".to_string(),
+            content: "real work".to_string(),
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            thinking_content: None,
+            sort_order: 0,
+        }],
+    )
+    .unwrap();
+
+    // Global Resume list must surface BOTH rows.
+    let recent = db.list_recent_closed_sessions(20).unwrap();
+    let ids: Vec<&str> = recent.iter().map(|r| r.id.as_str()).collect();
+    assert!(
+        ids.contains(&"crashed"),
+        "Resume Session must surface was_open=1 rows so crash-recovery failures stay recoverable; got {:?}",
+        ids
+    );
+    assert!(ids.contains(&"clean"));
+    // Newest first: crashed (created 04-02) before clean (closed 04-01).
+    assert_eq!(ids, vec!["crashed", "clean"]);
+
+    // Per-project list shares the fix — same query path, same predicate.
+    let per_project = db.list_closed_sessions_for_project("/proj-b", 20).unwrap();
+    let ids2: Vec<&str> = per_project.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids2, vec!["crashed"]);
+}
+
+/// Conversely: a `was_open=1` row with NO stored messages stays hidden. The
+/// has-stored-messages filter is the existing line of defence against empty
+/// placeholder pollution and the Bug-1 fix MUST NOT widen it accidentally.
+#[test]
+fn recent_sessions_still_excludes_was_open_rows_without_messages() {
+    let db = Database::new(":memory:").unwrap();
+    db.insert_session(
+        "empty-crashed",
+        "Empty Crashed",
+        "/proj-c",
+        "connected",
+        "2026-04-03T10:00:00Z",
+        None,
+        0,
+        "claude_code",
+    )
+    .unwrap();
+    db.set_cli_session_id("empty-crashed", "cli-empty").unwrap();
+    db.set_session_was_open("empty-crashed", true).unwrap();
+    // No save_session_messages call — this is the empty-placeholder case.
+
+    let recent = db.list_recent_closed_sessions(20).unwrap();
+    assert!(
+        recent.is_empty(),
+        "was_open=1 rows without stored messages must stay hidden; got {:?}",
+        recent.iter().map(|r| &r.id).collect::<Vec<_>>()
+    );
 }

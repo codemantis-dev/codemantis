@@ -284,12 +284,20 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
   // --- Step 4: Parse each entry, skipping gates and deferred phases ---
   const sessions: ParsedSession[] = [];
 
-  for (const e of entries) {
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
     const firstLine = e.body.split("\n", 1)[0];
     // Phase 0 by convention is a pre-implementation gate (not a session);
     // [DEFER] phases are explicitly out of scope for the current cycle.
     if (/\[DEFER\]/i.test(firstLine)) continue;
-    if (e.keyword === "Phase" && e.num === 0) continue;
+    if (e.keyword === "Phase" && e.num === 0 && e.suffix === "") continue;
+
+    // Wrapper-skip: a `### Session N:` (no suffix) that explicitly defers to
+    // suffix-numbered sub-sessions, or is shadowed by a same-numbered child
+    // (`### Session Na:`) directly following it, contributes nothing of its
+    // own — its prompts live in the children, which the regex now harvests
+    // as their own entries. Skipping the wrapper keeps the guide recognizing.
+    if (isWrapperEntry(e, entries, i)) continue;
 
     const session = parseOneSession(e.body, sessions.length + 1);
     if (!session) {
@@ -302,7 +310,7 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
       // so the rest of the guide still recognizes.
       if (hasAuditWrapUp(e.body)) continue;
       console.warn(
-        `[parseSessionPlan] Session ${e.num} has no Prompt for Claude Code block — aborting guide`,
+        `[parseSessionPlan] Session ${entryLabel(e)} has no Prompt for Claude Code block — aborting guide`,
       );
       return null;
     }
@@ -322,29 +330,112 @@ export function parseSessionPlan(specMarkdown: string): ParsedSessionPlan | null
  * (missing its prompt), NOT an audit wrap-up — that case still aborts.
  */
 function hasAuditWrapUp(body: string): boolean {
-  return /\*\*Verify\s*\(full\s+audit\)/i.test(body);
+  return /\*\*\s*Verify\s*\(\s*full\s+audit\s*\)/i.test(body);
 }
 
 interface SessionEntry {
   keyword: "Session" | "Phase";
   num: number;
+  /**
+   * Sub-session marker captured from headings like `### Session 1a:`,
+   * `### Session 1.1:`, or `### Session 1-1:`. Empty string for plain
+   * `### Session N:` headings. Normalized to lower-case.
+   */
+  suffix: string;
   body: string;
 }
 
-const ENTRY_SPLIT_RE = /^###\s+(Session|Phase)\s+(\d+)/m;
+/**
+ * Recognise a Session/Phase heading at H2-H4 with permissive whitespace,
+ * casing, and optional zero-padding on the number. The trailing capture
+ * picks up sub-session suffixes the LLM is allowed to use: a letter (`1a`),
+ * a dotted child (`1.1`), a dashed child (`1-1`), or a dotted-letter combo
+ * (`1.1a`). Captures:
+ *   1 = keyword ("Session" | "Phase", original casing — normalised below)
+ *   2 = numeric portion (string, no zero-pad)
+ *   3 = suffix (possibly empty string)
+ */
+const ENTRY_SPLIT_RE =
+  /^#{2,4}[ \t]+(Session|Phase)[ \t]+0*(\d+)((?:[.-]\d+)?[a-z]?)\b/im;
 
 function harvestEntries(content: string): SessionEntry[] {
   const tokens = content.split(ENTRY_SPLIT_RE);
-  // split with two capturing groups produces: [preamble, kw1, n1, body1, kw2, n2, body2, …]
+  // split with three capturing groups produces:
+  //   [preamble, kw1, n1, sfx1, body1, kw2, n2, sfx2, body2, …]
   const entries: SessionEntry[] = [];
-  for (let i = 1; i + 2 < tokens.length; i += 3) {
+  for (let i = 1; i + 3 < tokens.length; i += 4) {
+    const keywordRaw = (tokens[i] ?? "").toLowerCase();
+    const keyword: "Session" | "Phase" = keywordRaw === "phase" ? "Phase" : "Session";
     entries.push({
-      keyword: tokens[i] as "Session" | "Phase",
-      num: Number.parseInt(tokens[i + 1], 10),
-      body: tokens[i + 2],
+      keyword,
+      num: Number.parseInt(tokens[i + 1] ?? "0", 10),
+      suffix: (tokens[i + 2] ?? "").toLowerCase(),
+      body: tokens[i + 3] ?? "",
     });
   }
   return entries;
+}
+
+/**
+ * Compose the display label for an entry, e.g. "1", "1a", "1.1". Used in
+ * warnings, the diagnose-failure toast, and anywhere the user benefits from
+ * seeing the spec's own session id rather than a parser-assigned index.
+ */
+function entryLabel(e: SessionEntry): string {
+  return `${e.num}${e.suffix}`;
+}
+
+/**
+ * Pattern shared by parseOneSession's prompt extractor and the diagnose
+ * function's prompt detector. Accepts:
+ *   - either backtick or tilde fences (```/~~~)
+ *   - the colon inside or outside the bold span (`**Prompt for Claude Code:**`
+ *     vs `**Prompt for Claude Code**:`)
+ *   - one or more blank lines between the label and the opening fence
+ *   - case-insensitive label
+ * Does NOT capture the prompt body — callers anchor a follow-on capture as
+ * needed.
+ */
+const PROMPT_HEADER_RE =
+  /\*\*\s*Prompt\s+for\s+Claude\s+Code\s*:?\s*\*\*\s*:?\s*\n+\s*(?:```|~~~)/i;
+
+/**
+ * Detect the canonical wrapper marker the SpecWriter prompt asks for when a
+ * session is split into suffix sub-sessions, e.g. `**Indivisible note:** This
+ * session is split into 1a / 1b / 1c…`. Tolerates whitespace and optional
+ * trailing colon variations.
+ */
+const INDIVISIBLE_NOTE_RE = /\*\*\s*Indivisible\s+note\s*:?\s*\*\*/i;
+
+/**
+ * True when an entry is a wrapper heading that adds no implementable content
+ * because its real prompts live in suffix-numbered children. We accept two
+ * signals so the parser is resilient whether or not the LLM remembered to
+ * emit the `**Indivisible note:**` marker:
+ *
+ *   1. Explicit:   body contains `**Indivisible note:**`.
+ *   2. Structural: this entry has no suffix and no prompt block, and the
+ *                  next entry shares its number with a non-empty suffix
+ *                  (i.e. the spec really did split `Session N` into `Na/Nb`).
+ */
+function isWrapperEntry(
+  e: SessionEntry,
+  all: readonly SessionEntry[],
+  i: number,
+): boolean {
+  if (e.suffix !== "") return false; // Children themselves are never wrappers.
+  if (e.keyword !== "Session") return false; // Phase wrappers are handled by the Phase-skip rule.
+  if (INDIVISIBLE_NOTE_RE.test(e.body)) return true;
+  if (PROMPT_HEADER_RE.test(e.body)) return false; // Has its own prompt → real session.
+  // Structural fallback: shadowed by an immediate `Session Na:` child.
+  for (let j = i + 1; j < all.length; j++) {
+    const next = all[j];
+    if (next.keyword !== e.keyword) break;
+    if (next.num !== e.num) break;
+    if (next.suffix !== "") return true;
+    break;
+  }
+  return false;
 }
 
 /**
@@ -377,19 +468,20 @@ export function diagnoseSessionPlanFailure(specMarkdown: string): string {
     return "No `### Session N:` or `### Phase N:` blocks found in this spec";
   }
 
-  const eligible = entries.filter((e) => {
+  const eligible = entries.filter((e, idx) => {
     const firstLine = e.body.split("\n", 1)[0];
     if (/\[DEFER\]/i.test(firstLine)) return false;
-    if (e.keyword === "Phase" && e.num === 0) return false;
+    if (e.keyword === "Phase" && e.num === 0 && e.suffix === "") return false;
+    // Wrappers contribute nothing themselves — exclude them from prompt counts
+    // and the offending-session hunt below.
+    if (isWrapperEntry(e, entries, idx)) return false;
     return true;
   });
   if (eligible.length === 0) {
-    return "All Phase/Session blocks were gates or `[DEFER]` — nothing to schedule";
+    return "All Phase/Session blocks were gates, `[DEFER]`, or sub-session wrappers — nothing to schedule";
   }
 
-  const withPrompts = eligible.filter((e) =>
-    /\*\*Prompt\s+for\s+Claude\s+Code:\*\*\s*\n```/.test(e.body),
-  );
+  const withPrompts = eligible.filter((e) => PROMPT_HEADER_RE.test(e.body));
   if (withPrompts.length === 0) {
     return "Found Phase/Session blocks but none have a `**Prompt for Claude Code:**` fenced code block";
   }
@@ -398,16 +490,17 @@ export function diagnoseSessionPlanFailure(specMarkdown: string): string {
   }
 
   // Surface the specific offending Session: a Session block (not a Phase,
-  // not an audit wrap-up) that is missing its prompt is the recurring
-  // failure mode we want to name explicitly instead of a catch-all.
+  // not an audit wrap-up, not a sub-session wrapper) that is missing its
+  // prompt is the recurring failure mode we want to name explicitly instead
+  // of a catch-all.
   const offending = eligible.find(
     (e) =>
       e.keyword === "Session" &&
-      !/\*\*Prompt\s+for\s+Claude\s+Code:\*\*\s*\n```/.test(e.body) &&
-      !/\*\*Verify\s*\(full\s+audit\)/i.test(e.body),
+      !PROMPT_HEADER_RE.test(e.body) &&
+      !hasAuditWrapUp(e.body),
   );
   if (offending) {
-    return `Session ${offending.num} has no \`**Prompt for Claude Code:**\` fenced code block — add one, or mark it as a final wrap-up with \`**Verify (full audit):**\``;
+    return `Session ${entryLabel(offending)} has no \`**Prompt for Claude Code:**\` fenced code block — add one, mark it as a final wrap-up with \`**Verify (full audit):**\`, or (if it's a parent for suffix sub-sessions like ${offending.num}a / ${offending.num}b) annotate it with \`**Indivisible note:**\` so the parser skips the wrapper`;
   }
 
   return "Could not parse the multi-session plan in this spec";
@@ -450,11 +543,15 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
     }
   }
 
-  // Extract the Claude Code prompt (fenced code block after "Prompt for Claude Code")
+  // Extract the Claude Code prompt. Accepts either fence style (``` or ~~~),
+  // allows blank lines or whitespace between the bold label and the fence,
+  // and tolerates the colon being inside or outside the bold span. Group 1
+  // matches the fence so we can pair it with a backreferenced closing fence,
+  // which means a `~~~`-opened block must close with `~~~` (no mixed fences).
   const promptMatch = chunk.match(
-    /\*\*Prompt\s+for\s+Claude\s+Code:\*\*\s*\n```[^\n]*\n([\s\S]*?)```/,
+    /\*\*\s*Prompt\s+for\s+Claude\s+Code\s*:?\s*\*\*\s*:?\s*\n+\s*(```|~~~)[^\n]*\n([\s\S]*?)\1/i,
   );
-  const prompt = promptMatch?.[1]?.trim() ?? "";
+  const prompt = promptMatch?.[2]?.trim() ?? "";
 
   // Extract verify checks (lines with - [ ] or □)
   const verifyChecks: { label: string; kind?: ParsedCheckKind }[] = [];
@@ -467,23 +564,25 @@ function parseOneSession(chunk: string, index: number): ParsedSession | null {
       verifyChecks.push(extractCheckKind(m[1].trim()));
     }
   }
-  // Also check for the last session's audit-style verify block
+  // Also check for the last session's audit-style verify block. Same fence
+  // tolerance as the main prompt extractor.
   if (verifyChecks.length === 0) {
     const auditVerify = chunk.match(
-      /\*\*Verify\s*\(full\s+audit\)[^*]*\*\*[:\s]*(?:.*\n)*?\s*```[^\n]*\n([\s\S]*?)```/i,
+      /\*\*\s*Verify\s*\(\s*full\s+audit\s*\)[^*]*\*\*[:\s]*(?:.*\n)*?\s*(```|~~~)[^\n]*\n([\s\S]*?)\1/i,
     );
     if (auditVerify) {
       verifyChecks.push({
-        label: `Run Verification Audit: ${auditVerify[1].trim().split("\n")[0]}`,
+        label: `Run Verification Audit: ${auditVerify[2].trim().split("\n")[0]}`,
       });
     }
   }
 
-  // Extract optional verification prompt (fenced code block after "Verification Prompt")
+  // Extract optional verification prompt (fenced code block after
+  // "Verification Prompt"). Tolerates both fence styles.
   const verificationMatch = chunk.match(
-    /\*\*Verification\s+Prompt:\*\*\s*\n```[^\n]*\n([\s\S]*?)```/,
+    /\*\*\s*Verification\s+Prompt\s*:?\s*\*\*\s*:?\s*\n+\s*(```|~~~)[^\n]*\n([\s\S]*?)\1/i,
   );
-  const verificationPrompt = verificationMatch?.[1]?.trim() ?? null;
+  const verificationPrompt = verificationMatch?.[2]?.trim() ?? null;
 
   // --- Validation: prompt is REQUIRED, everything else is nice-to-have ---
   if (!prompt) {

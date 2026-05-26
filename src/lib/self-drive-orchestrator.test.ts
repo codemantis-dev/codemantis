@@ -223,6 +223,41 @@ describe("buildSystemPrompt", () => {
     // A fixing turn that did no Read/Grep/Glob is a guess
     expect(systemPrompt).toContain("Read/Grep/Glob");
   });
+
+  // The retry path appends a corrective addendum so the second call isn't
+  // a deterministic repeat of the first. Without this, a model that
+  // returned a wrapper-shape JSON on attempt 1 returns the same wrapper-
+  // shape JSON on the retry and Self-Drive pauses on a recoverable error.
+  it("does NOT include the retry addendum on first call (no retryHint)", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(makeInput(), "openai", "sk-test", "gpt-4o");
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).not.toContain("RETRY");
+  });
+
+  it("appends a corrective addendum when retryHint is provided", async () => {
+    const { sendAssistantChat } = await import("./tauri-commands");
+    const promise = callOrchestrator(
+      makeInput(),
+      "openai",
+      "sk-test",
+      "gpt-4o",
+      "Could not parse AI response: Missing or invalid 'action' field",
+    );
+    await vi.waitFor(() => { if (!capturedStreamHandler) throw new Error("waiting"); });
+    capturedStreamHandler!({ type: "done", content: '{"action":"advance","summary":"ok","confidence":"high"}' });
+    await promise;
+
+    const systemPrompt: string = vi.mocked(sendAssistantChat).mock.calls[0][0].systemPrompt;
+    expect(systemPrompt).toContain("RETRY");
+    expect(systemPrompt).toContain("Missing or invalid 'action' field");
+    expect(systemPrompt).toContain("TOP LEVEL");
+    expect(systemPrompt).toContain("Do NOT wrap it in any container object");
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -393,6 +428,60 @@ describe("parseOrchestratorResponse", () => {
     expect(decision.action).toBe("pause");
     expect(decision.pauseReason).toContain("Could not parse AI response");
     expect(decision.pauseReason).toContain("Invalid action");
+  });
+
+  // ── Wrapper-key recovery & raw-content preview ────────────────────────
+  // Recurring failure: some models wrap the decision in a container key
+  // like {"decision":{...}} or {"reasoning":"...","output":{...}}. The
+  // top-level object has no `action`, the old code threw
+  // "Missing or invalid 'action' field" and Self-Drive paused. The parser
+  // now scans one level down for a child object with an action field and
+  // unwraps it. See plan: ~/.claude/plans/image-4-still-unsolved-whimsical-map.md
+  it("recovers from a single-key wrapper like {\"decision\":{...}}", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        decision: { action: "advance", summary: "All good.", confidence: "high" },
+      }),
+    );
+    expect(decision.action).toBe("advance");
+    expect(decision.summary).toBe("All good.");
+    expect(decision.confidence).toBe("high");
+  });
+
+  it("recovers from a {\"reasoning\":\"...\",\"output\":{...}} wrapper", async () => {
+    const decision = await callAndResolveWith(
+      JSON.stringify({
+        reasoning: "The verifier produced clean evidence for all 5 checks.",
+        output: { action: "advance", summary: "Session done.", confidence: "high" },
+      }),
+    );
+    expect(decision.action).toBe("advance");
+    expect(decision.summary).toBe("Session done.");
+  });
+
+  it("still fails when no nested child has an action field", async () => {
+    // No top-level action, no nested object with an action either.
+    // Must still throw so the store's retry trigger fires on the
+    // pauseReason substring "Could not parse AI response".
+    const decision = await callAndResolveWith(
+      JSON.stringify({ reasoning: "I cannot decide.", confidence: "low" }),
+    );
+    expect(decision.action).toBe("pause");
+    expect(decision.pauseReason).toContain("Could not parse AI response");
+    expect(decision.pauseReason).toContain("Missing or invalid 'action' field");
+  });
+
+  it("includes a short preview of the raw response in pauseReason on parse failure", async () => {
+    // Diagnostic: every parse failure must carry a preview of what the
+    // model actually returned so the user can see the offending shape in
+    // the UI without devtools. This is the missing diagnostic that made
+    // previous failure investigations speculative.
+    const malformed = '{"summary":"no action here","confidence":"high","irrelevant":"x".repeat(400)}';
+    const decision = await callAndResolveWith(malformed);
+    expect(decision.action).toBe("pause");
+    expect(decision.pauseReason).toContain("Could not parse AI response");
+    expect(decision.pauseReason).toContain("preview:");
+    expect(decision.pauseReason).toContain("summary");
   });
 
   it("defaults confidence to 'medium' when missing", async () => {
