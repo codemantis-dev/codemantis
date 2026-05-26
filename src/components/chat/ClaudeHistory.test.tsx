@@ -39,6 +39,7 @@ function makeHistoryEntry(overrides: Partial<SessionHistoryEntry> = {}): Session
     icon_index: 0,
     recent_headlines: ["Did something", "Did another thing"],
     has_stored_messages: false,
+    agent_id: "claude_code",
     ...overrides,
   };
 }

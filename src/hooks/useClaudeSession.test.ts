@@ -6,7 +6,7 @@ import { useTerminalStore } from "../stores/terminalStore";
 import { useChangelogStore } from "../stores/changelogStore";
 import { useAttachmentStore } from "../stores/attachmentStore";
 import { useAssistantStore } from "../stores/assistantStore";
-import type { Session } from "../types/session";
+import type { Session, SessionHistoryEntry } from "../types/session";
 
 // Hoist mock functions so they're available in vi.mock factories
 const {
@@ -514,6 +514,7 @@ describe("useClaudeSession", () => {
         icon_index: 3,
         recent_headlines: [],
         has_stored_messages: true,
+        agent_id: "claude_code",
       });
     });
 
@@ -535,7 +536,7 @@ describe("useClaudeSession", () => {
   it("restorePausedSession is idempotent for the same session id", async () => {
     mockLoadSessionMessages.mockResolvedValue([]);
     const { result } = renderHook(() => useClaudeSession());
-    const entry = {
+    const entry: SessionHistoryEntry = {
       session_id: "crashed-1",
       name: "C",
       project_path: PROJECT_PATH,
@@ -545,6 +546,7 @@ describe("useClaudeSession", () => {
       icon_index: 0,
       recent_headlines: [],
       has_stored_messages: false,
+      agent_id: "claude_code",
     };
 
     await act(async () => {
@@ -572,6 +574,7 @@ describe("useClaudeSession", () => {
         icon_index: 0,
         recent_headlines: [],
         has_stored_messages: false,
+        agent_id: "claude_code",
       });
     });
     useSessionStore.getState().addSession(makeSession("live-b"));

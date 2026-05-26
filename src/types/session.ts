@@ -161,6 +161,12 @@ export interface SessionHistoryEntry {
   icon_index: number;
   recent_headlines: string[];
   has_stored_messages: boolean;
+  /**
+   * Which agent adapter the session ran under. Required so the recovery
+   * path can rehydrate `Session.agent_id`; agent-aware UI (e.g.
+   * StuckActivityBanner) reads it from the restored session.
+   */
+  agent_id: AgentId;
 }
 
 export interface SessionMessagePayload {

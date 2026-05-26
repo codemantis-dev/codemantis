@@ -328,6 +328,42 @@ fn staggered_close_at_breaks_ordering_ties() {
 /// boundary: after the persistence step that the fix introduces, the row
 /// MUST be queryable as a recoverable session even if no `system/init`
 /// arrives.
+/// Regression for the "Codex hasn't responded" mislabel bug (2026-05-26):
+/// the crash-recovery list MUST surface `agent_id` on each row so the
+/// restored frontend `Session` can carry it through to agent-aware UI such
+/// as `StuckActivityBanner`. Pre-fix `PersistedSession` dropped the column,
+/// which made every recovered session render the Codex-only copy regardless
+/// of the actual adapter.
+#[test]
+fn list_crashed_sessions_returns_agent_id_for_each_row() {
+    let db = Database::new(":memory:").unwrap();
+
+    // One Claude Code session and one Codex session, both crashed.
+    db.insert_session(
+        "cc-crash", "CC", "/p1", "connected", "2026-05-09T22:00:00Z", None, 0, "claude_code",
+    )
+    .unwrap();
+    db.set_cli_session_id("cc-crash", "cli-cc").unwrap();
+    db.set_session_was_open("cc-crash", true).unwrap();
+    seed_one_message(&db, "cc-crash", "2026-05-09T22:01:00Z");
+
+    db.insert_session(
+        "cx-crash", "CX", "/p2", "connected", "2026-05-09T23:00:00Z", None, 0, "codex",
+    )
+    .unwrap();
+    db.set_cli_session_id("cx-crash", "cli-cx").unwrap();
+    db.set_session_was_open("cx-crash", true).unwrap();
+    seed_one_message(&db, "cx-crash", "2026-05-09T23:01:00Z");
+
+    let crashed = db.list_crashed_sessions().unwrap();
+    let by_id: std::collections::HashMap<_, _> = crashed
+        .iter()
+        .map(|s| (s.id.clone(), s.agent_id.clone()))
+        .collect();
+    assert_eq!(by_id["cc-crash"], "claude_code");
+    assert_eq!(by_id["cx-crash"], "codex");
+}
+
 #[test]
 fn resume_session_persists_cli_session_id_at_create_time() {
     let db = Database::new(":memory:").unwrap();

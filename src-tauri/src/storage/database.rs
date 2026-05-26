@@ -122,6 +122,9 @@ pub struct PersistedSession {
     pub cli_session_id: Option<String>,
     pub closed_at: Option<String>,
     pub has_stored_messages: bool,
+    /// Which agent adapter owns this row. NOT NULL in schema; legacy rows
+    /// inserted before the column existed are migrated to "claude_code".
+    pub agent_id: String,
 }
 
 impl Database {
@@ -300,7 +303,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
-                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id), \
+                 s.agent_id \
                  FROM sessions s ORDER BY s.created_at DESC"
             )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
@@ -318,6 +322,7 @@ impl Database {
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
                     has_stored_messages: row.get::<_, i32>(9)? != 0,
+                    agent_id: row.get(10)?,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -621,7 +626,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
-                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id), \
+                 s.agent_id \
                  FROM sessions s WHERE s.project_path = ?1 \
                  AND (s.status = 'closed' OR s.was_open = 1) \
                  AND s.cli_session_id IS NOT NULL \
@@ -643,6 +649,7 @@ impl Database {
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
                     has_stored_messages: row.get::<_, i32>(9)? != 0,
+                    agent_id: row.get(10)?,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -665,7 +672,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
-                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id), \
+                 s.agent_id \
                  FROM sessions s WHERE s.was_open = 1 ORDER BY s.created_at ASC"
             )
             .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
@@ -683,6 +691,7 @@ impl Database {
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
                     has_stored_messages: row.get::<_, i32>(9)? != 0,
+                    agent_id: row.get(10)?,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
@@ -720,7 +729,8 @@ impl Database {
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.name, s.project_path, s.status, s.created_at, s.model, s.icon_index, s.cli_session_id, s.closed_at, \
-                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) AS has_msgs \
+                 EXISTS(SELECT 1 FROM session_messages sm WHERE sm.session_id = s.id) AS has_msgs, \
+                 s.agent_id \
                  FROM sessions s \
                  WHERE (s.status = 'closed' OR s.was_open = 1) \
                  AND s.cli_session_id IS NOT NULL \
@@ -742,6 +752,7 @@ impl Database {
                     cli_session_id: row.get(7)?,
                     closed_at: row.get(8)?,
                     has_stored_messages: row.get::<_, i32>(9)? != 0,
+                    agent_id: row.get(10)?,
                 })
             })
             .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;

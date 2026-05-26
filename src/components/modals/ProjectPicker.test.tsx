@@ -215,6 +215,7 @@ describe("ProjectPicker", () => {
       icon_index: 0,
       recent_headlines: ["Wired Stripe webhook", "Refactored pricing tier"],
       has_stored_messages: true,
+      agent_id: "claude_code",
       ...overrides,
     };
   }

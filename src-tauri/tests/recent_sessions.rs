@@ -21,7 +21,19 @@ fn seed_closed_session(
     closed_at: &str,
     cli_session_id: &str,
 ) {
-    db.insert_session(id, name, project_path, "closed", closed_at, None, 0, "claude_code")
+    seed_closed_session_with_agent(db, id, name, project_path, closed_at, cli_session_id, "claude_code");
+}
+
+fn seed_closed_session_with_agent(
+    db: &Database,
+    id: &str,
+    name: &str,
+    project_path: &str,
+    closed_at: &str,
+    cli_session_id: &str,
+    agent_id: &str,
+) {
+    db.insert_session(id, name, project_path, "closed", closed_at, None, 0, agent_id)
         .unwrap();
     db.close_session_with_details(id, Some(cli_session_id), None, closed_at)
         .unwrap();
@@ -171,6 +183,36 @@ fn recent_sessions_includes_was_open_rows_alongside_closed() {
     let per_project = db.list_closed_sessions_for_project("/proj-b", 20).unwrap();
     let ids2: Vec<&str> = per_project.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(ids2, vec!["crashed"]);
+}
+
+/// Regression for the "Codex hasn't responded" mislabel bug: the recovery
+/// chain (DB → `list_recent_closed_sessions` / `list_crashed_sessions`)
+/// MUST surface each row's `agent_id`. Without it, recovered sessions arrive
+/// at the frontend with `agent_id` undefined and `StuckActivityBanner` falls
+/// back to a single hardcoded label.
+#[test]
+fn recent_sessions_surface_agent_id_per_row() {
+    let db = Database::new(":memory:").unwrap();
+    seed_closed_session_with_agent(
+        &db, "cc-1", "CC", "/proj-a", "2026-04-01T10:00:00Z", "cli-cc", "claude_code",
+    );
+    seed_closed_session_with_agent(
+        &db, "cx-1", "CX", "/proj-b", "2026-04-02T10:00:00Z", "cli-cx", "codex",
+    );
+
+    let rows = db.list_recent_closed_sessions(20).unwrap();
+    let by_id: std::collections::HashMap<_, _> = rows
+        .iter()
+        .map(|r| (r.id.clone(), r.agent_id.clone()))
+        .collect();
+    assert_eq!(by_id["cc-1"], "claude_code");
+    assert_eq!(by_id["cx-1"], "codex");
+
+    // Per-project query reads through the same code path; verify both.
+    let per_a = db.list_closed_sessions_for_project("/proj-a", 20).unwrap();
+    assert_eq!(per_a[0].agent_id, "claude_code");
+    let per_b = db.list_closed_sessions_for_project("/proj-b", 20).unwrap();
+    assert_eq!(per_b[0].agent_id, "codex");
 }
 
 /// Conversely: a `was_open=1` row with NO stored messages stays hidden. The

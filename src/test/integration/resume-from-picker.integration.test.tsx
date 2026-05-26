@@ -113,6 +113,7 @@ function makeEntry(overrides: Partial<SessionHistoryEntry> = {}): SessionHistory
     icon_index: 0,
     recent_headlines: ["Headline A", "Headline B"],
     has_stored_messages: true,
+    agent_id: "claude_code",
     ...overrides,
   };
 }

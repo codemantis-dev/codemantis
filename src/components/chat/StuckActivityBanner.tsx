@@ -16,6 +16,7 @@ interface StuckActivityBannerProps {
  */
 export default function StuckActivityBanner({ sessionId }: StuckActivityBannerProps) {
   const stuck = useSessionStore((s) => s.sessionStuck.get(sessionId));
+  const agentId = useSessionStore((s) => s.sessions.get(sessionId)?.agent_id);
   const setShowApprovalModal = useUiStore((s) => s.setShowApprovalModal);
   const [stoppingState, setStoppingState] = useState<"idle" | "stopping">("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -34,9 +35,13 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
   if (!stuck) return null;
 
   const isPendingApproval = stuck.reason === "pending-approval-not-shown";
+  // The watchdog fires for any agent; the message must match the actual
+  // adapter. Legacy/recovered sessions can have `agent_id` undefined — the
+  // type contract is "default to claude_code" (see types/session.ts).
+  const agentLabel = agentId === "codex" ? "Codex" : "Claude Code";
   const message = isPendingApproval
-    ? `Codex is waiting for your approval but the prompt isn't showing.`
-    : `Codex hasn't responded for ${elapsedSec}s.`;
+    ? `${agentLabel} is waiting for your approval but the prompt isn't showing.`
+    : `${agentLabel} hasn't responded for ${elapsedSec}s.`;
 
   return (
     <div

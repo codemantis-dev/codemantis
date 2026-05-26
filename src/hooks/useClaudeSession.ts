@@ -384,6 +384,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       model: entry.model,
       icon_index: entry.icon_index,
       cli_session_id: entry.cli_session_id,
+      agent_id: entry.agent_id,
     };
     sessionStore.getState().addSession(restored);
 

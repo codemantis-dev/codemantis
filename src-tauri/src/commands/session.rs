@@ -22,6 +22,11 @@ pub struct SessionHistoryEntry {
     pub icon_index: i32,
     pub recent_headlines: Vec<String>,
     pub has_stored_messages: bool,
+    /// Which agent adapter the session ran under. Required so the recovery
+    /// path can rehydrate the right agent_id on the restored `Session` —
+    /// without it, `StuckActivityBanner` and other agent-aware UI would
+    /// mislabel recovered sessions.
+    pub agent_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -762,6 +767,7 @@ pub async fn list_session_history(
                 icon_index: session.icon_index,
                 recent_headlines: headlines,
                 has_stored_messages: session.has_stored_messages,
+                agent_id: session.agent_id,
             });
         }
     }
@@ -803,6 +809,7 @@ pub async fn list_recent_sessions(
                 icon_index: session.icon_index,
                 recent_headlines: headlines,
                 has_stored_messages: session.has_stored_messages,
+                agent_id: session.agent_id,
             });
         }
     }
@@ -876,6 +883,7 @@ pub async fn list_crashed_sessions(
                 icon_index: session.icon_index,
                 recent_headlines: headlines,
                 has_stored_messages: session.has_stored_messages,
+                agent_id: session.agent_id,
             });
         }
     }
@@ -1430,6 +1438,7 @@ mod tests {
             icon_index: 3,
             recent_headlines: vec!["Added login".to_string(), "Fixed bug".to_string()],
             has_stored_messages: true,
+            agent_id: "claude_code".to_string(),
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["session_id"], "abc-123");
@@ -1439,6 +1448,7 @@ mod tests {
         assert_eq!(json["icon_index"], 3);
         assert_eq!(json["recent_headlines"].as_array().unwrap().len(), 2);
         assert_eq!(json["has_stored_messages"], true);
+        assert_eq!(json["agent_id"], "claude_code");
     }
 
     #[test]
@@ -1453,11 +1463,13 @@ mod tests {
             icon_index: 0,
             recent_headlines: vec![],
             has_stored_messages: false,
+            agent_id: "codex".to_string(),
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert!(json["model"].is_null());
         assert!(json["recent_headlines"].as_array().unwrap().is_empty());
         assert_eq!(json["has_stored_messages"], false);
+        assert_eq!(json["agent_id"], "codex");
     }
 
     #[test]

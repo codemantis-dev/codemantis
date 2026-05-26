@@ -90,6 +90,7 @@ function entry(id: string, name: string, projectPath = "/p", cliId = `cli-${id}`
     icon_index: 0,
     recent_headlines: [],
     has_stored_messages: false,
+    agent_id: "claude_code",
   };
 }
 
