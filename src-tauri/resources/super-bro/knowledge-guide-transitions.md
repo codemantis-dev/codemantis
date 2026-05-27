@@ -178,13 +178,25 @@ through the fix." Don't try to recover at the prompt level for PF-001
 / PF-002 / PF-003 — the capability needs to be repaired first.
 
 AGENT-AWARE SELF-DRIVE:
-Self-Drive runs on either Claude Code or Codex sessions. In v1.3.x the
-build-mode preamble (the evidence-vocab and parity-gate phrasing) is
-Claude-tuned — Codex runs work but the verify pass is slightly less
-precise. A Codex-tuned preamble variant is planned for v1.4.0. If
-verification on a Codex Self-Drive run looks suspiciously sloppy
-("Verifies 3 items in one sentence"), pause and recheck manually.
-This is a known v1.3.x gap, not orchestrator drift.
+Self-Drive runs on either Claude Code or Codex sessions, and the
+build-mode preamble auto-adapts to the active session's `agent_id`:
+
+- Claude runs use the original evidence-vocab, recheck rules, and
+  parity-gate phrasing.
+- Codex runs (since v1.4.1 Phase B) get an additional
+  `CODEX_VOCAB_CLARIFIER` block prepended to the preamble. It maps
+  Codex's tool emissions (`commandExecution`, `fileChange`,
+  `webSearch`, `imageView`, `imageGeneration`) to the Claude-
+  equivalent names the parity gate expects, plus a note that Codex
+  reasoning text is hidden by the protocol.
+
+Verify-pass precision is now comparable across both agents. The
+old v1.3.x "Codex Self-Drive is slightly sloppier" caveat is closed
+— don't tell users to expect imprecise verification on Codex.
+
+If verification on a Codex Self-Drive run does look sloppy
+("Verifies 3 items in one sentence"), that's a real orchestrator
+drift signal worth pausing on, not a known agent gap.
 
 ALL SESSIONS COMPLETE:
 - Congratulate the user — they've finished every session.

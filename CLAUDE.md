@@ -1,7 +1,7 @@
 # CLAUDE.md — CodeMantis
 
 ## What This Is
-CodeMantis is a native macOS desktop app (Tauri v2 + React 19 + TypeScript + Rust) that wraps the Claude Code CLI with a modern UI. Uses the user's existing Claude Pro/Max subscription — no API key needed for Claude Code features.
+CodeMantis is a native macOS desktop app (Tauri v2 + React 19 + TypeScript + Rust) that wraps the Claude Code CLI **and** the OpenAI Codex CLI with a modern UI. Sessions pick an agent per session; both agents stream through a shared adapter layer. Uses the user's existing Claude Pro/Max subscription (for Claude Code) and/or ChatGPT Plus/Pro/Business subscription (for Codex) — no API key needed for either CLI.
 
 ## Architecture
 - **Frontend:** React 19, TypeScript, Vite 7, Tailwind CSS 3.4, Zustand 5, Radix UI, Monaco Editor, xterm.js

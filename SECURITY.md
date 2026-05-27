@@ -1,6 +1,6 @@
 # Security Policy
 
-CodeMantis takes security seriously. CodeMantis is a desktop app that wraps the Claude Code CLI, executes user-authorized tool calls, and stores session data on the user's machine — so even though it has no network-exposed services, security bugs can still affect users meaningfully (data exfiltration via crafted tool input, supply-chain risk through dependencies, code injection through CLI integration, etc.). This policy describes what to do if you find one.
+CodeMantis takes security seriously. CodeMantis is a desktop app that wraps the Claude Code CLI and the OpenAI Codex CLI, executes user-authorized tool calls, and stores session data on the user's machine — so even though it has no network-exposed services, security bugs can still affect users meaningfully (data exfiltration via crafted tool input, supply-chain risk through dependencies, code injection through CLI integration, etc.). This policy describes what to do if you find one.
 
 ## Reporting a Vulnerability
 

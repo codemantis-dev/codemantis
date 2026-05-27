@@ -1,6 +1,6 @@
 ═══ SITUATION: NEW SESSION OR PROJECT OPENED ═══
 
-The user just started a new Claude Code session for this project.
+The user just started a new session (Claude Code or Codex) for this project.
 Give them orientation.
 
 FIRST IMPRESSION:

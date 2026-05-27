@@ -1,5 +1,75 @@
 # CodeMantis Releases
 
+## 1.5.0
+
+**Default Agent per Task — subscription-pool routing.** From **15 June 2026** Anthropic moves `claude -p` / Agent-SDK headless usage onto a metered credit pool separate from the interactive-subscription pool. Codex stays bundled with the user's ChatGPT Plus/Pro/Business subscription. v1.5.0 lets you assign a default agent per task type so headless traffic routes to whichever subscription has headroom.
+
+This release also rolls up everything that landed since v1.1.11: the entire v1.2.0 `AgentAdapter` Phase 1 refactor, the v1.3.0 Codex first-class-agent integration, twenty-one v1.3.1 hotfixes hardening the Codex surface, the v1.4.0 Codex effort UI + six deferred ThreadItem types, and the v1.4.1 Phase A+B Codex hardening pass (T1/T2 protocol gaps, SpecWriter on Codex, MCP for Codex, rate-limits, Codex-tuned build-mode preamble).
+
+### What's new in 1.5.0
+
+**Default Agent per Task** (Settings → Agents). Sparse map of task type → preferred agent. Recognized task types: `specwriter`, `self_drive`, `implementation_guide`, `general`. Unset entries fall back to the session-level pick. Affects only **new** sessions — existing sessions keep the agent they were spawned on.
+
+**Why per-task routing exists.** After 15 June 2026, Claude Code's headless modes (used by SpecWriter, Self-Drive, Implementation Guide auto-runs) draw from a separate metered pool. Routing those task types to Codex by default keeps them on the ChatGPT subscription; interactive sessions can stay on Claude.
+
+**Usage Split panel** (Settings → Agents). Per-agent cost breakdown shows which subscription each task type is currently drawing from.
+
+**Agent-aware slash-command discovery.** Slash-command palette now scans the active agent's command directory:
+- Claude sessions → `.claude/commands/` + `.claude/skills/`
+- Codex sessions → `.codex/prompts/`
+The CLI Overlay's "CLI-only commands" list is also agent-aware — Codex sessions surface Codex-only commands (`/mcp`, `/diff`, etc.); Claude-only commands are excluded when the active session is on Codex.
+
+**Agent identity preserved across history and recovery.** Sessions carry an `agent_id` discriminator that survives:
+- Session History (each row shows the agent badge)
+- Wake recovery after sleep/lid-close
+- Crash recovery on app restart
+Resuming a Codex session re-spawns Codex; resuming a Claude session re-spawns Claude. No agent drift.
+
+**Self-Drive: OpenRouter model picker.** Settings → Self-Drive now lets you pick the verify-pass model from OpenRouter's catalog, sorted cheap-first by default.
+
+**Refreshed assistant model lineup.** Added Gemini 3.5 and GPT-5.5; dropped retired model IDs. Anthropic models remain Opus 4.7 / Sonnet 4.6 / Haiku 4.5.
+
+### Rolled up from v1.4.1 (Codex hardening — Phases A + B)
+
+- All six T1+T2 Codex protocol gaps closed.
+- SpecWriter on Codex: SpecChat now exposes a "Codex (local)" provider option; conversation + MCP wiring hardened.
+- MCP support for Codex CLI: tool naming follows `mcp__server__tool`; Codex MCP startup + rate-limit notifications are now plumbed.
+- **Codex-tuned build-mode preamble** (`CODEX_VOCAB_CLARIFIER`). The v1.3.0 caveat that Self-Drive on Codex used the Claude-tuned preamble is closed — Codex now gets its own evidence-vocab variant.
+- Rate-limit handling extended to Codex's notification shape.
+
+### Rolled up from v1.4.0 (Codex parity)
+
+- Effort selector now renders for Codex sessions (was Claude-only).
+- The six deferred `ThreadItem` types (rate_limits, web_search, exec, patch, mcp_tool_call, plan) all flow through the activity feed.
+- EffortSelector resolves the default model when `session.model` is null; live cap-refresh + diagnostic for stale-binary cases.
+
+### Rolled up from v1.3.1 hotfixes #2–#21
+
+Codex visibility in the UI; real Codex install + auth detection; transparent popover + startup splash + welcome parity; popover positioning; thread/start RPC fix; empirically-verified kebab-case wire shape; infinite re-render fix on Codex switch; end-to-end Codex coverage in the input toolbar; agent-aware reasoning header; Shift+Tab cycles Codex policy; model selector sticks + "Codex (local)" in Assistant panel; future-proof approvals + readable tool badges; reasoning-tokens chip in the Reasoning panel; agent-aware slash-command discovery; CLI overlay + CLI-only commands for Codex sessions.
+
+### Reliability fixes since v1.3.0
+
+- **Crash recovery hardened**: resume, spec parsing, and Self-Drive parsing now survive interruption mid-stream.
+- **Recover from lost Codex approvals** + stuck-session UI when an approval roundtrip is dropped.
+- **Codex approval camelCase wire format fix** + ToolApproval summaries now render Codex payloads correctly.
+- **SpecWriter project-switch bleed** fixed; Reset button always visible.
+- **Self-Drive forceReset** recovery path + suppression of stale cross-project start toasts.
+- **Live session reattach** after wake recovery reload (no more dead-tab sessions after lid-close).
+
+### Security
+
+Migrated from the unmaintained, unsound `serde_yml` (RUSTSEC-2025-0068) to `serde_yaml_ng`. No exploit path existed (input is bundled YAML), but the dep is now actively maintained.
+
+### Tests
+
+- TS unit: 4,000 passing
+- TS integration: 175 passing
+- Rust unit: 1,686 passing
+- Rust integration: 43 passing
+- TypeScript strict, ESLint clean, Clippy clean, `cargo audit` clean.
+
+---
+
 ## 1.3.0
 
 **OpenAI Codex CLI is now a first-class agent.** Sessions can route through either Claude Code (existing) or Codex (new), picked per session in the project picker. The Codex protocol is bidirectional JSON-RPC 2.0 over `codex app-server --listen stdio://`; CodeMantis speaks it natively (8 sessions of focused work on top of the Phase 1 `AgentAdapter` trait shipped in v1.2.0).

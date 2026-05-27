@@ -2,11 +2,11 @@
 
 # CodeMantis
 
-### The Mac app Claude Code deserves
+### The Mac app Claude Code and Codex deserve
 
-A free, open-source native macOS application that gives Claude Code a proper graphical interface — chat, activity feed, file viewer, preview browser, spec writer, self-drive, terminals, and much more.
+A free, open-source native macOS application that gives Claude Code and OpenAI Codex a proper graphical interface — chat, activity feed, file viewer, preview browser, spec writer, self-drive, terminals, and much more. Pick which agent each session uses.
 
-**Uses your existing Claude Pro/Max subscription. No API key needed.**
+**Uses your existing Claude Pro/Max or ChatGPT Plus/Pro subscription. No API key needed for either CLI.**
 
 [codemantis.dev](https://codemantis.dev)
 

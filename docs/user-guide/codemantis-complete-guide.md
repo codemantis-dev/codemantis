@@ -1954,7 +1954,7 @@ Before your first message, two dropdowns appear in the chat sub-header:
 - **Provider selector** -- choose between "Claude Code" (uses your existing Claude subscription, no API key needed), "Codex" (uses your ChatGPT subscription, no separate API key needed -- runs SpecWriter on OpenAI Codex), "Gemini", "OpenAI", "Anthropic", or "OpenRouter". Providers without a configured API key are shown as disabled with "(no key)".
 - **Model selector** -- lists the available models for the selected provider. For Claude Code, the choices are Haiku 4.5 (fast, lower cost), Sonnet 4.6 (balanced — default), and Opus 4.7 (highest quality). For Codex, SpecWriter uses the account default and shows it as a read-only label (Codex doesn't expose per-session model selection in v1.3.x).
 
-**SpecWriter on Codex.** Codex has no `--append-system-prompt` flag, so SpecWriter on Codex spawns into an **ephemeral working directory** at `~/.codemantis/specwriter-sessions/<sid>/` holding a generated `AGENTS.override.md`. Your real project is reachable via `--add-dir`, so the model still sees your codebase. **AUDIT-PATCH remains Claude-only in v1.3.0**; when the active SpecWriter session is on Codex, the "Patch spec & re-audit" button is replaced with an explainer linking back to Claude Code.
+**SpecWriter on Codex.** Codex has no `--append-system-prompt` flag, so SpecWriter on Codex spawns into an **ephemeral working directory** at `~/.codemantis/specwriter-sessions/<sid>/` holding a generated `AGENTS.override.md`. Your real project is reachable via `--add-dir`, so the model still sees your codebase. SpecWriter on Codex shipped end-to-end in **v1.4.1 Phase B** — the SpecChat provider menu surfaces "Codex (local)" whenever the Codex CLI is installed and signed in, and the conversation flows through the same chat-event pipeline as Claude. The "Patch spec & re-audit" button works the same way on Codex sessions — it asks the active agent (Claude or Codex) for an AUDIT-PATCH reply and splices the result into the spec. The splice prompt itself is Claude-tuned (Claude-style marker, operation taxonomy, diff conventions), so Codex may follow it with slightly less fidelity than Claude; if a patch comes back malformed, the existing "Patch rejected — spec preserved" banner reports it and your spec is untouched.
 
 After the first message, the provider and model are shown as read-only text.
 
@@ -2792,7 +2792,7 @@ Type the command name followed by a space and arguments. For example: `/rename M
 
 - **Loading:** "Loading commands..." displayed in the palette while commands are being discovered.
 - **No match:** "No commands matching '/{query}'" when no commands match the typed filter.
-- **CLI Overlay loading:** "Pausing session and starting Claude CLI..." centered in the terminal area.
+- **CLI Overlay loading:** "Pausing session and starting Claude CLI..." (Claude sessions) or "Pausing session and starting Codex CLI..." (Codex sessions), centered in the terminal area. The overlay title and loading string follow the active session's agent.
 - **CLI Overlay error:** An error card is displayed in the terminal area. The session is automatically recovered (stream-json process resumed).
 
 ### Configuration

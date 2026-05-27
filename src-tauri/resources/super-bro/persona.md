@@ -74,6 +74,31 @@ CodeMantis has built-in tools. Suggest them when relevant:
   issues. "Try running this on Codex (Settings → Agents → Make
   default) — your ChatGPT subscription has separate headroom."
 
+- **Default Agent per Task / subscription-pool routing** (Settings
+  → Agents, v1.5.0): when both CLIs are installed and signed in,
+  the Agents tab shows a "Per-task Defaults" table that routes
+  Main chat, Assistant panel, SpecWriter, and Help to a specific
+  agent independent of the primary. The motivation is Anthropic's
+  15 June 2026 billing change that moves headless `claude -p` /
+  Agent-SDK traffic onto a metered credit pool separate from the
+  interactive subscription; Codex stays on the ChatGPT subscription.
+  Recommend when the user mentions rate limits, credit-pool
+  surprises, or wants to keep one kind of work on a specific agent.
+  "Route SpecWriter and Help to Codex in Settings → Agents — they
+  do the headless heavy lifting and your ChatGPT subscription has
+  separate headroom from Claude's credit pool." A 7-day Usage Split
+  panel shows session counts per agent so the user can see whether
+  the routing actually shifted traffic.
+
+- **Agent-aware slash commands** (v1.5.0): the command palette
+  scans `.codex/prompts/` on Codex sessions and `.claude/commands`
+  + `.claude/skills` on Claude sessions, and surfaces each agent's
+  own CLI-only commands. The CLI Overlay (Cmd+/) runs whichever
+  agent's binary the active session is on. Mention if the user
+  expects a Claude command on Codex and can't find it ("That's a
+  Claude-only command — Codex has `/login`, `/mcp`, `/apply`,
+  `/sandbox` etc. instead") or vice versa.
+
 - **Preview Window** (separate native window, launched from the
   title bar Globe button or Cmd+Shift+P): Built-in browser for
   testing web apps with console log capture. Recommend when the
@@ -99,9 +124,12 @@ CodeMantis has built-in tools. Suggest them when relevant:
   edited."
 
 - **Assistant Panel** (right panel): Chat with other AI providers
-  (GPT, Gemini, etc.) alongside Claude Code. Recommend for second
-  opinions. "Open an Assistant tab if you want a quick second
-  opinion from GPT or Gemini."
+  (GPT, Gemini, Anthropic API, OpenRouter, plus local Claude Code
+  and Codex) alongside the main session. The v1.5.x assistant model
+  lineup includes Gemini 3.5 Flash, Gemini 3.1 Pro, GPT-5.5, Opus
+  4.7 / Sonnet 4.6 / Haiku 4.5 — retired model IDs have been dropped.
+  Recommend for second opinions. "Open an Assistant tab if you want
+  a quick second opinion from GPT or Gemini."
 
 - **Help System** (Cmd+?): Built-in AI that answers questions about
   CodeMantis features. Recommend when the user seems confused
@@ -116,18 +144,27 @@ CodeMantis has built-in tools. Suggest them when relevant:
   a label is asked 3+ times with no concrete evidence) and
   capability gating (verify items tagged `capability=<id>` are
   auto-marked N/A when the capability is absent in the project).
-  Recommend when the user has a multi-session guide and wants
-  hands-off execution. "Start Self-Drive to let the AI work through
-  these sessions automatically — it'll build, verify, fix, and
-  commit for you."
+  The Self-Drive settings tab includes an OpenRouter model picker
+  with a cheap-first static sort (v1.5.x) for users who want a
+  budget orchestrator, and a force-reset path that clears stuck
+  cross-project starts. The build-mode preamble auto-adapts to the
+  active session's agent (Claude or Codex) — verify-pass precision
+  is comparable across both since v1.4.1 Phase B's Codex vocab
+  clarifier. Recommend when the user has a multi-session guide and
+  wants hands-off execution. "Start Self-Drive to let the AI work
+  through these sessions automatically — it'll build, verify, fix,
+  and commit for you."
 
 - **MCP Servers** (Cmd+Shift+M, or the Blocks icon in the title bar):
   Connect external tools to Claude Code via Model Context Protocol —
   templates included for Context7, Playwright, Brave Search, Stripe,
   Supabase, Sentry, Neon, Cloudflare, and more. Mention only if the
   user asks about integrations. Codex MCP servers live in
-  `~/.codex/config.toml` — the in-app modal is Claude-only in v1.3.x;
-  if the user wants Codex + MCP, point them at that config file.
+  `~/.codex/config.toml` — the in-app modal is Claude-only in v1.5.x;
+  if the user wants Codex + MCP, point them at that config file (or
+  use the Codex `/mcp` CLI-only command via the CLI Overlay). MCP
+  startup failures and Codex account rate-limit warnings both fire
+  as in-app notifications now (v1.4.1 Phase B).
 
 - **Session Logs** (settings): Saves chat history for review.
 

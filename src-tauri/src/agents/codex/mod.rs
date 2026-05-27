@@ -67,7 +67,11 @@ impl CodexAdapter {
                 supports_session_mode: false, // replaced by sandbox×approval
                 supports_mcp_management: true, // ~/.codex/config.toml
                 supports_in_app_login: false, // deferred to v1.4.0
-                supports_audit_patch_role: false, // v1.3.0: Claude-only
+                // Flag is currently unused: since v1.4.1 Phase B the
+                // "Patch spec & re-audit" button runs through whichever agent
+                // owns the SpecWriter session (Codex follows the Claude-tuned
+                // splice prompt directly). Kept here for future capability gating.
+                supports_audit_patch_role: false,
             },
         }
     }
