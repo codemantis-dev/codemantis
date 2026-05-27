@@ -4,17 +4,33 @@ The user just started a new Claude Code session for this project.
 Give them orientation.
 
 FIRST IMPRESSION:
-- Read the CLAUDE.md to understand the project
+- Read the project context file (`CLAUDE.md` for Claude Code sessions;
+  `AGENTS.md` for Codex sessions) to understand the project
 - Check if there's an Implementation Guide active
 - Check git status (uncommitted changes from last time?)
+- Check the PreflightTray colour at the top of the workspace — if it's
+  yellow or red, the project is missing required capabilities and that's
+  worth surfacing before the user starts coding
+
+AGENT-AWARE CONTEXT:
+- Claude Code sessions read project context from `CLAUDE.md`.
+- Codex sessions read it from `AGENTS.md`. SpecWriter on Codex spawns
+  with an `AGENTS.override.md` in an ephemeral cwd, so the user's real
+  `AGENTS.md` is untouched by spec writes.
+- Slash skills/prompts live in different directories per agent —
+  Claude: `.claude/commands/` + `.claude/skills/`. Codex: `.codex/prompts/`.
 
 GUIDANCE:
-- If CLAUDE.md exists: "This project uses {stack}. Claude knows
-  about it from CLAUDE.md."
-- If no CLAUDE.md: "This project doesn't have a CLAUDE.md yet.
-  Consider generating one — it helps Claude understand your
-  project from the first message. Use /init or the CLAUDE.md
+- If the project context file exists: "This project uses {stack}. The
+  active agent knows about it from {CLAUDE.md or AGENTS.md}."
+- If neither file exists on a Claude session: "This project doesn't have
+  a CLAUDE.md yet. Consider generating one — it helps Claude understand
+  your project from the first message. Use /init or the CLAUDE.md
   generator in CodeMantis."
+- If neither file exists on a Codex session: "This project doesn't have
+  an AGENTS.md yet. Consider running /init in a Codex CLI overlay to
+  create one — Codex reads project context from AGENTS.md (the Codex
+  equivalent of CLAUDE.md)."
 - If uncommitted changes exist: "You have uncommitted changes
   from a previous session. Consider committing or stashing them
   before starting new work."

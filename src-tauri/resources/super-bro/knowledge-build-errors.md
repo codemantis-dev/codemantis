@@ -61,6 +61,12 @@ General patterns:
 - Multiple errors (10+): Focus on the FIRST error. Later errors
   often cascade from the first one.
 
+AGENT-AGNOSTIC:
+Build errors are identical regardless of whether the active session
+is running on Claude Code or Codex — the patterns above apply to
+either. The suggested-prompt is sent to whichever agent the user is
+talking to.
+
 SUGGESTED ACTION:
 Always suggest a concrete fix. Don't just explain the error —
 tell the user what to do:

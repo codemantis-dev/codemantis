@@ -151,12 +151,40 @@ CAPABILITY-GATED VERIFY ITEMS:
 Verify items tagged `capability=<id>` (BrowserMCP, Supabase, etc.) are
 auto-marked N/A by Self-Drive when the capability is recorded as absent
 in `.claude/project-capabilities.json`. The user sees the item resolve
-without Claude Code running anything for it. Don't flag this as a
+without the worker running anything for it. Don't flag this as a
 skipped check — it's by design, the spec was written knowing the
 capability wasn't there. Only worry if a capability that should exist
 is being treated as absent (e.g., the user installed Supabase but the
 capability record wasn't refreshed); in that case suggest re-running
 the SpecWriter capability probe.
+
+PREFLIGHT GATE FAILURES (PF-001..PF-004):
+Self-Drive consults the project's `preflight.yaml` before each run.
+Failures surface as a MidRunPauseModal naming the capability — they are
+NOT orchestrator decisions, they're capability-gate refusals:
+
+- PF-001: Required capability missing.
+- PF-002: Capability secret invalid (the `api_probe` failed against
+  the user's stored secret — the key is probably revoked or wrong).
+- PF-003: A capability that was satisfied at start went red mid-run
+  (e.g. quota exhausted, network outage).
+- PF-004: Optional capability degraded — non-blocking, logged as a
+  yellow note in the run log.
+
+If the user asks why Self-Drive paused on one of these, point them at
+Mission Control: "Click the red 'Fix now' on the Preflight strip at the
+top — it'll show you exactly which capability is failing and walk you
+through the fix." Don't try to recover at the prompt level for PF-001
+/ PF-002 / PF-003 — the capability needs to be repaired first.
+
+AGENT-AWARE SELF-DRIVE:
+Self-Drive runs on either Claude Code or Codex sessions. In v1.3.x the
+build-mode preamble (the evidence-vocab and parity-gate phrasing) is
+Claude-tuned — Codex runs work but the verify pass is slightly less
+precise. A Codex-tuned preamble variant is planned for v1.4.0. If
+verification on a Codex Self-Drive run looks suspiciously sloppy
+("Verifies 3 items in one sentence"), pause and recheck manually.
+This is a known v1.3.x gap, not orchestrator drift.
 
 ALL SESSIONS COMPLETE:
 - Congratulate the user — they've finished every session.
