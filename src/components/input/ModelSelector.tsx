@@ -5,28 +5,19 @@ import { setSessionModel } from "../../lib/tauri-commands";
 import { formatModelName } from "../../lib/format-utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import type { CliModelInfo } from "../../types/agent-events";
+import { CODEX_FALLBACK_MODELS } from "../../lib/codex-models";
 
-// Per-agent fallback lists used while the live `initialize` /
-// `model/list` capability discovery is still in-flight (or if it
-// fails). Real lists land via the CapabilitiesDiscovered event on the
-// chat channel and override these.
+// Claude fallback used while the live `initialize` / `model/list`
+// capability discovery is still in-flight (or if it fails). Real lists
+// land via the CapabilitiesDiscovered event on the chat channel and
+// override this. (Codex's equivalent lives in `lib/codex-models.ts`
+// because SpecWriter also consumes it.)
 const CLAUDE_FALLBACK_MODELS: CliModelInfo[] = [
   { value: "default", displayName: "Default", description: "Account default", isDefault: true },
   { value: "sonnet", displayName: "Sonnet", description: "Fast and capable" },
   { value: "opus[1m]", displayName: "Opus (1M)", description: "Extended context" },
   { value: "sonnet[1m]", displayName: "Sonnet (1M)", description: "Extended context" },
   { value: "haiku", displayName: "Haiku", description: "Fastest" },
-];
-
-// Codex empirical default lineup (verified against `model/list` JSON-RPC
-// on codex-cli 0.130.0). The real CapabilitiesDiscovered event is the
-// authoritative source; this list shows up only if model/list never
-// resolved (e.g. transport hiccup during spawn).
-const CODEX_FALLBACK_MODELS: CliModelInfo[] = [
-  { value: "gpt-5.5", displayName: "GPT-5.5", description: "Codex default — balanced speed and reasoning", isDefault: true },
-  { value: "gpt-5.4", displayName: "GPT-5.4", description: "General-purpose Codex model" },
-  { value: "gpt-5.4-mini", displayName: "GPT-5.4-Mini", description: "Smaller / faster" },
-  { value: "gpt-5.3-codex", displayName: "GPT-5.3-Codex", description: "Older Codex-tuned model" },
 ];
 
 export default function ModelSelector() {

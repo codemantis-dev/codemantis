@@ -3,6 +3,8 @@ import { ArrowDown } from "lucide-react";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
+import { CODEX_FALLBACK_MODELS } from "../../lib/codex-models";
 import {
   getProviderForModel,
   SPEC_WRITING_MODELS,
@@ -178,14 +180,31 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
   const isCodex = currentProvider === "codex";
   const isLocalCli = isClaudeCode || isCodex;
 
+  // Codex model dropdown source. Prefer the cache populated by any prior
+  // Codex session in this CodeMantis run (real `model/list` output);
+  // fall back to the static manifest so the dropdown is never empty even
+  // on a cold start. `cachedCodex` is undefined → using fallback, which
+  // we surface via the banner below so the user knows what they're
+  // looking at.
+  const cachedCodex = useCliModelCacheStore((s) => s.models.codex);
+  const codexModels = cachedCodex ?? CODEX_FALLBACK_MODELS;
+  const codexFallbackInUse = isCodex && !cachedCodex;
+  const codexDefaultModelId =
+    codexModels.find((m) => m.isDefault)?.value ?? codexModels[0]?.value ?? "";
+
   const handleProviderChange = useCallback(
     (newProvider: string) => {
       if (newProvider === "claude-code") {
         updateConversationProvider(projectPath, "claude-code", DEFAULT_SPEC_CLAUDE_CODE_MODEL);
       } else if (newProvider === "codex") {
-        // Codex's CLI picks its own default model when `model` is empty;
-        // the live `model/list` later refreshes the ModelSelector.
-        updateConversationProvider(projectPath, "codex", "");
+        // Pre-select the dropdown's default so the user sees a value
+        // instead of an empty `<select>`. The spawn-side hook still
+        // treats this as "let Codex pick" — `useSpecConversationClaude`
+        // forwards `ai_model` verbatim and the CLI ignores unknown
+        // values, picking its own default. The cached list is the
+        // authoritative source whenever any prior Codex session has
+        // populated it; otherwise we seed from the static manifest.
+        updateConversationProvider(projectPath, "codex", codexDefaultModelId);
       } else {
         // Pick the first model for this provider that has an API key
         const model = SPEC_WRITING_MODELS.find(
@@ -198,7 +217,7 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
         );
       }
     },
-    [projectPath, updateConversationProvider, apiKeys]
+    [projectPath, updateConversationProvider, apiKeys, codexDefaultModelId]
   );
 
   const handleSpecModelChange = useCallback(
@@ -290,6 +309,12 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
                       {m.label}
                     </option>
                   ))
+                : isCodex
+                ? codexModels.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.displayName}
+                    </option>
+                  ))
                 : SPEC_WRITING_MODELS
                     .filter((m) => m.provider === currentProvider)
                     .map((m) => {
@@ -309,6 +334,29 @@ export default function SpecChat({ projectPath, isOpen, contextLoading, contextE
           </span>
         ) : null}
       </div>
+
+      {/* Codex fallback-models hint. Shown only while the cross-session
+          cache is empty — i.e. no Codex session has run in this CodeMantis
+          run yet, so we're rendering the static lineup from
+          `lib/codex-models.ts` instead of a real `model/list` response.
+          Disappears automatically the first time a Codex session emits
+          `capabilities_discovered`. Subtle styling (neutral, not amber)
+          because this is informational, not a warning. */}
+      {conversation && codexFallbackInUse && !hasUserMessages && (
+        <div
+          className="px-3 py-1.5 text-detail flex items-center gap-2 border-b shrink-0"
+          style={{
+            background: "var(--bg-subtle)",
+            borderColor: "var(--border)",
+            color: "var(--text-dim)",
+          }}
+        >
+          <span>
+            Showing the default Codex model lineup. Open a Codex chat once and the
+            list will refresh with what your CLI actually exposes.
+          </span>
+        </div>
+      )}
 
       {/* API key warning banner */}
       {conversation && !currentModelHasKey && (

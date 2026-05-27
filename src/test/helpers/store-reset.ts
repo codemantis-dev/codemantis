@@ -20,6 +20,7 @@ import { useOpenRouterStore } from "../../stores/openRouterStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useChatSearchStore } from "../../stores/chatSearchStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 
 export function resetAllStores(): void {
   useSessionStore.setState({
@@ -237,4 +238,9 @@ export function resetAllStores(): void {
     currentIndex: 0,
     totalMatches: 0,
   });
+
+  // Cross-session CLI model cache. Reset so a Codex models payload
+  // populated by one test doesn't leak into the next test's SpecChat
+  // render (which would mask the fallback-models render branch).
+  useCliModelCacheStore.getState().clear();
 }

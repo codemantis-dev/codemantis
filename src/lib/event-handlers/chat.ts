@@ -8,6 +8,7 @@ import type {
 import type { TurnStats } from "../../types/session";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import { showToast } from "../../stores/toastStore";
 import { getContextWindowForModel } from "../model-context";
 import { handleProcessError, handleProcessExited } from "./process";
@@ -563,6 +564,15 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
 
     case "capabilities_discovered": {
       store.setSessionCapabilities(sessionId, event);
+      // Also seed the cross-session model cache so consumers that don't
+      // own a session (SpecWriter dropdown, future planners) can render
+      // a real list without waiting on their own spawn. The cache itself
+      // refuses to overwrite a populated entry with an empty list, so
+      // partial / transport-failed payloads can't regress the dropdown.
+      const agent = event.agent_id ?? "claude_code";
+      if (event.models && event.models.length > 0) {
+        useCliModelCacheStore.getState().setModels(agent, event.models);
+      }
       break;
     }
   }
