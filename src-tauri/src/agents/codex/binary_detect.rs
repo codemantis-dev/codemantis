@@ -17,6 +17,8 @@ use std::process::Command;
 
 use serde::Serialize;
 
+use crate::utils::paths::locate_via_login_shell;
+
 /// Detection result for the Codex CLI. Mirrors `ClaudeStatus`'s shape so
 /// the frontend's existing welcome/preflight surface can render it
 /// identically for both agents (Phase 2 §6 / §8).
@@ -41,10 +43,59 @@ impl CodexStatus {
     }
 }
 
-/// Locate `codex` on $PATH. Uses the same `which` crate the Claude
-/// detector uses for parity.
+/// Locate `codex` on the user's effective PATH.
+///
+/// Bundled macOS `.app`s inherit a stripped-down PATH (`/usr/bin:/bin:…`)
+/// that omits Homebrew, nvm, and `~/.npm-global` — every place a real user
+/// installs `codex`. A bare `which::which("codex")` therefore returns
+/// `None` in production while working fine in `pnpm tauri dev`, where the
+/// terminal's PATH is inherited. We mirror the strategy in
+/// [`crate::agents::claude_code::claude_detection::find_claude_binary`]:
+///
+/// 1. Process PATH (`which::which`) — fast path, succeeds in dev builds.
+/// 2. Login-shell PATH (`command -v codex` via `/bin/zsh` with the cached
+///    interactive-shell PATH) — covers Homebrew, nvm, fnm, bun, etc.
+/// 3. Known install dirs under `$HOME` — `~/.local/bin`, `~/.npm-global/bin`,
+///    every `~/.nvm/versions/node/*/bin` — a last-resort scan for users
+///    whose shell profile is unusual (fish without compatible env, etc.).
+/// 4. System dirs — `/usr/local/bin`, `/opt/homebrew/bin`.
 pub fn locate_binary() -> Option<PathBuf> {
-    which::which("codex").ok()
+    if let Ok(path) = which::which("codex") {
+        return Some(path);
+    }
+    if let Some(path) = locate_via_login_shell("codex") {
+        return Some(path);
+    }
+    if let Some(home) = dirs::home_dir() {
+        let user_paths = [
+            home.join(".local/bin/codex"),
+            home.join(".npm-global/bin/codex"),
+        ];
+        for p in &user_paths {
+            if p.exists() {
+                return Some(p.clone());
+            }
+        }
+        let nvm_node = home.join(".nvm/versions/node");
+        if nvm_node.exists() {
+            if let Ok(entries) = std::fs::read_dir(&nvm_node) {
+                for entry in entries.flatten() {
+                    let codex = entry.path().join("bin/codex");
+                    if codex.exists() {
+                        return Some(codex);
+                    }
+                }
+            }
+        }
+    }
+    let system_paths = ["/usr/local/bin/codex", "/opt/homebrew/bin/codex"];
+    for path in &system_paths {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 /// Run `<binary> --version` synchronously and parse the result. Times out
@@ -175,6 +226,56 @@ mod tests {
     #[test]
     fn validate_returns_none_for_missing_path() {
         assert!(validate_binary("/definitely/does/not/exist/codex").is_none());
+    }
+
+    #[test]
+    fn locate_binary_uses_process_path_when_available() {
+        // If the host shell that ran `cargo test` already has codex on PATH,
+        // step 1 (which::which) should find it. We can't assume codex is
+        // installed in CI, so only assert *if* it resolves it must be an
+        // absolute existing path — never the bare name "codex".
+        if let Some(p) = locate_binary() {
+            assert!(p.is_absolute(), "locate_binary must return an absolute path, got {:?}", p);
+            assert!(p.exists(), "locate_binary returned a non-existent path: {:?}", p);
+        }
+    }
+
+    #[test]
+    fn login_shell_fallback_resolves_codex_when_installed() {
+        // Regression for the v1.5.0 bug where bundled `.app` builds reported
+        // "OpenAI Codex isn't on PATH" even with codex installed via Homebrew
+        // or npm-global. The bundled `.app` PATH is minimal, so step 1 of
+        // `locate_binary` (which::which) misses codex; step 2 — the login-
+        // shell fallback — is what saves us.
+        //
+        // We exercise the fallback directly instead of mutating the process
+        // PATH around a `locate_binary` call: env mutation races with other
+        // PATH-sensitive tests when cargo runs tests in parallel.
+        //
+        // Guarded: if codex isn't installed on the test host, we have nothing
+        // to assert — the parse/serialize tests cover the not-installed
+        // branch separately.
+        let probably_installed = std::process::Command::new("/bin/zsh")
+            .args(["-lic", "command -v codex"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !probably_installed {
+            return;
+        }
+
+        let p = locate_via_login_shell("codex").expect(
+            "with codex installed, locate_via_login_shell must succeed — that's the only \
+             reason `.app` users can find codex when their process PATH is /usr/bin:/bin:…",
+        );
+        assert!(p.is_absolute(), "expected absolute path, got {:?}", p);
+        assert!(p.exists(), "resolved path must exist on disk: {:?}", p);
+        assert_eq!(
+            p.file_name().and_then(|s| s.to_str()),
+            Some("codex"),
+            "expected basename 'codex', got {:?}",
+            p
+        );
     }
 
     #[test]

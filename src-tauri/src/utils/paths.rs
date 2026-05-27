@@ -57,6 +57,44 @@ pub fn tool_exists_in_login_shell(tool: &str, path: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Resolve a tool name to an absolute path using the login-shell PATH.
+///
+/// Bundled `.app`s on macOS inherit a minimal PATH that excludes Homebrew,
+/// nvm, npm-global, etc. so a bare `which::which("foo")` will miss tools
+/// the user can run perfectly well from a terminal. This helper runs
+/// `command -v <tool>` with `PATH` set to [`login_shell_path()`] so any
+/// detector can resolve binaries the user actually has installed.
+///
+/// Returns `None` if the lookup fails, the tool isn't found, or the path
+/// it reports no longer exists on disk.
+pub fn locate_via_login_shell(tool: &str) -> Option<PathBuf> {
+    // `command -v` is a POSIX builtin available in every shell we'd plausibly
+    // run. Using `-c` (non-interactive) keeps it fast: we already paid the
+    // interactive-shell cost when caching `login_shell_path()`.
+    let check_cmd = format!("command -v {}", tool);
+    let output = std::process::Command::new("/bin/zsh")
+        .args(["-c", &check_cmd])
+        .env("PATH", login_shell_path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    let p = PathBuf::from(raw);
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
 /// Returns the application data directory, separated by build profile.
 ///
 /// - Release builds: `~/Library/Application Support/dev.codemantis.myapp/`
@@ -177,6 +215,33 @@ mod tests {
             !tool_exists_in_login_shell("__nonexistent_tool_99999__", &path),
             "nonexistent tool should not be found"
         );
+    }
+
+    #[test]
+    fn locate_via_login_shell_finds_system_tool() {
+        // `git` and `ls` are both reliably present on any macOS dev box
+        // (Xcode CLT installs git into /usr/bin), so they're safe targets
+        // for a smoke test even in minimal CI shells.
+        let resolved = locate_via_login_shell("ls").expect("ls must resolve");
+        assert!(resolved.is_absolute(), "expected absolute path, got: {:?}", resolved);
+        assert!(resolved.exists(), "resolved path must exist: {:?}", resolved);
+    }
+
+    #[test]
+    fn locate_via_login_shell_returns_none_for_missing_tool() {
+        assert!(
+            locate_via_login_shell("__definitely_not_a_real_binary_99999__").is_none(),
+            "nonexistent tool should resolve to None"
+        );
+    }
+
+    #[test]
+    fn locate_via_login_shell_returns_absolute_path() {
+        // Regression guard for the .app-bundle PATH bug: detectors must get
+        // back an absolute path they can spawn directly, not a bare name.
+        if let Some(p) = locate_via_login_shell("sh") {
+            assert!(p.is_absolute(), "must be absolute: {:?}", p);
+        }
     }
 
     #[test]
