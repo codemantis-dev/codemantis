@@ -126,7 +126,7 @@ pub enum CatalogError {
     Parse {
         path: PathBuf,
         #[source]
-        source: serde_yml::Error,
+        source: serde_yaml_ng::Error,
     },
     #[error("catalog directory not found: {0}")]
     DirNotFound(PathBuf),
@@ -159,7 +159,7 @@ impl Catalog {
                 }
                 let text = std::fs::read_to_string(&path)?;
                 let entry: CatalogEntry =
-                    serde_yml::from_str(&text).map_err(|source| CatalogError::Parse {
+                    serde_yaml_ng::from_str(&text).map_err(|source| CatalogError::Parse {
                         path: path.clone(),
                         source,
                     })?;
@@ -377,9 +377,9 @@ remediation:
     #[test]
     fn entry_round_trip_via_yaml() {
         // Serialize → parse → equal.
-        let original: CatalogEntry = serde_yml::from_str(stripe_entry_yaml()).unwrap();
-        let yaml = serde_yml::to_string(&original).unwrap();
-        let restored: CatalogEntry = serde_yml::from_str(&yaml).unwrap();
+        let original: CatalogEntry = serde_yaml_ng::from_str(stripe_entry_yaml()).unwrap();
+        let yaml = serde_yaml_ng::to_string(&original).unwrap();
+        let restored: CatalogEntry = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(restored.catalog_ref, original.catalog_ref);
         assert_eq!(restored.display_name, original.display_name);
     }
@@ -398,13 +398,13 @@ verification_recipe:
 remediation:
   kind: future_kind_not_yet_built
 "#;
-        let entry: CatalogEntry = serde_yml::from_str(yaml).unwrap();
+        let entry: CatalogEntry = serde_yaml_ng::from_str(yaml).unwrap();
         assert!(matches!(entry.remediation, Remediation::Unsupported));
     }
 
     #[test]
     fn step_actions_parse_correctly() {
-        let entry: CatalogEntry = serde_yml::from_str(stripe_entry_yaml()).unwrap();
+        let entry: CatalogEntry = serde_yaml_ng::from_str(stripe_entry_yaml()).unwrap();
         if let Remediation::GuidedSteps { steps, .. } = &entry.remediation {
             assert_eq!(steps.len(), 2);
             assert_eq!(steps[0].id, 1);
@@ -429,7 +429,7 @@ verification_recipe:
 remediation:
   kind: external_only
 "#;
-        let entry: CatalogEntry = serde_yml::from_str(yaml).unwrap();
+        let entry: CatalogEntry = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(entry.service.trust_tier, TrustTier::Curated);
     }
 
@@ -545,7 +545,7 @@ verification_recipe:
 remediation:
   kind: external_only
 "#;
-        let entry: CatalogEntry = serde_yml::from_str(yaml).unwrap();
+        let entry: CatalogEntry = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(entry.service.last_verified.as_deref(), Some("2026-05-09"));
     }
 }

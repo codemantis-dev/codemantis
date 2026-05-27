@@ -176,11 +176,10 @@ pub enum ManifestError {
     Parse(String),
 }
 
-/// Parse YAML or JSON (YAML is a superset). Phase 1 added `serde_yml`
-/// alongside the catalog loader; we use it here too so real preflight.yaml
-/// files parse correctly.
+/// Parse YAML or JSON (YAML is a superset). Uses `serde_yaml_ng` alongside
+/// the catalog loader so real preflight.yaml files parse correctly.
 fn serde_yaml_with_serde_json(text: &str) -> Result<Manifest, ManifestError> {
-    serde_yml::from_str(text).map_err(|e| ManifestError::Parse(e.to_string()))
+    serde_yaml_ng::from_str(text).map_err(|e| ManifestError::Parse(e.to_string()))
 }
 
 #[cfg(test)]

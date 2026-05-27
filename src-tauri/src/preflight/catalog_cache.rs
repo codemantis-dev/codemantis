@@ -18,7 +18,7 @@ pub enum CacheError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("yaml: {0}")]
-    Yaml(#[from] serde_yml::Error),
+    Yaml(#[from] serde_yaml_ng::Error),
     #[error("app data dir not found")]
     NoDataDir,
 }
@@ -85,7 +85,7 @@ pub fn write_at(
 ) -> Result<(), CacheError> {
     fs::create_dir_all(root)?;
     let path = entry_path_at(root, catalog_ref);
-    let yaml = serde_yml::to_string(entry)?;
+    let yaml = serde_yaml_ng::to_string(entry)?;
     fs::write(path, yaml)?;
     Ok(())
 }
@@ -96,7 +96,7 @@ pub fn read_at(root: &Path, catalog_ref: &str) -> Result<Option<CatalogEntry>, C
         return Ok(None);
     }
     let text = fs::read_to_string(&path)?;
-    Ok(Some(serde_yml::from_str(&text)?))
+    Ok(Some(serde_yaml_ng::from_str(&text)?))
 }
 
 pub fn delete_at(root: &Path, catalog_ref: &str) -> Result<(), CacheError> {
@@ -119,7 +119,7 @@ pub fn list_at(root: &Path) -> Result<Vec<CatalogEntry>, CacheError> {
             continue;
         }
         if let Ok(text) = fs::read_to_string(&path) {
-            if let Ok(entry) = serde_yml::from_str::<CatalogEntry>(&text) {
+            if let Ok(entry) = serde_yaml_ng::from_str::<CatalogEntry>(&text) {
                 entries.push(entry);
             }
         }

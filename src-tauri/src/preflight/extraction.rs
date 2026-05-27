@@ -372,7 +372,7 @@ fn infer_storage_kind(catalog_ref: &str) -> StorageKind {
 
 /// Render the manifest to YAML (the canonical preflight.yaml format).
 pub fn manifest_to_yaml(manifest: &Manifest) -> Result<String, ExtractionError> {
-    serde_yml::to_string(manifest).map_err(|e| ExtractionError::Catalog(e.to_string()))
+    serde_yaml_ng::to_string(manifest).map_err(|e| ExtractionError::Catalog(e.to_string()))
 }
 
 #[cfg(test)]
