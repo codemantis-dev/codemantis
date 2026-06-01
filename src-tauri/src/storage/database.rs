@@ -203,6 +203,11 @@ impl Database {
         // Preflight System — cached capability verification state per project.
         let _ = conn.execute_batch(migrations::MIGRATE_PREFLIGHT_CAPABILITIES);
 
+        // Recall — memory layer (RECALL-SPEC §8). Tables prefixed `recall_`,
+        // including an FTS5 virtual table over note title+body.
+        conn.execute_batch(migrations::MIGRATE_RECALL)
+            .map_err(|e| AppError::DatabaseError(format!("Failed to migrate recall: {}", e)))?;
+
         // Always drop planning_messages if it exists.
         // V1 migration (MIGRATE_TASK_PLANS) recreates it on every startup via
         // CREATE TABLE IF NOT EXISTS, but V2 dropped it and changed task_plans

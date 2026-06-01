@@ -14,6 +14,7 @@ pub mod errors;
 pub mod lifecycle;
 mod preflight;
 mod preview;
+mod recall;
 pub mod storage;
 mod terminal;
 mod utils;
@@ -469,6 +470,8 @@ pub fn run() {
             commands::menu::disable_update_menu_item,
             commands::lifecycle::wake_pong,
             commands::lifecycle::append_diagnostic_log,
+            recall::commands::recall_status,
+            recall::commands::recall_reindex,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

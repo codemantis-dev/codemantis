@@ -197,3 +197,123 @@ CREATE TABLE IF NOT EXISTS preflight_capabilities (
 );
 CREATE INDEX IF NOT EXISTS idx_preflight_capabilities_project ON preflight_capabilities(project_id);
 "#;
+
+// Recall — project-and-cross-project memory layer (see RECALL-SPEC §8).
+//
+// Deviation from spec: the spec's `project_id INTEGER REFERENCES projects(id)`
+// FK is unsatisfiable in CodeMantis (no `projects` table). All tables here
+// key on `project_path TEXT`, matching the existing convention used by
+// task_plans, super_bro_observations, self_drive_runs, etc.
+//
+// recall_notes_fts is an FTS5 virtual table with `content=''` (external
+// content): rows are inserted/deleted manually in lockstep with
+// recall_notes by the indexer (see src/recall/index/ingest.rs).
+pub const MIGRATE_RECALL: &str = r#"
+CREATE TABLE IF NOT EXISTS recall_vaults (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_path    TEXT NOT NULL,
+    vault_path      TEXT NOT NULL,
+    is_meta         INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    last_indexed_at TEXT,
+    UNIQUE(project_path, is_meta)
+);
+
+CREATE TABLE IF NOT EXISTS recall_notes (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    vault_id         INTEGER NOT NULL REFERENCES recall_vaults(id) ON DELETE CASCADE,
+    note_id          TEXT NOT NULL,
+    type             TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'active',
+    trust            TEXT NOT NULL DEFAULT 'medium',
+    severity         TEXT,
+    discovered_at    TEXT NOT NULL,
+    last_verified_at TEXT NOT NULL,
+    file_path        TEXT NOT NULL,
+    body_hash        TEXT NOT NULL,
+    UNIQUE(vault_id, note_id)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_notes_vault ON recall_notes(vault_id);
+CREATE INDEX IF NOT EXISTS idx_recall_notes_type  ON recall_notes(type);
+
+CREATE TABLE IF NOT EXISTS recall_note_paths (
+    note_id     INTEGER NOT NULL REFERENCES recall_notes(id) ON DELETE CASCADE,
+    source_path TEXT NOT NULL,
+    PRIMARY KEY (note_id, source_path)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_note_paths_path ON recall_note_paths(source_path);
+
+CREATE TABLE IF NOT EXISTS recall_note_commits (
+    note_id      INTEGER NOT NULL REFERENCES recall_notes(id) ON DELETE CASCADE,
+    commit_hash  TEXT NOT NULL,
+    role         TEXT NOT NULL,
+    occurred_at  TEXT NOT NULL,
+    PRIMARY KEY (note_id, commit_hash, role)
+);
+
+CREATE TABLE IF NOT EXISTS recall_note_links (
+    src_note_id  INTEGER NOT NULL REFERENCES recall_notes(id) ON DELETE CASCADE,
+    dst_note_id  INTEGER,
+    dst_text     TEXT NOT NULL,
+    is_meta      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (src_note_id, dst_text)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_note_links_dst ON recall_note_links(dst_note_id);
+
+CREATE TABLE IF NOT EXISTS recall_note_tags (
+    note_id  INTEGER NOT NULL REFERENCES recall_notes(id) ON DELETE CASCADE,
+    tag      TEXT NOT NULL,
+    PRIMARY KEY (note_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_note_tags_tag ON recall_note_tags(tag);
+
+-- Spec §8 specified `content=''` (external content) but FTS5 forbids
+-- regular DELETE on contentless tables, which we need for the
+-- delete-then-insert update path and for index drop-and-rebuild.
+-- Contentful mode stores a duplicate of title+body inside the FTS5
+-- shadow table; for note-sized text the storage cost is negligible
+-- (typical note < 4 KB; vault < 10 MB even for large projects).
+CREATE VIRTUAL TABLE IF NOT EXISTS recall_notes_fts USING fts5(
+    title, body,
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TABLE IF NOT EXISTS recall_enrichments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_path        TEXT NOT NULL,
+    session_id          TEXT,
+    occurred_at         TEXT NOT NULL,
+    user_prompt_summary TEXT,
+    notes_injected      TEXT NOT NULL,
+    brief_tokens        INTEGER,
+    model_used          TEXT,
+    cost_usd            REAL
+);
+CREATE INDEX IF NOT EXISTS idx_recall_enrichments_project ON recall_enrichments(project_path);
+
+CREATE TABLE IF NOT EXISTS recall_harvests (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_path    TEXT NOT NULL,
+    session_id      TEXT,
+    commit_hash     TEXT,
+    occurred_at     TEXT NOT NULL,
+    note_id         INTEGER REFERENCES recall_notes(id) ON DELETE SET NULL,
+    fidelity_status TEXT,
+    flagged_tokens  TEXT,
+    model_used      TEXT,
+    cost_usd        REAL
+);
+CREATE INDEX IF NOT EXISTS idx_recall_harvests_project ON recall_harvests(project_path);
+CREATE INDEX IF NOT EXISTS idx_recall_harvests_commit  ON recall_harvests(commit_hash);
+
+CREATE TABLE IF NOT EXISTS recall_misses (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_path  TEXT NOT NULL,
+    occurred_at   TEXT NOT NULL,
+    source_path   TEXT NOT NULL,
+    has_note      INTEGER NOT NULL,
+    processed_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recall_misses_project ON recall_misses(project_path);
+"#;
