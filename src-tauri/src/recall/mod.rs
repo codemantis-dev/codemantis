@@ -30,6 +30,7 @@ pub mod git;
 pub mod harvester;
 pub mod index;
 pub mod llm_client;
+pub mod specwriter;
 pub mod vault;
 
 use std::path::{Path, PathBuf};

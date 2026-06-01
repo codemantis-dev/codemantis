@@ -9,7 +9,7 @@ pub mod testing_exports {
     pub use crate::agents::claude_code::session::AppState;
 }
 mod changelog;
-mod commands;
+pub mod commands;
 pub mod errors;
 pub mod lifecycle;
 mod preflight;

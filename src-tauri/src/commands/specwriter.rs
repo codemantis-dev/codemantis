@@ -94,6 +94,52 @@ pub async fn archive_task_plan_cmd(
 
 #[tauri::command]
 pub async fn save_spec_document(
+    state: tauri::State<'_, crate::agents::claude_code::session::AppState>,
+    project_path: String,
+    filename: String,
+    content: String,
+    overwrite: bool,
+) -> Result<String, String> {
+    let full_path = save_spec_document_impl(
+        project_path.clone(),
+        filename.clone(),
+        content.clone(),
+        overwrite,
+    )
+    .await?;
+
+    // RECALL-SPEC §9.2.3 first bullet: trigger spec_to_note harvest
+    // so the spec becomes a decision note linked to overlapping
+    // landmines. Best-effort — failures here must not block the
+    // save. The vault is auto-created on first call.
+    let settings_recall_enabled = crate::commands::settings::get_settings()
+        .map(|s| s.recall.enabled && s.recall.mode != crate::recall::config::RecallMode::Off)
+        .unwrap_or(false);
+    if settings_recall_enabled {
+        let db = state.database.clone();
+        let project = std::path::PathBuf::from(&project_path);
+        let body = content.clone();
+        let fname = filename.clone();
+        tokio::spawn(async move {
+            match crate::recall::specwriter::spec_to_note::harvest(&db, &project, &fname, &body) {
+                Ok(outcome) => {
+                    log::info!("[recall.spec_to_note] {:?}", outcome);
+                }
+                Err(e) => {
+                    log::warn!("[recall.spec_to_note] harvest failed: {}", e);
+                }
+            }
+        });
+    }
+
+    Ok(full_path)
+}
+
+/// Implementation half of [`save_spec_document`], free of Tauri State so
+/// unit tests can call it directly. The Recall integration is in the
+/// thin Tauri wrapper above; no behaviour change vs the pre-Phase-4
+/// implementation lives here.
+pub async fn save_spec_document_impl(
     project_path: String,
     filename: String,
     content: String,
@@ -304,6 +350,42 @@ pub async fn read_project_files(
 
 #[tauri::command]
 pub async fn gather_spec_context(
+    state: tauri::State<'_, crate::agents::claude_code::session::AppState>,
+    project_path: String,
+) -> Result<String, String> {
+    let assembled = gather_spec_context_impl(project_path.clone()).await?;
+
+    // RECALL-SPEC §9.2.1: append a Recall Context section so the
+    // spec-generation LLM sees prior decisions / landmines / patterns
+    // for the files it's about to touch. Recall failures fall through
+    // to the un-augmented context — spec generation must never be
+    // blocked by the memory layer.
+    let settings_recall_enabled = crate::commands::settings::get_settings()
+        .map(|s| s.recall.enabled && s.recall.mode != crate::recall::config::RecallMode::Off)
+        .unwrap_or(false);
+    if !settings_recall_enabled {
+        return Ok(assembled);
+    }
+    let detected_paths = extract_session_plan_paths(&assembled);
+    let detected_paths = crate::recall::specwriter::context_section::relevant_paths(&detected_paths);
+    match crate::recall::specwriter::context_section::append_section(
+        &state.database,
+        std::path::Path::new(&project_path),
+        &assembled,
+        &detected_paths,
+    ) {
+        Ok(augmented) => Ok(augmented),
+        Err(e) => {
+            log::warn!("[recall.gather_spec_context] append failed: {}", e);
+            Ok(assembled)
+        }
+    }
+}
+
+/// Implementation half of [`gather_spec_context`], free of Tauri State.
+/// This is the existing behaviour from before Phase 4 — every test
+/// that called the Tauri command directly now goes through this.
+pub async fn gather_spec_context_impl(
     project_path: String,
 ) -> Result<String, String> {
     let project = Path::new(&project_path);
@@ -738,19 +820,93 @@ pub struct ActionParityResult {
 /// command intentionally does not fail itself on a missing handler.
 #[tauri::command]
 pub async fn verify_action_parity(
+    state: tauri::State<'_, crate::agents::claude_code::session::AppState>,
     project_root: String,
     actions: Vec<ActionParityRequest>,
 ) -> Result<Vec<ActionParityResult>, String> {
-    let root = Path::new(&project_root);
+    // We need the request alongside the result for the landmine
+    // harvest below, so call the wider helper and split.
+    let paired = verify_action_parity_paired(&project_root, actions).await?;
+    let results: Vec<ActionParityResult> = paired.iter().map(|(_, r)| r.clone()).collect();
+
+    // RECALL-SPEC §9.2.6: each FAIL row with a stub-marker detail
+    // becomes a landmine note via the Harvester. The note's
+    // source_paths span both caller and handler so the next
+    // gather_spec_context covering either side surfaces it. Skipped
+    // entirely when Recall is off. Failures inside the harvest path
+    // are logged, not surfaced — Recall must never block the
+    // verification flow.
+    let settings_recall_enabled = crate::commands::settings::get_settings()
+        .map(|s| s.recall.enabled && s.recall.mode != crate::recall::config::RecallMode::Off)
+        .unwrap_or(false);
+    if settings_recall_enabled {
+        let db = state.database.clone();
+        let project = std::path::PathBuf::from(&project_root);
+        tokio::spawn(async move {
+            for (req, result) in paired {
+                if result.status == "PASS" {
+                    continue;
+                }
+                let callers: Vec<String> = {
+                    let mut v: Vec<String> = Vec::new();
+                    if !req.caller_path.trim().is_empty() {
+                        v.push(req.caller_path.clone());
+                    }
+                    for p in &req.caller_paths {
+                        if !p.trim().is_empty() && !v.iter().any(|x| x == p) {
+                            v.push(p.clone());
+                        }
+                    }
+                    v
+                };
+                let fail = crate::recall::specwriter::parity_to_landmine::ParityFail {
+                    action: &req.action,
+                    caller_paths: &callers,
+                    handler_path: &req.handler_path,
+                    detail: &result.detail,
+                    spec_note_id: None,
+                };
+                match crate::recall::specwriter::parity_to_landmine::landmine_from_fail(
+                    &db, &project, &fail,
+                ) {
+                    Ok(outcome) => log::info!("[recall.parity_to_landmine] {:?}", outcome),
+                    Err(e) => log::warn!("[recall.parity_to_landmine] failed: {}", e),
+                }
+            }
+        });
+    }
+
+    Ok(results)
+}
+
+/// Implementation half of [`verify_action_parity`], free of Tauri State.
+/// Matches the original public shape (returns `Vec<ActionParityResult>`)
+/// so existing tests keep working with one identifier-rename edit.
+pub async fn verify_action_parity_impl(
+    project_root: String,
+    actions: Vec<ActionParityRequest>,
+) -> Result<Vec<ActionParityResult>, String> {
+    let paired = verify_action_parity_paired(&project_root, actions).await?;
+    Ok(paired.into_iter().map(|(_, r)| r).collect())
+}
+
+/// Wider helper used by the Tauri wrapper to keep the input alongside
+/// each result — needed for the Recall landmine harvest. Tests can
+/// call the simpler [`verify_action_parity_impl`] above.
+async fn verify_action_parity_paired(
+    project_root: &str,
+    actions: Vec<ActionParityRequest>,
+) -> Result<Vec<(ActionParityRequest, ActionParityResult)>, String> {
+    let root = Path::new(project_root);
     if !root.is_dir() {
         return Err(format!("project_root is not a directory: {}", project_root));
     }
-
-    let mut results = Vec::with_capacity(actions.len());
+    let mut paired = Vec::with_capacity(actions.len());
     for req in actions {
-        results.push(check_one_action(root, &req));
+        let result = check_one_action(root, &req);
+        paired.push((req, result));
     }
-    Ok(results)
+    Ok(paired)
 }
 
 fn check_one_action(root: &Path, req: &ActionParityRequest) -> ActionParityResult {
@@ -1033,6 +1189,60 @@ Rules — every single one is non-negotiable:
 /// Build the user prompt for a recovery call. The diagnosis text comes
 /// straight from the frontend's `diagnoseSessionPlanFailure` so the model
 /// knows exactly which Session the regex parser tripped on.
+/// Sweep a spec for path-shaped tokens — used by recover_session_plan
+/// to drive the Recall landmine lookup. Best-effort; the landmine
+/// block is decoration, not gating.
+fn extract_session_plan_paths(spec: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // 1) Backtick-quoted spans likely to be paths.
+    for (i, span) in spec.split('`').enumerate() {
+        if i % 2 == 1 && looks_path_like(span.trim()) {
+            let p = span.trim().to_string();
+            if seen.insert(p.clone()) {
+                out.push(p);
+            }
+        }
+    }
+    // 2) Bare path tokens.
+    for raw in spec.split(|c: char| {
+        c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '<' | '>' | '"' | '`')
+    }) {
+        let trimmed = raw.trim_matches(|c: char| matches!(c, '.' | ':' | '[' | ']' | '{' | '}'));
+        if looks_path_like(trimmed) && seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+fn looks_path_like(s: &str) -> bool {
+    if s.len() < 3 || !s.contains('/') {
+        return false;
+    }
+    if s.contains("://") || s.starts_with("http") {
+        return false;
+    }
+    // Has either a known extension or a recognized prefix.
+    const PFX: &[&str] = &[
+        "./", "../", "src/", "tests/", "docs/", "supabase/", "src-tauri/",
+        "components/", "hooks/", "api/", "server/", "client/", "config/",
+        "migrations/",
+    ];
+    if s.starts_with('/') || PFX.iter().any(|p| s.starts_with(p)) {
+        return true;
+    }
+    if let Some(ext) = s.rsplit('.').next() {
+        matches!(
+            ext,
+            "rs" | "ts" | "tsx" | "js" | "jsx" | "json" | "toml" | "yaml" | "yml"
+                | "md" | "py" | "go" | "sql" | "html" | "css" | "scss"
+        )
+    } else {
+        false
+    }
+}
+
 fn build_recovery_prompt(spec_markdown: &str, diagnosis: &str, filename: &str) -> String {
     format!(
         "The Session Plan in the spec below failed to parse. The parser said:\n\n\
@@ -1280,13 +1490,68 @@ pub struct RecoverSessionPlanResponse {
 ///   - HTTP / parse errors from the provider
 ///   - empty model response
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn recover_session_plan(
+    state: tauri::State<'_, crate::agents::claude_code::session::AppState>,
     spec_markdown: String,
     diagnosis: String,
     provider: String,
     api_key: String,
     model: String,
     filename: String,
+    // Optional for backward compatibility with the existing frontend
+    // call shape. When supplied, RECALL-SPEC §9.2.2 third bullet
+    // kicks in: landmines covering paths the Session Plan touches
+    // are prepended to the recovery user prompt so the model
+    // synthesizes instructions that reference them.
+    project_path: Option<String>,
+) -> Result<RecoverSessionPlanResponse, String> {
+    let landmine_block = project_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .and_then(|p| {
+            let recall_enabled = crate::commands::settings::get_settings()
+                .map(|s| s.recall.enabled
+                    && s.recall.mode != crate::recall::config::RecallMode::Off)
+                .unwrap_or(false);
+            if !recall_enabled {
+                return None;
+            }
+            let paths = extract_session_plan_paths(&spec_markdown);
+            match crate::recall::specwriter::recovery_landmines::render_landmine_block(
+                &state.database,
+                std::path::Path::new(p),
+                &paths,
+            ) {
+                Ok(block) if !block.is_empty() => Some(block),
+                Ok(_) => None,
+                Err(e) => {
+                    log::warn!(
+                        "[recall.recovery_landmines] render failed: {}; sending base prompt",
+                        e
+                    );
+                    None
+                }
+            }
+        });
+    recover_session_plan_impl(
+        spec_markdown, diagnosis, provider, api_key, model, filename, landmine_block,
+    )
+    .await
+}
+
+/// Implementation half of [`recover_session_plan`]. The Recall
+/// landmine block (when present) is prepended to the recovery user
+/// prompt; everything else matches the pre-Phase-4 behaviour.
+#[allow(clippy::too_many_arguments)]
+pub async fn recover_session_plan_impl(
+    spec_markdown: String,
+    diagnosis: String,
+    provider: String,
+    api_key: String,
+    model: String,
+    filename: String,
+    landmine_block: Option<String>,
 ) -> Result<RecoverSessionPlanResponse, String> {
     if api_key.trim().is_empty() {
         return Err(
@@ -1299,7 +1564,11 @@ pub async fn recover_session_plan(
         return Err("Spec markdown is empty — nothing to recover.".to_string());
     }
 
-    let prompt = build_recovery_prompt(&spec_markdown, &diagnosis, &filename);
+    let base = build_recovery_prompt(&spec_markdown, &diagnosis, &filename);
+    let prompt = match landmine_block {
+        Some(block) if !block.is_empty() => format!("{}\n\n{}", block, base),
+        _ => base,
+    };
     let client = reqwest::Client::new();
 
     let raw = match provider.as_str() {
@@ -1379,7 +1648,7 @@ mod tests {
         let dir = temp_dir();
         let project = dir.path().to_string_lossy().to_string();
 
-        let result = save_spec_document(
+        let result = save_spec_document_impl(
             project.clone(),
             "my-spec.md".to_string(),
             "# My Spec\n\nContent here.".to_string(),
@@ -1403,7 +1672,7 @@ mod tests {
         let project = dir.path().to_string_lossy().to_string();
 
         // First write
-        save_spec_document(
+        save_spec_document_impl(
             project.clone(),
             "spec.md".to_string(),
             "original".to_string(),
@@ -1413,7 +1682,7 @@ mod tests {
         .unwrap();
 
         // Second write without overwrite flag
-        let result = save_spec_document(
+        let result = save_spec_document_impl(
             project.clone(),
             "spec.md".to_string(),
             "updated".to_string(),
@@ -1435,7 +1704,7 @@ mod tests {
         let dir = temp_dir();
         let project = dir.path().to_string_lossy().to_string();
 
-        save_spec_document(
+        save_spec_document_impl(
             project.clone(),
             "spec.md".to_string(),
             "original".to_string(),
@@ -1444,7 +1713,7 @@ mod tests {
         .await
         .unwrap();
 
-        let result = save_spec_document(
+        let result = save_spec_document_impl(
             project.clone(),
             "spec.md".to_string(),
             "updated content".to_string(),
@@ -1632,7 +1901,7 @@ mod tests {
         // Add a Rust indicator so framework detection triggers
         fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"test\"").unwrap();
 
-        let result = gather_spec_context(project_path).await;
+        let result = gather_spec_context_impl(project_path).await;
         assert!(result.is_ok());
         let ctx = result.unwrap();
 
@@ -1655,7 +1924,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = gather_spec_context(project_path).await;
+        let result = gather_spec_context_impl(project_path).await;
         assert!(result.is_ok());
         let ctx = result.unwrap();
         assert!(ctx.contains("CLAUDE.md"));
@@ -1691,7 +1960,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = gather_spec_context(project_path).await;
+        let result = gather_spec_context_impl(project_path).await;
         assert!(result.is_ok());
         let ctx = result.unwrap();
 
@@ -1799,7 +2068,7 @@ mod tests {
 
     #[tokio::test]
     async fn verify_action_parity_errors_when_root_missing() {
-        let res = verify_action_parity("/tmp/nonexistent-codemantis-root".to_string(), vec![]).await;
+        let res = verify_action_parity_impl("/tmp/nonexistent-codemantis-root".to_string(), vec![]).await;
         assert!(res.is_err());
     }
 
@@ -1825,7 +2094,7 @@ mod tests {
             wire: None,
         }];
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             actions,
         )
@@ -1856,7 +2125,7 @@ mod tests {
             "def handle(action):\n    return None\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
@@ -1887,7 +2156,7 @@ mod tests {
         );
         // Handler path never created.
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
@@ -1924,7 +2193,7 @@ mod tests {
              def handle(action):\n    raise NotImplementedError()\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "insert_note_classification".to_string(),
@@ -1962,7 +2231,7 @@ mod tests {
             "client.call('audit', 'emit_audit_log', {});\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "emit_audit_log".to_string(),
@@ -1992,7 +2261,7 @@ mod tests {
             "switch(action) { case 'a': ok(); }\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![
                 ActionParityRequest {
@@ -2038,7 +2307,7 @@ mod tests {
             "switch (action) { case 'insert_note': return ok(); }\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "insert_note".to_string(),
@@ -2079,7 +2348,7 @@ mod tests {
             "switch (action) { case 'insert_note': return ok(); }\n",
         );
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "insert_note".to_string(),
@@ -2116,7 +2385,7 @@ mod tests {
         );
 
         // With wire — PASSes
-        let with_wire = verify_action_parity(
+        let with_wire = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "resolve_checkpoint".to_string(),
@@ -2133,7 +2402,7 @@ mod tests {
 
         // Without wire — control: same fixture FAILs because the literal
         // action name is nowhere to be found.
-        let no_wire = verify_action_parity(
+        let no_wire = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "resolve_checkpoint".to_string(),
@@ -2159,7 +2428,7 @@ mod tests {
         write(&root.join("src/b/file.ts"), "noop\n");
         write(&root.join("functions/handler.ts"), "switch (a) { case 'foo': }\n");
 
-        let results = verify_action_parity(
+        let results = verify_action_parity_impl(
             root.to_string_lossy().to_string(),
             vec![ActionParityRequest {
                 action: "foo".to_string(),
@@ -2487,13 +2756,14 @@ mod tests {
 
     #[tokio::test]
     async fn recover_session_plan_refuses_without_api_key() {
-        let err = recover_session_plan(
+        let err = recover_session_plan_impl(
             "# Spec\n\n## 10. Session Plan\n".to_string(),
             "diag".to_string(),
             "anthropic".to_string(),
             "".to_string(),
             "claude-opus-4-7".to_string(),
             "f.md".to_string(),
+            None,
         )
         .await
         .unwrap_err();
@@ -2502,13 +2772,14 @@ mod tests {
 
     #[tokio::test]
     async fn recover_session_plan_refuses_empty_spec() {
-        let err = recover_session_plan(
+        let err = recover_session_plan_impl(
             "   ".to_string(),
             "diag".to_string(),
             "anthropic".to_string(),
             "sk-test".to_string(),
             "claude-opus-4-7".to_string(),
             "f.md".to_string(),
+            None,
         )
         .await
         .unwrap_err();
@@ -2517,13 +2788,14 @@ mod tests {
 
     #[tokio::test]
     async fn recover_session_plan_rejects_unknown_provider() {
-        let err = recover_session_plan(
+        let err = recover_session_plan_impl(
             "# Spec\nbody".to_string(),
             "diag".to_string(),
             "made-up-provider".to_string(),
             "sk-test".to_string(),
             "some-model".to_string(),
             "f.md".to_string(),
+            None,
         )
         .await
         .unwrap_err();
