@@ -1529,3 +1529,48 @@ Run the full audit.
     ]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// webcreator-v2 regression: Session 1 is structurally complete (Scope +
+// Files + Verification Prompt) but Sonnet forgot the `**Prompt for Claude
+// Code:**` fence label. Today the parser aborts the entire 13-session
+// guide on this single omission. That hard-reject is the gatekeeper
+// behaviour we've sworn off (see feedback_specwriter_senior_advisor in
+// memory). Recovery happens one layer up in handleRecognizeGuide; the
+// parser's job here is only to *report* the precise failure so the
+// recovery prompt can be targeted.
+//
+// These tests pin the baseline so the AI-recovery integration test has
+// something concrete to recover *from*.
+// ─────────────────────────────────────────────────────────────────────────
+describe("parseSessionPlan — webcreator-v2 missing-prompt baseline", () => {
+  const fixturePath = resolve(__dirname, "__fixtures__/webcreator-v2-spec.md");
+  const fixtureMarkdown = readFileSync(fixturePath, "utf8");
+
+  it("returns null on the webcreator-v2 fixture (Session 1 has no Prompt for Claude Code fence)", () => {
+    expect(parseSessionPlan(fixtureMarkdown)).toBeNull();
+  });
+
+  it("diagnose names Session 1 as the offender", () => {
+    const reason = diagnoseSessionPlanFailure(fixtureMarkdown);
+    expect(reason).toMatch(/Session 1\b/);
+    expect(reason).toMatch(/Prompt for Claude Code/);
+    // The advice surface mentions the three recovery markers the parser
+    // already understands. Keep this assertion to catch accidental changes
+    // to the human-facing copy that the toast surfaces.
+    expect(reason).toMatch(/Verify \(full audit\)/);
+    expect(reason).toMatch(/Indivisible note/);
+  });
+
+  it("every other Session in the fixture has a real Prompt for Claude Code", () => {
+    // Sanity check: only Session 1 is broken. If a future drift makes
+    // Session 2+ also drop their fences, the recovery test needs a
+    // different fixture. Surface that immediately.
+    const sessionHeadings = fixtureMarkdown.match(/^###\s+Session\s+\d+[a-z]?:/gm) ?? [];
+    expect(sessionHeadings.length).toBeGreaterThan(10);
+    const promptCount = (fixtureMarkdown.match(/\*\*Prompt for Claude Code:\*\*/g) ?? []).length;
+    // 13 declared sessions, minus Session 1 which is missing its prompt,
+    // plus the Session 4 wrapper that has a pointer-only prompt = 13 -1 = 12.
+    expect(promptCount).toBeGreaterThanOrEqual(11);
+  });
+});

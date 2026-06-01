@@ -13,9 +13,12 @@ import {
   gatherSpecContext,
   saveTaskBoardState,
   addVerificationWorkflowToClaudeMd,
+  saveSpecDocument,
 } from "../lib/tauri-commands";
-import { parseSessionPlan, diagnoseSessionPlanFailure } from "../lib/parse-session-plan";
+import { parseSessionPlan } from "../lib/parse-session-plan";
 import type { ParsedSessionPlan } from "../lib/parse-session-plan";
+import { recoverSessionPlan } from "../lib/recover-session-plan";
+import { useSettingsStore } from "../stores/settingsStore";
 import { isGuideStarted } from "../lib/guide-helpers";
 
 export interface SpecWriterActionsReturn {
@@ -300,10 +303,43 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
   const handleRecognizeGuide = useCallback(async () => {
     if (!currentSpecContent || !activeProjectPath || !effectiveSpecFilename) return;
 
-    const parsed = parseSessionPlan(currentSpecContent);
+    // Fast path: the spec parses with the strict regex parser. 95% of
+    // well-formed specs hit this and complete in <1ms.
+    let parsed = parseSessionPlan(currentSpecContent);
+    let recoveredMarkdown: string | null = null;
+    let recoveryProvider: string | null = null;
+    let recoveryNote: string | null = null;
+
     if (!parsed) {
-      showToast(diagnoseSessionPlanFailure(currentSpecContent), "error");
-      return;
+      // Slow path: AI-powered recovery. Reach for whichever provider the
+      // user already configured on SpecWriter \u2014 never invent settings,
+      // never call without a key. The recovery layer itself enforces
+      // those guards; this hook just supplies the inputs.
+      const settings = useSettingsStore.getState().settings;
+      const provider = conversation?.ai_provider ?? "";
+      const model = conversation?.ai_model ?? "";
+      const apiKey = (settings.apiKeys?.[provider] ?? "").trim();
+      const result = await recoverSessionPlan({
+        specMarkdown: currentSpecContent,
+        filename: effectiveSpecFilename,
+        provider,
+        model,
+        apiKey,
+      });
+      if (!result.ok) {
+        // Surface BOTH the parser's original diagnosis (what tripped the
+        // regex) AND the recovery layer's reason (why we couldn't auto-fix).
+        // Hiding either half leaves the user guessing.
+        showToast(
+          `${result.originalDiagnosis}\n\nAuto-recovery failed: ${result.recoveryReason}`,
+          "error",
+        );
+        return;
+      }
+      parsed = result.parsed;
+      recoveredMarkdown = result.recoveredMarkdown;
+      recoveryProvider = result.provider;
+      recoveryNote = result.originalDiagnosis;
     }
 
     // If a guide already exists in the store, decide between safe-replace
@@ -328,21 +364,62 @@ export function useSpecWriterActions(activeProjectPath: string | null): SpecWrit
     const created = await useGuideStore
       .getState()
       .createGuide(activeProjectPath, effectiveSpecFilename, null, parsed);
-    if (created) {
+
+    if (!created) {
+      showToast("Guide already exists for this spec", "info");
+      return;
+    }
+
+    useUiStore.getState().setRightTab("guide");
+
+    // Happy path \u2014 fast regex parser worked.
+    if (!recoveredMarkdown) {
       showToast(
         `Implementation Guide created \u2014 ${parsed.sessions.length} sessions to complete`,
         "info",
       );
-      useUiStore.getState().setRightTab("guide");
-    } else {
-      showToast("Guide already exists for this spec", "info");
+      return;
     }
+
+    // Recovery path \u2014 yellow toast, with a one-click "save corrected
+    // version" so the user's spec on disk gets canonicalized for next time
+    // and the regex path takes over again. We intentionally do NOT save
+    // silently \u2014 the user owns their spec file. The toast carries enough
+    // detail (provider + the original parser diagnosis) that the user can
+    // tell what was auto-fixed and decide whether to keep it.
+    const projectPath = activeProjectPath;
+    const filename = effectiveSpecFilename;
+    showToast(
+      `Recognized guide \u2014 auto-recovered ${parsed.sessions.length} sessions via ${recoveryProvider}. ` +
+        `Original issue: ${recoveryNote}`,
+      "warning",
+      15000,
+      {
+        label: "Save corrected version",
+        onClick: () => {
+          // Fire-and-forget \u2014 we don't want to block the toast click on
+          // the disk write. Any failure surfaces as a follow-up toast.
+          void saveSpecDocument(projectPath, filename, recoveredMarkdown, true)
+            .then(() => {
+              showToast(`Saved corrected version to ${filename}`, "success");
+            })
+            .catch((e) => {
+              showToast(
+                `Failed to save corrected version: ${e instanceof Error ? e.message : String(e)}`,
+                "error",
+              );
+            });
+        },
+      },
+    );
   }, [
     currentSpecContent,
     activeProjectPath,
     effectiveSpecFilename,
     currentGuide,
     selfDriveStatus,
+    conversation?.ai_provider,
+    conversation?.ai_model,
   ]);
 
   const handleConfirmGuideReplace = useCallback(async () => {

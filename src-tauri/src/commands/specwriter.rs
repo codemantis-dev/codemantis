@@ -977,6 +977,391 @@ fn list_files_shallow(dir: &Path, max_depth: usize, files: &mut Vec<String>, bas
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// recover_session_plan — AI-powered Recognize Guide fallback.
+//
+// The frontend's `parseSessionPlan` is a pure regex parser. It handles
+// well-formed specs (≈95% of LLM output) fast and free. When it fails — most
+// commonly because a single Session block is missing its
+// `**Prompt for Claude Code:**` fence label — we don't want the user staring
+// at a red error toast for a thirteen-session guide that's otherwise
+// completely usable. We hand the spec back to whichever LLM the user has
+// configured for SpecWriter, with a tightly-scoped repair prompt, and let
+// it canonicalize the Session Plan section. The frontend re-parses the
+// result. If recovery succeeds it surfaces a yellow "auto-recovered" toast;
+// if even recovery fails it falls back to the original red error with both
+// diagnoses attached.
+//
+// Provider selection mirrors SpecWriter's existing settings — we don't add
+// new configuration. If the user is on the Claude Code CLI provider (no API
+// key), the recovery refuses with a clear message rather than silently
+// hanging or burning credits.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// System prompt for the recovery call. Tight, repair-only — the model
+/// MUST NOT invent steps, only restore canonical formatting.
+const RECOVERY_SYSTEM_PROMPT: &str = r#"You repair multi-session implementation specs whose Session Plan section failed a strict regex parser.
+
+Your only job is to return the FULL spec markdown with the Session Plan section made parseable. You do this by ensuring every implementable Session block contains a `**Prompt for Claude Code:**` label followed by a fenced code block. You preserve everything else verbatim.
+
+Rules — every single one is non-negotiable:
+1. Preserve every byte of content outside the Session Plan section. The `#` title, Overview, Data Model, all other sections — return them exactly as given.
+2. Inside the Session Plan, preserve every Session's existing Scope, Read sections, Files, Verification Prompt, Verify-before-next-session checklist, Cross-system actions, etc. Do not paraphrase. Do not reorder. Do not renumber.
+3. For every Session that lacks a `**Prompt for Claude Code:**` fenced code block, SYNTHESIZE one by composing the existing Scope + Read sections + Files into a concrete instruction Claude Code can execute. Use this template:
+
+   **Prompt for Claude Code:**
+   ```
+   Read docs/specs/<filename> — ONLY: <Read sections content>.
+
+   <Scope content rewritten as imperative instruction>
+
+   Files:
+   - <file 1> (<create|modify>)
+   - <file 2> ...
+
+   <Verification Prompt body, if present, prefixed with "When done, verify with:">
+
+   Scope = deliverables, not file fences (fix upstream when required, no silent workarounds).
+   ```
+
+4. If a Session block is a final audit wrap-up (it has `**Verify (full audit):**`), leave it alone — the parser handles those.
+5. If a Session block is a wrapper for sub-sessions like 1a/1b/1c, add `**Indivisible note:** This session is split into Na/Nb/Nc — see those entries.` to its body so the parser skips it. Do not invent a Prompt for Claude Code for a wrapper.
+6. Do not invent files, do not invent steps, do not invent acceptance criteria. If a Session is so empty you can't synthesize a reasonable prompt from its existing content, leave it as-is and let the parser fail loudly — silent fabrication is worse than a visible error.
+7. Return ONLY the raw markdown. No code fences around your response. No commentary. No "Here is the repaired spec:" preamble. Just the markdown bytes.
+"#;
+
+/// Build the user prompt for a recovery call. The diagnosis text comes
+/// straight from the frontend's `diagnoseSessionPlanFailure` so the model
+/// knows exactly which Session the regex parser tripped on.
+fn build_recovery_prompt(spec_markdown: &str, diagnosis: &str, filename: &str) -> String {
+    format!(
+        "The Session Plan in the spec below failed to parse. The parser said:\n\n\
+         {diagnosis}\n\n\
+         Spec filename (use this verbatim in any synthesized `Read docs/specs/<filename>` instructions): `{filename}`\n\n\
+         Return the FULL spec markdown with the Session Plan section repaired per the system prompt rules.\n\n\
+         ─── SPEC START ───\n\
+         {spec_markdown}\n\
+         ─── SPEC END ───",
+        diagnosis = diagnosis,
+        filename = filename,
+        spec_markdown = spec_markdown,
+    )
+}
+
+/// Recovery uses a much higher token budget than changelog summaries —
+/// Session Plan sections regularly exceed 10 KB and we return the full
+/// spec body, not just the repaired section. 32k is safe for every
+/// provider we support; the response is bounded by the input length.
+const RECOVERY_MAX_TOKENS: u32 = 32_000;
+
+async fn call_anthropic_long(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    // Anthropic deprecated `temperature` for newer models; the repair
+    // task is determinism-friendly anyway.
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": RECOVERY_MAX_TOKENS,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": prompt}]
+    });
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Anthropic request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let snip = if text.len() > 500 { &text[..500] } else { &text };
+        return Err(format!("Anthropic API error {}: {}", status, snip));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Anthropic response parse failed: {}", e))?;
+
+    json["content"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No text in Anthropic response".to_string())
+}
+
+async fn call_openai_long(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    // No `temperature` — GPT-5 family / reasoning models reject it.
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "max_completion_tokens": RECOVERY_MAX_TOKENS
+    });
+
+    let resp = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenAI request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let snip = if text.len() > 500 { &text[..500] } else { &text };
+        return Err(format!("OpenAI API error {}: {}", status, snip));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("OpenAI response parse failed: {}", e))?;
+
+    json["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No content in OpenAI response".to_string())
+}
+
+async fn call_gemini_long(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
+    );
+
+    // Gemini accepts temperature; keep it low for deterministic repair.
+    let body = serde_json::json!({
+        "system_instruction": { "parts": [{"text": system_prompt}] },
+        "contents": [{ "parts": [{"text": prompt}] }],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": RECOVERY_MAX_TOKENS,
+        }
+    });
+
+    let resp = client
+        .post(&url)
+        .header("x-goog-api-key", api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let snip = if text.len() > 500 { &text[..500] } else { &text };
+        return Err(format!("Gemini API error {}: {}", status, snip));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Gemini response parse failed: {}", e))?;
+
+    json["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No text in Gemini response".to_string())
+}
+
+async fn call_openrouter_long(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "max_completion_tokens": RECOVERY_MAX_TOKENS
+    });
+
+    let resp = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(api_key)
+        .header("HTTP-Referer", "https://codemantis.app")
+        .header("X-Title", "CodeMantis")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let snip = if text.len() > 500 { &text[..500] } else { &text };
+        return Err(format!("OpenRouter API error {}: {}", status, snip));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("OpenRouter response parse failed: {}", e))?;
+
+    json["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "No content in OpenRouter response".to_string())
+}
+
+/// Strip a markdown-code-fence wrapper from a model response, if the model
+/// disobeyed instruction #7 and wrapped the whole spec. Tolerates ``` or
+/// ~~~ fences with optional language tag.
+fn strip_fence_wrapper(text: &str) -> String {
+    let trimmed = text.trim();
+    let opens_with_fence = trimmed.starts_with("```") || trimmed.starts_with("~~~");
+    if !opens_with_fence {
+        return trimmed.to_string();
+    }
+    // Find the first newline after the opening fence (skips the optional
+    // language tag).
+    let after_open = match trimmed.find('\n') {
+        Some(i) => &trimmed[i + 1..],
+        None => return trimmed.to_string(),
+    };
+    // Strip trailing fence — accept either backtick or tilde variants and
+    // tolerate a trailing newline after the fence.
+    let body = after_open.trim_end();
+    let body = body
+        .strip_suffix("```")
+        .or_else(|| body.strip_suffix("~~~"))
+        .unwrap_or(body);
+    body.trim().to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverSessionPlanResponse {
+    pub recovered_markdown: String,
+    pub provider: String,
+    pub model: String,
+}
+
+/// Re-emit a spec whose Session Plan failed strict regex parsing into a
+/// canonical form the parser will accept.
+///
+/// Provider strings accepted: `"anthropic"`, `"openai"`, `"gemini"`,
+/// `"openrouter"`. The frontend routes the user's configured SpecWriter
+/// provider here verbatim — there's no provider-specific logic above
+/// dispatch.
+///
+/// Fails fast with a human-readable error string on:
+///   - missing/empty `api_key` (user is on CLI provider, no API access)
+///   - unknown provider name
+///   - HTTP / parse errors from the provider
+///   - empty model response
+#[tauri::command]
+pub async fn recover_session_plan(
+    spec_markdown: String,
+    diagnosis: String,
+    provider: String,
+    api_key: String,
+    model: String,
+    filename: String,
+) -> Result<RecoverSessionPlanResponse, String> {
+    if api_key.trim().is_empty() {
+        return Err(
+            "Guide auto-recovery needs an API key. Configure an API provider in \
+             Settings → AI Providers, or fix the spec manually."
+                .to_string(),
+        );
+    }
+    if spec_markdown.trim().is_empty() {
+        return Err("Spec markdown is empty — nothing to recover.".to_string());
+    }
+
+    let prompt = build_recovery_prompt(&spec_markdown, &diagnosis, &filename);
+    let client = reqwest::Client::new();
+
+    let raw = match provider.as_str() {
+        "anthropic" => {
+            call_anthropic_long(&client, &api_key, &model, RECOVERY_SYSTEM_PROMPT, &prompt).await?
+        }
+        "openai" => {
+            call_openai_long(&client, &api_key, &model, RECOVERY_SYSTEM_PROMPT, &prompt).await?
+        }
+        "gemini" => {
+            call_gemini_long(&client, &api_key, &model, RECOVERY_SYSTEM_PROMPT, &prompt).await?
+        }
+        "openrouter" => {
+            call_openrouter_long(&client, &api_key, &model, RECOVERY_SYSTEM_PROMPT, &prompt)
+                .await?
+        }
+        other => return Err(format!("Unknown recovery provider: {}", other)),
+    };
+
+    let recovered = strip_fence_wrapper(&raw);
+    if recovered.trim().is_empty() {
+        return Err(format!(
+            "{} returned an empty response — recovery cannot proceed.",
+            provider
+        ));
+    }
+    // Sanity: model must return something that *looks* like the same spec.
+    // We don't want to silently accept a polite refusal or a completely
+    // different document. Check the original title is still present.
+    if let Some(title_line) = spec_markdown
+        .lines()
+        .find(|l| l.trim_start().starts_with("# "))
+    {
+        let title = title_line.trim();
+        if !recovered.contains(title) {
+            warn!(
+                "[recover_session_plan] Model response missing original title `{}` — refusing to use it",
+                title
+            );
+            return Err(format!(
+                "{} returned a response that does not look like the original spec (missing title `{}`). \
+                 Recovery aborted to avoid silent data loss.",
+                provider, title
+            ));
+        }
+    }
+
+    info!(
+        "[recover_session_plan] {} ({}) returned {} bytes; original was {} bytes",
+        provider,
+        model,
+        recovered.len(),
+        spec_markdown.len()
+    );
+
+    Ok(RecoverSessionPlanResponse {
+        recovered_markdown: recovered,
+        provider,
+        model,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2034,5 +2419,114 @@ mod tests {
         let db = crate::test_helpers::test_db();
         let loaded = db.get_task_plan("/no/such/project").unwrap();
         assert!(loaded.is_none());
+    }
+
+    // ─── recover_session_plan helpers ──────────────────────────────────
+
+    #[test]
+    fn recovery_prompt_embeds_diagnosis_and_filename() {
+        let prompt = build_recovery_prompt(
+            "# My Spec\n\n## 10. Session Plan\n…",
+            "Session 1 has no `**Prompt for Claude Code:**` fenced code block",
+            "my-feature-v2.md",
+        );
+        assert!(prompt.contains("Session 1 has no"));
+        assert!(prompt.contains("my-feature-v2.md"));
+        assert!(prompt.contains("─── SPEC START ───"));
+        assert!(prompt.contains("─── SPEC END ───"));
+        assert!(prompt.contains("# My Spec"));
+    }
+
+    #[test]
+    fn recovery_prompt_preserves_full_spec_body_verbatim() {
+        // The repair must see every byte. Tools that truncate input here have
+        // bitten us before — pin the body length so a future "optimization"
+        // can't silently chop the spec.
+        let body = "# T\n\n".to_string() + &"x".repeat(50_000);
+        let prompt = build_recovery_prompt(&body, "diag", "f.md");
+        assert!(prompt.len() > body.len());
+        assert!(prompt.contains(&"x".repeat(1000)));
+    }
+
+    #[test]
+    fn strip_fence_wrapper_unwraps_backtick_fence() {
+        let wrapped = "```markdown\n# Spec\n\nBody.\n```";
+        assert_eq!(strip_fence_wrapper(wrapped), "# Spec\n\nBody.");
+    }
+
+    #[test]
+    fn strip_fence_wrapper_unwraps_tilde_fence_no_language() {
+        let wrapped = "~~~\n# Spec\n\nBody.\n~~~";
+        assert_eq!(strip_fence_wrapper(wrapped), "# Spec\n\nBody.");
+    }
+
+    #[test]
+    fn strip_fence_wrapper_passes_through_unwrapped_content() {
+        // The happy case: model followed instructions and returned raw md.
+        let raw = "# Spec\n\n## 10. Session Plan\n\n### Session 1: …";
+        assert_eq!(strip_fence_wrapper(raw), raw);
+    }
+
+    #[test]
+    fn strip_fence_wrapper_tolerates_leading_whitespace() {
+        let wrapped = "  \n```\n# Spec\n```\n";
+        assert_eq!(strip_fence_wrapper(wrapped), "# Spec");
+    }
+
+    #[test]
+    fn recovery_system_prompt_pins_repair_only_contract() {
+        // These phrases are the "do not invent" guardrail. If a future
+        // edit weakens them, this test fires and forces a deliberate
+        // decision rather than silent drift.
+        assert!(RECOVERY_SYSTEM_PROMPT.contains("Do not invent files"));
+        assert!(RECOVERY_SYSTEM_PROMPT.contains("Preserve every byte"));
+        assert!(RECOVERY_SYSTEM_PROMPT.contains("Prompt for Claude Code"));
+        assert!(RECOVERY_SYSTEM_PROMPT.contains("Indivisible note"));
+        assert!(RECOVERY_SYSTEM_PROMPT.contains("Verify (full audit)"));
+    }
+
+    #[tokio::test]
+    async fn recover_session_plan_refuses_without_api_key() {
+        let err = recover_session_plan(
+            "# Spec\n\n## 10. Session Plan\n".to_string(),
+            "diag".to_string(),
+            "anthropic".to_string(),
+            "".to_string(),
+            "claude-opus-4-7".to_string(),
+            "f.md".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("API key"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn recover_session_plan_refuses_empty_spec() {
+        let err = recover_session_plan(
+            "   ".to_string(),
+            "diag".to_string(),
+            "anthropic".to_string(),
+            "sk-test".to_string(),
+            "claude-opus-4-7".to_string(),
+            "f.md".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("empty"), "got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn recover_session_plan_rejects_unknown_provider() {
+        let err = recover_session_plan(
+            "# Spec\nbody".to_string(),
+            "diag".to_string(),
+            "made-up-provider".to_string(),
+            "sk-test".to_string(),
+            "some-model".to_string(),
+            "f.md".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("Unknown recovery provider"), "got: {}", err);
     }
 }

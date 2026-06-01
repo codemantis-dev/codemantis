@@ -107,4 +107,38 @@ describe("toastStore", () => {
     const [a, b] = useToastStore.getState().toasts;
     expect(a.id).not.toBe(b.id);
   });
+
+  // ─── warning type ──────────────────────────────────────────────────
+  it("addToast supports the warning type with a 12s default duration", () => {
+    useToastStore.getState().addToast("Watch out", "warning");
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].type).toBe("warning");
+    // Warnings often carry an action button — give the user time to read.
+    expect(toasts[0].duration).toBe(12000);
+  });
+
+  // ─── action button ─────────────────────────────────────────────────
+  it("addToast carries an optional action through to the stored toast", () => {
+    const onClick = vi.fn();
+    useToastStore.getState().addToast("Recovered", "warning", undefined, {
+      label: "Save corrected version",
+      onClick,
+    });
+    const t = useToastStore.getState().toasts[0];
+    expect(t.action?.label).toBe("Save corrected version");
+    expect(t.action?.onClick).toBe(onClick);
+  });
+
+  it("showToast forwards action to the store", () => {
+    const onClick = vi.fn();
+    showToast("Recovered", "warning", undefined, { label: "Save", onClick });
+    const t = useToastStore.getState().toasts[0];
+    expect(t.action?.label).toBe("Save");
+  });
+
+  it("toast without action does not carry an action property", () => {
+    useToastStore.getState().addToast("Plain", "info");
+    expect(useToastStore.getState().toasts[0].action).toBeUndefined();
+  });
 });

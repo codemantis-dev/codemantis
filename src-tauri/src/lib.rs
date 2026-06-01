@@ -441,6 +441,7 @@ pub fn run() {
             commands::specwriter::read_project_files,
             commands::specwriter::add_verification_workflow_to_claude_md,
             commands::specwriter::verify_action_parity,
+            commands::specwriter::recover_session_plan,
             commands::snapshot::gather_project_snapshot,
             commands::help::read_user_guide,
             commands::guide::save_guide,
