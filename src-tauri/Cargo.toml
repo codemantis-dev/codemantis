@@ -25,7 +25,7 @@ log = "0.4"
 tauri-plugin-log = "2"
 which = "7"
 dirs = "6"
-tauri-plugin-dialog = "2.6.0"
+tauri-plugin-dialog = "2.7.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
