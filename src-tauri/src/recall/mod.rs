@@ -26,6 +26,8 @@
 pub mod commands;
 pub mod config;
 pub mod enricher;
+pub mod git;
+pub mod harvester;
 pub mod index;
 pub mod llm_client;
 pub mod vault;

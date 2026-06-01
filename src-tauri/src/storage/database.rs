@@ -1337,6 +1337,69 @@ impl Database {
         Ok(())
     }
 
+    // ── Recall audit-log accessors ──────────────────────────────────────
+    //
+    // Surface a small read-only typed API so integration tests and the
+    // future Recall sidebar can introspect the audit tables without
+    // reaching for the private `conn()` accessor or hand-writing SQL.
+
+    /// Total `recall_harvests` rows for the given project. Includes
+    /// both successful harvests and skipped commits (skips are logged
+    /// with a reason in the `fidelity_status` column).
+    pub fn count_recall_harvests(&self, project_path: &str) -> Result<i64, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM recall_harvests WHERE project_path = ?1",
+            rusqlite::params![project_path],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(|e| AppError::DatabaseError(format!("count_recall_harvests: {}", e)))
+    }
+
+    /// `(fidelity_status, flagged_tokens_json)` for the most recent
+    /// harvest of the given commit. `None` when no row exists.
+    #[allow(clippy::type_complexity)]
+    pub fn recall_harvest_for_commit(
+        &self,
+        project_path: &str,
+        commit_hash: &str,
+    ) -> Result<Option<(Option<String>, Option<String>)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let row = conn
+            .query_row(
+                "SELECT fidelity_status, flagged_tokens
+                   FROM recall_harvests
+                  WHERE project_path = ?1 AND commit_hash = ?2
+                  ORDER BY occurred_at DESC LIMIT 1",
+                rusqlite::params![project_path, commit_hash],
+                |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+            .ok();
+        Ok(row)
+    }
+
+    /// Total notes indexed for the project's primary vault. Useful for
+    /// the sidebar status panel.
+    pub fn count_recall_notes(&self, project_path: &str) -> Result<i64, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM recall_notes n
+               JOIN recall_vaults v ON v.id = n.vault_id
+              WHERE v.project_path = ?1 AND v.is_meta = 0",
+            rusqlite::params![project_path],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(|e| AppError::DatabaseError(format!("count_recall_notes: {}", e)))
+    }
 }
 
 #[cfg(test)]
