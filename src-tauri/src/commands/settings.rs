@@ -143,6 +143,15 @@ pub struct AppSettings {
     /// sends recent chat content to the other local CLI.
     #[serde(default)]
     pub second_opinion_privacy_acknowledged: bool,
+
+    // --- Recall (RECALL-SPEC §4.1) ---
+    /// Project-and-cross-project memory layer config. Master `enabled`
+    /// flag defaults to false; everything else inside has spec-default
+    /// values that take effect once the user opts in. Phase 5 ships the
+    /// settings UI; Phase 2 reads this struct via
+    /// `recall::enricher::enrich_if_enabled` from `send_message`.
+    #[serde(default)]
+    pub recall: crate::recall::config::RecallConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,6 +300,7 @@ impl Default for AppSettings {
             default_thinking_effort: None,
             default_agent_by_task: HashMap::new(),
             second_opinion_privacy_acknowledged: false,
+            recall: crate::recall::config::RecallConfig::default(),
         }
     }
 }

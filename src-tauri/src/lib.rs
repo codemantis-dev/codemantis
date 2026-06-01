@@ -14,7 +14,7 @@ pub mod errors;
 pub mod lifecycle;
 mod preflight;
 mod preview;
-mod recall;
+pub mod recall;
 pub mod storage;
 mod terminal;
 mod utils;

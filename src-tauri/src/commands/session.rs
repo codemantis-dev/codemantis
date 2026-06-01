@@ -319,8 +319,49 @@ pub async fn send_message(
         return Err(AppError::ProcessNotRunning(session_id).to_string());
     }
 
+    // Recall enrichment (Phase 2). No-op when `recall.enabled = false`
+    // (default). On any failure inside the enricher we ship the
+    // original prompt verbatim — see `enrich_if_enabled` for the
+    // mode-dependent policy.
+    let final_prompt = {
+        let project_path = {
+            let sessions = state.sessions.lock().await;
+            sessions
+                .get(&session_id)
+                .map(|s| s.project_path.clone())
+        };
+        match project_path {
+            Some(project) => {
+                let settings = crate::commands::settings::get_settings().unwrap_or_default();
+                if settings.recall.enabled && settings.recall.mode != crate::recall::config::RecallMode::Off {
+                    let api_key = settings
+                        .api_keys
+                        .get(&settings.recall.enricher_provider)
+                        .cloned()
+                        .unwrap_or_default();
+                    let pricing = settings.model_pricing.clone();
+                    let llm = crate::recall::llm_client::RealLlmClient::new(pricing.clone());
+                    crate::recall::enricher::enrich_if_enabled(
+                        &state.database,
+                        &settings.recall,
+                        &api_key,
+                        &pricing,
+                        &llm,
+                        std::path::Path::new(&project),
+                        &prompt,
+                        Some(&session_id),
+                    )
+                    .await
+                } else {
+                    prompt.clone()
+                }
+            }
+            None => prompt.clone(),
+        }
+    };
+
     process
-        .send_user_message(&prompt)
+        .send_user_message(&final_prompt)
         .await
         .map_err(|e| e.to_string())
 }

@@ -23,10 +23,12 @@
 // every phase boundary.
 #![allow(dead_code)]
 
-pub mod config;
-pub mod vault;
-pub mod index;
 pub mod commands;
+pub mod config;
+pub mod enricher;
+pub mod index;
+pub mod llm_client;
+pub mod vault;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
