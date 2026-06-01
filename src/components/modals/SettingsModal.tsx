@@ -17,6 +17,7 @@ import ApiLogsTab from "./settings/ApiLogsTab";
 import SessionLogsTab from "./settings/SessionLogsTab";
 import SuperBroTab from "./settings/SuperBroTab";
 import SelfDriveTab from "./settings/SelfDriveTab";
+import RecallTab from "./settings/RecallTab";
 import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
 export default function SettingsModal() {
@@ -231,6 +232,8 @@ export default function SettingsModal() {
             )}
 
             {state.activeTab === "shortcuts" && <ShortcutsTab />}
+
+            {state.activeTab === "recall" && <RecallTab />}
 
             {state.activeTab === "api-logs" && <ApiLogsTab />}
           </div>

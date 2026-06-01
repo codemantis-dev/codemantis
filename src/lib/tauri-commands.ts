@@ -1312,3 +1312,73 @@ export async function preflightGenerateManifest(
 ): Promise<ExtractionResult> {
   return invoke<ExtractionResult>("preflight_generate_manifest", { request });
 }
+
+// ── Recall (Phase 5) ────────────────────────────────────────────────
+
+import type {
+  RecallEnrichmentRow,
+  RecallHarvestRow,
+  RecallHealth,
+  RecallIndexedNote,
+  RecallReindexResponse,
+  RecallSeedResponse,
+  RecallStatusResponse,
+} from "../types/recall";
+
+export async function recallStatus(
+  projectPath: string,
+): Promise<RecallStatusResponse> {
+  return invoke<RecallStatusResponse>("recall_status", { projectPath });
+}
+
+export async function recallReindex(
+  projectPath: string,
+): Promise<RecallReindexResponse> {
+  return invoke<RecallReindexResponse>("recall_reindex", { projectPath });
+}
+
+export async function recallGetEnrichments(
+  projectPath: string,
+  limit?: number,
+): Promise<RecallEnrichmentRow[]> {
+  return invoke<RecallEnrichmentRow[]>("recall_get_enrichments", {
+    projectPath,
+    limit: limit ?? null,
+  });
+}
+
+export async function recallGetHarvests(
+  projectPath: string,
+  limit?: number,
+): Promise<RecallHarvestRow[]> {
+  return invoke<RecallHarvestRow[]>("recall_get_harvests", {
+    projectPath,
+    limit: limit ?? null,
+  });
+}
+
+export async function recallGetNotesForPaths(
+  projectPath: string,
+  paths: string[],
+): Promise<RecallIndexedNote[]> {
+  return invoke<RecallIndexedNote[]>("recall_get_notes_for_paths", {
+    projectPath,
+    paths,
+  });
+}
+
+export async function recallGetHealth(
+  projectPath: string,
+): Promise<RecallHealth> {
+  return invoke<RecallHealth>("recall_get_health", { projectPath });
+}
+
+export async function recallOpenVault(projectPath: string): Promise<void> {
+  return invoke<void>("recall_open_vault", { projectPath });
+}
+
+export async function recallForceSeed(
+  projectPath: string,
+): Promise<RecallSeedResponse> {
+  return invoke<RecallSeedResponse>("recall_force_seed", { projectPath });
+}

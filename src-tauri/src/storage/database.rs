@@ -1384,6 +1384,112 @@ impl Database {
         Ok(row)
     }
 
+    /// Last `limit` enrichment audit-log rows for the project, newest
+    /// first. Each tuple is
+    /// `(occurred_at, prompt_summary, notes_injected_json, brief_tokens, model_used, cost_usd)`.
+    #[allow(clippy::type_complexity)]
+    pub fn list_recall_enrichments(
+        &self,
+        project_path: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, Option<String>, String, Option<i64>, Option<String>, Option<f64>)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT occurred_at, user_prompt_summary, notes_injected,
+                        brief_tokens, model_used, cost_usd
+                   FROM recall_enrichments
+                  WHERE project_path = ?1
+               ORDER BY occurred_at DESC LIMIT ?2",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("list_recall_enrichments prepare: {}", e)))?;
+        let rows = stmt
+            .query_map(rusqlite::params![project_path, limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<f64>>(5)?,
+                ))
+            })
+            .map_err(|e| AppError::DatabaseError(format!("list_recall_enrichments query: {}", e)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Last `limit` harvest audit-log rows for the project, newest first.
+    /// Tuple: `(occurred_at, commit_hash, fidelity_status, note_slug_or_none, model_used, cost_usd)`.
+    #[allow(clippy::type_complexity)]
+    pub fn list_recall_harvests(
+        &self,
+        project_path: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<f64>)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT h.occurred_at, h.commit_hash, h.fidelity_status,
+                        n.note_id, h.model_used, h.cost_usd
+                   FROM recall_harvests h
+              LEFT JOIN recall_notes n ON n.id = h.note_id
+                  WHERE h.project_path = ?1
+               ORDER BY h.occurred_at DESC LIMIT ?2",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("list_recall_harvests prepare: {}", e)))?;
+        let rows = stmt
+            .query_map(rusqlite::params![project_path, limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<f64>>(5)?,
+                ))
+            })
+            .map_err(|e| AppError::DatabaseError(format!("list_recall_harvests query: {}", e)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Note count for the project's primary vault, broken down by
+    /// type. Used by the sidebar Recall Health card.
+    pub fn recall_notes_by_type(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT n.type, COUNT(*) FROM recall_notes n
+                   JOIN recall_vaults v ON v.id = n.vault_id
+                  WHERE v.project_path = ?1 AND v.is_meta = 0
+               GROUP BY n.type",
+            )
+            .map_err(|e| AppError::DatabaseError(format!("recall_notes_by_type prepare: {}", e)))?;
+        let rows = stmt
+            .query_map(rusqlite::params![project_path], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })
+            .map_err(|e| AppError::DatabaseError(format!("recall_notes_by_type query: {}", e)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
     /// Total notes indexed for the project's primary vault. Useful for
     /// the sidebar status panel.
     pub fn count_recall_notes(&self, project_path: &str) -> Result<i64, AppError> {

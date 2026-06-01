@@ -1,5 +1,37 @@
 # CodeMantis Releases
 
+## Unreleased — Recall (project & cross-project memory layer)
+
+**Recall** is CodeMantis's memory layer for coding agents. It sits *around* the dev-agent invocation and does two things automatically on every turn: **before** the prompt sends, it composes a focused brief from the project's accumulated knowledge (the Enricher); **after** the dev agent's work lands in a commit, it harvests one atomic memory note from the diff (the Harvester). The substrate is plain Markdown with `[[wikilinks]]` at `<project>/.recall/`, openable directly in Obsidian.
+
+Ships **default off**. Opt in at Settings → Recall. Spec: `_guidance/requirements/CodeMantis_RECALL-SPEC.md`.
+
+**What lands in this release**
+
+- **Vault** — markdown notes with YAML frontmatter, atomic write, `[[wikilink]]` extraction, indexed by SQLite (8 `recall_*` tables + FTS5).
+- **Enricher pipeline** — entity extraction → gather (FTS5 + path overlap + mandatory landmines) → smart-select (LLM) → assemble (5-section brief with token budget). Wired into `send_message` so every agent prompt is enriched when Recall is on. Mid-run tripwire watches `NormalizedEvent::ToolUseStart` for Claude Code + Codex.
+- **Harvester pipeline** — git-watch (poll, 30s default) → classify (skip rules + type inference) → generate (LLM, diff-anchored claims) → fidelity check (token verification, downgrades trust on hallucination) → dedupe (overlap + Jaccard, `severity: recurring` at 3rd occurrence) → journal entry.
+- **SpecWriter integration** (§9.2):
+  - `gather_spec_context` appends a "Recall Context" section.
+  - `save_spec_document` triggers background harvest → `decision` note linked to overlapping landmines.
+  - `verify_action_parity` FAILs with stub markers become `landmine` notes (trust:high, both caller + handler in `source_paths`).
+  - `recover_session_plan` receives a landmine block for Session Plan source paths (optional `projectPath` arg).
+- **Self-Drive integration** — every Self-Drive prompt flows through the Enricher (covered by the `send_message` wiring; integration-test verifies end-to-end).
+- **Cold-start seed** (§10) — `.claude/memory/*.md` → `module` notes (trust:low); `docs/adr/*.md` → `decision` notes (trust:medium); git hotspot + co-change + bugfix-cluster analysis → seed pattern + landmine notes (trust:inferred); README/CLAUDE sections fold into a starter MANIFEST.md. Completes in <10s on fixture repos.
+- **Settings panel** — Recall tab with master toggle, mode dropdown (Off/Suggested/Enforced), "Open vault in Obsidian", "Run cold-start seed", "Reindex" actions, live health (note count by type, harvests total, last indexed at).
+- **Tauri commands** — `recall_status`, `recall_reindex`, `recall_get_enrichments`, `recall_get_harvests`, `recall_get_notes_for_paths`, `recall_get_health`, `recall_open_vault`, `recall_force_seed`.
+
+**Privacy.** Vaults are local-only by default (the `.recall/` folder is not committed to git unless you opt in via `commitVaultToGit`). When Recall is on, the configured LLM provider receives snippets of your code and notes on every enriched prompt and harvested commit.
+
+**Defaults.** Provider: `google`. Model: `gemini-3.1-flash-lite`. Token budget per brief: 2000. Stale threshold: 30 days. Mode: `suggested` (failures log a warning, never block).
+
+**Deferred to v1.0.1+** (per Phase 5 scope discipline):
+- Recall sidebar panel with full visualization (Phase 5b)
+- MessageBubble Recall chip showing "N notes injected" on user messages
+- Privacy disclosure modal (replaced by inline notice on the Settings tab)
+- Default-on flag flip (stays off in this release; users opt in)
+- Spec-generation LLM call Enricher-wrapping (assistant_chat surgery — see plan §9.2.2 deferred note)
+
 ## 1.5.0
 
 **Default Agent per Task — subscription-pool routing.** From **15 June 2026** Anthropic moves `claude -p` / Agent-SDK headless usage onto a metered credit pool separate from the interactive-subscription pool. Codex stays bundled with the user's ChatGPT Plus/Pro/Business subscription. v1.5.0 lets you assign a default agent per task type so headless traffic routes to whichever subscription has headroom.

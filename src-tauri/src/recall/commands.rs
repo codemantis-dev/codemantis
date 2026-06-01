@@ -1,9 +1,10 @@
 //! Tauri commands for Recall.
 //!
-//! Phase 1 ships read-only commands: `recall_status` and `recall_reindex`.
-//! Both are safe to call on any project (no LLM, no agent state). Phase
-//! 2+ will add `recall_enrich`, `recall_open_vault`, `recall_get_*`,
-//! and the harvester-driven counterparts.
+//! Phase 1 shipped read-only commands: `recall_status` and
+//! `recall_reindex`. Phase 5 adds the sidebar's data surface:
+//! `recall_get_enrichments`, `recall_get_harvests`,
+//! `recall_get_notes_for_paths`, `recall_get_health`,
+//! `recall_open_vault`, and `recall_force_seed`.
 
 use std::path::PathBuf;
 
@@ -84,6 +85,214 @@ pub async fn recall_reindex(
         partial_parses: report.partial_parses,
         status,
     })
+}
+
+// ── Phase 5 sidebar data surface ─────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallEnrichmentRow {
+    pub occurred_at: String,
+    pub prompt_summary: Option<String>,
+    /// JSON-encoded array of note slugs that were injected.
+    pub notes_injected_json: String,
+    pub brief_tokens: Option<i64>,
+    pub model_used: Option<String>,
+    pub cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallHarvestRow {
+    pub occurred_at: String,
+    pub commit_hash: Option<String>,
+    pub fidelity_status: Option<String>,
+    pub note_slug: Option<String>,
+    pub model_used: Option<String>,
+    pub cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallHealth {
+    pub note_count: i64,
+    pub note_counts_by_type: Vec<(String, i64)>,
+    pub harvests_total: i64,
+    pub last_indexed_at: Option<String>,
+    pub vault_path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn recall_get_enrichments(
+    state: State<'_, AppState>,
+    project_path: String,
+    limit: Option<i64>,
+) -> Result<Vec<RecallEnrichmentRow>, String> {
+    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let rows = state
+        .database
+        .list_recall_enrichments(&project_path, limit)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(occurred_at, prompt_summary, notes_injected_json, brief_tokens, model_used, cost_usd)| {
+            RecallEnrichmentRow {
+                occurred_at,
+                prompt_summary,
+                notes_injected_json,
+                brief_tokens,
+                model_used,
+                cost_usd,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn recall_get_harvests(
+    state: State<'_, AppState>,
+    project_path: String,
+    limit: Option<i64>,
+) -> Result<Vec<RecallHarvestRow>, String> {
+    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let rows = state
+        .database
+        .list_recall_harvests(&project_path, limit)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(occurred_at, commit_hash, fidelity_status, note_slug, model_used, cost_usd)| {
+            RecallHarvestRow {
+                occurred_at,
+                commit_hash,
+                fidelity_status,
+                note_slug,
+                model_used,
+                cost_usd,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn recall_get_notes_for_paths(
+    state: State<'_, AppState>,
+    project_path: String,
+    paths: Vec<String>,
+) -> Result<Vec<crate::recall::index::query::IndexedNote>, String> {
+    let project = PathBuf::from(&project_path);
+    let vault_id = match crate::recall::index::lookup_vault(&state.database, &project, false)
+        .map_err(|e| e.to_string())?
+    {
+        Some(id) => id,
+        None => return Ok(Vec::new()),
+    };
+    crate::recall::index::query::notes_by_path_overlap(&state.database, vault_id, &paths, 25)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn recall_get_health(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<RecallHealth, String> {
+    let project = PathBuf::from(&project_path);
+    let status =
+        crate::recall::index::status_for_project(&state.database, &project).map_err(|e| e.to_string())?;
+    let (vault_path, last_indexed_at) = match &status {
+        Some(s) => (Some(s.vault_path.clone()), s.last_indexed_at.clone()),
+        None => (None, None),
+    };
+    let note_count = state
+        .database
+        .count_recall_notes(&project_path)
+        .unwrap_or(0);
+    let note_counts_by_type = state
+        .database
+        .recall_notes_by_type(&project_path)
+        .unwrap_or_default();
+    let harvests_total = state
+        .database
+        .count_recall_harvests(&project_path)
+        .unwrap_or(0);
+    Ok(RecallHealth {
+        note_count,
+        note_counts_by_type,
+        harvests_total,
+        last_indexed_at,
+        vault_path,
+    })
+}
+
+#[tauri::command]
+pub async fn recall_open_vault(
+    project_path: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let vault = PathBuf::from(&project_path).join(".recall");
+    if !vault.is_dir() {
+        return Err(format!("no .recall directory at {}", project_path));
+    }
+    // Hand to the OS — Finder on macOS will reveal the folder;
+    // Obsidian-installed-with-vault setups can pick it up via the
+    // `obsidian://open?path=...` URL scheme as a future enhancement.
+    app_handle
+        .opener()
+        .open_path(vault.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("failed to open vault: {}", e))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecallSeedResponse {
+    pub report: crate::recall::seed::SeedReport,
+    pub status: Option<crate::recall::index::IndexStatus>,
+}
+
+#[tauri::command]
+pub async fn recall_force_seed(
+    state: State<'_, AppState>,
+    project_path: String,
+) -> Result<RecallSeedResponse, String> {
+    let project = PathBuf::from(&project_path);
+    if !project.is_dir() {
+        return Err(format!("project path does not exist: {}", project_path));
+    }
+    // Use the user's configured RecallConfig (mostly for the
+    // harvester model pick) but DON'T require an API key — when one
+    // isn't present, the manifest step falls back to the
+    // deterministic shell automatically.
+    let (config, api_key) = {
+        let settings = crate::commands::settings::get_settings().unwrap_or_default();
+        let api_key = settings
+            .api_keys
+            .get(&settings.recall.harvester_provider)
+            .cloned()
+            .unwrap_or_default();
+        (settings.recall.clone(), api_key)
+    };
+    let llm = if api_key.is_empty() {
+        None
+    } else {
+        Some(crate::recall::llm_client::RealLlmClient::new(
+            crate::commands::settings::get_settings()
+                .map(|s| s.model_pricing)
+                .unwrap_or_default(),
+        ))
+    };
+    let report = crate::recall::seed::run_cold_start(
+        &state.database,
+        &project,
+        llm.as_ref().map(|c| c as &dyn crate::recall::llm_client::LlmClient),
+        &api_key,
+        &config,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let status =
+        crate::recall::index::status_for_project(&state.database, &project).map_err(|e| e.to_string())?;
+    Ok(RecallSeedResponse { report, status })
 }
 
 #[cfg(test)]

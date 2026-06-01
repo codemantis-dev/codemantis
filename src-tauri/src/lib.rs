@@ -472,6 +472,12 @@ pub fn run() {
             commands::lifecycle::append_diagnostic_log,
             recall::commands::recall_status,
             recall::commands::recall_reindex,
+            recall::commands::recall_get_enrichments,
+            recall::commands::recall_get_harvests,
+            recall::commands::recall_get_notes_for_paths,
+            recall::commands::recall_get_health,
+            recall::commands::recall_open_vault,
+            recall::commands::recall_force_seed,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

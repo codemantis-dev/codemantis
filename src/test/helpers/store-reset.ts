@@ -21,6 +21,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useChatSearchStore } from "../../stores/chatSearchStore";
 import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
+import { useRecallStore } from "../../stores/recallStore";
 
 export function resetAllStores(): void {
   useSessionStore.setState({
@@ -243,4 +244,11 @@ export function resetAllStores(): void {
   // populated by one test doesn't leak into the next test's SpecChat
   // render (which would mask the fallback-models render branch).
   useCliModelCacheStore.getState().clear();
+
+  // Recall (Phase 5) sidebar cache — per-project state.
+  useRecallStore.setState({
+    byProject: new Map(),
+    loadingByProject: new Map(),
+    notesForPaths: new Map(),
+  });
 }

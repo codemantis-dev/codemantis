@@ -167,6 +167,17 @@ export interface AppSettings {
    * to the other local CLI). Mirrors `apiKeyBannerDismissed`.
    */
   secondOpinionPrivacyAcknowledged: boolean;
+
+  /**
+   * Recall (project-and-cross-project memory layer) config.
+   * Optional for backward compat with `settings.json` files written
+   * before v1; absent means "use defaults" (which means `enabled:
+   * false`, so Recall is dormant until opt-in).
+   *
+   * The full shape lives in `src/types/recall.ts` —
+   * `import type { RecallConfig } from "./recall"`.
+   */
+  recall?: import("./recall").RecallConfig;
 }
 
 export { getDefaultModelPricing };
