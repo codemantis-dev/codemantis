@@ -49,17 +49,17 @@
         "null"
       ]
     },
-    "sandbox": {
+    "sessionStartSource": {
       "anyOf": [
         {
-          "$ref": "#/definitions/SandboxMode"
+          "$ref": "#/definitions/ThreadStartSource"
         },
         {
           "type": "null"
         }
       ]
     },
-    "serviceName": {
+    "serviceTier": {
       "type": [
         "string",
         "null"
@@ -71,20 +71,16 @@
         "null"
       ]
     },
-    "sessionStartSource": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/ThreadStartSource"
-        },
-        {
-          "type": "null"
-        }
+    "serviceName": {
+      "type": [
+        "string",
+        "null"
       ]
     },
-    "personality": {
+    "sandbox": {
       "anyOf": [
         {
-          "$ref": "#/definitions/Personality"
+          "$ref": "#/definitions/SandboxMode"
         },
         {
           "type": "null"
@@ -103,17 +99,21 @@
         "null"
       ]
     },
-    "serviceTier": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "threadSource": {
       "description": "Optional client-supplied analytics source classification for this thread.",
       "anyOf": [
         {
           "$ref": "#/definitions/ThreadSource"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "personality": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Personality"
         },
         {
           "type": "null"

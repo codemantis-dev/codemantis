@@ -371,6 +371,17 @@ pub enum NormalizedEvent {
         error: String,
     },
 
+    /// Non-alarming, informational session notice. Rendered as an INFO
+    /// toast (not a red error) — used e.g. when a Codex `thread/resume`
+    /// can't find its rollout and we transparently start a fresh thread
+    /// instead of failing the session.
+    #[serde(rename = "session_notice")]
+    SessionNotice {
+        agent_id: AgentId,
+        session_id: String,
+        message: String,
+    },
+
     #[serde(rename = "process_exited")]
     ProcessExited {
         agent_id: AgentId,
@@ -692,6 +703,38 @@ pub struct CodexSessionPolicy {
     pub network_access: bool,
 }
 
+impl CodexSessionPolicy {
+    /// Build the `sandboxPolicy` OBJECT for `turn/start`
+    /// (`v2/TurnStartParams.json` → `SandboxPolicy`).
+    ///
+    /// CRITICAL: this is a DIFFERENT shape AND casing from `thread/start`'s
+    /// `sandbox` field. `thread/start` takes a `SandboxMode` STRING in
+    /// kebab-case (`workspace-write`); `turn/start` takes a `SandboxPolicy`
+    /// OBJECT whose `type` tag is CAMELCASE (`readOnly` / `workspaceWrite`
+    /// / `dangerFullAccess`) with `networkAccess` carried on the object.
+    ///
+    /// Codex 0.137 tolerates unknown params (additionalProperties), so the
+    /// previous code that sent the `sandbox` string on `turn/start` was
+    /// SILENTLY IGNORED — per-turn sandbox overrides (the Policy pill) were
+    /// a no-op until this was wired through.
+    pub fn as_turn_sandbox_policy(self) -> serde_json::Value {
+        match self.sandbox {
+            CodexSandbox::ReadOnly => serde_json::json!({
+                "type": "readOnly",
+                "networkAccess": self.network_access,
+            }),
+            CodexSandbox::WorkspaceWrite => serde_json::json!({
+                "type": "workspaceWrite",
+                "networkAccess": self.network_access,
+            }),
+            // danger-full-access has no networkAccess knob (everything is allowed).
+            CodexSandbox::DangerFullAccess => serde_json::json!({
+                "type": "dangerFullAccess",
+            }),
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Errors
 // ─────────────────────────────────────────────────────────────────────
@@ -811,6 +854,29 @@ pub trait AgentProcessHandle: Send + Sync {
         Err(AgentError::CapabilityNotSupported(
             self.agent_id(),
             "set_codex_policy (default impl)",
+        ))
+    }
+
+    /// Generic Codex app-server JSON-RPC passthrough for management
+    /// methods (`config/read`, `config/value/write`, `mcpServerStatus/list`,
+    /// `account/*`, …). Returns the raw response `Value` so callers parse
+    /// defensively. The Codex override maps a `-32601` (method not found —
+    /// the binary is older/newer than us) to `CapabilityNotSupported` so
+    /// the command layer can fall back gracefully (e.g. "open config.toml")
+    /// instead of surfacing a raw protocol error.
+    ///
+    /// This single method is deliberately generic: a new Codex management
+    /// method needs only a new Tauri command + frontend wrapper, never a
+    /// trait/adapter change — the core of the version-resilience goal.
+    /// Claude returns `CapabilityNotSupported`.
+    async fn codex_rpc(
+        &self,
+        _method: String,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value, AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "codex_rpc (default impl — Codex only)",
         ))
     }
 
@@ -1074,6 +1140,40 @@ mod tests {
     }
 
     #[test]
+    fn codex_turn_sandbox_policy_matches_published_schema() {
+        // Anchored against v2/TurnStartParams.json::SandboxPolicy. NOTE the
+        // CAMELCASE type tags + networkAccess field — distinct from the
+        // kebab-case SandboxMode string thread/start uses.
+        let ro = CodexSessionPolicy {
+            sandbox: CodexSandbox::ReadOnly,
+            approval: CodexApproval::Never,
+            network_access: false,
+        };
+        assert_eq!(
+            ro.as_turn_sandbox_policy(),
+            json!({"type": "readOnly", "networkAccess": false})
+        );
+
+        let ww = CodexSessionPolicy {
+            sandbox: CodexSandbox::WorkspaceWrite,
+            approval: CodexApproval::OnRequest,
+            network_access: true,
+        };
+        assert_eq!(
+            ww.as_turn_sandbox_policy(),
+            json!({"type": "workspaceWrite", "networkAccess": true})
+        );
+
+        let dfa = CodexSessionPolicy {
+            sandbox: CodexSandbox::DangerFullAccess,
+            approval: CodexApproval::Never,
+            network_access: true,
+        };
+        // danger-full-access carries no networkAccess knob.
+        assert_eq!(dfa.as_turn_sandbox_policy(), json!({"type": "dangerFullAccess"}));
+    }
+
+    #[test]
     fn codex_approval_wire_matches_published_schema() {
         // Anchored against v2/ThreadStartParams.json::AskForApproval.
         // Note: the schema also lists `on-failure` which the Policy
@@ -1119,11 +1219,11 @@ mod tests {
     #[test]
     fn control_request_payload_tags_subtype() {
         let set_model = ControlRequestPayload::SetModel {
-            model: "claude-opus-4-7".into(),
+            model: "claude-opus-4-8".into(),
         };
         let s = serde_json::to_value(&set_model).unwrap();
         assert_eq!(s["subtype"], "set_model");
-        assert_eq!(s["model"], "claude-opus-4-7");
+        assert_eq!(s["model"], "claude-opus-4-8");
 
         let interrupt = ControlRequestPayload::Interrupt;
         let s = serde_json::to_value(&interrupt).unwrap();
@@ -1172,7 +1272,7 @@ mod tests {
             num_turns: Some(1),
             stop_reason: Some("end_turn".into()),
             terminal_reason: None,
-            model_name: Some("claude-opus-4-7".into()),
+            model_name: Some("claude-opus-4-8".into()),
             context_window: Some(200_000),
             max_output_tokens: Some(8_192),
         };

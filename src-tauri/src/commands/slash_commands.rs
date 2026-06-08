@@ -241,17 +241,26 @@ fn builtin_commands() -> Vec<SlashCommand> {
         .collect()
 }
 
-/// v1.5.0 — Codex equivalents of `cli_only_commands` (Claude). Each
-/// entry maps to a top-level `codex <name>` subcommand verified
-/// against `codex --help` on cli 0.130.0. Selecting one opens
-/// `CliOverlay` and spawns `codex <name>` directly in a PTY (NOT a
-/// TUI slash command — Codex's interactive commands are top-level
-/// argv). Missing entries: `exec` / `review` / `debug` /
-/// `mcp-server` / `app-server` / `remote-control` / `cloud` /
-/// `exec-server` / `completion` — those are non-interactive or
-/// protocol modes that don't belong in the user-facing palette.
+/// v1.5.0 — Codex equivalents of `cli_only_commands` (Claude). Verified
+/// against `codex --help` on cli 0.137.0.
+///
+/// Two dispatch paths (the frontend `useCommandExecution.executeCliOnly`
+/// branches on agent + name):
+///   * `config` and `mcp` open the **CodexManagementPanel** — driven by
+///     the app-server JSON-RPC config/MCP methods. (`codex config` is not
+///     a real subcommand — it forwards to the interactive TUI — and
+///     `codex mcp` exits without a subcommand, so a PTY overlay was
+///     broken for both.)
+///   * Everything else opens `CliOverlay` and spawns `codex <name>` in a
+///     PTY (genuinely interactive / one-shot subcommands).
+///
+/// Missing entries: `exec` / `review` / `debug` / `mcp-server` /
+/// `app-server` / `remote-control` / `cloud` / `exec-server` /
+/// `completion` — non-interactive or protocol modes that don't belong in
+/// the user-facing palette.
 fn codex_cli_only_commands() -> Vec<SlashCommand> {
     let cli_only = [
+        ("config", "Configure Codex (settings, MCP, account)"),
         ("apply", "Apply the latest diff to your working tree"),
         ("features", "Inspect feature flags"),
         ("fork", "Fork a previous interactive session"),

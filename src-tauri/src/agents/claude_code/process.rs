@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 /// locks this. Tool approval is handled by the PreToolUse hook + CodeMantis's
 /// approval server (the CLI has no TTY in stream-json mode).
 ///
-/// `--thinking-display summarized`: Opus 4.7+ defaults thinking.display to
+/// `--thinking-display summarized`: Opus 4.8+ defaults thinking.display to
 /// "omitted" (empty thinking blocks); summarized content feeds the Reasoning
 /// panel in the Activity tab.
 pub(crate) const CLAUDE_CONST_ARGS: &[&str] = &[

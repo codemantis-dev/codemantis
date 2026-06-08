@@ -182,6 +182,19 @@ export function useCommandExecution(): {
   }
 
   function executeCliOnly(command: SlashCommand, args: string): void {
+    // Codex has no `config` subcommand and `codex mcp` exits without a
+    // subcommand — route config/MCP to the resilient JSON-RPC panel
+    // instead of a broken PTY overlay. Other Codex subcommands (login,
+    // logout, fork, …) and all Claude commands keep the PTY overlay.
+    const sessionStore = useSessionStore.getState();
+    const sessionId = sessionStore.activeSessionId;
+    const session = sessionId ? sessionStore.sessions.get(sessionId) : undefined;
+    const isCodex = session?.agent_id === "codex";
+    if (isCodex && sessionId && (command.name === "config" || command.name === "mcp")) {
+      useUiStore.getState().openCodexPanel(sessionId, command.name === "mcp" ? "mcp" : "config");
+      return;
+    }
+
     const fullInput = "/" + command.name + (args ? " " + args : "");
     useUiStore.getState().setCliOverlayInitialInput(fullInput);
     useUiStore.getState().setShowCliOverlay(true);

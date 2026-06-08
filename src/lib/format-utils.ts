@@ -109,7 +109,7 @@ export function formatTimestamp(ts: string): string {
 }
 
 /** Format a model ID to a human-readable name.
- * "claude-opus-4-7-20250101" → "Opus 4.7"
+ * "claude-opus-4-8-20250101" → "Opus 4.8"
  * "gpt-5.5"                  → "GPT-5.5"
  * "gpt-5.3-codex"            → "GPT-5.3-Codex"
  * "default"                  → "Default"  (Claude account-default sentinel)

@@ -25,7 +25,7 @@ const DEFAULT_CAPS: CapabilitiesDiscoveredEvent = {
     {
       value: "default",
       displayName: "Default",
-      description: "Opus 4.7 with 1M context",
+      description: "Opus 4.8 with 1M context",
       supportsEffort: true,
       supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
     },
@@ -188,11 +188,11 @@ describe("EffortSelector", () => {
     expect(screen.getByText("Max")).toBeInTheDocument();
   });
 
-  it("matches the resolved Anthropic model ID (claude-opus-4-7[1m]) against the 'default' manifest entry", () => {
+  it("matches the resolved Anthropic model ID (claude-opus-4-8[1m]) against the 'default' manifest entry", () => {
     // The CLI's `system/init` reports the resolved ID — `default` resolves
-    // to claude-opus-4-7[1m]. The dropdown must still surface effort levels
+    // to claude-opus-4-8[1m]. The dropdown must still surface effort levels
     // from the `default` entry instead of hiding itself.
-    seed({ model: "claude-opus-4-7[1m]", effort: "high" });
+    seed({ model: "claude-opus-4-8[1m]", effort: "high" });
     render(<EffortSelector />);
     expect(screen.getByText("High")).toBeInTheDocument();
     fireEvent.click(screen.getByText("High"));

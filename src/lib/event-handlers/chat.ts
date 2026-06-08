@@ -264,6 +264,13 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       store.setCliSessionId(sessionId, event.cli_session_id);
       break;
 
+    case "session_notice":
+      // Non-alarming informational notice (e.g. a Codex resume fell back
+      // to a fresh thread because the rollout was gone). Info toast, not
+      // a red error.
+      showToast(event.message, "info", 8000);
+      break;
+
     case "thinking_delta":
       handleThinkingDelta(sessionId, event, store);
       break;

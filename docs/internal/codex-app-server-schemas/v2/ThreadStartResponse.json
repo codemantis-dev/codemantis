@@ -598,6 +598,8 @@
     "ImageDetail": {
       "type": "string",
       "enum": [
+        "auto",
+        "low",
         "high",
         "original"
       ]
@@ -1117,6 +1119,13 @@
             "null"
           ]
         },
+        "parentThreadId": {
+          "description": "The ID of the parent thread. This will only be set if this thread is a subagent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "path": {
           "description": "[UNSTABLE] Path to the thread on disk.",
           "type": [
@@ -1193,6 +1202,12 @@
             "type"
           ],
           "properties": {
+            "clientId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "content": {
               "type": "array",
               "items": {

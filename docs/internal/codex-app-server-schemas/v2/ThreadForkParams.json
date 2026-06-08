@@ -56,8 +56,16 @@
     "ephemeral": {
       "type": "boolean"
     },
-    "threadId": {
-      "type": "string"
+    "threadSource": {
+      "description": "Optional client-supplied analytics source classification for this forked thread.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ThreadSource"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "model": {
       "description": "Configuration overrides for the forked thread, if any.",
@@ -67,6 +75,12 @@
       ]
     },
     "modelProvider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "serviceTier": {
       "type": [
         "string",
         "null"
@@ -82,22 +96,8 @@
         }
       ]
     },
-    "threadSource": {
-      "description": "Optional client-supplied analytics source classification for this forked thread.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/ThreadSource"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "serviceTier": {
-      "type": [
-        "string",
-        "null"
-      ]
+    "threadId": {
+      "type": "string"
     }
   },
   "definitions": {

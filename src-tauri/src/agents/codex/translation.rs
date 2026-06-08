@@ -604,7 +604,8 @@ impl Translator {
             }
 
             "reasoning" => {
-                // Empirical (cli 0.130.0, verified 2026-05-22):
+                // Empirical (cli 0.130.0, verified 2026-05-22; schema bundle
+                // re-generated + structurally re-checked against 0.137.0 2026-06-08):
                 //   ReasoningThreadItem schema is `{ id, type: "reasoning",
                 //   summary: array<string>, content: array<string> }`
                 //   with both arrays defaulting to []. In practice Codex

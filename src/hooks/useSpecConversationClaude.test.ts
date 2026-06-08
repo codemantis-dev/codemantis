@@ -499,7 +499,7 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-7");
+        await result.current.changeModel(PROJECT, "claude-opus-4-8");
       });
 
       expect(mockCloseSpecwriterSession).toHaveBeenCalledWith("old-session");
@@ -514,11 +514,11 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-7");
+        await result.current.changeModel(PROJECT, "claude-opus-4-8");
       });
 
       const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
-      expect(conv!.ai_model).toBe("claude-opus-4-7");
+      expect(conv!.ai_model).toBe("claude-opus-4-8");
       expect(conv!.ai_provider).toBe("claude-code");
     });
 
@@ -530,7 +530,7 @@ describe("useSpecConversationClaude", () => {
       const { result } = renderHook(() => useSpecConversationClaude());
 
       await act(async () => {
-        await result.current.changeModel(PROJECT, "claude-opus-4-7");
+        await result.current.changeModel(PROJECT, "claude-opus-4-8");
       });
 
       // Should not throw; closeSpecwriterSession should not be called
@@ -647,7 +647,7 @@ describe("useSpecConversationClaude", () => {
       );
       expect(warning).toBeDefined();
       expect(warning!.content).toContain("~186K tokens");
-      expect(warning!.content).toContain("Opus 4.7");
+      expect(warning!.content).toContain("Opus 4.8");
     });
 
     it("handles null pre_tokens gracefully", async () => {

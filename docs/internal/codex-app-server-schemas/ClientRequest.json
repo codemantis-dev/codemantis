@@ -523,6 +523,30 @@
         "method": {
           "type": "string",
           "enum": [
+            "skills/extraRoots/set"
+          ],
+          "title": "Skills/extraRoots/setRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/SkillsExtraRootsSetParams"
+        }
+      },
+      "title": "Skills/extraRoots/setRequest"
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
             "hooks/list"
           ],
           "title": "Hooks/listRequestMethod"
@@ -1961,6 +1985,28 @@
         "usage_limit"
       ]
     },
+    "AdditionalContextEntry": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/AdditionalContextKind"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "AdditionalContextKind": {
+      "type": "string",
+      "enum": [
+        "untrusted",
+        "application"
+      ]
+    },
     "ApprovalsReviewer": {
       "description": "Configures who approval requests are routed to for review. Examples include sandbox escapes, blocked network access, MCP approval prompts, and ARC escalations. Defaults to `user`. `auto_review` uses a carefully prompted subagent to gather relevant context and apply a risk-based decision framework before approving or denying the request. The legacy value `guardian_subagent` is accepted for compatibility.",
       "type": "string",
@@ -2394,7 +2440,6 @@
           ]
         },
         "includeLayers": {
-          "default": false,
           "type": "boolean"
         }
       }
@@ -2661,8 +2706,7 @@
     "FeedbackUploadParams": {
       "type": "object",
       "required": [
-        "classification",
-        "includeLogs"
+        "classification"
       ],
       "properties": {
         "classification": {
@@ -3158,6 +3202,15 @@
         "threadId"
       ],
       "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "clientUserMessageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "expectedTurnId": {
           "description": "Required active turn id precondition. The request fails when it does not match the currently active turn.",
           "type": "string"
@@ -3167,9 +3220,6 @@
           "items": {
             "$ref": "#/definitions/UserInput"
           }
-        },
-        "threadId": {
-          "type": "string"
         }
       }
     },
@@ -3180,6 +3230,17 @@
         "threadId"
       ],
       "properties": {
+        "sandboxPolicy": {
+          "description": "Override the sandbox policy for this turn and subsequent turns.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "approvalPolicy": {
           "description": "Override the approval policy for this turn and subsequent turns.",
           "anyOf": [
@@ -3200,6 +3261,12 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "clientUserMessageId": {
+          "type": [
+            "string",
+            "null"
           ]
         },
         "summary": {
@@ -3254,16 +3321,8 @@
         "outputSchema": {
           "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
         },
-        "sandboxPolicy": {
-          "description": "Override the sandbox policy for this turn and subsequent turns.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "threadId": {
+          "type": "string"
         },
         "personality": {
           "description": "Override the personality for this turn and subsequent turns.",
@@ -3275,9 +3334,6 @@
               "type": "null"
             }
           ]
-        },
-        "threadId": {
-          "type": "string"
         }
       }
     },
@@ -3286,7 +3342,6 @@
       "properties": {
         "refreshToken": {
           "description": "When `true`, requests a proactive token refresh before returning.\n\nIn managed auth mode this triggers the normal refresh-token flow. In external auth mode this flag is ignored. Clients should refresh tokens themselves and call `account/login/start` with `chatgptAuthTokens`.",
-          "default": false,
           "type": "boolean"
         }
       }
@@ -3317,6 +3372,8 @@
     "ImageDetail": {
       "type": "string",
       "enum": [
+        "auto",
+        "low",
         "high",
         "original"
       ]
@@ -3397,6 +3454,12 @@
           ],
           "format": "uint32",
           "minimum": 0.0
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -4370,6 +4433,195 @@
         }
       ]
     },
+    "ThreadRollbackParams": {
+      "type": "object",
+      "required": [
+        "numTurns",
+        "threadId"
+      ],
+      "properties": {
+        "numTurns": {
+          "description": "The number of turns to drop from the end of the thread. Must be >= 1.\n\nThis only modifies the thread's history and does not revert local file changes that have been made by the agent. Clients are responsible for reverting these changes.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "threadId": {
+          "type": "string"
+        }
+      }
+    },
+    "ThreadRealtimeStartTransport": {
+      "description": "EXPERIMENTAL - transport used by thread realtime.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "websocket"
+              ],
+              "title": "WebsocketThreadRealtimeStartTransportType"
+            }
+          },
+          "title": "WebsocketThreadRealtimeStartTransport"
+        },
+        {
+          "type": "object",
+          "required": [
+            "sdp",
+            "type"
+          ],
+          "properties": {
+            "sdp": {
+              "description": "SDP offer generated by a WebRTC RTCPeerConnection after configuring audio and the realtime events data channel.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "webrtc"
+              ],
+              "title": "WebrtcThreadRealtimeStartTransportType"
+            }
+          },
+          "title": "WebrtcThreadRealtimeStartTransport"
+        }
+      ]
+    },
+    "ThreadStartSource": {
+      "type": "string",
+      "enum": [
+        "startup",
+        "clear"
+      ]
+    },
+    "ThreadStartParams": {
+      "type": "object",
+      "properties": {
+        "approvalPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AskForApproval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvalsReviewer": {
+          "description": "Override where approval requests are routed for review on this thread and subsequent turns.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalsReviewer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "baseInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "config": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "developerInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionStartSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadStartSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serviceTier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ephemeral": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "serviceName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadSource": {
+          "description": "Optional client-supplied analytics source classification for this thread.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "personality": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Personality"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -5288,6 +5540,20 @@
         }
       }
     },
+    "SkillsExtraRootsSetParams": {
+      "type": "object",
+      "required": [
+        "extraRoots"
+      ],
+      "properties": {
+        "extraRoots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AbsolutePathBuf"
+          }
+        }
+      }
+    },
     "SkillsListParams": {
       "type": "object",
       "properties": {
@@ -5371,102 +5637,20 @@
         }
       }
     },
-    "ThreadResumeParams": {
-      "description": "There are three ways to resume a thread: 1. By thread_id: load the thread from disk by thread_id and resume it. 2. By history: instantiate the thread from memory and resume it. 3. By path: load the thread from disk by path and resume it.\n\nFor non-running threads, the precedence is: history > non-empty path > thread_id. If using history or a non-empty path for a non-running thread, the thread_id param will be ignored.\n\nIf thread_id identifies a running thread, app-server rejoins that thread and treats a non-empty path as a consistency check against the active rollout path. Empty string path values are treated as absent.\n\nPrefer using thread_id whenever possible.",
-      "type": "object",
-      "required": [
-        "threadId"
-      ],
-      "properties": {
-        "approvalPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AskForApproval"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "approvalsReviewer": {
-          "description": "Override where approval requests are routed for review on this thread and subsequent turns.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ApprovalsReviewer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "baseInstructions": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "config": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": true
-        },
-        "cwd": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "developerInstructions": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "serviceTier": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "threadId": {
-          "type": "string"
-        },
-        "model": {
-          "description": "Configuration overrides for the resumed thread, if any.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "modelProvider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "personality": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Personality"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
+    "ThreadSourceKind": {
+      "type": "string",
+      "enum": [
+        "cli",
+        "vscode",
+        "exec",
+        "appServer",
+        "subAgent",
+        "subAgentReview",
+        "subAgentCompact",
+        "subAgentThreadSpawn",
+        "subAgentOther",
+        "unknown"
+      ]
     },
     "ThreadCompactStartParams": {
       "type": "object",
@@ -5479,23 +5663,13 @@
         }
       }
     },
-    "ThreadRollbackParams": {
-      "type": "object",
-      "required": [
-        "numTurns",
-        "threadId"
-      ],
-      "properties": {
-        "numTurns": {
-          "description": "The number of turns to drop from the end of the thread. Must be >= 1.\n\nThis only modifies the thread's history and does not revert local file changes that have been made by the agent. Clients are responsible for reverting these changes.",
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "threadId": {
-          "type": "string"
-        }
-      }
+    "ThreadSource": {
+      "type": "string",
+      "enum": [
+        "user",
+        "subagent",
+        "memory_consolidation"
+      ]
     },
     "ThreadForkParams": {
       "description": "There are two ways to fork a thread: 1. By thread_id: load the thread from disk by thread_id and fork it into a new thread. 2. By path: load the thread from disk by path and fork it into a new thread.\n\nIf using a non-empty path, the thread_id param will be ignored. Empty string path values are treated as absent.\n\nPrefer using thread_id whenever possible.",
@@ -5553,8 +5727,16 @@
         "ephemeral": {
           "type": "boolean"
         },
-        "threadId": {
-          "type": "string"
+        "threadSource": {
+          "description": "Optional client-supplied analytics source classification for this forked thread.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "model": {
           "description": "Configuration overrides for the forked thread, if any.",
@@ -5564,6 +5746,12 @@
           ]
         },
         "modelProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serviceTier": {
           "type": [
             "string",
             "null"
@@ -5579,22 +5767,8 @@
             }
           ]
         },
-        "threadSource": {
-          "description": "Optional client-supplied analytics source classification for this forked thread.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ThreadSource"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "serviceTier": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -5665,11 +5839,11 @@
         "complete"
       ]
     },
-    "ThreadStartSource": {
+    "ThreadSortKey": {
       "type": "string",
       "enum": [
-        "startup",
-        "clear"
+        "created_at",
+        "updated_at"
       ]
     },
     "ThreadInjectItemsParams": {
@@ -5822,125 +5996,19 @@
         "disabled"
       ]
     },
-    "ThreadStartParams": {
+    "ThreadShellCommandParams": {
       "type": "object",
+      "required": [
+        "command",
+        "threadId"
+      ],
       "properties": {
-        "approvalPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AskForApproval"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "command": {
+          "description": "Shell command string evaluated by the thread's configured shell. Unlike `command/exec`, this intentionally preserves shell syntax such as pipes, redirects, and quoting. This runs unsandboxed with full access rather than inheriting the thread sandbox policy.",
+          "type": "string"
         },
-        "approvalsReviewer": {
-          "description": "Override where approval requests are routed for review on this thread and subsequent turns.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ApprovalsReviewer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "baseInstructions": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "config": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": true
-        },
-        "cwd": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "developerInstructions": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "serviceName": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "ephemeral": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "sessionStartSource": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ThreadStartSource"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "personality": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Personality"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "model": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "modelProvider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "serviceTier": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "threadSource": {
-          "description": "Optional client-supplied analytics source classification for this thread.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ThreadSource"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -6000,7 +6068,6 @@
       "properties": {
         "includeTurns": {
           "description": "When true, include turns and their items from rollout history.",
-          "default": false,
           "type": "boolean"
         },
         "threadId": {
@@ -6008,28 +6075,117 @@
         }
       }
     },
-    "ThreadSourceKind": {
-      "type": "string",
-      "enum": [
-        "cli",
-        "vscode",
-        "exec",
-        "appServer",
-        "subAgent",
-        "subAgentReview",
-        "subAgentCompact",
-        "subAgentThreadSpawn",
-        "subAgentOther",
-        "unknown"
-      ]
+    "ThreadResumeParams": {
+      "description": "There are three ways to resume a thread: 1. By thread_id: load the thread from disk by thread_id and resume it. 2. By history: instantiate the thread from memory and resume it. 3. By path: load the thread from disk by path and resume it.\n\nFor non-running threads, the precedence is: history > non-empty path > thread_id. If using history or a non-empty path for a non-running thread, the thread_id param will be ignored.\n\nIf thread_id identifies a running thread, app-server rejoins that thread and treats a non-empty path as a consistency check against the active rollout path. Empty string path values are treated as absent.\n\nPrefer using thread_id whenever possible.",
+      "type": "object",
+      "required": [
+        "threadId"
+      ],
+      "properties": {
+        "approvalPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AskForApproval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approvalsReviewer": {
+          "description": "Override where approval requests are routed for review on this thread and subsequent turns.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovalsReviewer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "baseInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "config": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "developerInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "serviceTier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "description": "Configuration overrides for the resumed thread, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personality": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Personality"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
-    "ThreadSource": {
-      "type": "string",
-      "enum": [
-        "user",
-        "subagent",
-        "memory_consolidation"
-      ]
+    "ThreadSetNameParams": {
+      "type": "object",
+      "required": [
+        "name",
+        "threadId"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      }
     },
     "ThreadRealtimeAudioChunk": {
       "description": "EXPERIMENTAL - thread realtime audio chunk.",
@@ -6069,83 +6225,39 @@
         }
       }
     },
-    "ThreadSortKey": {
-      "type": "string",
-      "enum": [
-        "created_at",
-        "updated_at"
-      ]
-    },
-    "ThreadShellCommandParams": {
+    "ThreadResumeInitialTurnsPageParams": {
       "type": "object",
-      "required": [
-        "command",
-        "threadId"
-      ],
       "properties": {
-        "command": {
-          "description": "Shell command string evaluated by the thread's configured shell. Unlike `command/exec`, this intentionally preserves shell syntax such as pipes, redirects, and quoting. This runs unsandboxed with full access rather than inheriting the thread sandbox policy.",
-          "type": "string"
-        },
-        "threadId": {
-          "type": "string"
-        }
-      }
-    },
-    "ThreadRealtimeStartTransport": {
-      "description": "EXPERIMENTAL - transport used by thread realtime.",
-      "oneOf": [
-        {
-          "type": "object",
-          "required": [
-            "type"
-          ],
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "websocket"
-              ],
-              "title": "WebsocketThreadRealtimeStartTransportType"
-            }
-          },
-          "title": "WebsocketThreadRealtimeStartTransport"
-        },
-        {
-          "type": "object",
-          "required": [
-            "sdp",
-            "type"
-          ],
-          "properties": {
-            "sdp": {
-              "description": "SDP offer generated by a WebRTC RTCPeerConnection after configuring audio and the realtime events data channel.",
-              "type": "string"
+        "itemsView": {
+          "description": "How much item detail to include for each returned turn; defaults to summary.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TurnItemsView"
             },
-            "type": {
-              "type": "string",
-              "enum": [
-                "webrtc"
-              ],
-              "title": "WebrtcThreadRealtimeStartTransportType"
+            {
+              "type": "null"
             }
-          },
-          "title": "WebrtcThreadRealtimeStartTransport"
-        }
-      ]
-    },
-    "ThreadSetNameParams": {
-      "type": "object",
-      "required": [
-        "name",
-        "threadId"
-      ],
-      "properties": {
-        "name": {
-          "type": "string"
+          ]
         },
-        "threadId": {
-          "type": "string"
+        "limit": {
+          "description": "Optional turn page size.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "sortDirection": {
+          "description": "Optional turn pagination direction; defaults to descending.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SortDirection"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     }

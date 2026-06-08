@@ -16,7 +16,7 @@ import type { CliModelInfo } from "../../types/agent-events";
  * Resolve which `CliModelInfo` corresponds to the running CLI session.
  *
  * The CLI's `system/init` event reports the *resolved* Anthropic model ID
- * (e.g. `claude-opus-4-7[1m]`) while the `initialize` capability manifest
+ * (e.g. `claude-opus-4-8[1m]`) while the `initialize` capability manifest
  * lists models by their CLI alias (`default` / `sonnet` / `sonnet[1m]` /
  * `haiku`). The two strings are not equal, but they share descriptive
  * tokens — the resolved ID always contains the same family/version

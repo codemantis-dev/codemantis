@@ -2,29 +2,43 @@
 //!
 //! Re-runs `codex app-server generate-json-schema` against the installed
 //! Codex CLI and diffs the result against the schema bundle checked in
-//! at `docs/internal/codex-app-server-schemas/`. Any drift fails the
-//! test with a one-line remediation: re-run the generator and commit
-//! the diff.
+//! at `docs/internal/codex-app-server-schemas/`.
 //!
-//! This is the **cheap** layer of the framework:
-//!   * Costs **zero** OpenAI credits (only invokes the binary's
-//!     schema-emit subcommand — no auth, no network, no model).
-//!   * Runs on every developer's machine + CI in <1s.
-//!   * Catches: enum renames (kebab→camel, the bug class that bit us
-//!     hardest), field additions/removals, type changes, new methods.
+//! ## Version-resilient classification (the important part)
 //!
-//! Skipped (not failed) when `codex` is not on PATH so contributors
-//! without the Codex install can still run `cargo test`. CI sets the
-//! `CM_REQUIRE_CODEX=1` env to upgrade the skip to a hard failure on
-//! the release-gate runners.
+//! Codex ships frequently and almost every release ADDS methods, fields,
+//! and enum variants. A test that hard-fails on *any* diff would block
+//! every developer's build the day a new Codex lands — even when nothing
+//! CodeMantis relies on actually changed. So drift is classified:
 //!
-//! Spec: this is the Codex analog of the empirical-truth flow Claude
-//! has via `cli_protocol_capture.rs` — but cheaper, because Codex
-//! self-documents its protocol via `generate-json-schema`. Documented
-//! in `docs/internal/codex-app-server-schemas/README.md`.
+//!   * **Breaking** (always fatal): a committed schema file disappeared,
+//!     or a committed file is no longer a structural *subset* of the live
+//!     one — i.e. something was removed, renamed, narrowed, or an enum
+//!     value/oneOf variant we may depend on is gone. These are the
+//!     changes that can silently break the wire contract.
+//!   * **Additive** (warning in normal runs): new schema files, new
+//!     optional fields, new enum variants, nullable widening. These don't
+//!     break a defensive client, so they only print a reminder to
+//!     regenerate + commit the bundle.
+//!
+//! On the **release gate** (`CM_REQUIRE_CODEX=1`) the policy tightens to
+//! "any drift is fatal" so the committed bundle is forced back in sync
+//! and reviewed before a release ships.
+//!
+//! Known blind spot (by design): a *newly-required* field on a request
+//! params object reads as additive here (the committed `required` array is
+//! still a subset of the live one). That class is caught empirically by
+//! `codex_protocol_smoke.rs` / `codex_protocol_capture.rs`, which actually
+//! drive the live protocol.
+//!
+//! This is the **cheap** layer: zero OpenAI credits (only the binary's
+//! schema-emit subcommand), runs in <1s. Skipped (not failed) when
+//! `codex` is not on PATH unless `CM_REQUIRE_CODEX=1`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use serde_json::Value;
 
 fn workspace_root() -> PathBuf {
     // CARGO_MANIFEST_DIR points at `src-tauri/` — repo root is one up.
@@ -40,6 +54,12 @@ fn checked_in_schema_dir() -> PathBuf {
 
 fn codex_available() -> bool {
     which::which("codex").is_ok()
+}
+
+/// Release-gate strict mode: ANY drift (even additive) is fatal so the
+/// committed bundle is forced back in sync before shipping.
+fn strict_mode() -> bool {
+    std::env::var("CM_REQUIRE_CODEX").as_deref() == Ok("1")
 }
 
 /// Walk a schema directory and return `(relative_path, contents)` for
@@ -66,20 +86,59 @@ fn collect_schemas(root: &Path) -> Vec<(String, String)> {
     out
 }
 
-/// Normalise JSON whitespace + key ordering so cosmetic formatting
-/// differences don't trip the drift check. Schemas with comments would
-/// fail; both schema directories here are pure JSON so this is safe.
+/// Canonical JSON string (stable key order) — used to detect whether a
+/// file changed *at all* (additive vs identical), independent of the
+/// breaking/additive structural check.
 fn canonicalise(body: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(body) {
+    match serde_json::from_str::<Value>(body) {
         Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| body.to_string()),
         Err(_) => body.to_string(),
     }
 }
 
+/// Is `committed` a structural subset of `live`? True ⇒ every shape the
+/// committed schema describes is still present in the live schema (only
+/// additions happened) ⇒ **additive, non-breaking**. False ⇒ something
+/// was removed/renamed/narrowed ⇒ **breaking**.
+///
+/// Rules:
+///   * `live` is an array: every committed element (a scalar is treated
+///     as a one-element array) must have a subset-match somewhere in
+///     `live`. Handles enum/oneOf additions and nullable widening
+///     (`"string"` → `["string","null"]`).
+///   * `committed` is an array but `live` is not: narrowing ⇒ false.
+///   * both objects: every committed key must exist in `live` with a
+///     subset value (added keys in `live` are ignored ⇒ additive).
+///   * `committed` is an object but `live` is not: false.
+///   * scalars: must be equal.
+pub fn deep_subset(committed: &Value, live: &Value) -> bool {
+    match (committed, live) {
+        (_, Value::Array(live_arr)) => {
+            let committed_elems: Vec<&Value> = match committed {
+                Value::Array(c) => c.iter().collect(),
+                other => vec![other],
+            };
+            committed_elems
+                .iter()
+                .all(|ce| live_arr.iter().any(|le| deep_subset(ce, le)))
+        }
+        (Value::Array(_), _) => false,
+        (Value::Object(c), Value::Object(l)) => c.iter().all(|(k, cv)| {
+            l.get(k).map(|lv| deep_subset(cv, lv)).unwrap_or(false)
+        }),
+        (Value::Object(_), _) => false,
+        (c, l) => c == l,
+    }
+}
+
+fn parse(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or(Value::Null)
+}
+
 #[test]
 fn codex_schema_matches_committed_bundle() {
     if !codex_available() {
-        if std::env::var("CM_REQUIRE_CODEX").as_deref() == Ok("1") {
+        if strict_mode() {
             panic!(
                 "codex not on PATH but CM_REQUIRE_CODEX=1 — install codex \
                  (`npm install -g @openai/codex`) on the release-gate runner."
@@ -119,58 +178,154 @@ fn codex_schema_matches_committed_bundle() {
     let live = collect_schemas(tmp.path());
     let committed = collect_schemas(&checked_in);
 
-    // 1. File set must match — adding or removing a schema file is
-    //    always a meaningful change worth investigating.
-    let live_names: std::collections::BTreeSet<&str> =
-        live.iter().map(|(n, _)| n.as_str()).collect();
+    let live_by_name: std::collections::BTreeMap<&str, &str> =
+        live.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
     let committed_names: std::collections::BTreeSet<&str> =
         committed.iter().map(|(n, _)| n.as_str()).collect();
 
-    let added: Vec<&&str> = live_names.difference(&committed_names).collect();
-    let removed: Vec<&&str> = committed_names.difference(&live_names).collect();
-    if !added.is_empty() || !removed.is_empty() {
+    // ── Classify the drift ──
+    let added_files: Vec<&str> = live
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .filter(|n| !committed_names.contains(n))
+        .collect();
+
+    let mut removed_files: Vec<&str> = Vec::new(); // BREAKING — a schema we had is gone
+    let mut breaking_files: Vec<String> = Vec::new(); // committed not a subset of live
+    let mut additive_files: Vec<&str> = Vec::new(); // changed but only additions
+
+    for (name, committed_body) in &committed {
+        let Some(live_body) = live_by_name.get(name.as_str()) else {
+            removed_files.push(name.as_str());
+            continue;
+        };
+        if canonicalise(committed_body) == canonicalise(live_body) {
+            continue; // identical
+        }
+        let c = parse(committed_body);
+        let l = parse(live_body);
+        if deep_subset(&c, &l) {
+            additive_files.push(name.as_str());
+        } else {
+            breaking_files.push(name.clone());
+        }
+    }
+
+    let remediation = "To accept the new shape, run:\n  \
+         codex app-server generate-json-schema --out docs/internal/codex-app-server-schemas/\n  \
+         then commit + review what changed.";
+
+    // ── Breaking drift: always fatal ──
+    if !removed_files.is_empty() || !breaking_files.is_empty() {
         panic!(
-            "Codex schema drift — file set changed.\n  \
-             ADDED in live (new schemas in Codex):\n{}\n  \
-             REMOVED from live (gone from Codex):\n{}\n\n\
-             To accept the new shape, run:\n  \
-             codex app-server generate-json-schema --out docs/internal/codex-app-server-schemas/\n  \
-             then commit + review what changed.",
-            if added.is_empty() {
+            "Codex schema drift — BREAKING change(s) detected.\n  \
+             REMOVED schema files (gone from Codex):\n{}\n  \
+             STRUCTURALLY CHANGED (something removed/renamed/narrowed):\n{}\n\n{remediation}",
+            if removed_files.is_empty() {
                 "    (none)".to_string()
             } else {
-                added.iter().map(|n| format!("    + {n}")).collect::<Vec<_>>().join("\n")
+                removed_files.iter().map(|n| format!("    - {n}")).collect::<Vec<_>>().join("\n")
             },
-            if removed.is_empty() {
+            if breaking_files.is_empty() {
                 "    (none)".to_string()
             } else {
-                removed.iter().map(|n| format!("    - {n}")).collect::<Vec<_>>().join("\n")
+                breaking_files.iter().map(|n| format!("    ~ {n}")).collect::<Vec<_>>().join("\n")
             },
         );
     }
 
-    // 2. For every file the contents (post-canonicalisation) must match.
-    //    Bail at the first diff with a precise pointer.
-    let live_by_name: std::collections::BTreeMap<&str, &str> =
-        live.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
-    for (name, committed_body) in &committed {
-        let live_body = live_by_name
-            .get(name.as_str())
-            .expect("file-set parity already checked");
-        let a = canonicalise(committed_body);
-        let b = canonicalise(live_body);
-        if a != b {
-            // Truncated diff — full bodies are large.
-            let preview_a: String = a.chars().take(400).collect();
-            let preview_b: String = b.chars().take(400).collect();
-            panic!(
-                "Codex schema drift — `{name}` changed.\n\
-                 COMMITTED (first 400 chars):\n{preview_a}\n\n\
-                 LIVE (first 400 chars):\n{preview_b}\n\n\
-                 To accept the new shape, run:\n  \
-                 codex app-server generate-json-schema --out docs/internal/codex-app-server-schemas/\n  \
-                 then commit + review what changed."
-            );
+    // ── Additive drift: fatal only on the release gate ──
+    if !added_files.is_empty() || !additive_files.is_empty() {
+        let summary = format!(
+            "Codex schema drift — ADDITIVE change(s) only.\n  \
+             NEW schema files:\n{}\n  \
+             FILES WITH NEW (optional) FIELDS / ENUM VARIANTS:\n{}\n\n{remediation}",
+            if added_files.is_empty() {
+                "    (none)".to_string()
+            } else {
+                added_files.iter().map(|n| format!("    + {n}")).collect::<Vec<_>>().join("\n")
+            },
+            if additive_files.is_empty() {
+                "    (none)".to_string()
+            } else {
+                additive_files.iter().map(|n| format!("    * {n}")).collect::<Vec<_>>().join("\n")
+            },
+        );
+        if strict_mode() {
+            panic!("{summary}\n\n(CM_REQUIRE_CODEX=1 — additive drift is fatal on the release gate.)");
         }
+        eprintln!("[schema-drift] WARNING (non-fatal):\n{summary}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deep_subset;
+    use serde_json::json;
+
+    #[test]
+    fn identical_is_subset() {
+        let v = json!({"a": 1, "enum": ["x", "y"]});
+        assert!(deep_subset(&v, &v));
+    }
+
+    #[test]
+    fn added_property_is_additive() {
+        let committed = json!({"properties": {"a": {"type": "string"}}});
+        let live = json!({"properties": {"a": {"type": "string"}, "b": {"type": "number"}}});
+        assert!(deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn added_enum_variant_is_additive() {
+        let committed = json!({"enum": ["read-only", "workspace-write"]});
+        let live = json!({"enum": ["read-only", "workspace-write", "danger-full-access"]});
+        assert!(deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn nullable_widening_is_additive() {
+        // The most common Codex additive change: a field becomes nullable.
+        let committed = json!({"type": "string"});
+        let live = json!({"type": ["string", "null"]});
+        assert!(deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn removed_enum_variant_is_breaking() {
+        let committed = json!({"enum": ["read-only", "workspace-write", "legacy"]});
+        let live = json!({"enum": ["read-only", "workspace-write"]});
+        assert!(!deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn removed_property_is_breaking() {
+        let committed = json!({"properties": {"a": {"type": "string"}, "b": {"type": "number"}}});
+        let live = json!({"properties": {"a": {"type": "string"}}});
+        assert!(!deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn changed_scalar_is_breaking() {
+        let committed = json!({"const": "thread/start"});
+        let live = json!({"const": "thread/begin"});
+        assert!(!deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn narrowing_nullable_is_breaking() {
+        let committed = json!({"type": ["string", "null"]});
+        let live = json!({"type": "string"});
+        assert!(!deep_subset(&committed, &live));
+    }
+
+    #[test]
+    fn new_required_field_reads_as_additive_known_blind_spot() {
+        // Documented blind spot: a newly-required field is a superset of
+        // the committed `required` array, so it reads as additive here.
+        // Caught instead by the live smoke/capture battery.
+        let committed = json!({"required": ["a"]});
+        let live = json!({"required": ["a", "b"]});
+        assert!(deep_subset(&committed, &live));
     }
 }

@@ -2761,7 +2761,7 @@ mod tests {
             "diag".to_string(),
             "anthropic".to_string(),
             "".to_string(),
-            "claude-opus-4-7".to_string(),
+            "claude-opus-4-8".to_string(),
             "f.md".to_string(),
             None,
         )
@@ -2777,7 +2777,7 @@ mod tests {
             "diag".to_string(),
             "anthropic".to_string(),
             "sk-test".to_string(),
-            "claude-opus-4-7".to_string(),
+            "claude-opus-4-8".to_string(),
             "f.md".to_string(),
             None,
         )

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import CliOverlay from "./CliOverlay";
 import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { pauseSessionProcess, createTerminal } from "../../lib/tauri-commands";
 
 vi.mock("../../lib/tauri-commands", () => ({
   createTerminal: vi.fn().mockRejectedValue(new Error("mock")),
@@ -80,5 +81,31 @@ describe("CliOverlay", () => {
     });
     render(<CliOverlay />);
     expect(screen.getByLabelText("Close CLI overlay")).toBeInTheDocument();
+  });
+
+  // Regression guard for the core Codex bug: opening the overlay must NOT
+  // pause (kill) the Codex app-server — that's what made closing the
+  // overlay call thread/resume → "no rollout found" → dead session.
+  it("does NOT pause the process for a Codex session", async () => {
+    useUiStore.setState({ showCliOverlay: true, codexBinaryPath: "/usr/local/bin/codex" });
+    useSessionStore.setState({
+      activeSessionId: "c1",
+      sessions: new Map([["c1", { id: "c1", project_path: "/project", agent_id: "codex" } as never]]),
+    });
+    render(<CliOverlay />);
+    // The Codex path skips pause and goes straight to spawning the PTY.
+    await waitFor(() => expect(createTerminal).toHaveBeenCalled());
+    expect(pauseSessionProcess).not.toHaveBeenCalled();
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+  });
+
+  it("DOES pause the process for a Claude session", async () => {
+    useUiStore.setState({ showCliOverlay: true, claudeBinaryPath: "/usr/local/bin/claude" });
+    useSessionStore.setState({
+      activeSessionId: "s1",
+      sessions: new Map([["s1", { id: "s1", project_path: "/project", agent_id: "claude_code", cli_session_id: "cli-1" } as never]]),
+    });
+    render(<CliOverlay />);
+    await waitFor(() => expect(pauseSessionProcess).toHaveBeenCalledWith("s1"));
   });
 });

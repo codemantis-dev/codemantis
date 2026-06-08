@@ -360,6 +360,29 @@ impl Database {
         Ok(())
     }
 
+    /// Read the persisted CLI session/resume token for a session row.
+    /// Returns `None` if the row is unknown or `cli_session_id` is NULL.
+    /// Used as the post-restart resume fallback when the in-memory
+    /// `AppState.cli_session_ids` map has been cleared (it's the only
+    /// place a Codex thread id survives a hard crash).
+    pub fn get_cli_session_id(&self, id: &str) -> Result<Option<String>, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        match conn.query_row(
+            "SELECT cli_session_id FROM sessions WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get::<_, Option<String>>(0),
+        ) {
+            Ok(opt) => Ok(opt),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!(
+                "Get cli_session_id failed: {}",
+                e
+            ))),
+        }
+    }
+
     /// Promote a session row to `status='closed'` with the given timestamp,
     /// but only if the row is still in a non-terminal state (not already
     /// `'closed'` or `'errored'`). Used by the periodic snapshot tick to
@@ -1615,6 +1638,25 @@ mod tests {
         // Status must NOT have flipped to 'closed' as a side effect.
         assert_eq!(after.status, "connected");
         assert!(after.closed_at.is_none());
+    }
+
+    #[test]
+    fn test_get_cli_session_id_roundtrip_and_unknown() {
+        // Post-restart resume fallback reads the token straight off the
+        // row (the in-memory AppState map is empty after a hard crash).
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "Test", "/p", "connected", "2026-06-08T00:00:00Z", None, 0, "codex")
+            .unwrap();
+        // NULL before any write.
+        assert_eq!(db.get_cli_session_id("s1").unwrap(), None);
+        // Unknown row → None (not an error).
+        assert_eq!(db.get_cli_session_id("nope").unwrap(), None);
+        // After set → Some.
+        db.set_cli_session_id("s1", "019e66e0-thread").unwrap();
+        assert_eq!(
+            db.get_cli_session_id("s1").unwrap().as_deref(),
+            Some("019e66e0-thread")
+        );
     }
 
     #[test]

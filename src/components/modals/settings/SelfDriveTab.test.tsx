@@ -72,7 +72,7 @@ describe("SelfDriveTab", () => {
       <SelfDriveTab
         {...baseProps}
         provider="gemini"
-        model="claude-opus-4-7"
+        model="claude-opus-4-8"
         apiKeys={{ gemini: "gem-key" }}
       />,
     );
@@ -119,7 +119,7 @@ describe("SelfDriveTab", () => {
     );
     expect(optionTexts).toContain("Gemini 2.5 Flash Lite");
     expect(optionTexts).toContain("Gemini 3.5 Flash");
-    expect(optionTexts).not.toContain("Claude Opus 4.7");
+    expect(optionTexts).not.toContain("Claude Opus 4.8");
   });
 
   it("provider change handler resets model to first of new provider", () => {
@@ -151,8 +151,8 @@ describe("SelfDriveTab", () => {
       (o) => o.textContent,
     );
     expect(optionTexts[0]).toBe("Claude Haiku 4.5");
-    // Opus 4.7 is the most expensive Anthropic model — must land last.
-    expect(optionTexts[optionTexts.length - 1]).toBe("Claude Opus 4.7");
+    // Opus 4.8 is the most expensive Anthropic model — must land last.
+    expect(optionTexts[optionTexts.length - 1]).toBe("Claude Opus 4.8");
   });
 
   // ── OpenRouter live cache wiring ─────────────────────────────────────

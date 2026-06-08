@@ -19,16 +19,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Where Codex looks for MCP config. Honors `$CODEX_HOME`; falls back to
-/// `~/.codex/`.
+/// `~/.codex/`. Base dir is shared with [`super::rollout::codex_home`].
 pub fn config_path() -> PathBuf {
-    let base = if let Ok(home) = std::env::var("CODEX_HOME") {
-        PathBuf::from(home)
-    } else {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join(".codex")
-    };
-    base.join("config.toml")
+    super::rollout::codex_home().join("config.toml")
 }
 
 /// One entry under `[mcp_servers.<name>]`. Stdio and streamable-HTTP

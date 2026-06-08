@@ -1321,6 +1321,7 @@
       }
     },
     "AccountRateLimitsUpdatedNotification": {
+      "description": "Sparse rolling rate-limit update.\n\nClients should merge available values into the most recent `account/rateLimits/read` response or refetch that snapshot. Nullable account metadata may be unavailable in a rolling update and does not clear a previously observed value.",
       "type": "object",
       "required": [
         "rateLimits"
@@ -3295,6 +3296,7 @@
         "sessionFlags",
         "plugin",
         "cloudRequirements",
+        "cloudManagedConfig",
         "legacyManagedConfigFile",
         "legacyManagedConfigMdm",
         "unknown"
@@ -3324,6 +3326,8 @@
     "ImageDetail": {
       "type": "string",
       "enum": [
+        "auto",
+        "low",
         "high",
         "original"
       ]
@@ -3967,6 +3971,16 @@
             }
           ]
         },
+        "individualLimit": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SpendControlLimitSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "limitId": {
           "type": [
             "string",
@@ -4424,6 +4438,31 @@
       "description": "Notification emitted when watched local skill files change.\n\nTreat this as an invalidation signal and re-run `skills/list` with the client's current parameters when refreshed skill metadata is needed.",
       "type": "object"
     },
+    "SpendControlLimitSnapshot": {
+      "type": "object",
+      "required": [
+        "limit",
+        "remainingPercent",
+        "resetsAt",
+        "used"
+      ],
+      "properties": {
+        "limit": {
+          "type": "string"
+        },
+        "remainingPercent": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "resetsAt": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "used": {
+          "type": "string"
+        }
+      }
+    },
     "SubAgentSource": {
       "oneOf": [
         {
@@ -4670,6 +4709,13 @@
             "null"
           ]
         },
+        "parentThreadId": {
+          "description": "The ID of the parent thread. This will only be set if this thread is a subagent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "path": {
           "description": "[UNSTABLE] Path to the thread on disk.",
           "type": [
@@ -4857,6 +4903,12 @@
             "type"
           ],
           "properties": {
+            "clientId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "content": {
               "type": "array",
               "items": {

@@ -20,6 +20,14 @@ import {
   pauseSessionProcess,
   resumeSessionProcess,
   checkProcessAlive,
+  codexReadConfig,
+  codexWriteConfigValue,
+  codexListMcpStatus,
+  codexReloadMcp,
+  codexAccount,
+  codexLogin,
+  codexLogout,
+  codexOpenConfigToml,
   sendMessage,
   setSessionMode,
   syncSessionMode,
@@ -150,6 +158,62 @@ describe("setClaudeBinaryOverride", () => {
 
 // `isLegacyClaudePathActive` tests removed in v1.3.0 — the indicator was
 // retired after the v1.2.0 soak (Phase 2 S8 per spec §12).
+
+// ---------------------------------------------------------------------------
+// Codex management commands
+// ---------------------------------------------------------------------------
+describe("codex management wrappers", () => {
+  it("codexReadConfig passes sessionId + includeLayers", async () => {
+    await codexReadConfig("s1", true);
+    expectInvoke("codex_read_config", { sessionId: "s1", includeLayers: true });
+  });
+
+  it("codexReadConfig defaults includeLayers to false", async () => {
+    await codexReadConfig("s1");
+    expectInvoke("codex_read_config", { sessionId: "s1", includeLayers: false });
+  });
+
+  it("codexWriteConfigValue passes the full write payload", async () => {
+    await codexWriteConfigValue("s1", "model", "gpt-5.5", "replace", "v7");
+    expectInvoke("codex_write_config_value", {
+      sessionId: "s1",
+      keyPath: "model",
+      value: "gpt-5.5",
+      mergeStrategy: "replace",
+      expectedVersion: "v7",
+    });
+  });
+
+  it("codexListMcpStatus passes sessionId", async () => {
+    await codexListMcpStatus("s1");
+    expectInvoke("codex_list_mcp_status", { sessionId: "s1" });
+  });
+
+  it("codexReloadMcp passes sessionId", async () => {
+    await codexReloadMcp("s1");
+    expectInvoke("codex_reload_mcp", { sessionId: "s1" });
+  });
+
+  it("codexAccount passes sessionId", async () => {
+    await codexAccount("s1");
+    expectInvoke("codex_account", { sessionId: "s1" });
+  });
+
+  it("codexLogin passes sessionId + loginType", async () => {
+    await codexLogin("s1", { type: "chatgpt" });
+    expectInvoke("codex_login", { sessionId: "s1", loginType: { type: "chatgpt" } });
+  });
+
+  it("codexLogout passes sessionId", async () => {
+    await codexLogout("s1");
+    expectInvoke("codex_logout", { sessionId: "s1" });
+  });
+
+  it("codexOpenConfigToml invokes the fallback command", async () => {
+    await codexOpenConfigToml();
+    expectInvoke("codex_open_config_toml");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Session commands

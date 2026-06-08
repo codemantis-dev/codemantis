@@ -188,7 +188,7 @@ describe("SpecChat", () => {
     // Should show Claude Code model options
     expect(screen.getByText("Haiku 4.5")).toBeTruthy();
     expect(screen.getByText("Sonnet 4.6")).toBeTruthy();
-    expect(screen.getByText("Opus 4.7")).toBeTruthy();
+    expect(screen.getByText("Opus 4.8")).toBeTruthy();
   });
 
   it("shows API models when API provider is selected", () => {

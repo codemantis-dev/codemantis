@@ -22,6 +22,7 @@ pub mod binary_detect;
 pub mod client;
 pub mod jsonrpc;
 pub mod mcp_config;
+pub mod rollout;
 pub mod spawn;
 pub mod thread_state;
 pub mod translation;

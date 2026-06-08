@@ -66,7 +66,7 @@ describe("recoverSessionPlan — refuses without an API path", () => {
       specMarkdown: brokenSpec(),
       filename: "demo.md",
       provider: "claude-code",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       apiKey: "",
     });
     expect(result.ok).toBe(false);
@@ -94,7 +94,7 @@ describe("recoverSessionPlan — refuses without an API path", () => {
       specMarkdown: brokenSpec(),
       filename: "demo.md",
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       apiKey: "   ",
     });
     expect(result.ok).toBe(false);
@@ -130,14 +130,14 @@ describe("recoverSessionPlan — happy path", () => {
     invokeMock.mockResolvedValueOnce({
       recoveredMarkdown: validSpec(),
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
 
     const result = await recoverSessionPlan({
       specMarkdown: brokenSpec(),
       filename: "demo.md",
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       apiKey: "sk-test",
     });
 
@@ -147,7 +147,7 @@ describe("recoverSessionPlan — happy path", () => {
       expect.objectContaining({
         provider: "anthropic",
         apiKey: "sk-test",
-        model: "claude-opus-4-7",
+        model: "claude-opus-4-8",
         filename: "demo.md",
       }),
     );
@@ -193,7 +193,7 @@ describe("recoverSessionPlan — recovery failures", () => {
       specMarkdown: brokenSpec(),
       filename: "demo.md",
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       apiKey: "sk-bad",
     });
 
@@ -210,14 +210,14 @@ describe("recoverSessionPlan — recovery failures", () => {
     invokeMock.mockResolvedValueOnce({
       recoveredMarkdown: brokenSpec(), // unchanged!
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
 
     const result = await recoverSessionPlan({
       specMarkdown: brokenSpec(),
       filename: "demo.md",
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
       apiKey: "sk-test",
     });
 

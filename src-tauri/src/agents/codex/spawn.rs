@@ -50,7 +50,7 @@ use crate::agents::{
 use crate::utils::paths::login_shell_path;
 
 use async_trait::async_trait;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// The Codex per-session handle. Owns the child process, the JSON-RPC
 /// client, and (for SpecWriter sessions) the ephemeral AGENTS.md dir.
@@ -104,10 +104,14 @@ impl AgentProcessHandle for CodexProcessHandle {
             .ok_or_else(|| AgentError::ProtocolError("no thread/started yet".into()))?;
 
         let policy = *self.current_policy.lock().await;
+        // turn/start uses `sandboxPolicy` (an OBJECT, camelCase type tag),
+        // NOT `sandbox` (the SandboxMode string thread/start takes). Sending
+        // `sandbox` here is silently ignored by Codex 0.137, so per-turn
+        // sandbox overrides from the Policy pill were a no-op before this.
         let mut params = json!({
             "threadId": thread_id,
             "input": [{"type": "text", "text": text}],
-            "sandbox": policy.sandbox.as_codex_wire(),
+            "sandboxPolicy": policy.as_turn_sandbox_policy(),
             "approvalPolicy": policy.approval.as_codex_wire(),
         });
         if let Some(model) = self.current_model.lock().await.clone() {
@@ -284,6 +288,17 @@ impl AgentProcessHandle for CodexProcessHandle {
     ) -> Result<(), AgentError> {
         *self.current_policy.lock().await = policy;
         Ok(())
+    }
+
+    async fn codex_rpc(
+        &self,
+        method: String,
+        params: Value,
+    ) -> Result<Value, AgentError> {
+        self.client
+            .send_request(&method, params)
+            .await
+            .map_err(|e| map_management_error(&method, e))
     }
 
     async fn shutdown(self: Box<Self>) {
@@ -478,7 +493,11 @@ pub async fn spawn_codex_session(
     let thread_state = Arc::new(ThreadState::new());
     let translator = Translator::new(config.session_id.clone(), thread_state.clone());
 
-    let on_notif = make_notification_handler(app_handle.clone(), translator.clone());
+    let on_notif = make_notification_handler(
+        app_handle.clone(),
+        config.session_id.clone(),
+        translator.clone(),
+    );
     // Client-holder lets the server-request handler send error replies for
     // unknown methods without an Arc cycle.
     let client_holder: Arc<Mutex<Option<CodexClient>>> = Arc::new(Mutex::new(None));
@@ -593,33 +612,11 @@ pub async fn spawn_codex_session(
         }
     }
 
-    let thread_method = if let Some(thread_id) = &config.resume_token {
-        params.insert("threadId".into(), Value::String(thread_id.clone()));
-        "thread/resume"
-    } else {
-        "thread/start"
-    };
-
-    debug!(
-        "[codex {}] sending {} with params: {}",
-        config.session_id,
-        thread_method,
-        serde_json::to_string(&params).unwrap_or_default()
-    );
-    let _ = client
-        .send_request(thread_method, Value::Object(params))
-        .await
-        .map_err(|e| {
-            // Codex's "Invalid request: unknown ..." gets truncated in
-            // the toast; log the full error here so users can copy-paste
-            // it. Most -32600s come from a new field or a renamed key
-            // (Codex's wire is still evolving).
-            log::error!(
-                "[codex {}] {} failed: {} — check Codex CLI version + wire format",
-                config.session_id, thread_method, e
-            );
-            AgentError::ProtocolError(format!("{thread_method} failed: {e}"))
-        })?;
+    // Resilient start/resume: if a resume is requested but the rollout is
+    // gone (archived/GC'd/stale id), fall back to a fresh thread/start
+    // instead of killing the session with "no rollout found". (`params`
+    // here is the shared base — threadId is added inside for resume.)
+    start_or_resume_thread(&client, &app_handle, &config, params).await?;
 
     Ok(Box::new(CodexProcessHandle {
         session_id: config.session_id,
@@ -635,20 +632,219 @@ pub async fn spawn_codex_session(
     }))
 }
 
+/// Start a fresh thread or resume an existing one, falling back to a
+/// fresh `thread/start` when a requested resume can't find its rollout.
+///
+/// `base_params` is the shared param map (cwd / approvalPolicy / sandbox /
+/// personality / serviceName / model) WITHOUT `threadId`; the resume path
+/// clones it and adds `threadId`.
+async fn start_or_resume_thread(
+    client: &CodexClient,
+    app_handle: &AppHandle,
+    config: &SessionConfig,
+    base_params: serde_json::Map<String, Value>,
+) -> Result<(), AgentError> {
+    let Some(thread_id) = config.resume_token.as_deref().filter(|s| !s.is_empty()) else {
+        return send_thread_start(client, &config.session_id, base_params).await;
+    };
+
+    // Pre-flight: skip a doomed resume if no rollout exists on disk.
+    if !super::rollout::rollout_exists(thread_id) {
+        log::info!(
+            "[codex {}] no rollout on disk for thread {} — starting a fresh thread",
+            config.session_id, thread_id
+        );
+        emit_resume_fallback_notice(app_handle, &config.session_id);
+        return send_thread_start(client, &config.session_id, base_params).await;
+    }
+
+    let mut resume_params = base_params.clone();
+    resume_params.insert("threadId".into(), Value::String(thread_id.to_string()));
+    debug!(
+        "[codex {}] sending thread/resume with params: {}",
+        config.session_id,
+        serde_json::to_string(&resume_params).unwrap_or_default()
+    );
+    match client
+        .send_request("thread/resume", Value::Object(resume_params))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) if should_fallback_to_start(&e) => {
+            // The rollout vanished out from under us (race with archive/GC,
+            // or a stale id). Don't strand the session — start fresh.
+            log::warn!(
+                "[codex {}] thread/resume failed ({e}) — starting a fresh thread",
+                config.session_id
+            );
+            emit_resume_fallback_notice(app_handle, &config.session_id);
+            send_thread_start(client, &config.session_id, base_params).await
+        }
+        Err(e) => {
+            log::error!(
+                "[codex {}] thread/resume failed fatally: {e} — check Codex CLI version + wire format",
+                config.session_id
+            );
+            Err(AgentError::ProtocolError(format!("thread/resume failed: {e}")))
+        }
+    }
+}
+
+/// Send `thread/start` with the given params; map failure to a clear
+/// ProtocolError with the full (untruncated) Codex error in the log.
+async fn send_thread_start(
+    client: &CodexClient,
+    session_id: &str,
+    params: serde_json::Map<String, Value>,
+) -> Result<(), AgentError> {
+    debug!(
+        "[codex {session_id}] sending thread/start with params: {}",
+        serde_json::to_string(&params).unwrap_or_default()
+    );
+    client
+        .send_request("thread/start", Value::Object(params))
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            log::error!(
+                "[codex {session_id}] thread/start failed: {e} — check Codex CLI version + wire format"
+            );
+            AgentError::ProtocolError(format!("thread/start failed: {e}"))
+        })
+}
+
+/// Should a failed `thread/resume` fall back to a fresh `thread/start`
+/// rather than killing the session? True ONLY for the "no rollout found"
+/// class (`-32600`, or the message naming a missing rollout). Pure +
+/// unit-testable so the error code our resilience depends on is pinned.
+pub fn should_fallback_to_start(err: &ClientError) -> bool {
+    match err {
+        ClientError::Rpc { code, message, .. } => {
+            *code == -32600 || message.to_lowercase().contains("no rollout")
+        }
+        _ => false,
+    }
+}
+
+/// Map a management JSON-RPC error to an `AgentError`. A `-32601` (method
+/// not found) means this Codex binary doesn't implement the method —
+/// translate to `CapabilityNotSupported` so the command layer degrades to
+/// the config.toml fallback instead of surfacing a raw protocol error.
+pub fn map_management_error(method: &str, err: ClientError) -> AgentError {
+    match err {
+        ClientError::Rpc { code: -32601, .. } => AgentError::CapabilityNotSupported(
+            AgentId::Codex,
+            // Leaked to get a 'static str; method names are a small bounded
+            // set so this is acceptable for an error-path diagnostic.
+            Box::leak(format!("codex method `{method}` not supported by this CLI version").into_boxed_str()),
+        ),
+        other => AgentError::SendFailed(other.to_string()),
+    }
+}
+
+/// Build `config/value/write` params. Pure + unit-tested — `keyPath`,
+/// `mergeStrategy`, and `value` are all required by the schema; an empty
+/// `expected_version` is omitted (optimistic-concurrency token).
+pub fn build_config_write_params(
+    key_path: &str,
+    value: Value,
+    merge_strategy: &str,
+    expected_version: Option<&str>,
+) -> Value {
+    let mut m = serde_json::Map::new();
+    m.insert("keyPath".into(), Value::String(key_path.to_string()));
+    m.insert("mergeStrategy".into(), Value::String(merge_strategy.to_string()));
+    m.insert("value".into(), value);
+    if let Some(v) = expected_version.filter(|s| !s.is_empty()) {
+        m.insert("expectedVersion".into(), Value::String(v.to_string()));
+    }
+    Value::Object(m)
+}
+
+/// Build `config/read` params.
+pub fn build_config_read_params(cwd: Option<&str>, include_layers: bool) -> Value {
+    let mut m = serde_json::Map::new();
+    if let Some(c) = cwd.filter(|s| !s.is_empty()) {
+        m.insert("cwd".into(), Value::String(c.to_string()));
+    }
+    m.insert("includeLayers".into(), Value::Bool(include_layers));
+    Value::Object(m)
+}
+
+/// Build `mcpServerStatus/list` params (full detail).
+pub fn build_mcp_status_params() -> Value {
+    json!({ "detail": "full" })
+}
+
+/// Emit a non-alarming info notice that we started a fresh Codex thread
+/// because the previous one's rollout was gone.
+fn emit_resume_fallback_notice(app_handle: &AppHandle, session_id: &str) {
+    emit_event_for(
+        app_handle,
+        &NormalizedEvent::SessionNotice {
+            agent_id: AgentId::Codex,
+            session_id: session_id.to_string(),
+            message: "The previous Codex conversation couldn't be restored (its rollout file is \
+                      gone). Started a fresh thread — your earlier messages are still shown above."
+                .to_string(),
+        },
+    );
+}
+
 fn make_notification_handler(
     app_handle: AppHandle,
+    session_id: String,
     translator: Translator,
 ) -> NotificationHandler {
     Arc::new(move |method: String, params: Value| {
         let app_handle = app_handle.clone();
+        let session_id = session_id.clone();
         let translator = translator.clone();
         tokio::spawn(async move {
             let events = translator.on_notification(&method, params).await;
             for ev in events {
+                // Persist the Codex thread id the moment `thread/started`
+                // surfaces it, BEFORE emitting — crash recovery filters on
+                // `cli_session_id IS NOT NULL`, so without this Codex
+                // sessions can never be resumed after a restart (parity
+                // with Claude's message_router).
+                if let Some(tid) = thread_id_from_event(&ev) {
+                    store_codex_cli_session_id(&app_handle, &session_id, tid).await;
+                }
                 emit_event_for(&app_handle, &ev);
             }
         });
     })
+}
+
+/// Pull the Codex thread id out of a `CliSessionId` event. Pure +
+/// unit-testable so the persistence trigger has explicit coverage.
+fn thread_id_from_event(ev: &NormalizedEvent) -> Option<&str> {
+    match ev {
+        NormalizedEvent::CliSessionId { cli_session_id, .. } => Some(cli_session_id.as_str()),
+        _ => None,
+    }
+}
+
+/// Persist the Codex thread id to `AppState.cli_session_ids` + SQLite so
+/// the session survives a force-quit/restart. Mirrors Claude's
+/// `message_router::store_cli_session_id` exactly — reuses the same DB
+/// method and in-memory map. Idempotent (UPDATE), so re-persisting on a
+/// fallback-to-start that mints a new thread id self-heals the row.
+async fn store_codex_cli_session_id(app_handle: &AppHandle, session_id: &str, thread_id: &str) {
+    use crate::agents::claude_code::session::AppState;
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        {
+            let mut ids = state.cli_session_ids.lock().await;
+            ids.insert(session_id.to_string(), thread_id.to_string());
+        }
+        if let Err(e) = state.database.set_cli_session_id(session_id, thread_id) {
+            warn!(
+                "[codex] Failed to persist cli_session_id for {}: {}",
+                session_id, e
+            );
+        }
+    }
 }
 
 fn make_server_request_handler(
@@ -859,7 +1055,8 @@ fn make_server_request_handler(
 /// without close+reopen.
 ///
 /// Shape per v2/ModelListResponse.json (verified live against
-/// codex-cli 0.130.0, 2026-05-22):
+/// codex-cli 0.130.0, 2026-05-22; re-verified against 0.137.0 by
+/// codex_protocol_smoke::s03_model_list, 2026-06-08):
 ///   { data: [{ id, model, displayName, description, isDefault, hidden,
 ///              defaultReasoningEffort,
 ///              supportedReasoningEfforts: [{reasoningEffort, …}], … }] }
@@ -995,6 +1192,7 @@ fn short_kind(ev: &NormalizedEvent) -> &'static str {
         NormalizedEvent::ToolProgress { .. } => "ToolProgress",
         NormalizedEvent::TurnComplete { .. } => "TurnComplete",
         NormalizedEvent::ProcessError { .. } => "ProcessError",
+        NormalizedEvent::SessionNotice { .. } => "SessionNotice",
         NormalizedEvent::ProcessExited { .. } => "ProcessExited",
         NormalizedEvent::ProtectedPathDeny { .. } => "ProtectedPathDeny",
         NormalizedEvent::CompactingStatus { .. } => "CompactingStatus",
@@ -1198,6 +1396,101 @@ mod tests {
             second.is_none(),
             "after eviction, a later resolve must not find the id"
         );
+    }
+
+    #[test]
+    fn should_fallback_to_start_matrix() {
+        // -32600 → fall back to a fresh thread (the "no rollout" class).
+        assert!(should_fallback_to_start(&ClientError::Rpc {
+            code: -32600,
+            message: "no rollout found for thread id 019e...".into(),
+            data: None,
+        }));
+        // Message-only signal (defensive secondary guard) even if the code
+        // ever changes.
+        assert!(should_fallback_to_start(&ClientError::Rpc {
+            code: -32000,
+            message: "No rollout found".into(),
+            data: None,
+        }));
+        // Method-not-found / other RPC errors stay fatal.
+        assert!(!should_fallback_to_start(&ClientError::Rpc {
+            code: -32601,
+            message: "method not found".into(),
+            data: None,
+        }));
+        // Server-overloaded is retryable elsewhere, not a resume fallback.
+        assert!(!should_fallback_to_start(&ClientError::Rpc {
+            code: RpcError::SERVER_OVERLOADED,
+            message: "overloaded".into(),
+            data: None,
+        }));
+    }
+
+    #[test]
+    fn build_config_write_params_shape() {
+        // keyPath/mergeStrategy/value required; expectedVersion omitted when empty.
+        let p = build_config_write_params("model", json!("gpt-5.5"), "replace", None);
+        assert_eq!(p["keyPath"], json!("model"));
+        assert_eq!(p["mergeStrategy"], json!("replace"));
+        assert_eq!(p["value"], json!("gpt-5.5"));
+        assert!(p.get("expectedVersion").is_none());
+
+        let p2 = build_config_write_params("a.b", json!({"x": 1}), "upsert", Some("v7"));
+        assert_eq!(p2["mergeStrategy"], json!("upsert"));
+        assert_eq!(p2["expectedVersion"], json!("v7"));
+        // Empty version is treated as absent.
+        let p3 = build_config_write_params("a", json!(true), "replace", Some(""));
+        assert!(p3.get("expectedVersion").is_none());
+    }
+
+    #[test]
+    fn build_config_read_and_mcp_status_params_shape() {
+        let r = build_config_read_params(None, true);
+        assert_eq!(r["includeLayers"], json!(true));
+        assert!(r.get("cwd").is_none());
+        let r2 = build_config_read_params(Some("/proj"), false);
+        assert_eq!(r2["cwd"], json!("/proj"));
+        assert_eq!(build_mcp_status_params(), json!({"detail": "full"}));
+    }
+
+    #[test]
+    fn map_management_error_method_not_found_is_capability_not_supported() {
+        let e = map_management_error(
+            "config/read",
+            ClientError::Rpc { code: -32601, message: "method not found".into(), data: None },
+        );
+        assert!(matches!(e, AgentError::CapabilityNotSupported(AgentId::Codex, _)));
+        // Other errors map to SendFailed (surfaced normally).
+        let e2 = map_management_error(
+            "config/read",
+            ClientError::Rpc { code: -32000, message: "boom".into(), data: None },
+        );
+        assert!(matches!(e2, AgentError::SendFailed(_)));
+    }
+
+    #[test]
+    fn thread_id_from_event_extracts_only_cli_session_id() {
+        // The persistence hook fires on exactly one variant — pin that so
+        // a refactor that renames CliSessionId can't silently stop Codex
+        // sessions from being persisted (the crash-recovery regression).
+        let ev = NormalizedEvent::CliSessionId {
+            agent_id: AgentId::Codex,
+            session_id: "sid".into(),
+            cli_session_id: "019e66e0-0712-7f13-b94c-c1dfb199f475".into(),
+        };
+        assert_eq!(
+            thread_id_from_event(&ev),
+            Some("019e66e0-0712-7f13-b94c-c1dfb199f475")
+        );
+
+        // Any other variant must NOT trigger persistence.
+        let other = NormalizedEvent::TextDelta {
+            agent_id: AgentId::Codex,
+            session_id: "sid".into(),
+            text: "hi".into(),
+        };
+        assert_eq!(thread_id_from_event(&other), None);
     }
 
     #[test]

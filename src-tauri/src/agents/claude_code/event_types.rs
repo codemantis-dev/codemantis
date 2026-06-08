@@ -549,7 +549,7 @@ mod tests {
             "type": "system",
             "subtype": "init",
             "session_id": "sess-42",
-            "model": "claude-opus-4-7",
+            "model": "claude-opus-4-8",
             "tools": [{"name": "Read"}, {"name": "Write"}],
             "mcp_servers": [{"name": "context7"}]
         }"#;
@@ -565,7 +565,7 @@ mod tests {
             } => {
                 assert_eq!(subtype.as_deref(), Some("init"));
                 assert_eq!(session_id.as_deref(), Some("sess-42"));
-                assert_eq!(model.as_deref(), Some("claude-opus-4-7"));
+                assert_eq!(model.as_deref(), Some("claude-opus-4-8"));
                 assert_eq!(tools.unwrap().len(), 2);
                 assert_eq!(mcp_servers.unwrap().len(), 1);
             }

@@ -175,7 +175,7 @@ describe("useSpecConversationRouter", () => {
     });
 
     it("routes to CLI hook for claude-code provider", () => {
-      useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-opus-4-7", "new_application");
+      useSpecWriterStore.getState().initConversation(PROJECT, "claude-code", "claude-opus-4-8", "new_application");
       const { result } = renderHook(() => useSpecConversationRouter());
 
       act(() => {

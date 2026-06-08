@@ -259,7 +259,7 @@ pub(crate) async fn call_openai(
 
 fn build_anthropic_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
     // NOTE: Do not send `temperature` — Anthropic deprecated it for newer models
-    // (e.g. Opus 4.7 returns 400 "`temperature` is deprecated for this model").
+    // (e.g. Opus 4.8 returns 400 "`temperature` is deprecated for this model").
     // The "must return JSON" prompt is enough to keep output deterministic.
     serde_json::json!({
         "model": model,
@@ -320,7 +320,7 @@ pub(crate) async fn call_anthropic(
 
 fn build_openrouter_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
     // NOTE: Do not send `temperature` — OpenRouter forwards to the underlying model,
-    // and Anthropic Opus 4.7 / OpenAI GPT-5 family reject it with HTTP 400.
+    // and Anthropic Opus 4.8 / OpenAI GPT-5 family reject it with HTTP 400.
     // The "must return JSON" prompt keeps output deterministic enough for changelog summaries.
     serde_json::json!({
         "model": model,
@@ -654,16 +654,16 @@ Hope this helps!"#;
 
     // ── build_anthropic_body ─────────────────────────────────────────────
 
-    // Regression: Anthropic deprecated `temperature` for Opus 4.7 (returns 400
+    // Regression: Anthropic deprecated `temperature` for Opus 4.8 (returns 400
     // "`temperature` is deprecated for this model"). The Settings → Test API Key
-    // button picks the first AI_MODELS.anthropic entry (claude-opus-4-7), so any
+    // button picks the first AI_MODELS.anthropic entry (claude-opus-4-8), so any
     // hardcoded `temperature` makes the test always fail.
     #[test]
     fn test_anthropic_body_omits_temperature() {
-        let body = build_anthropic_body("claude-opus-4-7", "system", "user prompt");
+        let body = build_anthropic_body("claude-opus-4-8", "system", "user prompt");
         assert!(
             body.get("temperature").is_none(),
-            "Anthropic request body must not include `temperature` — it's rejected by Opus 4.7+"
+            "Anthropic request body must not include `temperature` — it's rejected by Opus 4.8+"
         );
     }
 
@@ -703,10 +703,10 @@ Hope this helps!"#;
     // ── build_openrouter_body ────────────────────────────────────────────
 
     // Regression: OpenRouter forwards to the underlying model. If routed to
-    // Anthropic Opus 4.7 or OpenAI GPT-5, `temperature` is rejected with 400.
+    // Anthropic Opus 4.8 or OpenAI GPT-5, `temperature` is rejected with 400.
     #[test]
     fn test_openrouter_body_omits_temperature() {
-        let body = build_openrouter_body("anthropic/claude-opus-4-7", "system", "user prompt");
+        let body = build_openrouter_body("anthropic/claude-opus-4-8", "system", "user prompt");
         assert!(
             body.get("temperature").is_none(),
             "OpenRouter request body must not include `temperature` — underlying providers reject it"

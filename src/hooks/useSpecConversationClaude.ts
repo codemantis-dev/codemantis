@@ -601,7 +601,7 @@ export function useSpecConversationClaude(): {
             content:
               `⚠️ Claude Code ${triggerLabel} this session's context (was ${preTokensLabel}). ` +
               `Details from earlier in this run may now be summarized rather than preserved verbatim. ` +
-              `For critical specs, consider re-running with Opus 4.7 (1M context) or splitting the session plan into smaller phases.`,
+              `For critical specs, consider re-running with Opus 4.8 (1M context) or splitting the session plan into smaller phases.`,
             message_type: "conversation",
             timestamp: new Date().toISOString(),
           });

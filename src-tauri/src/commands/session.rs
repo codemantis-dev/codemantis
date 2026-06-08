@@ -256,12 +256,29 @@ pub async fn resume_session_process(
         .ok_or_else(|| format!("{agent_id:?} adapter not registered"))?;
     let binary = adapter.detect_binary().await.map_err(|e| e.to_string())?;
 
-    // Use frontend-provided resume token, or fall back to backend-stored one.
+    // Resolve the resume token with a 3-tier fallback:
+    //   1. frontend-provided arg
+    //   2. in-memory AppState map (live session, e.g. wake recovery)
+    //   3. SQLite row (the ONLY place it survives a hard crash/restart —
+    //      the in-memory map is empty after relaunch, so without this
+    //      Codex/Claude sessions couldn't be resumed cold).
     let effective_cli_session_id = match &cli_session_id {
         Some(id) => Some(id.clone()),
         None => {
-            let cli_ids = state.cli_session_ids.lock().await;
-            cli_ids.get(&session_id).cloned()
+            let from_mem = {
+                let cli_ids = state.cli_session_ids.lock().await;
+                cli_ids.get(&session_id).cloned()
+            };
+            match from_mem {
+                Some(id) => Some(id),
+                None => state.database.get_cli_session_id(&session_id).unwrap_or_else(|e| {
+                    log::warn!(
+                        "[resume_session_process] DB cli_session_id lookup failed for {}: {}",
+                        session_id, e
+                    );
+                    None
+                }),
+            }
         }
     };
 

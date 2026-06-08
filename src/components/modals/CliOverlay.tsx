@@ -54,7 +54,7 @@ export default function CliOverlay() {
   const binaryPath = isCodex ? codexBinaryPath : claudeBinaryPath;
   const overlayTitle = isCodex ? "Codex CLI" : "Claude CLI";
   const overlayHint = isCodex
-    ? "— /login, /logout, /mcp, /plugin, /config"
+    ? "— /login, /logout, /plugin, /resume  (config & MCP: Codex panel)"
     : "— /model, /config, /doctor, /help";
 
   // Open flow: pause stream-json → spawn interactive CLI → user interacts
@@ -68,9 +68,16 @@ export default function CliOverlay() {
 
     const openOverlay = async () => {
       try {
-        // Step 1: Pause the stream-json process (works for both Claude
-        // and Codex — the Tauri layer dispatches by agent).
-        await pauseSessionProcess(activeSessionId);
+        // Step 1: Pause the stream-json process — Claude ONLY. Claude's
+        // overlay runs `claude --resume` (a second instance of the same
+        // CLI), so the stream-json process must be paused first. Codex's
+        // management subcommands (`codex login`, etc.) are independent
+        // processes that don't touch the running app-server, so we keep it
+        // ALIVE. Killing it here is exactly what made closing the overlay
+        // call `thread/resume` → "no rollout found" → dead session.
+        if (!isCodex) {
+          await pauseSessionProcess(activeSessionId);
+        }
 
         if (cancelled) return;
 
@@ -155,10 +162,14 @@ export default function CliOverlay() {
           console.error("[cli-overlay] Failed to open:", e);
           setError(String(e));
           setLoading(false);
-          // Try to resume the stream-json process so session isn't stuck
-          resumeSessionProcess(activeSessionId, cliSessionId ?? undefined).catch((re) =>
-            console.error("[cli-overlay] Failed to recover session:", re)
-          );
+          // Try to resume the stream-json process so session isn't stuck —
+          // Claude only (we never paused Codex, so there's nothing to
+          // resume, and resuming would risk the "no rollout" failure).
+          if (!isCodex) {
+            resumeSessionProcess(activeSessionId, cliSessionId ?? undefined).catch((re) =>
+              console.error("[cli-overlay] Failed to recover session:", re)
+            );
+          }
         }
       }
     };
@@ -177,6 +188,10 @@ export default function CliOverlay() {
 
     const tid = terminalIdRef.current;
     const sid = sessionIdRef.current;
+    // Resolve the agent from the store at close time (sessionIdRef may
+    // outlive the component's `isCodex`). Codex never paused → never resume.
+    const sidIsCodex =
+      useSessionStore.getState().sessions.get(sid ?? "")?.agent_id === "codex";
     const currentCliSessionId =
       useSessionStore.getState().sessions.get(sid ?? "")?.cli_session_id
       ?? useAssistantStore.getState().cliSessionIds.get(sid ?? "");
@@ -193,8 +208,11 @@ export default function CliOverlay() {
         useTerminalStore.getState().removeTerminal(sid, tid);
       }
 
-      // Step 2: Resume the stream-json process (backend falls back to stored CLI session ID)
-      if (sid) {
+      // Step 2: Resume the stream-json process — Claude ONLY. The Codex
+      // app-server was never paused (see open flow), so there is nothing
+      // to resume; calling resume here is what previously triggered
+      // `thread/resume` → "no rollout found" → dead session.
+      if (sid && !sidIsCodex) {
         await resumeSessionProcess(sid, currentCliSessionId ?? undefined);
       }
     } catch (e) {

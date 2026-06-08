@@ -15,7 +15,7 @@
 > - **`agent_id` preserved across session history + crash recovery** (v1.5.x). A resumed Codex session is still Codex; the history sidebar shows the right agent badge; force-quit recovery keeps every session bound to the same agent it was created with.
 > - **Codex hardening -- protocol parity, SpecWriter, MCP, rate-limit banners, Codex-tuned Self-Drive preamble** (v1.4.0 / v1.4.1). The full Codex effort UI shipped (v1.4.0), the six remaining T1+T2 protocol gaps were closed (v1.4.1 Phase A), and SpecWriter + MCP startup + rate-limit notifications + a Codex-specific build-mode preamble landed (v1.4.1 Phase B) -- so SpecWriter now runs natively on Codex and Self-Drive's verify pass on Codex is no longer measurably less precise.
 > - **OpenAI Codex became a first-class agent** alongside Claude Code (v1.3.0). The Project Picker shows an Agent Picker when both `claude` and `codex` are installed; sessions carry an `agent_id` and the input toolbar shows a **Codex Policy pill** instead of the Mode selector for Codex sessions.
-> - **Refreshed Assistant model lineup** (v1.5.x): Gemini 3.5 Flash + 3.1 Pro / Flash Lite + 2.5 Flash + 2.5 Flash Lite; GPT-5.5 family; Opus 4.7 / Sonnet 4.6 / Haiku 4.5; retired model IDs dropped.
+> - **Refreshed Assistant model lineup** (v1.5.x): Gemini 3.5 Flash + 3.1 Pro / Flash Lite + 2.5 Flash + 2.5 Flash Lite; GPT-5.5 family; Opus 4.8 / Sonnet 4.6 / Haiku 4.5; retired model IDs dropped.
 > - **Self-Drive settings polish** (v1.5.x): OpenRouter model picker with a cheap-first static sort; force-reset recovery for stuck cross-project starts.
 > - **SpecWriter project-switch bleed fix + always-visible Reset** (v1.5.x).
 > - **Preflight / Mission Control** (v1.1.10): a per-project capability gate. A green/yellow/red `PreflightTray` lives at the top of the workspace, clicking it opens **Mission Control** -- a setup wizard for every API key, secret, and tool your project needs. SpecWriter auto-writes `preflight.yaml` on spec finalization, and Self-Drive refuses to start with unsatisfied blockers.
@@ -1842,7 +1842,7 @@ Click the **+** button in the assistant tab bar (or select from the empty state 
 - **Claude Code (local):** No API key required. Uses your Claude Pro/Max subscription. Has full tool access (file reads, writes, edits, bash commands) just like the main chat. Supports slash commands.
 - **OpenAI:** Requires an API key. Available models in v1.5.x: **GPT-5.4 Mini**, **GPT-5.4**, **GPT-5.5**. Retired model IDs (GPT-4.1, GPT-5.4 Nano) were dropped after Anthropic / OpenAI removed them from their public APIs.
 - **Google Gemini:** Requires an API key. Available models in v1.5.x: **Gemini 2.5 Flash Lite**, **Gemini 2.5 Flash**, **Gemini 3.1 Flash Lite**, **Gemini 3.5 Flash**, **Gemini 3.1 Pro**. (Gemini 2.5 Pro and the 3.0 Flash preview were dropped after Google retired them.)
-- **Anthropic API:** Requires an API key. Available models include Claude Opus 4.7, Claude Sonnet 4.6, and Claude Haiku 4.5.
+- **Anthropic API:** Requires an API key. Available models include Claude Opus 4.8, Claude Sonnet 4.6, and Claude Haiku 4.5.
 - **OpenRouter:** Requires an API key. Shows a searchable model picker with hundreds of models, separated into Free and Paid sections. Each model shows capability badges (e.g., vision support, file support). If models have not been loaded, it shows "No models loaded. Test your API key in Settings first."
 
 Providers without a configured API key show "No API key" (or "No key" in the popover) and are disabled. Hover over a disabled provider to see the tooltip "Set API key in Settings > AI Providers."
@@ -1968,7 +1968,7 @@ Once you send your first message the mode selector locks.
 Before your first message, two dropdowns appear in the chat sub-header:
 
 - **Provider selector** -- choose between "Claude Code" (uses your existing Claude subscription, no API key needed), "Codex" (uses your ChatGPT subscription, no separate API key needed -- runs SpecWriter on OpenAI Codex), "Gemini", "OpenAI", "Anthropic", or "OpenRouter". Providers without a configured API key are shown as disabled with "(no key)".
-- **Model selector** -- lists the available models for the selected provider. For Claude Code, the choices are Haiku 4.5 (fast, lower cost), Sonnet 4.6 (balanced — default), and Opus 4.7 (highest quality). For Codex, SpecWriter uses the account default and shows it as a read-only label (Codex doesn't expose per-session model selection in v1.5.x).
+- **Model selector** -- lists the available models for the selected provider. For Claude Code, the choices are Haiku 4.5 (fast, lower cost), Sonnet 4.6 (balanced — default), and Opus 4.8 (highest quality). For Codex, SpecWriter uses the account default and shows it as a read-only label (Codex doesn't expose per-session model selection in v1.5.x).
 
 **SpecWriter on Codex.** Codex has no `--append-system-prompt` flag, so SpecWriter on Codex spawns into an **ephemeral working directory** at `~/.codemantis/specwriter-sessions/<sid>/` holding a generated `AGENTS.override.md`. Your real project is reachable via `--add-dir`, so the model still sees your codebase. SpecWriter on Codex shipped end-to-end in **v1.4.1 Phase B** — the SpecChat provider menu surfaces "Codex (local)" whenever the Codex CLI is installed and signed in, and the conversation flows through the same chat-event pipeline as Claude. The "Patch spec & re-audit" button works the same way on Codex sessions — it asks the active agent (Claude or Codex) for an AUDIT-PATCH reply and splices the result into the spec. The splice prompt itself is Claude-tuned (Claude-style marker, operation taxonomy, diff conventions), so Codex may follow it with slightly less fidelity than Claude; if a patch comes back malformed, the existing "Patch rejected — spec preserved" banner reports it and your spec is untouched.
 
@@ -3513,7 +3513,7 @@ Each provider's Test button is disabled until a key is entered. While testing, t
 
 - **OpenAI:** GPT-5.4 Mini, GPT-5.4, GPT-5.5
 - **Google Gemini:** Gemini 2.5 Flash Lite, Gemini 2.5 Flash, Gemini 3.1 Flash Lite, Gemini 3.5 Flash, Gemini 3.1 Pro
-- **Anthropic API:** Claude Opus 4.7, Claude Sonnet 4.6, Claude Haiku 4.5
+- **Anthropic API:** Claude Opus 4.8, Claude Sonnet 4.6, Claude Haiku 4.5
 - **OpenRouter:** When an OpenRouter key is configured and models are loaded, this section shows the catalog size (e.g., "OpenRouter (847 models)") with a note: "Pricing is auto-fetched from the OpenRouter API. Free models have $0 cost." Up to 8 free models and 5 lowest-cost paid models are previewed.
 
 Retired model IDs (GPT-4.1, GPT-5.4 Nano, Gemini 2.5 Pro, Gemini 3.0 Flash preview) were dropped after the upstream providers removed them from public APIs.
@@ -3611,7 +3611,7 @@ Available hardcoded spec models (in priority order — auto-select picks the fir
 - Gemini 3.1 Flash Lite
 - Gemini 3.1 Pro
 - GPT-5.4
-- Claude Opus 4.7
+- Claude Opus 4.8
 
 ### How to Open / Access
 
@@ -4651,7 +4651,7 @@ Complete reference of every AI provider and model supported in CodeMantis. Data 
 
 | Model | ID | Input Cost (per 1M tokens) | Output Cost (per 1M tokens) |
 |---|---|---|---|
-| Claude Opus 4.7 | claude-opus-4-7 | $5.00 | $25.00 |
+| Claude Opus 4.8 | claude-opus-4-8 | $5.00 | $25.00 |
 | Claude Sonnet 4.6 | claude-sonnet-4-6 | $3.00 | $15.00 |
 | Claude Haiku 4.5 | claude-haiku-4-5 | $0.80 | $4.00 |
 
@@ -4685,7 +4685,7 @@ Auto-select walks this list in order and picks the first model whose provider ha
 | Gemini 3.1 Flash Lite | Google Gemini |
 | Gemini 3.1 Pro | Google Gemini |
 | GPT-5.4 | OpenAI |
-| Claude Opus 4.7 | Anthropic API |
+| Claude Opus 4.8 | Anthropic API |
 
 Models flagged as too weak for complex spec sessions (a warning is shown, but they are not blocked): `gemini-2.5-flash-lite`, `gemini-3.1-flash-lite`.
 
@@ -4695,4 +4695,4 @@ When using Claude Code as the SpecWriter provider, the available models are:
 |---|---|
 | Haiku 4.5 | Fast, lower cost |
 | Sonnet 4.6 | Balanced (default) |
-| Opus 4.7 | Highest quality |
+| Opus 4.8 | Highest quality |

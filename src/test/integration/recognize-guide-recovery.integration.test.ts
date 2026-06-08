@@ -140,7 +140,7 @@ function primeStores(opts: {
   apiKey?: string;
 } = {}): void {
   const provider = opts.provider ?? "anthropic";
-  const model = opts.model ?? "claude-opus-4-7";
+  const model = opts.model ?? "claude-opus-4-8";
 
   useSessionStore.setState({
     activeProjectPath: PROJECT_PATH,
@@ -208,7 +208,7 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
         return Promise.resolve({
           recoveredMarkdown: RECOVERED_SPEC,
           provider: "anthropic",
-          model: "claude-opus-4-7",
+          model: "claude-opus-4-8",
         });
       }
       return Promise.resolve(undefined);
@@ -236,7 +236,7 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
     };
     expect(args.provider).toBe("anthropic");
     expect(args.apiKey).toBe("sk-test-key");
-    expect(args.model).toBe("claude-opus-4-7");
+    expect(args.model).toBe("claude-opus-4-8");
     expect(args.filename).toBe(SAVED_FILENAME);
     expect(args.diagnosis).toMatch(/Session 1/);
 
@@ -270,7 +270,7 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
         return Promise.resolve({
           recoveredMarkdown: RECOVERED_SPEC,
           provider: "anthropic",
-          model: "claude-opus-4-7",
+          model: "claude-opus-4-8",
         });
       }
       if (cmd === "save_spec_document") {
@@ -373,7 +373,7 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
         return Promise.resolve({
           recoveredMarkdown: BROKEN_SPEC,
           provider: "anthropic",
-          model: "claude-opus-4-7",
+          model: "claude-opus-4-8",
         });
       }
       return Promise.resolve(undefined);

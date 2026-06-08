@@ -130,6 +130,61 @@ export async function checkProcessAlive(sessionId: string): Promise<boolean> {
   return invoke("check_process_alive", { sessionId });
 }
 
+// --- Codex management (config / MCP / account) via app-server JSON-RPC ---
+// Returns are raw JSON Values — callers parse defensively (the Codex
+// `config` object is open-ended). On a binary missing a method the backend
+// surfaces an error; the panel falls back to codexOpenConfigToml.
+
+export async function codexReadConfig(
+  sessionId: string,
+  includeLayers = false
+): Promise<unknown> {
+  return invoke("codex_read_config", { sessionId, includeLayers });
+}
+
+export async function codexWriteConfigValue(
+  sessionId: string,
+  keyPath: string,
+  value: unknown,
+  mergeStrategy: "replace" | "upsert",
+  expectedVersion?: string | null
+): Promise<unknown> {
+  return invoke("codex_write_config_value", {
+    sessionId,
+    keyPath,
+    value,
+    mergeStrategy,
+    expectedVersion,
+  });
+}
+
+export async function codexListMcpStatus(sessionId: string): Promise<unknown> {
+  return invoke("codex_list_mcp_status", { sessionId });
+}
+
+export async function codexReloadMcp(sessionId: string): Promise<unknown> {
+  return invoke("codex_reload_mcp", { sessionId });
+}
+
+export async function codexAccount(sessionId: string): Promise<unknown> {
+  return invoke("codex_account", { sessionId });
+}
+
+export async function codexLogin(
+  sessionId: string,
+  loginType?: unknown
+): Promise<unknown> {
+  return invoke("codex_login", { sessionId, loginType });
+}
+
+export async function codexLogout(sessionId: string): Promise<unknown> {
+  return invoke("codex_logout", { sessionId });
+}
+
+export async function codexOpenConfigToml(): Promise<void> {
+  return invoke("codex_open_config_toml");
+}
+
 // --- SpecWriter CLI Sessions ---
 
 export async function createSpecwriterSession(

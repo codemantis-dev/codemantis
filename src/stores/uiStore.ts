@@ -52,6 +52,12 @@ interface UiState {
   cliOverlayInitialInput: string | null;
   cliOverlaySessionId: string | null;
   cliOverlayProjectPath: string | null;
+  /** Codex management panel (config / MCP / account) — replaces the broken
+   * `codex config` / `codex mcp` PTY overlay path. Driven by the
+   * app-server JSON-RPC methods. */
+  showCodexPanel: boolean;
+  codexPanelSessionId: string | null;
+  codexPanelTab: "config" | "mcp" | "account";
   claudeBinaryPath: string | null;
   /** v1.5.0 — Codex binary path, captured at startup from
    * `check_codex_status`. Used by CliOverlay to spawn `codex` in a PTY
@@ -113,6 +119,8 @@ interface UiState {
   setCliOverlayInitialInput: (input: string | null) => void;
   setCliOverlaySessionId: (id: string | null) => void;
   setCliOverlayProjectPath: (path: string | null) => void;
+  openCodexPanel: (sessionId: string, tab?: "config" | "mcp" | "account") => void;
+  setShowCodexPanel: (show: boolean) => void;
   setClaudeBinaryPath: (path: string | null) => void;
   setCodexBinaryPath: (path: string | null) => void;
   setShowProjectLog: (show: boolean) => void;
@@ -161,6 +169,9 @@ export const useUiStore = create<UiState>((set) => ({
   showCliOverlay: false,
   cliOverlayInitialInput: null,
   cliOverlaySessionId: null,
+  showCodexPanel: false,
+  codexPanelSessionId: null,
+  codexPanelTab: "config",
   cliOverlayProjectPath: null,
   claudeBinaryPath: null,
   codexBinaryPath: null,
@@ -238,6 +249,10 @@ export const useUiStore = create<UiState>((set) => ({
   setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),
   setCliOverlaySessionId: (id) => set({ cliOverlaySessionId: id }),
   setCliOverlayProjectPath: (path) => set({ cliOverlayProjectPath: path }),
+  openCodexPanel: (sessionId, tab = "config") =>
+    set({ showCodexPanel: true, codexPanelSessionId: sessionId, codexPanelTab: tab }),
+  setShowCodexPanel: (show) =>
+    set({ showCodexPanel: show, ...(!show ? { codexPanelSessionId: null } : {}) }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
   setCodexBinaryPath: (path) => set({ codexBinaryPath: path }),
   setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),

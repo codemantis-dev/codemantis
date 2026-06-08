@@ -18,7 +18,7 @@ describe("agent-events (Phase 1 Session 4 rename)", () => {
     const ev: SessionInitEvent = {
       type: "session_init",
       session_id: "s1",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     };
     expect(ev.agent_id).toBeUndefined();
   });

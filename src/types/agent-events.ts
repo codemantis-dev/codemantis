@@ -18,6 +18,7 @@ export type FrontendEvent =
   | TurnCompleteEvent
   | ProcessErrorEvent
   | ProcessExitedEvent
+  | SessionNoticeEvent
   | ProtectedPathDenyEvent
   | CliSessionIdEvent
   | CompactingStatusEvent
@@ -116,6 +117,17 @@ export interface ProcessExitedEvent {
   exit_code: number | null;
   stderr_tail: string | null;
   elapsed_ms: number;
+}
+
+/** A non-alarming informational notice about the session lifecycle.
+ * Rendered as an info toast (not a red error). Currently emitted when a
+ * Codex `thread/resume` can't find its rollout and we transparently start
+ * a fresh thread instead of failing the session. */
+export interface SessionNoticeEvent {
+  type: "session_notice";
+  agent_id?: AgentId;
+  session_id: string;
+  message: string;
 }
 
 /** A tool call the CLI denied internally via its protected-path guardrail

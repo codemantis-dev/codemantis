@@ -4,6 +4,7 @@ pub mod attachments;
 pub mod changelog;
 pub mod claude_md;
 pub mod clone;
+pub mod codex;
 pub mod files;
 pub mod git;
 pub mod guide;

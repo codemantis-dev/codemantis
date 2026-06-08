@@ -307,9 +307,9 @@ mod adapter_tests {
             Native::Initialize
         ));
         match to_native_control(ControlRequestPayload::SetModel {
-            model: "claude-opus-4-7".into(),
+            model: "claude-opus-4-8".into(),
         }) {
-            Native::SetModel { model } => assert_eq!(model, "claude-opus-4-7"),
+            Native::SetModel { model } => assert_eq!(model, "claude-opus-4-8"),
             _ => panic!("expected SetModel"),
         }
         match to_native_control(ControlRequestPayload::SetPermissionMode {

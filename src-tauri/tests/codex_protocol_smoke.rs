@@ -59,8 +59,23 @@ struct Session {
 
 impl Session {
     async fn spawn() -> Self {
-        let mut child = Command::new("codex")
-            .args(["app-server", "--listen", "stdio://"])
+        Self::spawn_inner(None).await
+    }
+
+    /// Spawn with `$CODEX_HOME` pointed at an isolated dir — used by the
+    /// config-write scenario so it never mutates the developer's real
+    /// `~/.codex/config.toml`.
+    async fn spawn_with_codex_home(home: &std::path::Path) -> Self {
+        Self::spawn_inner(Some(home)).await
+    }
+
+    async fn spawn_inner(codex_home: Option<&std::path::Path>) -> Self {
+        let mut cmd = Command::new("codex");
+        cmd.args(["app-server", "--listen", "stdio://"]);
+        if let Some(home) = codex_home {
+            cmd.env("CODEX_HOME", home);
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -376,6 +391,116 @@ async fn s04_bad_field_rejection() {
     assert_eq!(
         code, -32600,
         "expected JSON-RPC Invalid Request (-32600) for camelCase enum; got code {code} ({err})"
+    );
+    s.shutdown().await;
+}
+
+// =====================================================================
+// S06 — config/read. Validates the management panel's read path: the
+// result carries a `config` object (additionalProperties — render
+// generically) and `origins`. Credit-free.
+// =====================================================================
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn s06_config_read() {
+    if !require_codex_or_skip("S06_config_read") {
+        return;
+    }
+    let mut s = Session::spawn().await;
+    let _ = handshake(&mut s).await;
+    let resp = s.request("config/read", json!({ "includeLayers": false })).await;
+    assert!(
+        resp.pointer("/result/config").map(|c| c.is_object()).unwrap_or(false),
+        "config/read result must carry a `config` object; got: {resp}"
+    );
+    s.shutdown().await;
+}
+
+// =====================================================================
+// S07 — mcpServerStatus/list. Validates the MCP tab's read path: the
+// result carries a `data` array (may be empty). Method name is
+// `mcpServerStatus/list` (NOT `listMcpServerStatus`). Credit-free.
+// =====================================================================
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn s07_mcp_status_list() {
+    if !require_codex_or_skip("S07_mcp_status_list") {
+        return;
+    }
+    let mut s = Session::spawn().await;
+    let _ = handshake(&mut s).await;
+    let resp = s.request("mcpServerStatus/list", json!({ "detail": "full" })).await;
+    assert!(
+        resp.pointer("/result/data").map(|d| d.is_array()).unwrap_or(false),
+        "mcpServerStatus/list result must carry a `data` array; got: {resp}"
+    );
+    s.shutdown().await;
+}
+
+// =====================================================================
+// S08 — config/value/write round-trip, ISOLATED to a temp CODEX_HOME so
+// it never touches the developer's real config. Writes a scalar, reads
+// it back. Validates the write response shape (filePath + version) our
+// panel relies on. Credit-free.
+// =====================================================================
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn s08_config_value_write_roundtrip() {
+    if !require_codex_or_skip("S08_config_value_write_roundtrip") {
+        return;
+    }
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut s = Session::spawn_with_codex_home(tmp.path()).await;
+    let _ = handshake(&mut s).await;
+
+    let write = s
+        .request(
+            "config/value/write",
+            json!({ "keyPath": "model", "mergeStrategy": "replace", "value": "gpt-5.1-codex" }),
+        )
+        .await;
+    // Tolerate older binaries lacking the method (skip the assert then).
+    if let Some(err) = write.get("error") {
+        let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+        if code == -32601 {
+            eprintln!("[S08] config/value/write not supported on this binary — skipping");
+            s.shutdown().await;
+            return;
+        }
+        panic!("config/value/write errored unexpectedly: {write}");
+    }
+    assert!(
+        write.pointer("/result/filePath").is_some(),
+        "config write result must carry filePath; got: {write}"
+    );
+
+    let read = s.request("config/read", json!({ "includeLayers": false })).await;
+    assert_eq!(
+        read.pointer("/result/config/model").and_then(|v| v.as_str()),
+        Some("gpt-5.1-codex"),
+        "written value must read back; got: {read}"
+    );
+    s.shutdown().await;
+}
+
+// =====================================================================
+// S10 — account/read. Validates the Account tab's read path returns a
+// well-formed response (result OR a structured error when not logged in).
+// Isolated CODEX_HOME so it doesn't depend on the dev's login state.
+// Credit-free.
+//
+// (S09 — the -32600 "no rollout found" resume error our resume-fallback
+// depends on — is already pinned by S02 above.)
+// =====================================================================
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn s10_account_read() {
+    if !require_codex_or_skip("S10_account_read") {
+        return;
+    }
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut s = Session::spawn_with_codex_home(tmp.path()).await;
+    let _ = handshake(&mut s).await;
+    let resp = s.request("account/read", json!({})).await;
+    assert!(
+        resp.get("result").is_some() || resp.get("error").is_some(),
+        "account/read must return a result or a structured error; got: {resp}"
     );
     s.shutdown().await;
 }

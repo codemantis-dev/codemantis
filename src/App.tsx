@@ -28,6 +28,7 @@ import McpModal from "./components/modals/McpModal";
 import QuestionModal from "./components/modals/QuestionModal";
 import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
+import CodexManagementPanel from "./components/modals/CodexManagementPanel";
 import Toast from "./components/shared/Toast";
 import ErrorCard from "./components/shared/ErrorCard";
 import AppErrorBoundary from "./components/shared/AppErrorBoundary";
@@ -425,6 +426,7 @@ export default function App() {
       <QuestionModal />
       <PlanCompleteModal />
       <CliOverlay />
+      <CodexManagementPanel />
       <ProjectPicker onSelectProject={handleSelectProject} onResumeSession={handleResumeSession} />
       <SettingsModal />
       <McpModal />
