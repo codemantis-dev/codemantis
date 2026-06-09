@@ -10,6 +10,7 @@
 >
 > **What's new since v1.1.4** (highlights -- see `RELEASES.md` for the full log):
 >
+> - **Recall -- project & cross-project memory** (v1.5.x). An opt-in memory layer (Settings → Recall): when enabled, it composes a focused brief from the project's Markdown vault (`<project>/.recall/`) and injects it before each agent prompt, then harvests one memory note per commit, anchored to the diff. Decisions, gotchas, and conventions persist across sessions instead of being re-explained. Off by default, per-project; default **Suggested** mode never blocks prompts or commits. See Chapter 21C.
 > - **Default Agent per Task -- subscription-pool routing** (v1.5.0). Settings → Agents now lets you route each kind of work (main chat, Assistant panel, SpecWriter, in-app Help) to a specific local CLI, with **"Use primary"** as the default for any category you don't pin. The motivation is the 15 June 2026 Anthropic billing change that moves `claude -p` / Agent-SDK headless usage onto a metered credit pool separate from interactive subscriptions; Codex stays on your ChatGPT subscription. With per-task routing you can keep surgical work on Claude while pushing iterative SpecWriter / Help traffic to Codex (or vice versa), and a 7-day session-count breakdown shows exactly how the split is landing.
 > - **Agent-aware slash-command discovery + CLI-only commands for Codex** (v1.5.0). The command palette scans `.codex/prompts/` on Codex sessions (and `.claude/commands` + `.claude/skills` on Claude sessions); CLI-only entries surface the right agent's subcommands (`/login`, `/mcp`, `/apply` on Codex; `/bug`, `/init`, `/model`, … on Claude). The CLI Overlay runs whichever agent's binary the active session is bound to.
 > - **`agent_id` preserved across session history + crash recovery** (v1.5.x). A resumed Codex session is still Codex; the history sidebar shows the right agent badge; force-quit recovery keeps every session bound to the same agent it was created with.
@@ -58,6 +59,7 @@
 - [Chapter 21: Help System](#chapter-21-help-system)
 - [Chapter 21A: Super-Bro -- Proactive AI Guidance](#chapter-21a-super-bro----proactive-ai-guidance)
 - [Chapter 21B: Self-Drive -- Autonomous Implementation](#chapter-21b-self-drive----autonomous-implementation)
+- [Chapter 21C: Recall -- Project & Cross-Project Memory](#chapter-21c-recall----project--cross-project-memory)
 
 ### Part V: Sidebar
 - [Chapter 22: File Tree](#chapter-22-file-tree)
@@ -3125,6 +3127,70 @@ There are no dedicated keyboard shortcuts for Self-Drive. Use `Cmd ,` to open Se
 
 ---
 
+## Chapter 21C: Recall -- Project & Cross-Project Memory
+
+Recall is an opt-in memory layer. When enabled for a project, it composes a focused brief from the project's Markdown **vault** and injects it into the agent before each prompt, then harvests one memory note per commit -- anchored to that commit's diff -- so hard-won decisions, gotchas, and conventions persist across sessions instead of being re-explained every time. Notes are plain Markdown files in `<project>/.recall/`, openable in Obsidian or any editor.
+
+### What You See
+
+Recall has no always-on panel in v1.5.x; it surfaces in two places:
+
+- **Settings -> Recall** (Brain icon) -- the control surface: a master **Enable Recall** toggle, a **Mode** dropdown, a per-project vault health summary (indexed note count, a notes-by-type breakdown, harvests logged, and the last-indexed timestamp), and three actions: **Run cold-start seed**, **Reindex**, and **Open vault in Finder/Obsidian**.
+- **In the background** -- when Recall is on, an *Enricher* runs before prompts and a *Harvester* runs on commit. They work silently; failures are logged (see Modes below) and, in the default mode, never block your prompt or commit.
+
+### How to Open / Access
+
+Open Settings with `Cmd ,` and select the **Recall** tab. Vault actions operate on the currently active project, so open a project first. (If no project is open, the tab shows "Open a project to manage its Recall vault.")
+
+### Modes
+
+| Mode | Behavior |
+|---|---|
+| **Off** | No Recall activity for this project. The vault stays on disk but neither Enricher nor Harvester runs. |
+| **Suggested** (default) | Enricher + Harvester both run. Failures log a warning but never block prompts or commits. |
+| **Enforced** | The Enricher must complete before a prompt sends; Self-Drive blocks when the Enricher model is unreachable. |
+
+### User Actions
+
+- **Enable Recall** -- the master switch. Off by default; opt in per project. Changes on this tab save immediately (it bypasses the modal's batch-save, so flipping the toggle takes effect right away).
+- **Run cold-start seed** -- bootstraps the vault for an existing project: it ingests existing memory files and ADRs, seeds hotspot/landmine and co-change-pattern notes from git history, writes a manifest, and indexes the result. The toast reports notes indexed, elapsed time, and the manifest outcome.
+- **Reindex** -- re-parses the `.recall/` vault into the local SQLite index. Use it after you edit notes by hand in Obsidian.
+- **Open vault in Finder/Obsidian** -- reveals `<project>/.recall/`.
+
+### States
+
+- **No vault registered** -- shown before the first seed/index. Run cold-start seed to create one.
+- **Indexed** -- the health summary shows live counts. "Last indexed: never" means the vault exists on disk but hasn't been parsed into the index yet.
+
+### Configuration
+
+The Settings tab ships the minimum-viable controls (enable, mode, vault actions). Power-user fields live in `settings.json` under a `recall` object for v1 (a full settings panel ships in v1.1):
+
+| Field | Default | Notes |
+|---|---|---|
+| `enabled` | `false` | Master switch. |
+| `mode` | `suggested` | `off` / `suggested` / `enforced`. |
+| `enricherProvider` / `enricherModel` | `google` / `gemini-3.1-flash-lite` | Model that composes the pre-prompt brief. |
+| `harvesterProvider` / `harvesterModel` | `google` / `gemini-3.1-flash-lite` | Model that writes the per-commit note. |
+| `crossProjectLinking` | `true` | Allow notes to reference a shared meta-vault across projects. |
+| `tokenBudgetPerBrief` | `2000` | Cap on the size of the injected brief. |
+| `staleThresholdDays` | `30` | Age past which a note is treated as stale. |
+| `commitVaultToGit` | `false` | When off, `.recall/` stays local-only and is not committed. |
+
+### Privacy
+
+When Recall is on, snippets of your code and notes are sent to the configured provider (Google Gemini by default) on every enriched prompt and every harvested commit. The vault itself stays local unless you set `commitVaultToGit: true`.
+
+### Tips
+
+1. Recall is off by default and per-project -- turn it on only where long-lived memory pays off (a project you return to often), not throwaway scratch work.
+2. On an existing codebase, run **cold-start seed** once so the first brief has history to draw on instead of starting empty.
+3. Leave **Mode** on *Suggested* unless you specifically want the Enricher to be a hard gate -- *Enforced* blocks prompts (and Self-Drive) if the Enricher model is unreachable.
+4. Notes are plain Markdown -- open the vault in Obsidian to read, edit, or prune them, then click **Reindex**.
+5. The default Enricher/Harvester model is the inexpensive `gemini-3.1-flash-lite`; override it in `settings.json` if you want a stronger model writing your memory notes.
+
+---
+
 # Part V: Sidebar
 
 ---
@@ -4455,6 +4521,13 @@ Complete reference of every configurable setting in CodeMantis.
 | Run test suite after each session | Self-Drive | Toggle | On | Run test suite after each session |
 | Auto-commit between sessions | Self-Drive | Toggle | Off | Create git commit after each successful session |
 | Recheck loop | Self-Drive | Toggle | On | Allow the orchestrator to ask Claude Code to re-state evidence for specific verify items (up to 2 rounds per session) before pausing |
+| Enable Recall | Recall | Toggle | Off | `recall.enabled` -- master switch for the project memory layer. Saved immediately (instant-apply). |
+| Recall mode | Recall | Choice | Suggested | `recall.mode` -- `off` / `suggested` (run, never block) / `enforced` (Enricher is a hard gate before prompts and Self-Drive). |
+| Recall enricher model | Recall | settings.json | `google` / `gemini-3.1-flash-lite` | `recall.enricherProvider` / `enricherModel` -- composes the pre-prompt brief. |
+| Recall harvester model | Recall | settings.json | `google` / `gemini-3.1-flash-lite` | `recall.harvesterProvider` / `harvesterModel` -- writes the per-commit note. |
+| Recall token budget per brief | Recall | settings.json | 2000 | `recall.tokenBudgetPerBrief` -- cap on injected brief size. |
+| Recall stale threshold (days) | Recall | settings.json | 30 | `recall.staleThresholdDays` -- age past which a note is treated as stale. |
+| Recall commit vault to git | Recall | settings.json | Off | `recall.commitVaultToGit` -- when off, `.recall/` stays local-only. |
 | Save session conversations | Session Logs | Toggle | On | Store all messages when a session closes |
 | Retention period | Session Logs | Choice | 30 days | How long to keep session logs: 7d, 14d, 30d, 90d, 1y, Forever |
 | OpenRouter API key | AI Providers | Password | Empty | API key for OpenRouter |
@@ -4589,12 +4662,13 @@ Complete reference of every slash command available in CodeMantis. Data from `sr
 
 #### Codex CLI-Only Commands (opens interactive Codex CLI terminal)
 
-These are surfaced only when the active session's agent is Codex. They route through the CLI Overlay just like Claude's CLI-only commands.
+These are surfaced only when the active session's agent is Codex. Most route through the CLI Overlay (a PTY running `codex <subcommand>`) just like Claude's CLI-only commands; the two exceptions are `/config` and `/mcp`, which open the in-app **Codex Management Panel** instead (driven by the app-server JSON-RPC config/MCP methods, because `codex config` forwards to the interactive TUI and `codex mcp` exits without a subcommand).
 
 | Command | Description |
 |---|---|
-| `/apply` | Apply a queued patch |
-| `/features` | List enabled Codex features |
+| `/config` | Configure Codex (settings, MCP, account) -- opens the Codex Management Panel |
+| `/apply` | Apply the latest diff to your working tree |
+| `/features` | Inspect feature flags |
 | `/fork` | Fork the current Codex thread |
 | `/login` | Sign in to Codex (OAuth) |
 | `/logout` | Sign out of Codex |

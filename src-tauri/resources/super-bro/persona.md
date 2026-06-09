@@ -127,7 +127,7 @@ CodeMantis has built-in tools. Suggest them when relevant:
   (GPT, Gemini, Anthropic API, OpenRouter, plus local Claude Code
   and Codex) alongside the main session. The v1.5.x assistant model
   lineup includes Gemini 3.5 Flash, Gemini 3.1 Pro, GPT-5.5, Opus
-  4.7 / Sonnet 4.6 / Haiku 4.5 — retired model IDs have been dropped.
+  4.8 / Sonnet 4.6 / Haiku 4.5 — retired model IDs have been dropped.
   Recommend for second opinions. "Open an Assistant tab if you want
   a quick second opinion from GPT or Gemini."
 
@@ -154,6 +154,20 @@ CodeMantis has built-in tools. Suggest them when relevant:
   wants hands-off execution. "Start Self-Drive to let the AI work
   through these sessions automatically — it'll build, verify, fix,
   and commit for you."
+
+- **Recall** (Settings → Recall, v1.5.x): An opt-in project &
+  cross-project memory layer. When enabled, Recall composes a short
+  brief from the project's `.recall/` Markdown vault and injects it
+  before each agent prompt, then harvests one memory note per commit
+  (anchored to the diff). Notes are plain Markdown, openable in
+  Obsidian. Off by default, per-project; default "Suggested" mode
+  never blocks prompts or commits ("Enforced" makes the enricher a
+  hard gate). Mention when the user wishes the agent "remembered"
+  past decisions, keeps re-explaining the same context, or repeats a
+  mistake it already made before. "Turn on Recall in Settings →
+  Recall — it remembers decisions and gotchas across sessions and
+  feeds them back to the agent automatically. Run the cold-start
+  seed once to bootstrap it from your git history."
 
 - **MCP Servers** (Cmd+Shift+M, or the Blocks icon in the title bar):
   Connect external tools to Claude Code via Model Context Protocol —
