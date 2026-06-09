@@ -1,7 +1,7 @@
 {
   "name": "codemantis",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A native macOS desktop UI for Claude Code and Codex",
   "author": "CodeMantis Contributors",
   "license": "MIT",
@@ -23,7 +23,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.14",
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-log": "^2",
     "@tauri-apps/plugin-opener": "^2",
@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "^2.11.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

@@ -1,6 +1,6 @@
 # CodeMantis Releases
 
-## Unreleased — Recall (project & cross-project memory layer)
+## 1.6.0 — Recall (project & cross-project memory layer)
 
 **Recall** is CodeMantis's memory layer for coding agents. It sits *around* the dev-agent invocation and does two things automatically on every turn: **before** the prompt sends, it composes a focused brief from the project's accumulated knowledge (the Enricher); **after** the dev agent's work lands in a commit, it harvests one atomic memory note from the diff (the Harvester). The substrate is plain Markdown with `[[wikilinks]]` at `<project>/.recall/`, openable directly in Obsidian.
 
@@ -31,6 +31,14 @@ Ships **default off**. Opt in at Settings → Recall. Spec: `_guidance/requireme
 - Privacy disclosure modal (replaced by inline notice on the Settings tab)
 - Default-on flag flip (stays off in this release; users opt in)
 - Spec-generation LLM call Enricher-wrapping (assistant_chat surgery — see plan §9.2.2 deferred note)
+
+### Also in 1.6.0
+
+**Codex management panel + JSON-RPC commands + resume resilience.** Codex 0.137.0 hardening: the thread-id is now persisted to SQLite so resume survives app restarts, and resume falls back to `thread/start` on `-32600 no rollout`. A new in-app JSON-RPC management panel exposes Codex config/MCP/account (reached via `/config`); the CLI overlay no longer pauses the Codex app-server while open. Fixes: `turn/start` now sends a `sandboxPolicy` object (the previous `sandbox` string was a silent no-op), and `model/list` reads the `data` key. Codex CLI path now resolves correctly inside bundled macOS app builds.
+
+**SpecWriter resilience.** Recognize-Guide parsing now falls back to an AI pass when the deterministic parser fails, and the Codex model dropdown is populated via a cross-session cache so it's never empty on first open.
+
+**Dependencies / security.** Tauri bumped 2.10.3 → 2.11.2 (security advisory GHSA-7gmj-67g7-phm9); `@tauri-apps/api` and `@tauri-apps/cli` pinned to matching 2.11.x.
 
 ## 1.5.0
 
