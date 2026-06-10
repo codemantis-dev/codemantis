@@ -646,7 +646,7 @@ describe("chat event handler — system events", () => {
   });
 
   describe("mcp_startup_status (v1.4.1 Phase B.2)", () => {
-    it("toasts an error when a Codex MCP server fails to start", () => {
+    it("shows a calm, actionable warning naming the server (not a raw error toast)", () => {
       handleChatEvent("s1", {
         type: "mcp_startup_status",
         session_id: "s1",
@@ -654,19 +654,32 @@ describe("chat event handler — system events", () => {
         status: "failed",
         error: "missing DATABASE_URL",
       });
+      // Calm notice: names the server, reassures Codex continues, points to
+      // Settings — and is a "warning", never a red "error".
       expect(showToast).toHaveBeenCalledWith(
         expect.stringContaining("postgres"),
-        "error",
-        8000,
+        "warning",
+        6000,
       );
       expect(showToast).toHaveBeenCalledWith(
-        expect.stringContaining("missing DATABASE_URL"),
+        expect.stringContaining("Settings"),
+        "warning",
+        6000,
+      );
+      expect(showToast).not.toHaveBeenCalledWith(
+        expect.anything(),
         "error",
-        8000,
+        expect.anything(),
+      );
+      // The raw error must NOT be dumped into the toast text.
+      expect(showToast).not.toHaveBeenCalledWith(
+        expect.stringContaining("missing DATABASE_URL"),
+        expect.anything(),
+        expect.anything(),
       );
     });
 
-    it("toasts an error when a Codex MCP server is cancelled (no detail)", () => {
+    it("shows the calm warning when a Codex MCP server is cancelled (no detail)", () => {
       handleChatEvent("s1", {
         type: "mcp_startup_status",
         session_id: "s1",
@@ -676,8 +689,8 @@ describe("chat event handler — system events", () => {
       });
       expect(showToast).toHaveBeenCalledWith(
         expect.stringContaining("github"),
-        "error",
-        8000,
+        "warning",
+        6000,
       );
     });
   });

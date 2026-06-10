@@ -560,11 +560,22 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       // The translator filters out the noisy starting/ready transitions
       // upstream so this case only fires when something needs the user's
       // attention.
-      const detail = event.error ? `: ${event.error}` : "";
+      //
+      // Calm, actionable notice (not a red error toast with raw error
+      // text): a broken MCP entry shouldn't feel like the session itself
+      // failed. Name the server, reassure that Codex keeps running, and
+      // point to where the config is fixed. The raw error goes to the
+      // console for debugging rather than into the user's face.
+      if (event.error) {
+        console.warn(
+          `[codex mcp] server '${event.name}' ${event.status}: ${event.error}`,
+        );
+      }
       showToast(
-        `MCP server '${event.name}' ${event.status}${detail}`,
-        "error",
-        8000,
+        `MCP server '${event.name}' couldn't start — Codex will continue without it. ` +
+          `Check its config in Settings → MCP.`,
+        "warning",
+        6000,
       );
       break;
     }

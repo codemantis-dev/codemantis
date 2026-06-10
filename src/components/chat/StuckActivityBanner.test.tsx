@@ -131,7 +131,8 @@ describe("StuckActivityBanner", () => {
     expect(useUiStore.getState().showApprovalModal).toBe(true);
   });
 
-  it("Stop session button calls interrupt_session", async () => {
+  it("Stop session button calls interrupt_session for a Claude Code session", async () => {
+    seedSession("claude_code");
     let called = false;
     mockInvoke({
       interrupt_session: (args: unknown) => {
@@ -151,5 +152,44 @@ describe("StuckActivityBanner", () => {
     });
 
     expect(called).toBe(true);
+  });
+
+  // A wedged Codex won't honour a graceful interrupt, so the banner must
+  // hard-restart: kill the process (pause) then respawn resuming the same
+  // thread (resume). Regression for "Stop session doesn't work in Codex".
+  it("Stop session hard-restarts a Codex session (pause + resume) and clears stuck", async () => {
+    seedSession("codex");
+    const calls: string[] = [];
+    mockInvoke({
+      pause_session_process: (args: unknown) => {
+        calls.push("pause:" + (args as { sessionId: string }).sessionId);
+        return undefined;
+      },
+      resume_session_process: (args: unknown) => {
+        calls.push("resume:" + (args as { sessionId: string }).sessionId);
+        return undefined;
+      },
+      interrupt_session: () => {
+        calls.push("interrupt");
+        return undefined;
+      },
+    });
+    useSessionStore.getState().setSessionBusy(SID, true);
+    useSessionStore.getState().setSessionStuck(SID, {
+      since: Date.now() - 35_000,
+      reason: "no-progress",
+    });
+    render(<StuckActivityBanner sessionId={SID} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Stop session/i }));
+    });
+
+    // Hard restart, in order, and NOT the graceful interrupt.
+    expect(calls).toEqual([`pause:${SID}`, `resume:${SID}`]);
+    expect(calls).not.toContain("interrupt");
+    // Busy + stuck cleared so the input returns to normal and the banner hides.
+    expect(useSessionStore.getState().sessionBusy.get(SID)).toBe(false);
+    expect(useSessionStore.getState().sessionStuck.get(SID)).toBeUndefined();
   });
 });

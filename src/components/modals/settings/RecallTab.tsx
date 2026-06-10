@@ -33,6 +33,7 @@ import {
   type RecallMode,
 } from "../../../types/recall";
 import { useSessionStore } from "../../../stores/sessionStore";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import { useToastStore } from "../../../stores/toastStore";
 import { SectionTitle, FieldRow } from "./SettingsShared";
 
@@ -107,9 +108,12 @@ export default function RecallTab() {
   const persist = async (next: RecallConfig) => {
     setSaving(true);
     try {
-      const current = await invoke<AppSettings>("get_settings");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await invoke<void>("update_settings", { settings: { ...current, recall: next } as any });
+      // Route through the settings store rather than invoking update_settings
+      // directly. Writing straight to disk would leave the store's in-memory
+      // snapshot stale, and the modal's batch-save (handleSave) would then
+      // merge that stale `recall` back over what we just wrote — silently
+      // reverting the toggle. Going through the store keeps both in sync.
+      await useSettingsStore.getState().updateSettings({ recall: next });
       setConfig(next);
     } catch (e) {
       addToast(`Failed to save Recall settings: ${(e as Error).message}`, "error");

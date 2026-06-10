@@ -2,7 +2,11 @@ import { AlertTriangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
-import { interruptSession } from "../../lib/tauri-commands";
+import {
+  interruptSession,
+  pauseSessionProcess,
+  resumeSessionProcess,
+} from "../../lib/tauri-commands";
 
 interface StuckActivityBannerProps {
   sessionId: string;
@@ -67,7 +71,28 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
         onClick={async () => {
           setStoppingState("stopping");
           try {
-            await interruptSession(sessionId);
+            if (agentId === "codex") {
+              // A wedged Codex app-server won't honour a graceful
+              // turn/interrupt (that's exactly why this banner appeared),
+              // so kill the process and respawn it resuming the same
+              // thread — the only thing that reliably revives the session.
+              // The conversation is preserved (resume); only the runaway
+              // turn is dropped.
+              await pauseSessionProcess(sessionId);
+              await resumeSessionProcess(sessionId);
+            } else {
+              // Claude's interrupt writes to stdin and returns immediately,
+              // so the graceful path is reliable — keep it.
+              await interruptSession(sessionId);
+            }
+            // Return the input to its normal state: finalize any dangling
+            // streaming bubble and clear busy (which also drops the stuck
+            // flag, hiding this banner).
+            const store = useSessionStore.getState();
+            if (store.sessionStreaming.get(sessionId)?.isStreaming) {
+              store.finalizeStreaming(sessionId);
+            }
+            store.setSessionBusy(sessionId, false);
           } catch (e) {
             // Surface but don't crash the banner — the user can retry.
             console.error("Stop session failed:", e);

@@ -52,6 +52,13 @@ use crate::utils::paths::login_shell_path;
 use async_trait::async_trait;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// How long to wait for Codex's `turn/interrupt` acknowledgement before we
+/// stop blocking on it. Must be bounded: `interrupt_session` holds the
+/// global `processes` lock across this await, and a wedged Codex app-server
+/// may never reply — an unbounded wait would deadlock every later command
+/// and leave the session permanently dead. See the `Interrupt` branch.
+const CODEX_INTERRUPT_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The Codex per-session handle. Owns the child process, the JSON-RPC
 /// client, and (for SpecWriter sessions) the ephemeral AGENTS.md dir.
 pub struct CodexProcessHandle {
@@ -171,13 +178,14 @@ impl AgentProcessHandle for CodexProcessHandle {
                     .await
                     .clone()
                     .ok_or_else(|| AgentError::ProtocolError("no active turn".into()))?;
-                self.client
-                    .send_request(
-                        "turn/interrupt",
-                        json!({"threadId": thread_id, "turnId": turn_id}),
-                    )
-                    .await
-                    .map_err(|e| AgentError::SendFailed(e.to_string()))?;
+                interrupt_turn(
+                    &self.client,
+                    &self.session_id,
+                    &thread_id,
+                    &turn_id,
+                    CODEX_INTERRUPT_ACK_TIMEOUT,
+                )
+                .await?;
                 // No CLI-side request_id for Codex — fabricate one for the
                 // pending-control-requests map's bookkeeping. The
                 // interrupted-state event comes through turn/completed.
@@ -616,7 +624,24 @@ pub async fn spawn_codex_session(
     // gone (archived/GC'd/stale id), fall back to a fresh thread/start
     // instead of killing the session with "no rollout found". (`params`
     // here is the shared base — threadId is added inside for resume.)
-    start_or_resume_thread(&client, &app_handle, &config, params).await?;
+    let started_thread_id =
+        start_or_resume_thread(&client, &app_handle, &config, params).await?;
+
+    // Set the thread id synchronously from the start/resume RESPONSE
+    // (`thread.id`, a required field) BEFORE the handle is usable. We used
+    // to rely solely on the `thread/started` *notification* to populate
+    // `thread_state.thread_id`, but `thread/resume` doesn't emit that
+    // notification — so after a pause+resume (e.g. `/clear`, or the
+    // stuck-banner hard restart) the thread id stayed `None` and the very
+    // next send_user_message died with "no thread/started yet", killing the
+    // session. Reading it from the response fixes resume *and* removes the
+    // spawn-time race on fresh starts. Idempotent with the notification
+    // handler (same id), and we persist here too so resume sessions that
+    // skip the notification still survive a crash/restart.
+    if let Some(tid) = started_thread_id {
+        thread_state.set_thread_id(tid.clone()).await;
+        store_codex_cli_session_id(&app_handle, &config.session_id, &tid).await;
+    }
 
     Ok(Box::new(CodexProcessHandle {
         session_id: config.session_id,
@@ -643,7 +668,7 @@ async fn start_or_resume_thread(
     app_handle: &AppHandle,
     config: &SessionConfig,
     base_params: serde_json::Map<String, Value>,
-) -> Result<(), AgentError> {
+) -> Result<Option<String>, AgentError> {
     let Some(thread_id) = config.resume_token.as_deref().filter(|s| !s.is_empty()) else {
         return send_thread_start(client, &config.session_id, base_params).await;
     };
@@ -669,7 +694,10 @@ async fn start_or_resume_thread(
         .send_request("thread/resume", Value::Object(resume_params))
         .await
     {
-        Ok(_) => Ok(()),
+        // Pull `thread.id` straight from the resume response — resume emits
+        // no `thread/started` notification, so this is the ONLY place the
+        // thread id surfaces for a resumed session.
+        Ok(resp) => Ok(thread_id_from_response(&resp)),
         Err(e) if should_fallback_to_start(&e) => {
             // The rollout vanished out from under us (race with archive/GC,
             // or a stale id). Don't strand the session — start fresh.
@@ -692,11 +720,14 @@ async fn start_or_resume_thread(
 
 /// Send `thread/start` with the given params; map failure to a clear
 /// ProtocolError with the full (untruncated) Codex error in the log.
+/// Returns the new thread id from the response (`thread.id`) so the caller
+/// can populate `thread_state` synchronously rather than waiting on the
+/// (separately-spawned) `thread/started` notification handler.
 async fn send_thread_start(
     client: &CodexClient,
     session_id: &str,
     params: serde_json::Map<String, Value>,
-) -> Result<(), AgentError> {
+) -> Result<Option<String>, AgentError> {
     debug!(
         "[codex {session_id}] sending thread/start with params: {}",
         serde_json::to_string(&params).unwrap_or_default()
@@ -704,13 +735,66 @@ async fn send_thread_start(
     client
         .send_request("thread/start", Value::Object(params))
         .await
-        .map(|_| ())
+        .map(|resp| thread_id_from_response(&resp))
         .map_err(|e| {
             log::error!(
                 "[codex {session_id}] thread/start failed: {e} — check Codex CLI version + wire format"
             );
             AgentError::ProtocolError(format!("thread/start failed: {e}"))
         })
+}
+
+/// Dispatch `turn/interrupt` and wait — bounded — for Codex's ack.
+///
+/// `turn/interrupt` is a JSON-RPC *request*, so [`CodexClient::send_request`]
+/// blocks on the response. The interrupt line is already queued to stdin the
+/// instant send_request fires; what we wait on is only the *ack*. A wedged
+/// app-server may never ack, and `interrupt_session` holds the global
+/// `processes` lock across this await — an unbounded wait deadlocks every
+/// later command (send/pause/close/stop) and kills the session for good (the
+/// "Stop doesn't work in Codex" bug). So on timeout we return `Ok`: the
+/// interrupt was dispatched, we just stop *waiting* and release the lock. A
+/// truly hung process is recovered by the stuck-banner hard kill+resume path.
+///
+/// Extracted as a free fn (timeout injectable) so the bounded-wait guarantee
+/// is unit-testable without a live `AppHandle`.
+async fn interrupt_turn(
+    client: &CodexClient,
+    session_id: &str,
+    thread_id: &str,
+    turn_id: &str,
+    ack_timeout: std::time::Duration,
+) -> Result<(), AgentError> {
+    match tokio::time::timeout(
+        ack_timeout,
+        client.send_request(
+            "turn/interrupt",
+            json!({"threadId": thread_id, "turnId": turn_id}),
+        ),
+    )
+    .await
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(AgentError::SendFailed(e.to_string())),
+        Err(_elapsed) => {
+            warn!(
+                "[codex {session_id}] turn/interrupt ack timed out after {ack_timeout:?} — \
+                 interrupt was dispatched; not holding the session lock for a wedged app-server"
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Pull the thread id out of a `thread/start` / `thread/resume` response.
+/// Both responses carry a required `thread` object with an `id` field
+/// (schema: v2/ThreadStartResponse.json, v2/ThreadResumeResponse.json).
+/// Pure + unit-tested so the resume-after-/clear fix has explicit coverage.
+fn thread_id_from_response(resp: &Value) -> Option<String> {
+    resp.get("thread")
+        .and_then(|t| t.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 /// Should a failed `thread/resume` fall back to a fresh `thread/start`
@@ -1491,6 +1575,95 @@ mod tests {
             text: "hi".into(),
         };
         assert_eq!(thread_id_from_event(&other), None);
+    }
+
+    #[test]
+    fn thread_id_from_response_extracts_thread_dot_id() {
+        // thread/start + thread/resume both return a required `thread`
+        // object carrying `id`. This is the synchronous source of truth
+        // for the resumed thread id — resume emits no thread/started
+        // notification, so without this the /clear path strands the
+        // session on "no thread/started yet".
+        let resp = json!({
+            "thread": { "id": "019e66e0-0712-7f13-b94c-c1dfb199f475", "status": "idle" },
+            "model": "gpt-5.5",
+        });
+        assert_eq!(
+            thread_id_from_response(&resp).as_deref(),
+            Some("019e66e0-0712-7f13-b94c-c1dfb199f475")
+        );
+        // Missing / malformed shapes degrade to None rather than panicking.
+        assert_eq!(thread_id_from_response(&json!({})), None);
+        assert_eq!(thread_id_from_response(&json!({"thread": {}})), None);
+        assert_eq!(
+            thread_id_from_response(&json!({"thread": {"id": 7}})),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupt_turn_returns_ok_when_ack_succeeds() {
+        // Happy path: Codex acks the interrupt → Ok.
+        use super::super::client::{CodexClient, NotificationHandler, ServerRequestHandler};
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let notif: NotificationHandler = Arc::new(|_m, _p| {});
+        let server_req: ServerRequestHandler = Arc::new(|_i, _m, _p| {});
+        let client = CodexClient::new(tx, 0, notif, server_req);
+
+        let c2 = client.clone();
+        let fut = tokio::spawn(async move {
+            interrupt_turn(
+                &c2,
+                "sid",
+                "thr_1",
+                "turn_1",
+                std::time::Duration::from_secs(5),
+            )
+            .await
+        });
+
+        // Observe the dispatched line, then synthesise the ack.
+        let line = rx.recv().await.unwrap();
+        let parsed: Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(parsed["method"], "turn/interrupt");
+        assert_eq!(parsed["params"]["threadId"], "thr_1");
+        assert_eq!(parsed["params"]["turnId"], "turn_1");
+        client
+            .handle_incoming_line(r#"{"id":0,"result":{}}"#)
+            .await
+            .unwrap();
+
+        assert!(fut.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn interrupt_turn_returns_ok_on_ack_timeout_not_hang() {
+        // Regression for the deadlock: a wedged Codex never acks
+        // turn/interrupt. `interrupt_turn` MUST return (Ok) within the
+        // bounded timeout instead of blocking forever — otherwise the
+        // global `processes` lock is held indefinitely and every later
+        // command (Stop / Stop session / send / close) deadlocks.
+        use super::super::client::{CodexClient, NotificationHandler, ServerRequestHandler};
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let notif: NotificationHandler = Arc::new(|_m, _p| {});
+        let server_req: ServerRequestHandler = Arc::new(|_i, _m, _p| {});
+        let client = CodexClient::new(tx, 0, notif, server_req);
+
+        // No response is ever fed in. With a tiny timeout this must resolve
+        // quickly; without the timeout it would hang the test forever.
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            interrupt_turn(
+                &client,
+                "sid",
+                "thr_1",
+                "turn_1",
+                std::time::Duration::from_millis(50),
+            ),
+        )
+        .await;
+        assert!(res.is_ok(), "interrupt_turn did not return within bound — would deadlock");
+        assert!(res.unwrap().is_ok(), "timeout path should yield Ok (interrupt was dispatched)");
     }
 
     #[test]
