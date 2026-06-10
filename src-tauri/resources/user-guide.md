@@ -2717,7 +2717,7 @@ Slash commands let you trigger actions by typing "/" in the chat input. The Comm
 **Agent-aware discovery (v1.5.0).** The discovery backend looks at the active session's `agent_id` and surfaces commands accordingly:
 
 - **Claude Code sessions** scan `.claude/commands/` (flat `.md` files) and `.claude/skills/` (per-skill directories with `SKILL.md`) at both project and user (`~/.claude/`) levels for Skill / Prompt commands, and surface Claude's CLI-only commands (`/add-dir`, `/agents`, `/bug`, `/init`, `/model`, `/permissions`, `/skills`, `/usage`, …).
-- **Codex sessions** scan `.codex/prompts/` (flat `.md` files) at both project and user (`~/.codex/`) levels, and surface Codex's CLI-only commands (`/apply`, `/features`, `/fork`, `/login`, `/logout`, `/mcp`, `/plugin`, `/resume`, `/sandbox`, `/update`) verified against `codex --help` on CLI 0.130.0. Codex's `/seo-audit` and similar Claude-only skills do **not** appear in Codex sessions, and Claude's `/bug "Report to Anthropic"` does not appear either -- each agent gets only the commands that make sense for it.
+- **Codex sessions** scan `.codex/prompts/` (flat `.md` files) at both project and user (`~/.codex/`) levels, and surface Codex's CLI-only commands -- the interactive TUI set (`/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff`), the management-panel pair (`/config`, `/mcp`), and the one-shot subcommands (`/apply`, `/features`, `/fork`, `/login`, `/logout`, `/plugin`, `/resume`, `/sandbox`, `/update`) -- verified against `codex --help` / `codex resume --help` on CLI 0.139.0. Codex's `/seo-audit` and similar Claude-only skills do **not** appear in Codex sessions, and Claude's `/bug "Report to Anthropic"` does not appear either -- each agent gets only the commands that make sense for it.
 - **Built-in CodeMantis commands** (`/clear`, `/compact`, `/context`, `/cost`, `/exit`, `/help`, `/rename`) are agent-agnostic and always shown.
 
 ### What You See
@@ -2742,11 +2742,11 @@ The currently selected command is highlighted with a subtle background. The pale
 
 The CLI Overlay is a centered modal dialog (up to 900px wide, 600px tall) containing:
 
-- A header with a terminal icon, an agent-aware title ("Claude CLI" or "Codex CLI" depending on the active session's `agent_id`), a hint showing common CLI commands for that agent ("-- /model, /config, /doctor, /help" for Claude; "-- /login, /mcp, /apply, /sandbox" for Codex), and "Esc to close."
+- A header with a terminal icon, an agent-aware title ("Claude CLI" or "Codex CLI" depending on the active session's `agent_id`), a hint showing common CLI commands for that agent ("-- /model, /config, /doctor, /help" for Claude; "-- /plan, /model, /approvals, /review · /login, /logout" for Codex), and "Esc to close."
 - A full terminal emulator (xterm.js) running an interactive session of the agent's binary (`claude` for Claude sessions, `codex` for Codex sessions).
 - An X close button.
 
-Codex's interactive commands are top-level argv (`codex login`, `codex mcp`, `codex apply`) rather than in-TTY slash commands, so selecting a Codex CLI-only entry from the palette spawns `codex <name>` directly in the overlay; Claude's `/model`, `/config`, etc. are auto-typed into the running `claude` PTY after the prompt is ready.
+Codex slash commands split into two overlay behaviors. **Interactive TUI commands** (`/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff`) have no app-server JSON-RPC equivalent -- they only exist inside Codex's interactive TUI -- so selecting one resumes the **real Codex TUI for the current conversation** (`codex resume <thread_id>`) and auto-types `/<name>` once it's ready, exactly like Claude's `claude --resume` overlay. This is what lets you switch to Plan mode, pick a model and reasoning effort, adjust approvals, etc. -- the full Codex experience, inside CodeMantis. To do this safely the running Codex app-server is paused for the duration of the overlay (so the TUI owns the conversation's rollout file) and re-attached when you close it, picking up any changes you made (model swap, plan, …). **One-shot subcommands** (`/login`, `/logout`, `/apply`, `/fork`, `/sandbox`, `/update`, …) are top-level argv, so they spawn `codex <name>` directly. (`/config` and `/mcp` open the Codex Management Panel instead -- see below.)
 
 ### How to Open / Access
 
@@ -2804,7 +2804,7 @@ Select a CLI-only command (yellow badge). This opens the CLI Overlay and auto-ty
 
 Press **Command+/** to open the CLI Overlay. When it opens:
 1. The current stream-json session is paused.
-2. An interactive process of the active session's agent binary starts in the terminal -- `claude --resume <session_id>` for Claude sessions, `codex` (with the matching subcommand) for Codex sessions.
+2. An interactive process of the active session's agent binary starts in the terminal -- `claude --resume <session_id>` for Claude sessions; for Codex sessions, `codex resume <thread_id>` (interactive TUI commands like `/plan`) or `codex <subcommand>` (one-shot commands like `/login`).
 3. You interact directly with the agent's CLI -- change models, run diagnostics, configure settings, manage MCP servers, sign in / out.
 4. When you close the overlay (Escape or X), the terminal is killed and the stream-json session resumes.
 
@@ -4662,23 +4662,33 @@ Complete reference of every slash command available in CodeMantis. Data from `sr
 
 #### Codex CLI-Only Commands (opens interactive Codex CLI terminal)
 
-These are surfaced only when the active session's agent is Codex. Most route through the CLI Overlay (a PTY running `codex <subcommand>`) just like Claude's CLI-only commands; the two exceptions are `/config` and `/mcp`, which open the in-app **Codex Management Panel** instead (driven by the app-server JSON-RPC config/MCP methods, because `codex config` forwards to the interactive TUI and `codex mcp` exits without a subcommand).
+These are surfaced only when the active session's agent is Codex. They route to one of three surfaces:
 
-| Command | Description |
-|---|---|
-| `/config` | Configure Codex (settings, MCP, account) -- opens the Codex Management Panel |
-| `/apply` | Apply the latest diff to your working tree |
-| `/features` | Inspect feature flags |
-| `/fork` | Fork the current Codex thread |
-| `/login` | Sign in to Codex (OAuth) |
-| `/logout` | Sign out of Codex |
-| `/mcp` | Manage Codex MCP servers |
-| `/plugin` | Manage Codex plugins |
-| `/resume` | Resume a Codex thread |
-| `/sandbox` | Configure Codex sandbox |
-| `/update` | Update the Codex CLI |
+- **Interactive TUI** (`/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff`) -- resumes the real Codex TUI for the current conversation (`codex resume <thread_id>`) and types `/<name>` in. These are TUI-only commands with no JSON-RPC equivalent on Codex CLI 0.139.0 (notably `/plan` -- Codex's plan mode is a TUI/config concept, not a settable protocol parameter), so the real TUI is the only way to reach them.
+- **Management Panel** (`/config`, `/mcp`) -- opens the in-app **Codex Management Panel** (driven by the app-server JSON-RPC config/MCP methods, because `codex config` forwards to the interactive TUI and `codex mcp` exits without a subcommand).
+- **One-shot subcommand** (everything else) -- spawns `codex <name>` directly in the CLI Overlay.
 
-Excluded from discovery: `exec`, `review`, `debug`, `mcp-server`, `app-server`, `remote-control`, `cloud`, `exec-server`, `completion` -- those are non-interactive or wire-protocol modes, not human-facing commands.
+| Command | Surface | Description |
+|---|---|---|
+| `/plan` | Interactive TUI | Switch to Plan mode |
+| `/model` | Interactive TUI | Select model and reasoning effort |
+| `/approvals` | Interactive TUI | Adjust the approval policy |
+| `/review` | Interactive TUI | Review your working-tree changes |
+| `/status` | Interactive TUI | Show model, approvals, and token usage |
+| `/diff` | Interactive TUI | Show the working-tree git diff |
+| `/config` | Management Panel | Configure Codex (settings, MCP, account) |
+| `/mcp` | Management Panel | Manage Codex MCP servers |
+| `/apply` | Subcommand | Apply the latest diff to your working tree |
+| `/features` | Subcommand | Inspect feature flags |
+| `/fork` | Subcommand | Fork a previous interactive session |
+| `/login` | Subcommand | Sign in to Codex (OAuth) |
+| `/logout` | Subcommand | Sign out of Codex |
+| `/plugin` | Subcommand | Manage Codex plugins |
+| `/resume` | Subcommand | Resume a previous interactive session |
+| `/sandbox` | Subcommand | Run a command in the Codex sandbox |
+| `/update` | Subcommand | Update the Codex CLI |
+
+Excluded from discovery: `exec`, `debug`, `mcp-server`, `app-server`, `remote-control`, `cloud`, `exec-server`, `completion` -- those are non-interactive or wire-protocol modes, not human-facing commands. (`/review` *is* surfaced -- it's an interactive TUI command.)
 
 #### Skill / Prompt Commands (custom, project + user level)
 

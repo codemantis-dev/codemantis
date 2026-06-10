@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import ChatPanel from "./ChatPanel";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { Session, Message } from "../../types/session";
@@ -174,5 +175,41 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Send a message to start the conversation")).toBeInTheDocument();
     // Should not show any message bubbles
     expect(screen.queryByText("Previous session")).not.toBeInTheDocument();
+  });
+
+  it("restarting a Codex session re-spawns under Codex, not the global default", async () => {
+    // Regression: clicking "Restart Session" on a Codex session used to call
+    // startSession() with no agent, so it spawned whatever the global default
+    // resolved to (often Claude) — mis-routing the session. handleRestart must
+    // forward the session's own agent_id.
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "create_session"
+        ? Promise.resolve({ ...SESSION, id: "s2", agent_id: "codex" })
+        : Promise.resolve(undefined),
+    );
+    setSessionState(
+      { ...SESSION, agent_id: "codex" },
+      [
+        {
+          id: "err1",
+          role: "assistant",
+          content: "No conversation found with session ID: 019eb10c",
+          timestamp: "",
+          activityIds: [],
+          isStreaming: false,
+          restartable: true,
+        },
+      ],
+    );
+    render(<ChatPanel />);
+
+    fireEvent.click(screen.getByText("Restart Session"));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "create_session",
+        expect.objectContaining({ agentId: "codex", projectPath: "/tmp" }),
+      ),
+    );
   });
 });

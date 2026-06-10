@@ -21,6 +21,7 @@ import {
 } from "../lib/tauri-commands";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { SessionMessagePayload, Message, Session, SessionHistoryEntry } from "../types/session";
+import type { AgentId } from "../types/agent-events";
 import { useUiStore } from "../stores/uiStore";
 import {
   handleChatEvent,
@@ -41,14 +42,14 @@ const MAX_SESSIONS = 10;
 const sessionListeners = new Map<string, UnlistenFn[]>();
 
 interface UseClaudeSessionReturn {
-  startSession: (projectPath: string) => Promise<string>;
+  startSession: (projectPath: string, agentOverride?: AgentId) => Promise<string>;
   addSessionToProject: (projectPath?: string) => Promise<void>;
   sendMessage: (sessionId: string, prompt: string) => Promise<void>;
   closeSession: (sessionId: string) => Promise<void>;
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
-  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string, preloadedMessages?: Message[]) => Promise<string>;
+  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string, preloadedMessages?: Message[], agentId?: AgentId) => Promise<string>;
   /**
    * Add a tab in 'paused-recovered' status from a crash-recovery entry.
    * Loads the stored transcript but does NOT spawn a CLI subprocess; the user
@@ -76,7 +77,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
   const terminalStore = useTerminalStore;
   const changelogStore = useChangelogStore;
 
-  const startSession = useCallback(async (projectPath: string): Promise<string> => {
+  const startSession = useCallback(async (projectPath: string, agentOverride?: AgentId): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
       showToast(`Maximum ${MAX_SESSIONS} sessions allowed`, "error");
@@ -88,7 +89,12 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // global default) — so existing flows are unchanged. With a
     // "Main chat sessions → Codex" override, new main sessions spawn
     // on Codex.
-    const agentId = resolveAgentForTaskNow("main_chat");
+    //
+    // `agentOverride` short-circuits the resolver: restarting an existing
+    // session must re-spawn the SAME agent it ran under (a Codex session
+    // restarted as Claude would feed a Codex thread-id to the Claude CLI
+    // and fail with "No conversation found with session ID").
+    const agentId = agentOverride ?? resolveAgentForTaskNow("main_chat");
     const session = await createSession(projectPath, undefined, undefined, agentId);
     sessionStore.getState().addSession(session);
 
@@ -290,6 +296,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     originalName: string,
     originalSessionId?: string,
     preloadedMessages?: Message[],
+    agentId?: AgentId,
   ): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
@@ -298,7 +305,13 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     }
 
     try {
-      const session = await createSession(projectPath, originalName, cliSessionId);
+      // `agentId` MUST be threaded through: `cliSessionId` is an
+      // agent-specific resume token (a Claude session id OR a Codex thread
+      // id). Omitting it makes the Rust `create_session` default to
+      // ClaudeCode, which then rejects a Codex thread-id with "No
+      // conversation found with session ID". Resume must re-spawn the same
+      // agent the session originally ran under.
+      const session = await createSession(projectPath, originalName, cliSessionId, agentId);
       sessionStore.getState().addSession(session);
 
       const spawnEffort = useSettingsStore.getState().settings.defaultThinkingEffort;
@@ -514,6 +527,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         session.name,
         pausedSessionId,
         pausedMessages,
+        session.agent_id,
       );
     } catch (e) {
       handleError("Failed to resume recovered session", e);

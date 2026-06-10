@@ -5,6 +5,7 @@ import { useActivityStore } from "../stores/activityStore";
 import { useUiStore } from "../stores/uiStore";
 import { useToastStore } from "../stores/toastStore";
 import type { SlashCommand } from "../types/slash-commands";
+import type { AgentId } from "../types/agent-events";
 
 // Hoist mock functions so they're available in vi.mock factories
 const {
@@ -49,7 +50,7 @@ vi.mock("../lib/tauri-commands", () => ({
   sendMessage: mockSendMessageCmd,
 }));
 
-import { useCommandExecution } from "./useCommandExecution";
+import { useCommandExecution, codexDispatchKind } from "./useCommandExecution";
 
 const SESSION_ID = "s1";
 const PROJECT_PATH = "/tmp/project";
@@ -67,7 +68,7 @@ function makeCommand(overrides: Partial<SlashCommand>): SlashCommand {
   };
 }
 
-function setupActiveSession(): void {
+function setupActiveSession(agentId?: AgentId): void {
   useSessionStore.setState({
     sessions: new Map([
       [SESSION_ID, {
@@ -79,6 +80,7 @@ function setupActiveSession(): void {
         model: "sonnet",
         icon_index: 0,
         cli_session_id: "cli-123",
+        ...(agentId ? { agent_id: agentId } : {}),
       }],
     ]),
     activeSessionId: SESSION_ID,
@@ -118,6 +120,10 @@ describe("useCommandExecution", () => {
     useUiStore.setState({
       showCliOverlay: false,
       cliOverlayInitialInput: null,
+      cliOverlayCodexMode: null,
+      showCodexPanel: false,
+      codexPanelSessionId: null,
+      codexPanelTab: "config",
     });
     useToastStore.setState({ toasts: [] });
   });
@@ -374,5 +380,108 @@ describe("useCommandExecution", () => {
 
     expect(useUiStore.getState().cliOverlayInitialInput).toBe("/config some-flag");
     expect(useUiStore.getState().showCliOverlay).toBe(true);
+  });
+
+  it("cli-only (Claude): leaves cliOverlayCodexMode null", async () => {
+    setupActiveSession(); // no agent_id → Claude
+    const { result } = renderHook(() => useCommandExecution());
+
+    await act(async () => {
+      await result.current.executeCommand(
+        makeCommand({ name: "model", category: "cli-only" }),
+        ""
+      );
+    });
+
+    expect(useUiStore.getState().showCliOverlay).toBe(true);
+    expect(useUiStore.getState().cliOverlayCodexMode).toBeNull();
+  });
+
+  it("cli-only (Codex /plan): opens overlay in resume-tui mode", async () => {
+    setupActiveSession("codex");
+    const { result } = renderHook(() => useCommandExecution());
+
+    await act(async () => {
+      await result.current.executeCommand(
+        makeCommand({ name: "plan", category: "cli-only" }),
+        ""
+      );
+    });
+
+    expect(useUiStore.getState().showCliOverlay).toBe(true);
+    expect(useUiStore.getState().cliOverlayInitialInput).toBe("/plan");
+    expect(useUiStore.getState().cliOverlayCodexMode).toBe("resume-tui");
+    // resume-tui commands must NOT open the management panel
+    expect(useUiStore.getState().showCodexPanel).toBe(false);
+  });
+
+  it("cli-only (Codex /login): opens overlay in subcommand mode", async () => {
+    setupActiveSession("codex");
+    const { result } = renderHook(() => useCommandExecution());
+
+    await act(async () => {
+      await result.current.executeCommand(
+        makeCommand({ name: "login", category: "cli-only" }),
+        ""
+      );
+    });
+
+    expect(useUiStore.getState().showCliOverlay).toBe(true);
+    expect(useUiStore.getState().cliOverlayCodexMode).toBe("subcommand");
+  });
+
+  it("cli-only (Codex /config): opens management panel, not the overlay", async () => {
+    setupActiveSession("codex");
+    const { result } = renderHook(() => useCommandExecution());
+
+    await act(async () => {
+      await result.current.executeCommand(
+        makeCommand({ name: "config", category: "cli-only" }),
+        ""
+      );
+    });
+
+    expect(useUiStore.getState().showCodexPanel).toBe(true);
+    expect(useUiStore.getState().codexPanelTab).toBe("config");
+    expect(useUiStore.getState().showCliOverlay).toBe(false);
+  });
+
+  it("cli-only (Codex /mcp): opens management panel on the mcp tab", async () => {
+    setupActiveSession("codex");
+    const { result } = renderHook(() => useCommandExecution());
+
+    await act(async () => {
+      await result.current.executeCommand(
+        makeCommand({ name: "mcp", category: "cli-only" }),
+        ""
+      );
+    });
+
+    expect(useUiStore.getState().showCodexPanel).toBe(true);
+    expect(useUiStore.getState().codexPanelTab).toBe("mcp");
+    expect(useUiStore.getState().showCliOverlay).toBe(false);
+  });
+});
+
+describe("codexDispatchKind", () => {
+  it("routes config and mcp to the management panel", () => {
+    expect(codexDispatchKind("config")).toBe("panel");
+    expect(codexDispatchKind("mcp")).toBe("panel");
+  });
+
+  it("routes interactive TUI commands to resume-tui", () => {
+    for (const name of ["plan", "model", "approvals", "review", "status", "diff"]) {
+      expect(codexDispatchKind(name)).toBe("resume-tui");
+    }
+  });
+
+  it("routes one-shot subcommands to subcommand", () => {
+    for (const name of ["login", "logout", "update", "fork", "resume", "apply"]) {
+      expect(codexDispatchKind(name)).toBe("subcommand");
+    }
+  });
+
+  it("falls back to subcommand for unknown commands", () => {
+    expect(codexDispatchKind("totally-unknown")).toBe("subcommand");
   });
 });

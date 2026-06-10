@@ -36,7 +36,9 @@ export default function ChatPanel() {
 
   const handleRestart = useCallback(() => {
     if (!session) return;
-    startSession(session.project_path).catch((e) =>
+    // Re-spawn under the SAME agent the session ran under — restarting a
+    // Codex session as Claude (the global default) would mis-route it.
+    startSession(session.project_path, session.agent_id).catch((e) =>
       console.error("Failed to restart session:", e)
     );
   }, [session, startSession]);

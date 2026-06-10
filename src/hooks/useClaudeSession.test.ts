@@ -376,11 +376,17 @@ describe("useClaudeSession", () => {
 
     let sessionId: string = "";
     await act(async () => {
-      sessionId = await result.current.resumeFromHistory(PROJECT_PATH, "cli-abc-123", "Old Session");
+      sessionId = await result.current.resumeFromHistory(
+        PROJECT_PATH, "cli-abc-123", "Old Session", undefined, undefined, "codex",
+      );
     });
 
     expect(sessionId).toBe("s1");
-    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Old Session", "cli-abc-123");
+    // Regression: the resume token is agent-specific (here a Codex thread
+    // id), so the originating agent MUST be forwarded to create_session —
+    // otherwise the Rust backend defaults to ClaudeCode and rejects it with
+    // "No conversation found with session ID".
+    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Old Session", "cli-abc-123", "codex");
     expect(mockListenChatEvents).toHaveBeenCalled();
     expect(mockStartStaleDetection).toHaveBeenCalledWith("s1");
   });
@@ -574,7 +580,7 @@ describe("useClaudeSession", () => {
         icon_index: 0,
         recent_headlines: [],
         has_stored_messages: false,
-        agent_id: "claude_code",
+        agent_id: "codex",
       });
     });
     useSessionStore.getState().addSession(makeSession("live-b"));
@@ -590,7 +596,10 @@ describe("useClaudeSession", () => {
 
     expect(returned).toBe("new-mid");
     // resumeFromHistory invokes createSession with the stored cli_session_id
-    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Mid", "cli-mid");
+    // AND the paused tab's agent ("codex" here) — a recovered Codex session
+    // must re-spawn Codex, not default to Claude (regression: "No
+    // conversation found with session ID").
+    expect(mockCreateSession).toHaveBeenCalledWith(PROJECT_PATH, "Mid", "cli-mid", "codex");
     // Tab position preserved (index 1 between live-a and live-b)
     expect(useSessionStore.getState().tabOrder).toEqual(["live-a", "new-mid", "live-b"]);
     // Old paused entry is gone

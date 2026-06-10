@@ -38,9 +38,11 @@ describe("CliOverlay", () => {
     useUiStore.setState({
       showCliOverlay: false,
       claudeBinaryPath: "/usr/local/bin/claude",
+      codexBinaryPath: "/usr/local/bin/codex",
       cliOverlaySessionId: null,
       cliOverlayProjectPath: null,
       cliOverlayInitialInput: null,
+      cliOverlayCodexMode: null,
     });
     useSessionStore.setState({
       activeSessionId: null,
@@ -83,20 +85,74 @@ describe("CliOverlay", () => {
     expect(screen.getByLabelText("Close CLI overlay")).toBeInTheDocument();
   });
 
-  // Regression guard for the core Codex bug: opening the overlay must NOT
-  // pause (kill) the Codex app-server — that's what made closing the
-  // overlay call thread/resume → "no rollout found" → dead session.
-  it("does NOT pause the process for a Codex session", async () => {
-    useUiStore.setState({ showCliOverlay: true, codexBinaryPath: "/usr/local/bin/codex" });
+  // Regression guard for the core Codex bug: opening the overlay for a
+  // one-shot subcommand (default / null mode) must NOT pause (kill) the
+  // Codex app-server — that's what made closing the overlay call
+  // thread/resume → "no rollout found" → dead session.
+  it("does NOT pause the process for a Codex subcommand session", async () => {
+    useUiStore.setState({ showCliOverlay: true });
     useSessionStore.setState({
       activeSessionId: "c1",
       sessions: new Map([["c1", { id: "c1", project_path: "/project", agent_id: "codex" } as never]]),
     });
     render(<CliOverlay />);
-    // The Codex path skips pause and goes straight to spawning the PTY.
+    // The Codex subcommand path skips pause and goes straight to the PTY.
     await waitFor(() => expect(createTerminal).toHaveBeenCalled());
     expect(pauseSessionProcess).not.toHaveBeenCalled();
     expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+  });
+
+  // The parity fix: resume-tui mode spawns the real `codex resume
+  // <thread_id>` TUI (like Claude's --resume) and therefore MUST pause the
+  // app-server so the TUI owns the rollout file exclusively.
+  it("pauses and spawns `codex resume <thread_id>` in resume-tui mode", async () => {
+    // pause must resolve so the open flow proceeds to spawn the PTY.
+    vi.mocked(pauseSessionProcess).mockResolvedValueOnce(undefined);
+    useUiStore.setState({
+      showCliOverlay: true,
+      cliOverlayCodexMode: "resume-tui",
+      cliOverlayInitialInput: "/plan",
+    });
+    useSessionStore.setState({
+      activeSessionId: "c1",
+      sessions: new Map([
+        ["c1", { id: "c1", project_path: "/project", agent_id: "codex", cli_session_id: "thr-1" } as never],
+      ]),
+    });
+    render(<CliOverlay />);
+    await waitFor(() => expect(createTerminal).toHaveBeenCalled());
+    expect(pauseSessionProcess).toHaveBeenCalledWith("c1");
+    expect(createTerminal).toHaveBeenCalledWith(
+      "c1",
+      "/project",
+      "/usr/local/bin/codex",
+      "Codex CLI",
+      ["resume", "thr-1"]
+    );
+  });
+
+  // With no thread id yet, resume-tui falls back to bare `codex` (no args)
+  // rather than spawning `codex resume` with a missing id.
+  it("resume-tui falls back to bare codex when no thread id", async () => {
+    vi.mocked(pauseSessionProcess).mockResolvedValueOnce(undefined);
+    useUiStore.setState({
+      showCliOverlay: true,
+      cliOverlayCodexMode: "resume-tui",
+      cliOverlayInitialInput: "/plan",
+    });
+    useSessionStore.setState({
+      activeSessionId: "c1",
+      sessions: new Map([["c1", { id: "c1", project_path: "/project", agent_id: "codex" } as never]]),
+    });
+    render(<CliOverlay />);
+    await waitFor(() => expect(createTerminal).toHaveBeenCalled());
+    expect(createTerminal).toHaveBeenCalledWith(
+      "c1",
+      "/project",
+      "/usr/local/bin/codex",
+      "Codex CLI",
+      undefined
+    );
   });
 
   it("DOES pause the process for a Claude session", async () => {

@@ -191,7 +191,9 @@ export default function ClaudeHistory() {
         activeProjectPath,
         entry.cli_session_id,
         entry.name,
-        entry.session_id
+        entry.session_id,
+        undefined,
+        entry.agent_id
       );
       if (!entry.has_stored_messages) {
         showToast("Previous messages were not saved for this session", "info");

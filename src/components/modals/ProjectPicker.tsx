@@ -13,6 +13,7 @@ import { getRecentProjects, addRecentProject, removeRecentProject } from "../../
 import { listRecentSessions } from "../../lib/tauri-commands";
 import { sessionIconFor, formatRelativeTime, projectBasename } from "../../lib/session-display";
 import type { SessionHistoryEntry } from "../../types/session";
+import type { AgentId } from "../../types/agent-events";
 
 const TAB_ITEMS: { id: ProjectPickerTab; label: string; icon: typeof LayoutGrid }[] = [
   { id: "templates", label: "Templates", icon: LayoutGrid },
@@ -29,6 +30,7 @@ interface ProjectPickerProps {
     cliSessionId: string,
     name: string,
     sessionId: string,
+    agentId: AgentId,
   ) => Promise<void> | void;
 }
 
@@ -96,6 +98,7 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
         entry.cli_session_id,
         entry.name,
         entry.session_id,
+        entry.agent_id,
       );
       setShowProjectPicker(false);
     } catch (e) {

@@ -14,6 +14,7 @@ import { useCrashRecoverySnapshot } from "./hooks/useCrashRecoverySnapshot";
 import { hydratePersistedOpenSessions } from "./lib/crash-recovery";
 import { useSelfDriveStore, type PersistedRunState } from "./stores/selfDriveStore";
 import type { ImplementationGuide } from "./types/implementation-guide";
+import type { AgentId } from "./types/agent-events";
 import { useClaudeSession } from "./hooks/useClaudeSession";
 import { useSessionStore } from "./stores/sessionStore";
 import { useUiStore } from "./stores/uiStore";
@@ -227,12 +228,13 @@ export default function App() {
     cliSessionId: string,
     name: string,
     sessionId: string,
+    agentId: AgentId,
   ): Promise<void> => {
     setError(null);
     addRecentProject(projectPath);
     useSessionStore.getState().setActiveProject(projectPath);
     cleanupOldAttachments(projectPath, 7).catch(() => {});
-    await resumeFromHistory(projectPath, cliSessionId, name, sessionId);
+    await resumeFromHistory(projectPath, cliSessionId, name, sessionId, undefined, agentId);
   };
 
   if (checking || !settingsLoaded) {

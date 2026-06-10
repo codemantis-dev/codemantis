@@ -403,7 +403,7 @@ mod tests {
         let original = Message::Request {
             id: Id::Number(42),
             method: "thread/start".into(),
-            params: json!({"cwd": "/tmp", "approvalPolicy": "onRequest"}),
+            params: json!({"cwd": "/tmp", "approvalPolicy": "on-request"}),
         };
         let line = original.to_wire_line().unwrap();
         let parsed = parse_line(&line).unwrap();

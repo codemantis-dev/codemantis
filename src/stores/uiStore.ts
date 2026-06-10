@@ -52,6 +52,13 @@ interface UiState {
   cliOverlayInitialInput: string | null;
   cliOverlaySessionId: string | null;
   cliOverlayProjectPath: string | null;
+  /** Codex-only overlay dispatch kind. `"resume-tui"` → spawn the real
+   * `codex resume <thread_id>` TUI (pauses the app-server, keystrokes the
+   * slash command, re-attaches on close) so interactive commands like
+   * `/plan` and `/model` work exactly like Claude's overlay.
+   * `"subcommand"` → the legacy one-shot `codex <name>` argv path (login,
+   * logout, …). `null` for Claude / not applicable. */
+  cliOverlayCodexMode: "subcommand" | "resume-tui" | null;
   /** Codex management panel (config / MCP / account) — replaces the broken
    * `codex config` / `codex mcp` PTY overlay path. Driven by the
    * app-server JSON-RPC methods. */
@@ -117,6 +124,7 @@ interface UiState {
   openProjectPicker: (tab: ProjectPickerTab) => void;
   setShowCliOverlay: (show: boolean) => void;
   setCliOverlayInitialInput: (input: string | null) => void;
+  setCliOverlayCodexMode: (mode: "subcommand" | "resume-tui" | null) => void;
   setCliOverlaySessionId: (id: string | null) => void;
   setCliOverlayProjectPath: (path: string | null) => void;
   openCodexPanel: (sessionId: string, tab?: "config" | "mcp" | "account") => void;
@@ -168,6 +176,7 @@ export const useUiStore = create<UiState>((set) => ({
   projectPickerTab: "templates",
   showCliOverlay: false,
   cliOverlayInitialInput: null,
+  cliOverlayCodexMode: null,
   cliOverlaySessionId: null,
   showCodexPanel: false,
   codexPanelSessionId: null,
@@ -245,8 +254,9 @@ export const useUiStore = create<UiState>((set) => ({
     })),
   setProjectPickerTab: (tab) => set({ projectPickerTab: tab }),
   openProjectPicker: (tab) => set({ showProjectPicker: true, projectPickerTab: tab }),
-  setShowCliOverlay: (show) => set({ showCliOverlay: show, ...(!show ? { cliOverlaySessionId: null, cliOverlayProjectPath: null } : {}) }),
+  setShowCliOverlay: (show) => set({ showCliOverlay: show, ...(!show ? { cliOverlaySessionId: null, cliOverlayProjectPath: null, cliOverlayCodexMode: null } : {}) }),
   setCliOverlayInitialInput: (input) => set({ cliOverlayInitialInput: input }),
+  setCliOverlayCodexMode: (mode) => set({ cliOverlayCodexMode: mode }),
   setCliOverlaySessionId: (id) => set({ cliOverlaySessionId: id }),
   setCliOverlayProjectPath: (path) => set({ cliOverlayProjectPath: path }),
   openCodexPanel: (sessionId, tab = "config") =>

@@ -262,6 +262,7 @@ describe("ProjectPicker", () => {
       name: "Old session",
       project_path: "/Users/me/legacy",
       cli_session_id: "cli-legacy",
+      agent_id: "codex",
     });
     listRecentSessionsMock.mockResolvedValueOnce([entry]);
     openPicker("resume");
@@ -269,12 +270,16 @@ describe("ProjectPicker", () => {
     await waitFor(() => expect(screen.getByText("Old session")).toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId("resume-button-sess-99"));
+    // The entry's agent_id must be forwarded so the resume re-spawns the
+    // originating agent (a Codex thread-id resumed under Claude fails with
+    // "No conversation found with session ID").
     await waitFor(() =>
       expect(onResumeSession).toHaveBeenCalledWith(
         "/Users/me/legacy",
         "cli-legacy",
         "Old session",
         "sess-99",
+        "codex",
       ),
     );
   });

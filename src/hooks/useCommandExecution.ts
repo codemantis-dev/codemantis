@@ -182,17 +182,25 @@ export function useCommandExecution(): {
   }
 
   function executeCliOnly(command: SlashCommand, args: string): void {
-    // Codex has no `config` subcommand and `codex mcp` exits without a
-    // subcommand — route config/MCP to the resilient JSON-RPC panel
-    // instead of a broken PTY overlay. Other Codex subcommands (login,
-    // logout, fork, …) and all Claude commands keep the PTY overlay.
     const sessionStore = useSessionStore.getState();
     const sessionId = sessionStore.activeSessionId;
     const session = sessionId ? sessionStore.sessions.get(sessionId) : undefined;
     const isCodex = session?.agent_id === "codex";
-    if (isCodex && sessionId && (command.name === "config" || command.name === "mcp")) {
-      useUiStore.getState().openCodexPanel(sessionId, command.name === "mcp" ? "mcp" : "config");
-      return;
+
+    // Codex routes a slash command to one of three surfaces; Claude always
+    // uses the PTY overlay (resume-tui semantics are Codex-only state).
+    if (isCodex && sessionId) {
+      const kind = codexDispatchKind(command.name);
+      if (kind === "panel") {
+        // `codex config` is not a real subcommand and `codex mcp` exits
+        // without one — the resilient JSON-RPC management panel replaces a
+        // broken PTY overlay for both.
+        useUiStore.getState().openCodexPanel(sessionId, command.name === "mcp" ? "mcp" : "config");
+        return;
+      }
+      // "resume-tui" → real `codex resume <thread_id>` TUI (interactive
+      // commands like /plan, /model). "subcommand" → one-shot `codex <name>`.
+      useUiStore.getState().setCliOverlayCodexMode(kind);
     }
 
     const fullInput = "/" + command.name + (args ? " " + args : "");
@@ -201,6 +209,33 @@ export function useCommandExecution(): {
   }
 
   return { executeCommand, isExecuting };
+}
+
+/**
+ * Codex slash commands split across three overlay surfaces:
+ *   - `panel`      → CodexManagementPanel (config / MCP / account via JSON-RPC)
+ *   - `resume-tui` → real `codex resume <thread_id>` TUI (interactive commands
+ *                    that only exist inside Codex's TUI — verified on cli
+ *                    0.139.0 to have no app-server JSON-RPC equivalent)
+ *   - `subcommand` → legacy one-shot `codex <name>` argv (login, logout, …)
+ *
+ * Anything not explicitly classified falls back to `subcommand` — the safe
+ * legacy path. Exported for unit testing.
+ */
+export function codexDispatchKind(name: string): "panel" | "resume-tui" | "subcommand" {
+  if (name === "config" || name === "mcp") return "panel";
+  // Interactive TUI-only commands. `codex resume <thread_id>` lands the
+  // user in the real TUI where these all work; we keystroke `/<name>` in.
+  const RESUME_TUI = new Set([
+    "plan",
+    "model",
+    "approvals",
+    "review",
+    "status",
+    "diff",
+  ]);
+  if (RESUME_TUI.has(name)) return "resume-tui";
+  return "subcommand";
 }
 
 function addSystemMessage(sessionId: string, content: string): void {

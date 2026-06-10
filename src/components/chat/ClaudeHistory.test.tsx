@@ -101,8 +101,11 @@ describe("ClaudeHistory", () => {
     });
   });
 
-  it("calls resumeFromHistory when Resume button is clicked", async () => {
-    const entry = makeHistoryEntry({ cli_session_id: "cli-1", name: "My Session" });
+  it("calls resumeFromHistory when Resume button is clicked, forwarding the entry's agent", async () => {
+    // Regression: the entry's agent_id must be threaded through so a Codex
+    // session resumes under Codex (its cli_session_id is a Codex thread id —
+    // resuming it under Claude fails with "No conversation found with session ID").
+    const entry = makeHistoryEntry({ cli_session_id: "cli-1", name: "My Session", agent_id: "codex" });
     mockListSessionHistory.mockResolvedValue([entry]);
     mockResumeFromHistory.mockResolvedValue(undefined);
 
@@ -120,6 +123,8 @@ describe("ClaudeHistory", () => {
         "cli-1",
         "My Session",
         "s1",
+        undefined,
+        "codex",
       );
     });
   });

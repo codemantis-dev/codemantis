@@ -242,31 +242,46 @@ fn builtin_commands() -> Vec<SlashCommand> {
 }
 
 /// v1.5.0 — Codex equivalents of `cli_only_commands` (Claude). Verified
-/// against `codex --help` on cli 0.137.0.
+/// against `codex --help` / `codex resume --help` on cli 0.139.0.
 ///
-/// Two dispatch paths (the frontend `useCommandExecution.executeCliOnly`
-/// branches on agent + name):
+/// Three dispatch paths (the frontend `useCommandExecution.codexDispatchKind`
+/// branches on name):
 ///   * `config` and `mcp` open the **CodexManagementPanel** — driven by
 ///     the app-server JSON-RPC config/MCP methods. (`codex config` is not
 ///     a real subcommand — it forwards to the interactive TUI — and
 ///     `codex mcp` exits without a subcommand, so a PTY overlay was
 ///     broken for both.)
+///   * The interactive set (`plan`, `model`, `approvals`, `review`,
+///     `status`, `diff`) open `CliOverlay` in **resume-tui** mode:
+///     it spawns `codex resume <thread_id>` (the real TUI) and keystrokes
+///     `/<name>` in. These are TUI-only slash commands with no app-server
+///     JSON-RPC equivalent on 0.139.0 (notably `/plan` — collaborationMode
+///     is read-only state, not a settable param), so the TUI is the only
+///     way to reach them — the exact analog of Claude's `--resume` overlay.
 ///   * Everything else opens `CliOverlay` and spawns `codex <name>` in a
-///     PTY (genuinely interactive / one-shot subcommands).
+///     PTY (one-shot subcommands: login, logout, …).
 ///
-/// Missing entries: `exec` / `review` / `debug` / `mcp-server` /
-/// `app-server` / `remote-control` / `cloud` / `exec-server` /
-/// `completion` — non-interactive or protocol modes that don't belong in
-/// the user-facing palette.
+/// Missing entries: `exec` / `debug` / `mcp-server` / `app-server` /
+/// `remote-control` / `cloud` / `exec-server` / `completion` —
+/// non-interactive or protocol modes that don't belong in the palette.
 fn codex_cli_only_commands() -> Vec<SlashCommand> {
     let cli_only = [
+        // Interactive TUI commands (resume-tui dispatch).
+        ("plan", "Switch to Plan mode"),
+        ("model", "Select model and reasoning effort"),
+        ("approvals", "Adjust the approval policy"),
+        ("review", "Review your working-tree changes"),
+        ("status", "Show model, approvals, and token usage"),
+        ("diff", "Show the working-tree git diff"),
+        // Management panel (panel dispatch).
         ("config", "Configure Codex (settings, MCP, account)"),
+        ("mcp", "Manage external MCP servers"),
+        // One-shot subcommands (subcommand dispatch).
         ("apply", "Apply the latest diff to your working tree"),
         ("features", "Inspect feature flags"),
         ("fork", "Fork a previous interactive session"),
         ("login", "Manage Codex login"),
         ("logout", "Sign out of Codex"),
-        ("mcp", "Manage external MCP servers"),
         ("plugin", "Manage Codex plugins"),
         ("resume", "Resume a previous interactive session"),
         ("sandbox", "Run a command in the Codex sandbox"),
@@ -815,17 +830,47 @@ mod tests {
     }
 
     #[test]
+    fn codex_cli_only_commands_contains_interactive_tui_set() {
+        // The resume-tui dispatch set — interactive Codex slash commands
+        // with no app-server JSON-RPC equivalent on 0.139.0 (notably
+        // `/plan`). They must be in the palette so the frontend can open
+        // `codex resume <thread_id>` and keystroke `/<name>` in. Mirrors
+        // `codexDispatchKind`'s RESUME_TUI set in useCommandExecution.ts.
+        let cmds = codex_cli_only_commands();
+        let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
+        for n in ["plan", "model", "approvals", "review", "status", "diff"] {
+            assert!(names.contains(&n), "missing interactive command /{n}");
+        }
+    }
+
+    #[test]
     fn codex_cli_only_commands_excludes_non_interactive_subcommands() {
-        // exec / review / debug / mcp-server / app-server etc. are
-        // non-interactive or protocol modes — surfacing them in the
-        // user-facing palette would be misleading.
+        // exec / debug / mcp-server / app-server etc. are non-interactive
+        // or protocol modes — surfacing them in the user-facing palette
+        // would be misleading. (`review` IS surfaced — it's an interactive
+        // TUI slash command, see the interactive-set test above.)
         let cmds = codex_cli_only_commands();
         let names: Vec<&str> = cmds.iter().map(|c| c.name.as_str()).collect();
         assert!(!names.contains(&"exec"));
-        assert!(!names.contains(&"review"));
         assert!(!names.contains(&"debug"));
         assert!(!names.contains(&"mcp-server"));
         assert!(!names.contains(&"app-server"));
+    }
+
+    #[test]
+    fn codex_cli_only_commands_have_no_builtin_name_collisions() {
+        // discover_commands extends built-ins AND codex cli-only without a
+        // cross-category dedup, so a shared name would double-list in the
+        // palette. Guard against it.
+        let builtins: Vec<String> =
+            builtin_commands().iter().map(|c| c.name.clone()).collect();
+        for cmd in codex_cli_only_commands() {
+            assert!(
+                !builtins.contains(&cmd.name),
+                "/{} collides with a built-in",
+                cmd.name
+            );
+        }
     }
 
     #[test]

@@ -36,6 +36,11 @@ export default function CliOverlay() {
   const closingRef = useRef(false);
   const terminalIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  // Whether the open flow paused (shut down) the session's CLI process, so
+  // the close flow knows it must resume it. True for Claude always, and for
+  // Codex in resume-tui mode (where the app-server is torn down so the real
+  // `codex resume` TUI owns the rollout file exclusively).
+  const pausedRef = useRef(false);
 
   // For main sessions: look up from sessionStore. For assistants: use explicit project path + assistant store.
   const mainSession = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
@@ -54,7 +59,7 @@ export default function CliOverlay() {
   const binaryPath = isCodex ? codexBinaryPath : claudeBinaryPath;
   const overlayTitle = isCodex ? "Codex CLI" : "Claude CLI";
   const overlayHint = isCodex
-    ? "— /login, /logout, /plugin, /resume  (config & MCP: Codex panel)"
+    ? "— /plan, /model, /approvals, /review  ·  /login, /logout  (config & MCP: Codex panel)"
     : "— /model, /config, /doctor, /help";
 
   // Open flow: pause stream-json → spawn interactive CLI → user interacts
@@ -66,38 +71,57 @@ export default function CliOverlay() {
     setLoading(true);
     setError(null);
 
+    // Codex resume-tui mode → spawn the real `codex resume <thread_id>` TUI,
+    // exactly like Claude's overlay. Requires tearing down the app-server so
+    // the TUI owns the rollout file. Any other Codex command is a one-shot
+    // subcommand (`codex login`, …) that doesn't touch the running thread.
+    const codexResumeTui =
+      isCodex && useUiStore.getState().cliOverlayCodexMode === "resume-tui";
+
     const openOverlay = async () => {
       try {
-        // Step 1: Pause the stream-json process — Claude ONLY. Claude's
-        // overlay runs `claude --resume` (a second instance of the same
-        // CLI), so the stream-json process must be paused first. Codex's
-        // management subcommands (`codex login`, etc.) are independent
-        // processes that don't touch the running app-server, so we keep it
-        // ALIVE. Killing it here is exactly what made closing the overlay
-        // call `thread/resume` → "no rollout found" → dead session.
-        if (!isCodex) {
+        // Step 1: Pause (shut down) the session's CLI process when the
+        // overlay will run a SECOND instance against the same conversation:
+        //   • Claude → always (`claude --resume`).
+        //   • Codex resume-tui → `codex resume <thread_id>` must own the
+        //     rollout file exclusively; the app-server is re-attached on
+        //     close via `thread/resume` (→ `thread/start` fallback).
+        // Codex one-shot subcommands (`codex login`, etc.) are independent
+        // processes that don't touch the thread, so we keep the app-server
+        // ALIVE — killing it there is what made closing call `thread/resume`
+        // → "no rollout found" → dead session.
+        if (!isCodex || codexResumeTui) {
           await pauseSessionProcess(activeSessionId);
+          pausedRef.current = true;
         }
 
         if (cancelled) return;
 
-        // Step 2: Build args for the interactive CLI. Two protocols:
+        // Step 2: Build args for the interactive CLI. Three protocols:
         //   • Claude → bare CLI with `--resume <cli_session_id>` so the
-        //     user lands in the conversation they were having. The
-        //     initial slash command (e.g. /config) is sent as
-        //     keystrokes via Claude's TUI slash-command grammar.
-        //   • Codex → subcommands are top-level argv (e.g. `codex
-        //     login`, `codex mcp`), NOT TUI slash commands. We parse
-        //     the initialInput (e.g. "/login") into argv and DON'T
-        //     send keystrokes — argv carries the intent. With no
-        //     initialInput we spawn bare `codex` (interactive TUI).
-        //     Resume isn't argv-friendly here: `codex resume` opens a
-        //     picker that needs user choice anyway, so we let the user
-        //     pick or invoke their subcommand directly.
+        //     user lands in the conversation they were having. The initial
+        //     slash command (e.g. /config) is sent as keystrokes via
+        //     Claude's TUI slash-command grammar.
+        //   • Codex resume-tui → `codex resume <thread_id>` lands directly
+        //     in the thread's real TUI (no picker), and the slash command
+        //     (e.g. /plan) is keystroked in — the exact analog of Claude.
+        //   • Codex subcommand → subcommands are top-level argv (e.g.
+        //     `codex login`), NOT TUI slash commands. We parse the
+        //     initialInput (e.g. "/login") into argv and DON'T keystroke —
+        //     argv carries the intent. No initialInput → bare `codex`.
         const initialInput = useUiStore.getState().cliOverlayInitialInput;
         const termArgs: string[] = [];
         let consumedInitialInput = false;
-        if (isCodex) {
+        if (codexResumeTui) {
+          // Real interactive TUI resumed into the current thread — the exact
+          // analog of Claude's `--resume`. `codex resume <SESSION_ID>` opens
+          // the thread directly (no picker; verified on cli 0.139.0). The
+          // slash command (e.g. /plan) flows through keystrokes below, just
+          // like Claude. With no thread id yet, fall back to bare `codex`.
+          if (cliSessionId) {
+            termArgs.push("resume", cliSessionId);
+          }
+        } else if (isCodex) {
           if (initialInput) {
             // "/login" → ["login"], "/mcp list" → ["mcp", "list"]
             const stripped = initialInput.replace(/^\//, "").trim();
@@ -146,12 +170,15 @@ export default function CliOverlay() {
         // initial input via argv above so this branch only fires for
         // the Claude path.
         if (initialInput && !consumedInitialInput) {
+          // Codex's TUI has to load+render the resumed thread before it
+          // accepts input, so give it more headroom than Claude.
+          const inputDelay = codexResumeTui ? 1200 : 800;
           setTimeout(() => {
             sendTerminalInput(info.id, initialInput + "\n").catch((e) =>
               console.error("[cli-overlay] Failed to send initial input:", e)
             );
             useUiStore.getState().setCliOverlayInitialInput(null);
-          }, 800);
+          }, inputDelay);
         } else if (consumedInitialInput) {
           // Codex consumed argv — clear the staged input so it doesn't
           // re-fire on the next overlay open.
@@ -162,10 +189,12 @@ export default function CliOverlay() {
           console.error("[cli-overlay] Failed to open:", e);
           setError(String(e));
           setLoading(false);
-          // Try to resume the stream-json process so session isn't stuck —
-          // Claude only (we never paused Codex, so there's nothing to
-          // resume, and resuming would risk the "no rollout" failure).
-          if (!isCodex) {
+          // Try to resume the CLI process so the session isn't left stuck —
+          // but ONLY if we actually paused it. For a Codex one-shot
+          // subcommand we never paused, and resuming would risk the "no
+          // rollout" failure.
+          if (pausedRef.current) {
+            pausedRef.current = false;
             resumeSessionProcess(activeSessionId, cliSessionId ?? undefined).catch((re) =>
               console.error("[cli-overlay] Failed to recover session:", re)
             );
@@ -188,10 +217,11 @@ export default function CliOverlay() {
 
     const tid = terminalIdRef.current;
     const sid = sessionIdRef.current;
-    // Resolve the agent from the store at close time (sessionIdRef may
-    // outlive the component's `isCodex`). Codex never paused → never resume.
-    const sidIsCodex =
-      useSessionStore.getState().sessions.get(sid ?? "")?.agent_id === "codex";
+    // Resume only if the open flow actually paused the CLI process (Claude
+    // always; Codex only in resume-tui mode). A one-shot Codex subcommand
+    // never paused, so resuming would risk the "no rollout" failure.
+    const didPause = pausedRef.current;
+    pausedRef.current = false;
     const currentCliSessionId =
       useSessionStore.getState().sessions.get(sid ?? "")?.cli_session_id
       ?? useAssistantStore.getState().cliSessionIds.get(sid ?? "");
@@ -208,11 +238,12 @@ export default function CliOverlay() {
         useTerminalStore.getState().removeTerminal(sid, tid);
       }
 
-      // Step 2: Resume the stream-json process — Claude ONLY. The Codex
-      // app-server was never paused (see open flow), so there is nothing
-      // to resume; calling resume here is what previously triggered
-      // `thread/resume` → "no rollout found" → dead session.
-      if (sid && !sidIsCodex) {
+      // Step 2: Resume the CLI process if we paused it. For Codex resume-tui
+      // this re-attaches via `thread/resume` (→ `thread/start` fallback),
+      // picking up any state the TUI persisted to the rollout (model swap,
+      // plan, etc.). A one-shot Codex subcommand never paused → skip, since
+      // resuming would trigger `thread/resume` → "no rollout found".
+      if (sid && didPause) {
         await resumeSessionProcess(sid, currentCliSessionId ?? undefined);
       }
     } catch (e) {

@@ -286,4 +286,29 @@ describe("uiStore", () => {
       expect(s.pendingPlanSessionId).toBeNull();
     });
   });
+
+  describe("cliOverlayCodexMode", () => {
+    it("defaults to null", () => {
+      expect(useUiStore.getState().cliOverlayCodexMode).toBeNull();
+    });
+
+    it("setCliOverlayCodexMode stores the dispatch kind", () => {
+      useUiStore.getState().setCliOverlayCodexMode("resume-tui");
+      expect(useUiStore.getState().cliOverlayCodexMode).toBe("resume-tui");
+      useUiStore.getState().setCliOverlayCodexMode("subcommand");
+      expect(useUiStore.getState().cliOverlayCodexMode).toBe("subcommand");
+    });
+
+    it("is reset to null when the overlay is hidden", () => {
+      useUiStore.setState({ cliOverlayCodexMode: "resume-tui" });
+      useUiStore.getState().setShowCliOverlay(false);
+      expect(useUiStore.getState().cliOverlayCodexMode).toBeNull();
+    });
+
+    it("is preserved while the overlay is shown", () => {
+      useUiStore.getState().setCliOverlayCodexMode("resume-tui");
+      useUiStore.getState().setShowCliOverlay(true);
+      expect(useUiStore.getState().cliOverlayCodexMode).toBe("resume-tui");
+    });
+  });
 });
