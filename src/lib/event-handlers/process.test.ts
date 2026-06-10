@@ -126,6 +126,33 @@ describe("handleProcessError", () => {
     expect(getStore().sessionBusy.get(SESSION_ID)).toBe(false);
   });
 
+  it("clears the compacting flag on error (no stuck 'Compacting' status)", () => {
+    // Regression: a Codex turn can die mid-compaction ("remote compact task:
+    // stream disconnected before completion"). compacting is otherwise only
+    // cleared by compact_complete, which never arrives on failure — so the
+    // status bar (where compacting outranks busy/idle) would stick on
+    // "Compacting" forever.
+    const store = getStore();
+    store.setSessionCompacting(SESSION_ID, true);
+    store.setSessionBusy(SESSION_ID, true);
+    expect(getStore().sessionCompacting.get(SESSION_ID)).toBe(true);
+
+    const event: ProcessErrorEvent = {
+      type: "process_error",
+      session_id: SESSION_ID,
+      error: "Error running remote compact task: stream disconnected before completion: error decoding response body",
+    };
+
+    handleProcessError(SESSION_ID, event, getStore(), NOW);
+
+    expect(getStore().sessionCompacting.get(SESSION_ID)).toBe(false);
+    expect(getStore().sessionBusy.get(SESSION_ID)).toBe(false);
+    // And the failure is surfaced with non-looping guidance, not the generic
+    // "try again" that perpetuates the compaction loop.
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    expect(messages[messages.length - 1].content).toContain("Context compaction failed");
+  });
+
   it("handles error when session is not streaming", () => {
     // Session is NOT streaming — finalizeStreaming should NOT be called
     const store = getStore();

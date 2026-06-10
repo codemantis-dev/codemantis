@@ -684,13 +684,34 @@ impl Translator {
             }
 
             "contextCompaction" => {
-                let pre_tokens = item.get("preTokens").and_then(|v| v.as_u64());
-                vec![NormalizedEvent::CompactComplete {
-                    agent_id: AgentId::Codex,
-                    session_id: self.session_id.clone(),
-                    trigger: "auto".to_string(),
-                    pre_tokens,
-                }]
+                // Respect the item's terminal status. A compaction can complete
+                // as `failed`/`incomplete` (e.g. the server-side summarisation
+                // stream dropped). Treating that as success would falsely toast
+                // "compaction complete" AND clear the compacting flag without a
+                // real reply — and a failed compaction doesn't shrink context,
+                // so the next turn re-attempts it (the deadlock loop). Route
+                // failures through ProcessError so they hit the same handling as
+                // the error-notification path: the frontend's compaction-failure
+                // card (`error-messages.ts`) + the compacting-flag reset in
+                // `handleProcessError`. The message text deliberately contains
+                // "compact"/"failed" so that catalog rule matches.
+                if status == "completed" {
+                    let pre_tokens = item.get("preTokens").and_then(|v| v.as_u64());
+                    vec![NormalizedEvent::CompactComplete {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        trigger: "auto".to_string(),
+                        pre_tokens,
+                    }]
+                } else {
+                    vec![NormalizedEvent::ProcessError {
+                        agent_id: AgentId::Codex,
+                        session_id: self.session_id.clone(),
+                        error: format!(
+                            "Context compaction failed (Codex reported status: {status})"
+                        ),
+                    }]
+                }
             }
 
             // ── v1.4.0 ThreadItem completions ──
@@ -1596,6 +1617,32 @@ mod tests {
                 assert_eq!(*pre_tokens, Some(1234));
             }
             other => panic!("got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn context_compaction_failed_emits_process_error_not_false_complete() {
+        // Regression: a contextCompaction item that completes with a non-success
+        // status must NOT masquerade as a successful CompactComplete (which would
+        // falsely toast "compaction complete" and clear the compacting flag
+        // without a real reply). It must surface as a ProcessError so the
+        // frontend shows the compaction-failure card and resets the flag.
+        let t = translator();
+        let events = t
+            .on_notification(
+                "item/completed",
+                json!({"item": {"type": "contextCompaction", "id": "i_cc", "status": "failed"}}),
+            )
+            .await;
+        match &events[0] {
+            NormalizedEvent::ProcessError { error, .. } => {
+                // Message must match the frontend's compaction-failure catalog
+                // rule (`compact` + `failed`).
+                let lower = error.to_lowercase();
+                assert!(lower.contains("compact"), "got {error:?}");
+                assert!(lower.contains("failed"), "got {error:?}");
+            }
+            other => panic!("expected ProcessError, got {:?}", other),
         }
     }
 

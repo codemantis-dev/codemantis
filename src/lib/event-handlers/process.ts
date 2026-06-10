@@ -12,6 +12,13 @@ type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
 
 export function handleProcessError(sessionId: string, event: ProcessErrorEvent, store: SessionStoreState, now: string): void {
   store.setSessionBusy(sessionId, false);
+  // A turn can die mid-compaction (e.g. Codex's "remote compact task: stream
+  // disconnected before completion"). The compacting flag is otherwise ONLY
+  // cleared by a `compact_complete` event, which never arrives on failure —
+  // so without this the status bar sticks on "Compacting" forever (it takes
+  // priority over busy/idle in SessionStatusBar) even though nothing is
+  // running. Always clear it on a terminal error.
+  store.setSessionCompacting(sessionId, false);
   const streaming = store.sessionStreaming.get(sessionId);
   if (streaming?.isStreaming) {
     store.finalizeStreaming(sessionId);

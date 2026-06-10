@@ -264,6 +264,24 @@ describe("translateError — outdated Claude CLI", () => {
   });
 });
 
+describe("translateError — Codex context compaction failure", () => {
+  it("maps the 'remote compact task: stream disconnected' error to non-looping guidance", () => {
+    const raw =
+      "Error running remote compact task: stream disconnected before completion: error decoding response body";
+    const result = translateError(raw);
+    expect(result.title).toBe("Context compaction failed");
+    // Must NOT be the generic "Try again, or restart CodeMantis" — that
+    // guidance perpetuates the compaction loop.
+    expect(result.remediation).toContain("new session");
+    expect(result.remediation).not.toContain("restart CodeMantis");
+  });
+
+  it("wins over the generic fallback for a bare compaction-failed string", () => {
+    const result = translateError("context compaction failed");
+    expect(result.title).toBe("Context compaction failed");
+  });
+});
+
 describe("formatErrorAsMarkdown", () => {
   it("formats with title, message, and remediation", () => {
     const md = formatErrorAsMarkdown({
