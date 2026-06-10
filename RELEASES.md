@@ -1,5 +1,23 @@
 # CodeMantis Releases
 
+## 1.7.0 — Codex interactive TUI slash commands
+
+The headline of this release brings **Codex's interactive, TUI-only slash commands into CodeMantis** for the first time, plus a round of Codex resume/recovery hardening against the **Codex CLI 0.139.0** app-server protocol.
+
+### What's new
+
+**Interactive Codex TUI commands via a resume overlay.** Codex's TUI-only commands — `/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff` — were previously unreachable from CodeMantis because they only exist inside the real Codex terminal UI. They now open the **real Codex TUI resumed into your current conversation** (`codex resume <thread_id>`) with the command typed in for you. This is the exact analog of Claude's `--resume` overlay, and it's the only way to enter Plan mode or switch model/effort on a Codex session. `/config` and `/mcp` continue to open the in-app Codex Management Panel; every other Codex command (`/login`, `/logout`, `/apply`, `/sandbox`, …) runs as a one-shot subcommand with the app-server kept alive.
+
+### Fixes & hardening
+
+- **Codex resume reliability** — correct thread-id resume, bounded interrupt handling, and stuck-session recovery (with a "stuck activity" banner that surfaces and helps unblock a wedged turn).
+- **Context-compaction resilience** — Codex context-compaction failures no longer loop; they surface a clear error and recover instead of spinning.
+- **Codex app-server protocol sync** — the committed app-server JSON-schema bundle is regenerated against **CLI 0.139.0** (new `ThreadResumeParams`/`TurnStartParams` shapes, plugin/account/moderation notifications, token-usage response), keeping the drift guard green.
+
+### Internal
+
+- Test isolation fix for the file-viewer auto-open suite; expanded coverage across the Codex resume overlay, CLI overlay, command execution, and error-message paths.
+
 ## 1.6.0 — Recall (project & cross-project memory layer)
 
 **Recall** is CodeMantis's memory layer for coding agents. It sits *around* the dev-agent invocation and does two things automatically on every turn: **before** the prompt sends, it composes a focused brief from the project's accumulated knowledge (the Enricher); **after** the dev agent's work lands in a commit, it harvests one atomic memory note from the diff (the Harvester). The substrate is plain Markdown with `[[wikilinks]]` at `<project>/.recall/`, openable directly in Obsidian.
