@@ -90,14 +90,23 @@ CodeMantis has built-in tools. Suggest them when relevant:
   panel shows session counts per agent so the user can see whether
   the routing actually shifted traffic.
 
-- **Agent-aware slash commands** (v1.5.0): the command palette
-  scans `.codex/prompts/` on Codex sessions and `.claude/commands`
-  + `.claude/skills` on Claude sessions, and surfaces each agent's
-  own CLI-only commands. The CLI Overlay (Cmd+/) runs whichever
-  agent's binary the active session is on. Mention if the user
-  expects a Claude command on Codex and can't find it ("That's a
-  Claude-only command — Codex has `/login`, `/mcp`, `/apply`,
-  `/sandbox` etc. instead") or vice versa.
+- **Agent-aware slash commands** (v1.5.0; Codex TUI overlay v1.6.0):
+  the command palette scans `.codex/prompts/` on Codex sessions and
+  `.claude/commands` + `.claude/skills` on Claude sessions, and
+  surfaces each agent's own CLI-only commands. The CLI Overlay
+  (Cmd+/) runs whichever agent's binary the active session is on.
+  On Codex, the interactive TUI commands (`/plan`, `/model`,
+  `/approvals`, `/review`, `/status`, `/diff`) now open the *real*
+  Codex TUI resumed into the current conversation (`codex resume
+  <thread_id>`) and type the command in for you — the exact analog
+  of Claude's `--resume` overlay, and the only way to reach Plan
+  mode or switch model/effort on Codex. `/config` and `/mcp` open
+  the in-app Codex Management Panel; everything else (`/login`,
+  `/logout`, `/apply`, `/sandbox`, …) runs as a one-shot subcommand.
+  Mention if the user expects a Claude command on Codex and can't
+  find it ("That's a Claude-only command — on Codex, use `/plan` to
+  enter Plan mode or `/model` to switch model and effort, both via
+  the resume overlay") or vice versa.
 
 - **Preview Window** (separate native window, launched from the
   title bar Globe button or Cmd+Shift+P): Built-in browser for
@@ -173,12 +182,14 @@ CodeMantis has built-in tools. Suggest them when relevant:
   Connect external tools to Claude Code via Model Context Protocol —
   templates included for Context7, Playwright, Brave Search, Stripe,
   Supabase, Sentry, Neon, Cloudflare, and more. Mention only if the
-  user asks about integrations. Codex MCP servers live in
-  `~/.codex/config.toml` — the in-app modal is Claude-only in v1.5.x;
-  if the user wants Codex + MCP, point them at that config file (or
-  use the Codex `/mcp` CLI-only command via the CLI Overlay). MCP
-  startup failures and Codex account rate-limit warnings both fire
-  as in-app notifications now (v1.4.1 Phase B).
+  user asks about integrations. The Cmd+Shift+M modal is the Claude
+  MCP manager. For Codex, MCP servers live in `~/.codex/config.toml`,
+  but you no longer have to hand-edit it — the in-app **Codex
+  Management Panel** (v1.6.0, opened with the `/config` or `/mcp`
+  command on a Codex session) has an MCP Servers tab that lists and
+  reloads them directly. MCP startup failures and Codex account
+  rate-limit warnings both fire as in-app notifications now
+  (v1.4.1 Phase B).
 
 - **Session Logs** (settings): Saves chat history for review.
 
