@@ -135,6 +135,14 @@ describe("event-classifier: auto-open on Write/Edit", () => {
       is_error: false,
     });
 
+    // Auto-open is ON here, so this Edit fires a fire-and-forget
+    // import()→readFileContent()→openFile() chain. Await it so the open for
+    // /src/lib.ts lands inside THIS test and the next beforeEach reset clears
+    // it — otherwise it leaks asynchronously into a later test's window (it
+    // was racing the "autoOpenFiles OFF" assertion and flaking it).
+    await vi.dynamicImportSettled();
+    await new Promise((r) => setTimeout(r, 50));
+
     const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
     expect(entry.status).toBe("done");
     expect(entry.toolName).toBe("Edit");

@@ -9,7 +9,7 @@
     "turnId"
   ],
   "properties": {
-    "turnId": {
+    "threadId": {
       "type": "string"
     },
     "approvalId": {
@@ -19,7 +19,7 @@
         "null"
       ]
     },
-    "threadId": {
+    "turnId": {
       "type": "string"
     },
     "command": {

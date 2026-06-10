@@ -1,7 +1,7 @@
 # Codex app-server protocol — empirical schemas
 
-> **Generated against `codex-cli 0.137.0` (verified 2026-06-08).**
-> Previous baseline: 0.130.0. Re-generate + commit on every Codex bump
+> **Generated against `codex-cli 0.139.0` (verified 2026-06-10).**
+> Previous baseline: 0.137.0. Re-generate + commit on every Codex bump
 > (`codex_schema_drift.rs` flags drift: breaking = fatal, additive = warn,
 > all-fatal on the release gate with `CM_REQUIRE_CODEX=1`).
 

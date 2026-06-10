@@ -17,6 +17,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { Session, SessionHistoryEntry } from "../../types/session";
+import type { AgentId } from "../../types/agent-events";
 
 // Hoisted mocks for module factory closure access.
 const { createSessionMock, listRecentSessionsMock, loadSessionMessagesMock } = vi.hoisted(() => ({
@@ -87,11 +88,16 @@ function PickerHarness(): React.ReactElement {
     cliSessionId: string,
     name: string,
     sessionId: string,
+    agentId: AgentId,
   ): Promise<void> => {
     const { addRecentProject } = await import("../../lib/recent-projects");
     addRecentProject(projectPath);
     useSessionStore.getState().setActiveProject(projectPath);
-    await resumeFromHistory(projectPath, cliSessionId, name, sessionId);
+    // Thread `agentId` exactly as App.tsx does — `cliSessionId` is an
+    // agent-specific resume token, so the agent must be re-spawned to match
+    // (see project_resume_agent_id_footgun: a missing agent defaults to
+    // ClaudeCode and mis-routes a Codex resume).
+    await resumeFromHistory(projectPath, cliSessionId, name, sessionId, undefined, agentId);
   };
 
   return (
@@ -171,12 +177,15 @@ describe("Resume Session from Open Project modal — integration", () => {
 
     fireEvent.click(screen.getByTestId("resume-button-old-sess-B"));
 
-    // resumeFromHistory eventually calls createSession with the resume cli id.
+    // resumeFromHistory eventually calls createSession with the resume cli id
+    // AND the row's agent_id — the agent must be threaded so a Codex thread-id
+    // isn't mis-routed to a default ClaudeCode process.
     await waitFor(() =>
       expect(createSessionMock).toHaveBeenCalledWith(
         "/Users/me/proj-B",
         expect.any(String),
         "cli-B",
+        "claude_code",
       ),
     );
 
@@ -197,6 +206,37 @@ describe("Resume Session from Open Project modal — integration", () => {
 
     // Modal closes after success.
     await waitFor(() => expect(useUiStore.getState().showProjectPicker).toBe(false));
+
+    cleanup();
+  });
+
+  it("resuming a Codex row threads agent_id='codex' so the thread-id isn't mis-routed to ClaudeCode", async () => {
+    // Regression guard for project_resume_agent_id_footgun: a Codex resume
+    // token (a thread id) MUST re-spawn a Codex process. If agent_id is
+    // dropped, Rust create_session defaults to ClaudeCode and rejects the
+    // thread id with "No conversation found with session ID".
+    const codexRow = makeEntry({
+      session_id: "old-sess-CX",
+      name: "Old Codex session",
+      project_path: "/Users/me/proj-CX",
+      cli_session_id: "thr-codex-1",
+      agent_id: "codex",
+    });
+    listRecentSessionsMock.mockResolvedValueOnce([codexRow]);
+
+    render(<PickerHarness />);
+    await waitFor(() => expect(screen.getByText("Old Codex session")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("resume-button-old-sess-CX"));
+
+    await waitFor(() =>
+      expect(createSessionMock).toHaveBeenCalledWith(
+        "/Users/me/proj-CX",
+        expect.any(String),
+        "thr-codex-1",
+        "codex",
+      ),
+    );
 
     cleanup();
   });
