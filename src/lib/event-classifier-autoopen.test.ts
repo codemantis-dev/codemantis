@@ -135,6 +135,11 @@ describe("event-classifier: auto-open on Write/Edit", () => {
       is_error: false,
     });
 
+    // Edit triggers an async auto-open; settle it inside this test so the
+    // dangling promise can't leak into a later test after beforeEach resets.
+    await vi.dynamicImportSettled();
+    await new Promise((r) => setTimeout(r, 50));
+
     const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
     expect(entry.status).toBe("done");
     expect(entry.toolName).toBe("Edit");
