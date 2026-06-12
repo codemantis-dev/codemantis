@@ -234,6 +234,24 @@ describe("useClaudeSession", () => {
     );
   });
 
+  it("addSessionToProject forwards the agent override to createSession", async () => {
+    useSessionStore.setState({ activeProjectPath: PROJECT_PATH });
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.addSessionToProject(undefined, "codex");
+    });
+
+    // The chosen agent must reach create_session verbatim — it stamps the
+    // adapter the session is locked to for its lifetime.
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      undefined,
+      undefined,
+      "codex",
+    );
+  });
+
   it("sendMessage adds user message and calls backend", async () => {
     // Add session to store first
     useSessionStore.getState().addSession(makeSession("s1"));

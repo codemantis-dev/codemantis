@@ -262,7 +262,7 @@ export default function AppShell() {
         />
       )}
       <SessionSubTabs
-        onAddSession={addSessionToProject}
+        onAddSession={(agentOverride) => addSessionToProject(undefined, agentOverride)}
         onCloseSession={handleCloseSession}
         onRenameSession={renameSession}
       />

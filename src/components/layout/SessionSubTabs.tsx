@@ -1,8 +1,105 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Plus, X, ScrollText, History } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import StatusDot from "../shared/StatusDot";
+import type { AgentId } from "../../types/agent-events";
+
+const AGENT_LABEL: Record<AgentId, string> = {
+  claude_code: "Claude Code",
+  codex: "OpenAI Codex",
+};
+
+// Display order in the agent picker menu.
+const AGENT_ORDER: AgentId[] = ["claude_code", "codex"];
+
+/**
+ * The "+" new-session control. When BOTH coding agents are installed it
+ * opens a small menu so the user can pick which agent the next session
+ * runs on (sessions are locked to their agent for life — spec §3.4). When
+ * only one (or neither) agent is installed the per-task resolver already
+ * has just one viable choice, so we keep the original one-click behaviour.
+ */
+function AddSessionButton({
+  onAddSession,
+}: {
+  onAddSession: (agentOverride?: AgentId) => void;
+}) {
+  const agentInstall = useUiStore((s) => s.agentInstall);
+  const setSelectedAgentId = useUiStore((s) => s.setSelectedAgentId);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const bothInstalled = agentInstall.claude_code && agentInstall.codex;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent): void => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  if (!bothInstalled) {
+    return (
+      <button
+        onClick={() => onAddSession()}
+        title="New session in this project"
+        className="mx-1 p-1 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors shrink-0"
+      >
+        <Plus size={13} />
+      </button>
+    );
+  }
+
+  const pick = (agent: AgentId): void => {
+    setOpen(false);
+    // Persist the choice so subsequent default new-session flows (keyboard
+    // shortcut, AgentBadge) reuse it until the user picks differently.
+    setSelectedAgentId(agent);
+    onAddSession(agent);
+  };
+
+  return (
+    <div className="relative shrink-0" ref={containerRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="New session — choose agent"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="mx-1 p-1 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors"
+      >
+        <Plus size={13} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="New session agent"
+          className="absolute left-0 top-full mt-1 w-52 rounded-lg border border-border p-1 shadow-xl z-50"
+          style={{ background: "var(--bg-primary)" }}
+        >
+          <div className="px-2 py-1 text-detail text-text-ghost select-none">
+            New session with…
+          </div>
+          {AGENT_ORDER.map((agent) => (
+            <button
+              key={agent}
+              role="menuitem"
+              onClick={() => pick(agent)}
+              className="w-full flex items-center px-2.5 py-1.5 rounded-md text-left text-ui text-text-secondary hover:bg-bg-elevated hover:text-text-primary transition-colors"
+            >
+              {AGENT_LABEL[agent]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface SessionSubTabProps {
   sessionId: string;
@@ -123,7 +220,7 @@ const SessionSubTab = React.memo(function SessionSubTab({
 });
 
 interface SessionSubTabsProps {
-  onAddSession: () => void;
+  onAddSession: (agentOverride?: AgentId) => void;
   onCloseSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, name: string) => void;
 }
@@ -181,14 +278,8 @@ export default function SessionSubTabs({
         );
       })}
 
-      {/* Add session button */}
-      <button
-        onClick={() => onAddSession()}
-        title="New session in this project"
-        className="mx-1 p-1 rounded text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors shrink-0"
-      >
-        <Plus size={13} />
-      </button>
+      {/* Add session button — opens an agent picker when both CLIs exist */}
+      <AddSessionButton onAddSession={onAddSession} />
 
       {/* Spacer */}
       <div className="flex-1" />
