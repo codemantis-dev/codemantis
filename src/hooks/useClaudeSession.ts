@@ -43,7 +43,7 @@ const sessionListeners = new Map<string, UnlistenFn[]>();
 
 interface UseClaudeSessionReturn {
   startSession: (projectPath: string, agentOverride?: AgentId) => Promise<string>;
-  addSessionToProject: (projectPath?: string) => Promise<void>;
+  addSessionToProject: (projectPath?: string, agentOverride?: AgentId) => Promise<void>;
   sendMessage: (sessionId: string, prompt: string) => Promise<void>;
   closeSession: (sessionId: string) => Promise<void>;
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
@@ -133,7 +133,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, []);
 
-  const addSessionToProject = useCallback(async (projectPath?: string) => {
+  const addSessionToProject = useCallback(async (projectPath?: string, agentOverride?: AgentId) => {
     const state = sessionStore.getState();
     const targetPath = (typeof projectPath === "string" ? projectPath : undefined) ?? state.activeProjectPath;
     if (!targetPath) {
@@ -141,7 +141,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       return;
     }
     try {
-      await startSession(targetPath);
+      await startSession(targetPath, agentOverride);
     } catch (e) {
       handleError("Failed to add session to project", e);
     }
