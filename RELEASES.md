@@ -1,5 +1,23 @@
 # CodeMantis Releases
 
+## 1.8.0 — Native Codex plan mode + per-session agent picker
+
+This release closes the last big gap between Claude Code and Codex inside CodeMantis: **Codex now gets a real, in-app plan mode**, and starting a session on the agent you want is a one-click choice on the session bar.
+
+### What's new
+
+**Native Codex plan mode.** Codex sessions get a **Plan toggle pill** in the input toolbar, right next to the Policy pill — the same toolbar slot Claude's plan mode occupies. Codex CLI 0.139.0 exposes no settable `collaborationMode` over its app-server, so this is CodeMantis's own native approximation: toggling Plan on flips the **next `turn/start`** to a **read-only sandbox plus a planning preamble**, so Codex reasons over the full conversation and proposes an approach without editing any files. A **plan-mode banner** sits above the chat while it's active, and the plan surfaces through the same **Plan Complete (ExitPlanMode) modal** Claude uses — approve it to proceed, and any plan file is revealed in the File Viewer. The pill also **syncs** from Codex's own `thread/settings/updated` notifications. Previously, plan mode on Codex was only reachable by dropping into the real Codex TUI via the `/plan` resume overlay (which still works as an alternative).
+
+**Per-session agent picker.** When **both** Claude Code and Codex are installed, the session sub-tab bar's **+** button now opens a small **"New session with…"** menu so you can choose which agent the next session runs on. Your choice is persisted as the new default, so the `Cmd N` shortcut and the Agent badge reuse it until you pick differently. With only one agent installed, the **+** button keeps its original one-click behaviour. Sessions remain locked to their agent for life.
+
+### Fixes
+
+- **Agent override on new tabs** — `addSessionToProject` now forwards the selected agent through to `startSession`, so a new tab actually spawns on the agent you picked instead of silently falling back to the default.
+
+### Documentation
+
+- User guide and Super-Bro knowledge synced for the new plan toggle and agent picker; corrected the prior "the Codex TUI is the only way to reach Plan mode" guidance now that the native toggle exists.
+
 ## 1.7.0 — Codex interactive TUI slash commands
 
 The headline of this release brings **Codex's interactive, TUI-only slash commands into CodeMantis** for the first time, plus a round of Codex resume/recovery hardening against the **Codex CLI 0.139.0** app-server protocol.
