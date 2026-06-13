@@ -24,7 +24,7 @@ use chrono::Utc;
 
 use super::entity_extraction::Entities;
 use crate::recall::index::query::{
-    backlinks_of, notes_by_path_overlap, search_notes_fts, IndexedNote,
+    backlinks_of, notes_by_path_overlap, search_notes_fts, top_landmines, IndexedNote,
 };
 use crate::recall::vault::Vault;
 use crate::recall::RecallError;
@@ -35,6 +35,10 @@ pub enum GatherSource {
     /// Landmine note covering one of the extracted paths; must reach
     /// the brief regardless of budget.
     MandatoryLandmine,
+    /// Top landmine pulled unconditionally (no entity overlap required)
+    /// so safety-critical memory surfaces on every prompt, even terse
+    /// ones like "implement the plan". Also mandatory (never dropped).
+    AlwaysLandmine,
     PathOverlap,
     FtsMatch,
     Backlink,
@@ -42,9 +46,12 @@ pub enum GatherSource {
 
 impl GatherSource {
     /// Higher score wins when the same note is hit by multiple sources.
+    /// `MandatoryLandmine` outranks `AlwaysLandmine` so a landmine that
+    /// *also* overlaps a named path keeps its specific path provenance.
     fn priority(self) -> u8 {
         match self {
-            GatherSource::MandatoryLandmine => 4,
+            GatherSource::MandatoryLandmine => 5,
+            GatherSource::AlwaysLandmine => 4,
             GatherSource::PathOverlap => 3,
             GatherSource::FtsMatch => 2,
             GatherSource::Backlink => 1,
@@ -63,7 +70,10 @@ pub struct Candidate {
 
 impl Candidate {
     pub fn is_mandatory(&self) -> bool {
-        self.source == GatherSource::MandatoryLandmine
+        matches!(
+            self.source,
+            GatherSource::MandatoryLandmine | GatherSource::AlwaysLandmine
+        )
     }
 }
 
@@ -89,6 +99,12 @@ impl GatherResult {
 /// blowing up the LLM context. Tuned conservatively for v1; revisit
 /// when miss-log data is in.
 const PER_SOURCE_CAP: usize = 25;
+
+/// How many top landmines to surface unconditionally on every prompt
+/// (see [`GatherSource::AlwaysLandmine`]). Kept small because these are
+/// mandatory and never dropped under budget pressure — an unbounded set
+/// would blow the brief's token budget.
+const ALWAYS_LANDMINE_CAP: usize = 5;
 
 pub fn gather(
     db: &Database,
@@ -184,6 +200,21 @@ pub fn gather(
                 },
             );
         }
+    }
+
+    // 4) Always-on top landmines — surfaced regardless of entity overlap
+    //    so the most safety-critical memory reaches every prompt. Inserted
+    //    last so a path-matched landmine (higher priority) keeps its
+    //    specific provenance via insert_or_promote.
+    for note in top_landmines(db, vault_id, ALWAYS_LANDMINE_CAP)? {
+        insert_or_promote(
+            &mut merged,
+            Candidate {
+                note,
+                source: GatherSource::AlwaysLandmine,
+                matched_on: "always-on landmine".to_string(),
+            },
+        );
     }
 
     let mut candidates: Vec<Candidate> = merged.into_values().collect();
@@ -510,7 +541,55 @@ mod tests {
         ingest_note(&db, vault_id, &note, std::path::Path::new("notes/patterns/n1.md")).unwrap();
         let ents = entities(&[], &[], &[]);
         let result = gather(&db, &vault, vault_id, &ents).unwrap();
+        // A non-landmine note with no matching entity surfaces nothing.
         assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn always_on_landmines_surface_with_no_entities() {
+        let (_tmp, vault, db, vault_id) = setup();
+        // A landmine the prompt names nowhere — no paths, symbols, or
+        // keywords. It must still surface as a mandatory candidate.
+        let note = make_note(
+            "l1",
+            NoteType::Landmine,
+            "search-path landmine",
+            "body",
+            &["src/credentials.ts"],
+            &[],
+        );
+        ingest_note(&db, vault_id, &note, std::path::Path::new("notes/landmines/l1.md")).unwrap();
+
+        let ents = entities(&[], &[], &[]);
+        let result = gather(&db, &vault, vault_id, &ents).unwrap();
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].source, GatherSource::AlwaysLandmine);
+        assert!(
+            result.candidates[0].is_mandatory(),
+            "always-on landmines are mandatory (never dropped)"
+        );
+    }
+
+    #[test]
+    fn path_matched_landmine_keeps_mandatory_provenance_over_always_on() {
+        let (_tmp, vault, db, vault_id) = setup();
+        // The same landmine is both path-matched and an always-on top
+        // landmine. The path-matched provenance (more specific) wins.
+        let note = make_note(
+            "l1",
+            NoteType::Landmine,
+            "pgcrypto landmine",
+            "body",
+            &["src/credentials.ts"],
+            &[],
+        );
+        ingest_note(&db, vault_id, &note, std::path::Path::new("notes/landmines/l1.md")).unwrap();
+
+        let ents = entities(&["src/credentials.ts"], &[], &[]);
+        let result = gather(&db, &vault, vault_id, &ents).unwrap();
+        assert_eq!(result.candidates.len(), 1, "same note merges");
+        assert_eq!(result.candidates[0].source, GatherSource::MandatoryLandmine);
+        assert_eq!(result.candidates[0].matched_on, "src/credentials.ts");
     }
 
     #[test]

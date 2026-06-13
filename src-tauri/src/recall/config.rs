@@ -135,6 +135,37 @@ fn default_true() -> bool {
     true
 }
 
+/// Canonicalise a Recall provider id for API-key lookup.
+///
+/// Recall historically defaults its provider to `"google"` (spec §4.1), but
+/// the `AppSettings.api_keys` map — and the rest of CodeMantis (Changelog,
+/// AI Providers) — keys Gemini credentials under `"gemini"`. Looking a key up
+/// by the raw `"google"` string therefore misses, leaving the enricher and
+/// harvester with an empty key (silent LLM failure → gather-only fallback).
+///
+/// This maps the legacy alias to the canonical id used by the key map. The
+/// HTTP dispatch in `llm_client` already accepts both spellings, so only the
+/// key lookup needs canonicalising — stored config values are left untouched
+/// to avoid a settings migration.
+pub fn canonical_provider(provider: &str) -> &str {
+    match provider {
+        "google" => "gemini",
+        other => other,
+    }
+}
+
+impl RecallConfig {
+    /// The api-key map key for the enricher provider (see [`canonical_provider`]).
+    pub fn enricher_key_id(&self) -> &str {
+        canonical_provider(&self.enricher_provider)
+    }
+
+    /// The api-key map key for the harvester provider (see [`canonical_provider`]).
+    pub fn harvester_key_id(&self) -> &str {
+        canonical_provider(&self.harvester_provider)
+    }
+}
+
 fn default_enricher_provider() -> String {
     "google".to_string()
 }
@@ -219,6 +250,25 @@ mod tests {
         assert!(cfg.enabled);
         assert_eq!(cfg.enricher_model, "gemini-3.1-flash-lite");
         assert_eq!(cfg.token_budget_per_brief, 2000);
+    }
+
+    #[test]
+    fn canonical_provider_maps_google_to_gemini() {
+        // The api-key map keys Gemini under "gemini"; Recall defaults to
+        // "google". The alias must resolve so the key lookup hits.
+        assert_eq!(canonical_provider("google"), "gemini");
+        assert_eq!(canonical_provider("gemini"), "gemini");
+        assert_eq!(canonical_provider("openai"), "openai");
+        assert_eq!(canonical_provider("anthropic"), "anthropic");
+    }
+
+    #[test]
+    fn default_config_key_ids_resolve_to_gemini() {
+        let cfg = RecallConfig::default();
+        // Defaults store "google" but must look up the "gemini" key.
+        assert_eq!(cfg.enricher_provider, "google");
+        assert_eq!(cfg.enricher_key_id(), "gemini");
+        assert_eq!(cfg.harvester_key_id(), "gemini");
     }
 
     #[test]

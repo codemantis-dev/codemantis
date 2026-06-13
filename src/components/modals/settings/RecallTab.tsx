@@ -32,10 +32,35 @@ import {
   type RecallHealth,
   type RecallMode,
 } from "../../../types/recall";
+import { AI_MODELS, type APIProvider } from "../../../types/assistant-provider";
 import { useSessionStore } from "../../../stores/sessionStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useToastStore } from "../../../stores/toastStore";
 import { SectionTitle, FieldRow } from "./SettingsShared";
+
+// Recall's LLM dispatch supports Gemini, OpenAI, and Anthropic only — no
+// OpenRouter (see src-tauri `recall/llm_client.rs`). Dropdown values are
+// the canonical api-key ids used elsewhere in the app.
+const RECALL_PROVIDERS: { id: APIProvider; label: string }[] = [
+  { id: "gemini", label: "Google Gemini" },
+  { id: "openai", label: "OpenAI" },
+  { id: "anthropic", label: "Anthropic" },
+];
+
+/** Map the legacy `"google"` provider id to the canonical `"gemini"` so a
+ * stored config self-heals on display and on the next change (mirrors the
+ * Rust-side `canonical_provider`). Unknown ids fall back to Gemini. */
+function normalizeRecallProvider(provider: string): APIProvider {
+  if (provider === "google") return "gemini";
+  if (provider === "openai" || provider === "anthropic" || provider === "gemini") {
+    return provider;
+  }
+  return "gemini";
+}
+
+const SELECT_CLS =
+  "rounded-md border border-border bg-bg-elevated text-text-primary px-2 py-1 text-ui";
+const NUM_CLS = `${SELECT_CLS} w-28`;
 
 const MODE_OPTIONS: { value: RecallMode; label: string; help: string }[] = [
   {
@@ -120,6 +145,34 @@ export default function RecallTab() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Provider change resets that side's model to a valid default for the
+  // new provider, so we never persist a model id the provider can't serve.
+  const onProviderChange = (
+    side: "enricher" | "harvester",
+    provider: APIProvider,
+  ) => {
+    if (!config) return;
+    const firstModel = AI_MODELS[provider]?.[0]?.id ?? "";
+    if (side === "enricher") {
+      void persist({ ...config, enricherProvider: provider, enricherModel: firstModel });
+    } else {
+      void persist({ ...config, harvesterProvider: provider, harvesterModel: firstModel });
+    }
+  };
+
+  const persistNumber = (
+    key: "tokenBudgetPerBrief" | "staleThresholdDays",
+    raw: string,
+    min: number,
+    max: number,
+  ) => {
+    if (!config) return;
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n)) return; // ignore half-typed / empty input
+    const clamped = Math.min(max, Math.max(min, n));
+    void persist({ ...config, [key]: clamped });
   };
 
   const onSeed = async () => {
@@ -292,15 +345,138 @@ export default function RecallTab() {
         )}
       </div>
 
-      <div className="border-t border-border pt-4">
-        <p className="text-ui text-text-faint">
-          Advanced fields (provider/model selection, token budget, freshness
-          threshold) ship in v1.1. For v1, edit{" "}
-          <code>settings.json</code> directly to override defaults
-          (provider: <code>google</code>, model:{" "}
-          <code>gemini-3.1-flash-lite</code>).
-        </p>
-      </div>
+      {config.enabled && (
+        <div className="border-t border-border pt-4 space-y-4">
+          <SectionTitle>Advanced</SectionTitle>
+
+          <div className="space-y-3">
+            <p className="text-ui text-text-secondary font-medium">Enricher LLM</p>
+            <p className="text-ui text-text-faint -mt-2">
+              Ranks which memory notes to inject before each prompt.
+            </p>
+            <FieldRow label="Enricher provider">
+              <select
+                aria-label="Enricher provider"
+                value={normalizeRecallProvider(config.enricherProvider)}
+                disabled={saving}
+                onChange={(e) =>
+                  onProviderChange("enricher", e.target.value as APIProvider)
+                }
+                className={SELECT_CLS}
+              >
+                {RECALL_PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </FieldRow>
+            <FieldRow label="Enricher model">
+              <select
+                aria-label="Enricher model"
+                value={config.enricherModel}
+                disabled={saving}
+                onChange={(e) =>
+                  persist({ ...config, enricherModel: e.target.value })
+                }
+                className={SELECT_CLS}
+              >
+                {(AI_MODELS[normalizeRecallProvider(config.enricherProvider)] ?? []).map(
+                  (m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ),
+                )}
+              </select>
+            </FieldRow>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-ui text-text-secondary font-medium">Harvester LLM</p>
+            <p className="text-ui text-text-faint -mt-2">
+              Distills one memory note per commit from the diff.
+            </p>
+            <FieldRow label="Harvester provider">
+              <select
+                aria-label="Harvester provider"
+                value={normalizeRecallProvider(config.harvesterProvider)}
+                disabled={saving}
+                onChange={(e) =>
+                  onProviderChange("harvester", e.target.value as APIProvider)
+                }
+                className={SELECT_CLS}
+              >
+                {RECALL_PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </FieldRow>
+            <FieldRow label="Harvester model">
+              <select
+                aria-label="Harvester model"
+                value={config.harvesterModel}
+                disabled={saving}
+                onChange={(e) =>
+                  persist({ ...config, harvesterModel: e.target.value })
+                }
+                className={SELECT_CLS}
+              >
+                {(AI_MODELS[normalizeRecallProvider(config.harvesterProvider)] ?? []).map(
+                  (m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ),
+                )}
+              </select>
+            </FieldRow>
+          </div>
+
+          <div className="space-y-3">
+            <FieldRow label="Token budget per brief">
+              <input
+                aria-label="Token budget per brief"
+                type="number"
+                min={500}
+                max={8000}
+                step={100}
+                value={config.tokenBudgetPerBrief}
+                disabled={saving}
+                onChange={(e) =>
+                  persistNumber("tokenBudgetPerBrief", e.target.value, 500, 8000)
+                }
+                className={NUM_CLS}
+              />
+            </FieldRow>
+            <p className="text-ui text-text-faint -mt-2">
+              Max tokens for the injected brief (~4 chars/token). Lower-authority
+              notes are dropped first to fit; landmines are never dropped.
+            </p>
+            <FieldRow label="Stale threshold (days)">
+              <input
+                aria-label="Stale threshold (days)"
+                type="number"
+                min={1}
+                max={365}
+                step={1}
+                value={config.staleThresholdDays}
+                disabled={saving}
+                onChange={(e) =>
+                  persistNumber("staleThresholdDays", e.target.value, 1, 365)
+                }
+                className={NUM_CLS}
+              />
+            </FieldRow>
+            <p className="text-ui text-text-faint -mt-2">
+              Notes whose source paths haven&apos;t been touched in this many days
+              are surfaced cautiously under the brief&apos;s FRESHNESS section.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

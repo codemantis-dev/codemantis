@@ -40,6 +40,44 @@ pub struct SessionMessagePayload {
     pub sort_order: i32,
 }
 
+/// How often the Recall harvest watcher polls git HEAD for new commits.
+/// 30s harvest lag is acceptable for a memory layer (see `git_watcher`).
+const HARVEST_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Start (or refcount-bump) the Recall harvest watcher for a project when
+/// a session opens. Reads the live settings, applies the Recall gate, and
+/// delegates to the unit-testable `start_harvest_watcher`. Never fails or
+/// blocks session creation — any error is logged and swallowed.
+async fn ensure_harvest_watcher(state: &AppState, project_path: &str) {
+    let settings = crate::commands::settings::get_settings().unwrap_or_default();
+    if !settings.recall.enabled || settings.recall.mode == crate::recall::config::RecallMode::Off {
+        return;
+    }
+    let api_key = settings
+        .api_keys
+        .get(settings.recall.harvester_key_id())
+        .cloned()
+        .unwrap_or_default();
+    let mut watchers = state.harvest_watchers.lock().await;
+    crate::recall::harvester::git_watcher::start_harvest_watcher(
+        &mut watchers,
+        state.database.clone(),
+        project_path,
+        &settings.recall,
+        api_key,
+        settings.model_pricing.clone(),
+        HARVEST_POLL_INTERVAL,
+    );
+}
+
+/// Release one session's hold on a project's harvest watcher when the
+/// session closes; cancels the watcher when the last session for the
+/// project is gone.
+async fn release_harvest_watcher(state: &AppState, project_path: &str) {
+    let mut watchers = state.harvest_watchers.lock().await;
+    crate::recall::harvester::git_watcher::stop_harvest_watcher(&mut watchers, project_path);
+}
+
 #[tauri::command]
 pub async fn create_session(
     app_handle: AppHandle,
@@ -197,6 +235,10 @@ pub async fn create_session(
         log::error!("Failed to update session status in database: {}", e);
     }
 
+    // Start the Recall harvest watcher for this project (no-op when Recall
+    // is disabled or a watcher is already running for the project).
+    ensure_harvest_watcher(&state, &project_path).await;
+
     info!("Session created: id={}, project={}", session_id, project_path);
 
     let sessions = state.sessions.lock().await;
@@ -353,7 +395,7 @@ pub async fn send_message(
                 if settings.recall.enabled && settings.recall.mode != crate::recall::config::RecallMode::Off {
                     let api_key = settings
                         .api_keys
-                        .get(&settings.recall.enricher_provider)
+                        .get(settings.recall.enricher_key_id())
                         .cloned()
                         .unwrap_or_default();
                     let pricing = settings.model_pricing.clone();
@@ -682,10 +724,18 @@ pub async fn close_session(
         let cli_ids = state.cli_session_ids.lock().await;
         cli_ids.get(&session_id).cloned()
     };
-    let model = {
+    let (model, project_path) = {
         let sessions = state.sessions.lock().await;
-        sessions.get(&session_id).and_then(|s| s.model.clone())
+        match sessions.get(&session_id) {
+            Some(s) => (s.model.clone(), Some(s.project_path.clone())),
+            None => (None, None),
+        }
     };
+
+    // Release this session's hold on the project's harvest watcher.
+    if let Some(project) = project_path.as_deref() {
+        release_harvest_watcher(&state, project).await;
+    }
 
     // Shutdown the process (drop the map lock before awaiting shutdown)
     let removed = {

@@ -220,6 +220,7 @@ mod tests {
             status: "active".to_string(),
             trust: "high".to_string(),
             severity: None,
+            last_verified: "2026-06-01".to_string(),
             file_path: format!("notes/{}/{}.md", ty, id),
         }
     }

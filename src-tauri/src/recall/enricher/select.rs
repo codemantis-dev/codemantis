@@ -97,7 +97,7 @@ struct LlmSelectionEnvelope {
     selected: Vec<LlmSelectionItem>,
 }
 
-const SYSTEM_PROMPT: &str = r#"You are the Recall Enricher's selection step for a coding assistant. Given a user's prompt and a set of candidate memory notes, return ONLY the notes that the assistant absolutely needs to do the user's task correctly. Be aggressive about cutting: when in doubt, drop.
+const SYSTEM_PROMPT: &str = r#"You are the Recall Enricher's selection step for a coding assistant. Given a user's prompt and a set of candidate memory notes, return the notes that are plausibly relevant to the user's task — anything touching the files, modules, APIs, or concepts the task involves. Lean toward surfacing a useful note rather than dropping it; only drop notes that are clearly unrelated to the task.
 
 For each note you select, assign one of these authority labels:
 - "constraint" — a rule the assistant must obey (architectural decision, naming convention, code-style mandate).
@@ -265,6 +265,7 @@ fn render_user_payload(
 fn candidate_summary(c: &Candidate) -> String {
     match c.source {
         GatherSource::MandatoryLandmine => format!("landmine on {}", c.matched_on),
+        GatherSource::AlwaysLandmine => "always-on landmine".to_string(),
         GatherSource::PathOverlap => format!("touches {}", c.matched_on),
         GatherSource::FtsMatch => format!("matched term \"{}\"", c.matched_on),
         GatherSource::Backlink => format!("linked from [[{}]]", c.matched_on),
@@ -347,6 +348,7 @@ mod tests {
             status: "active".to_string(),
             trust: "high".to_string(),
             severity: None,
+            last_verified: "2026-06-01".to_string(),
             file_path: format!("notes/{}/{}.md", ty, id),
         }
     }

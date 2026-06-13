@@ -267,7 +267,7 @@ pub async fn recall_force_seed(
         let settings = crate::commands::settings::get_settings().unwrap_or_default();
         let api_key = settings
             .api_keys
-            .get(&settings.recall.harvester_provider)
+            .get(settings.recall.harvester_key_id())
             .cloned()
             .unwrap_or_default();
         (settings.recall.clone(), api_key)

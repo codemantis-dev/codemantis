@@ -15,6 +15,7 @@
 //! - [`watch_loop`] — async loop that calls `tick` every N seconds
 //!   until a cancellation signal fires. Thin wrapper.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -24,8 +25,9 @@ use chrono::Utc;
 use tokio::sync::watch;
 use tokio::time::sleep;
 
+use crate::commands::settings::ModelPricing;
 use crate::recall::config::RecallConfig;
-use crate::recall::llm_client::LlmClient;
+use crate::recall::llm_client::{LlmClient, RealLlmClient};
 use crate::recall::vault::Vault;
 use crate::recall::RecallError;
 use crate::storage::Database;
@@ -182,6 +184,93 @@ pub fn spawn_watch_loop(
         }
     });
     tx
+}
+
+/// A live per-project harvest watcher plus the count of open sessions
+/// keeping it alive. Stored in `AppState.harvest_watchers`, keyed by
+/// project path. The watcher is spawned when the first session for a
+/// project opens and cancelled when the last one closes.
+pub struct HarvestWatcher {
+    /// Cancellation handle — `send(true)` (or drop) stops the loop.
+    pub cancel: watch::Sender<bool>,
+    /// Number of open sessions for this project. The watcher is shared
+    /// across them; cancelled only when this reaches zero.
+    pub refcount: usize,
+}
+
+/// Ensure a harvest watcher is running for `project_path`, reference
+/// counted by open sessions. Spawns a new watcher on the first call for
+/// a project and just bumps the refcount on subsequent calls. A failure
+/// to open the vault is logged and swallowed — harvesting must never
+/// block or fail session creation.
+///
+/// The caller is responsible for the `recall.enabled && mode != Off`
+/// gate (see `ensure_harvest_watcher` in `commands::session`); this
+/// function takes config explicitly so it stays free of global settings
+/// reads and is unit-testable.
+#[allow(clippy::too_many_arguments)]
+pub fn start_harvest_watcher(
+    watchers: &mut HashMap<String, HarvestWatcher>,
+    db: Arc<Database>,
+    project_path: &str,
+    config: &RecallConfig,
+    api_key: String,
+    pricing: HashMap<String, ModelPricing>,
+    poll_interval: Duration,
+) {
+    if let Some(existing) = watchers.get_mut(project_path) {
+        existing.refcount += 1;
+        return;
+    }
+    let vault_path = PathBuf::from(project_path).join(".recall");
+    let vault = match Vault::open_or_create(&vault_path) {
+        Ok(v) => Arc::new(v),
+        Err(e) => {
+            log::warn!(
+                "[recall.watcher] vault open failed for {}: {}; harvester not started",
+                project_path,
+                e
+            );
+            return;
+        }
+    };
+    let llm: Arc<dyn LlmClient + Send + Sync> = Arc::new(RealLlmClient::new(pricing));
+    let cancel = spawn_watch_loop(
+        db,
+        vault,
+        PathBuf::from(project_path),
+        PathBuf::from(project_path),
+        Arc::new(config.clone()),
+        llm,
+        api_key,
+        poll_interval,
+    );
+    watchers.insert(project_path.to_string(), HarvestWatcher { cancel, refcount: 1 });
+}
+
+/// Release one session's hold on a project's harvest watcher. The
+/// watcher is cancelled and removed only when the last session closes.
+/// A no-op when no watcher exists for the project (e.g. Recall was off
+/// at session creation).
+pub fn stop_harvest_watcher(
+    watchers: &mut HashMap<String, HarvestWatcher>,
+    project_path: &str,
+) {
+    if let Some(existing) = watchers.get_mut(project_path) {
+        if existing.refcount > 1 {
+            existing.refcount -= 1;
+        } else {
+            let _ = existing.cancel.send(true);
+            watchers.remove(project_path);
+        }
+    }
+}
+
+/// Cancel every running harvest watcher (app shutdown). Drains the map.
+pub fn stop_all_harvest_watchers(watchers: &mut HashMap<String, HarvestWatcher>) {
+    for (_, watcher) in watchers.drain() {
+        let _ = watcher.cancel.send(true);
+    }
 }
 
 #[cfg(test)]
@@ -352,5 +441,135 @@ mod tests {
 
         let second = tick(&db, &vault, &path, &path, &cfg(), &llm, "k").await.unwrap();
         assert!(matches!(second, TickOutcome::Harvested { .. }));
+    }
+
+    #[tokio::test]
+    async fn start_harvest_watcher_refcounts_and_cancels() {
+        let db = fresh_db();
+        // A non-git directory: the loop just no-ops (Unreadable) so no
+        // real LLM call is made — we're testing the refcount lifecycle.
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().to_string_lossy().to_string();
+        let mut watchers: HashMap<String, HarvestWatcher> = HashMap::new();
+
+        start_harvest_watcher(
+            &mut watchers,
+            db.clone(),
+            &project,
+            &cfg(),
+            "k".to_string(),
+            HashMap::new(),
+            Duration::from_secs(60),
+        );
+        assert_eq!(watchers.len(), 1);
+        assert_eq!(watchers.get(&project).unwrap().refcount, 1);
+
+        // A second session for the same project bumps the refcount;
+        // it must NOT spawn a second watcher.
+        start_harvest_watcher(
+            &mut watchers,
+            db.clone(),
+            &project,
+            &cfg(),
+            "k".to_string(),
+            HashMap::new(),
+            Duration::from_secs(60),
+        );
+        assert_eq!(watchers.len(), 1);
+        assert_eq!(watchers.get(&project).unwrap().refcount, 2);
+
+        // Subscribe so we can observe the cancel signal.
+        let rx = watchers.get(&project).unwrap().cancel.subscribe();
+
+        // First release: still held by one session.
+        stop_harvest_watcher(&mut watchers, &project);
+        assert_eq!(watchers.get(&project).unwrap().refcount, 1);
+        assert!(!*rx.borrow(), "not cancelled while a session still holds it");
+
+        // Last release: cancelled and removed.
+        stop_harvest_watcher(&mut watchers, &project);
+        assert!(watchers.is_empty());
+        assert!(*rx.borrow(), "cancel signal fired when the last session closed");
+    }
+
+    #[tokio::test]
+    async fn stop_harvest_watcher_is_noop_for_unknown_project() {
+        let mut watchers: HashMap<String, HarvestWatcher> = HashMap::new();
+        // No panic, no change — Recall may have been off at session open.
+        stop_harvest_watcher(&mut watchers, "/no/such/project");
+        assert!(watchers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stop_all_harvest_watchers_cancels_every_watcher() {
+        let db = fresh_db();
+        let tmp_a = TempDir::new().unwrap();
+        let tmp_b = TempDir::new().unwrap();
+        let proj_a = tmp_a.path().to_string_lossy().to_string();
+        let proj_b = tmp_b.path().to_string_lossy().to_string();
+        let mut watchers: HashMap<String, HarvestWatcher> = HashMap::new();
+        for p in [&proj_a, &proj_b] {
+            start_harvest_watcher(
+                &mut watchers,
+                db.clone(),
+                p,
+                &cfg(),
+                "k".to_string(),
+                HashMap::new(),
+                Duration::from_secs(60),
+            );
+        }
+        assert_eq!(watchers.len(), 2);
+        let rx_a = watchers.get(&proj_a).unwrap().cancel.subscribe();
+        let rx_b = watchers.get(&proj_b).unwrap().cancel.subscribe();
+
+        stop_all_harvest_watchers(&mut watchers);
+        assert!(watchers.is_empty());
+        assert!(*rx_a.borrow());
+        assert!(*rx_b.borrow());
+    }
+
+    #[tokio::test]
+    async fn watch_loop_harvests_new_commit_then_stops() {
+        // End-to-end proof that the wired loop produces a harvest row —
+        // i.e. "Harvests logged" moves off zero once a watcher runs.
+        let db = fresh_db();
+        let (_tmp, path, _hash) = make_repo("feat: thing");
+        let vault_tmp = TempDir::new().unwrap();
+        let vault = Arc::new(Vault::open_or_create(vault_tmp.path()).unwrap());
+        let llm = Arc::new(MockLlmClient::new());
+        llm.enqueue_ok(
+            r###"{"title":"t","id_slug":"t-slug","body":"## What\nfn x","tags":[]}"###,
+            100,
+            30,
+        );
+        let cancel = spawn_watch_loop(
+            db.clone(),
+            vault,
+            path.clone(),
+            path.clone(),
+            Arc::new(cfg()),
+            llm.clone() as Arc<dyn LlmClient + Send + Sync>,
+            "k".to_string(),
+            Duration::from_millis(20),
+        );
+
+        // Poll for the harvest row (cap ~2s so the test never hangs).
+        let mut harvested = false;
+        for _ in 0..100 {
+            sleep(Duration::from_millis(20)).await;
+            let count: i64 = db
+                .conn()
+                .lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM recall_harvests", [], |r| r.get(0))
+                .unwrap();
+            if count >= 1 {
+                harvested = true;
+                break;
+            }
+        }
+        let _ = cancel.send(true);
+        assert!(harvested, "the watch loop harvested the HEAD commit");
     }
 }

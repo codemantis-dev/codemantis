@@ -171,10 +171,49 @@ async fn fts_only_match_routes_through_llm_select() {
 }
 
 #[tokio::test]
-async fn unrelated_prompt_produces_passthrough_with_log_row() {
+async fn unrelated_prompt_still_surfaces_top_landmine_as_safety_net() {
+    // The fixture has a landmine. Even a prompt naming no overlapping
+    // path must surface it (always-on landmines), mandatory and without
+    // an LLM call. This is the fix for the "injects nothing on generic
+    // prompts" regression.
     let llm = MockLlmClient::new();
     let (result, _tmp, _project) = run_enrich(&llm, "what's the weather today").await;
-    assert!(result.brief.is_empty());
+    assert!(
+        result
+            .brief
+            .injected_note_ids
+            .contains(&"pgcrypto-landmine".to_string()),
+        "top landmine surfaces on every prompt, even unrelated ones"
+    );
+    assert!(result.enriched_prompt.ends_with("what's the weather today"));
+    assert!(
+        llm.calls().is_empty(),
+        "always-on landmines are mandatory; no LLM call needed"
+    );
+}
+
+#[tokio::test]
+async fn unrelated_prompt_with_no_landmines_is_passthrough() {
+    // A vault with no landmines and nothing matching the prompt produces
+    // a true passthrough — no phantom manifest-only brief, no LLM call.
+    let db = fresh_db();
+    let tmp = TempDir::new().unwrap();
+    let vault = Vault::open_or_create(tmp.path()).unwrap();
+    let project = tmp.path().to_path_buf();
+    let vault_id = ensure_vault_row(&db, &project, vault.root(), false).unwrap();
+    let p = make_note("p1", NoteType::Pattern, &["src/x.rs"], "body", &[]);
+    ingest_note(&db, vault_id, &p, Path::new("notes/patterns/p1.md")).unwrap();
+    vault.write_note(&p).unwrap();
+
+    let llm = MockLlmClient::new();
+    let cfg = enabled_config();
+    let pricing = HashMap::new();
+    let result = enrich_prompt(
+        &db, &vault, vault_id, &cfg, "k", &pricing, &llm, "what's the weather today", None, &project,
+    )
+    .await
+    .unwrap();
+    assert!(result.brief.is_empty(), "no landmines + no match → passthrough");
     assert_eq!(result.enriched_prompt, "what's the weather today");
     assert!(llm.calls().is_empty());
 }

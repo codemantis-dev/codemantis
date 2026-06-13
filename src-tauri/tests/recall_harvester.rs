@@ -307,6 +307,46 @@ async fn journal_entry_is_appended_for_each_harvest() {
 }
 
 #[tokio::test]
+async fn watch_loop_harvests_head_then_cancel_stops_it() {
+    // Cross-module integration: the git watcher (started at session open
+    // by the app lifecycle) polls HEAD, drives harvest_commit, and writes
+    // a recall_harvests row — i.e. "Harvests logged" moves off zero. Then
+    // the cancel handle (sent at last session close) stops the loop.
+    use codemantis_lib::recall::harvester::git_watcher::spawn_watch_loop;
+    use codemantis_lib::recall::llm_client::LlmClient;
+    use std::time::Duration;
+
+    let db = fresh_db();
+    let (_repo, repo_path, _hash) = make_repo("feat: thing", &[("src/x.rs", "fn x() {}\n")]);
+    let vault_tmp = TempDir::new().unwrap();
+    let vault = Arc::new(Vault::open_or_create(vault_tmp.path()).unwrap());
+    let llm = Arc::new(MockLlmClient::new());
+    llm.enqueue_ok(ok_llm("t", "t", "## What\\nfn x"), 100, 30);
+
+    let cancel = spawn_watch_loop(
+        db.clone(),
+        vault,
+        repo_path.clone(),
+        repo_path.clone(),
+        Arc::new(enabled_config()),
+        llm.clone() as Arc<dyn LlmClient + Send + Sync>,
+        "k".to_string(),
+        Duration::from_millis(20),
+    );
+
+    let mut harvested = false;
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if db.count_recall_harvests(&repo_path.to_string_lossy()).unwrap() >= 1 {
+            harvested = true;
+            break;
+        }
+    }
+    let _ = cancel.send(true);
+    assert!(harvested, "watch loop produced a harvest row");
+}
+
+#[tokio::test]
 async fn generated_only_commit_skipped_as_generated() {
     let db = fresh_db();
     let (_repo, repo_path, hash) = make_repo(

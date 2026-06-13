@@ -24,6 +24,10 @@ pub struct IndexedNote {
     pub status: String,
     pub trust: String,
     pub severity: Option<String>,
+    /// `last_verified_at` date text ("YYYY-MM-DD"). Used by the enricher's
+    /// freshness filter to flag notes whose source paths haven't been
+    /// touched in a while (see `RecallConfig::stale_threshold_days`).
+    pub last_verified: String,
     pub file_path: String,
 }
 
@@ -37,12 +41,13 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<IndexedNote> {
         status: row.get(5)?,
         trust: row.get(6)?,
         severity: row.get(7)?,
-        file_path: row.get(8)?,
+        last_verified: row.get(8)?,
+        file_path: row.get(9)?,
     })
 }
 
 const SELECT_COLS: &str =
-    "n.id, n.vault_id, n.note_id, n.type, n.title, n.status, n.trust, n.severity, n.file_path";
+    "n.id, n.vault_id, n.note_id, n.type, n.title, n.status, n.trust, n.severity, n.last_verified_at, n.file_path";
 
 /// FTS5 keyword search. `query` is passed through to SQLite's FTS5 MATCH
 /// syntax; callers building it from user input should sanitize against
@@ -158,6 +163,45 @@ pub fn notes_by_tag(
     ))?;
     let rows = stmt
         .query_map(rusqlite::params![vault_id, tag, limit as i64], map_row)?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+/// Top landmines for a vault, independent of any extracted entity.
+///
+/// The enricher gathers these on *every* prompt so the most
+/// safety-critical memory surfaces even when the user's prompt names no
+/// overlapping path (e.g. "implement the plan", "make a commit"). Ordered
+/// recurring-first, then by trust, then freshest-verified — and capped by
+/// `limit` so the never-drop landmine guarantee in `assemble` stays
+/// bounded.
+pub fn top_landmines(
+    db: &Database,
+    vault_id: i64,
+    limit: usize,
+) -> Result<Vec<IndexedNote>, RecallError> {
+    let guard = db.conn().lock().unwrap();
+    let mut stmt = guard.prepare(&format!(
+        "SELECT {SELECT_COLS}
+           FROM recall_notes n
+          WHERE n.vault_id = ?1
+            AND n.type = 'landmine'
+            AND n.status != 'archived'
+       ORDER BY CASE WHEN n.severity = 'recurring' THEN 0 ELSE 1 END,
+                CASE n.trust
+                    WHEN 'high'     THEN 0
+                    WHEN 'medium'   THEN 1
+                    WHEN 'inferred' THEN 2
+                    WHEN 'seeded'   THEN 3
+                    WHEN 'low'      THEN 4
+                    ELSE 5
+                END,
+                n.last_verified_at DESC
+          LIMIT ?2"
+    ))?;
+    let rows = stmt
+        .query_map(rusqlite::params![vault_id, limit as i64], map_row)?
         .filter_map(|r| r.ok())
         .collect();
     Ok(rows)
@@ -347,6 +391,39 @@ mod tests {
         assert!(fts_hits.is_empty(), "archived notes are hidden from FTS");
         let overlap = notes_by_path_overlap(&db, vault_id, &["src/a.rs".to_string()], 10).unwrap();
         assert!(overlap.is_empty(), "archived notes are hidden from overlap");
+    }
+
+    #[test]
+    fn top_landmines_returns_only_landmines_capped() {
+        let (db, vault_id) = setup();
+        // make_note defaults to NoteType::Landmine; add a non-landmine too.
+        let l1 = make_note("l1", "landmine one", "x", &[]);
+        let l2 = make_note("l2", "landmine two", "x", &[]);
+        let mut pattern = make_note("p1", "a pattern", "x", &[]);
+        pattern.note_type = NoteType::Pattern;
+        ingest_note(&db, vault_id, &l1, std::path::Path::new("notes/landmines/l1.md")).unwrap();
+        ingest_note(&db, vault_id, &l2, std::path::Path::new("notes/landmines/l2.md")).unwrap();
+        ingest_note(&db, vault_id, &pattern, std::path::Path::new("notes/patterns/p1.md")).unwrap();
+
+        let hits = top_landmines(&db, vault_id, 5).unwrap();
+        assert_eq!(hits.len(), 2, "only landmines returned");
+        assert!(hits.iter().all(|n| n.note_type == "landmine"));
+
+        let capped = top_landmines(&db, vault_id, 1).unwrap();
+        assert_eq!(capped.len(), 1, "limit caps the result set");
+    }
+
+    #[test]
+    fn top_landmines_orders_recurring_first() {
+        let (db, vault_id) = setup();
+        let ordinary = make_note("l1", "ordinary landmine", "x", &[]);
+        let mut recurring = make_note("l2", "recurring landmine", "x", &[]);
+        recurring.severity = Some("recurring".to_string());
+        ingest_note(&db, vault_id, &ordinary, std::path::Path::new("notes/landmines/l1.md")).unwrap();
+        ingest_note(&db, vault_id, &recurring, std::path::Path::new("notes/landmines/l2.md")).unwrap();
+
+        let hits = top_landmines(&db, vault_id, 5).unwrap();
+        assert_eq!(hits[0].note_id, "l2", "recurring landmine ranks first");
     }
 
     #[test]

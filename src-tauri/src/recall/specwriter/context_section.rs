@@ -325,7 +325,7 @@ fn load_meta_links(
         let guard = db.conn().lock().unwrap();
         let row = guard
             .query_row(
-                "SELECT id, vault_id, note_id, type, title, status, trust, severity, file_path
+                "SELECT id, vault_id, note_id, type, title, status, trust, severity, last_verified_at, file_path
                    FROM recall_notes WHERE vault_id = ?1 AND note_id = ?2",
                 rusqlite::params![meta_vault_id, target],
                 |r| {
@@ -338,7 +338,8 @@ fn load_meta_links(
                         status: r.get(5)?,
                         trust: r.get(6)?,
                         severity: r.get(7)?,
-                        file_path: r.get(8)?,
+                        last_verified: r.get(8)?,
+                        file_path: r.get(9)?,
                     })
                 },
             )

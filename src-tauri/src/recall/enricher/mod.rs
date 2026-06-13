@@ -21,11 +21,11 @@ pub mod stream_watcher;
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Utc;
+use chrono::{Duration, NaiveDate, Utc};
 
 use self::assemble::{prepend_to_prompt, AssembledBrief, BriefItem};
 use self::gather::{gather, Candidate};
-use self::select::{select, SelectedNote};
+use self::select::{select, AuthorityLabel, SelectedNote};
 use crate::commands::settings::ModelPricing;
 use crate::recall::config::{RecallConfig, RecallMode};
 use crate::recall::index::ensure_vault_row;
@@ -112,7 +112,11 @@ pub async fn enrich_prompt(
     // 2. Gather candidates.
     let gathered = gather(db, vault, vault_id, &entities)?;
 
-    if gathered.candidates.is_empty() && gathered.manifest.is_none() && gathered.recent_journal.is_none() {
+    // Manifest alone is NOT worth a brief: injecting a generic project
+    // summary on every prompt burns the token budget while teaching the
+    // agent nothing task-specific. Short-circuit unless there are real
+    // candidates or a recent-activity journal to surface.
+    if gathered.candidates.is_empty() && gathered.recent_journal.is_none() {
         // Nothing to inject — short-circuit, but still log so the
         // miss-log builder (Phase 2.1+) can pick this up later.
         log_enrichment(
@@ -131,7 +135,7 @@ pub async fn enrich_prompt(
     // 3. Smart-select (LLM).
     let selection = select(llm, api_key, config, user_prompt, &gathered.candidates).await;
 
-    let (selected, fallback_used, model_used, input_tokens, output_tokens, cost_usd) =
+    let (mut selected, fallback_used, model_used, input_tokens, output_tokens, cost_usd) =
         match selection {
             Ok(s) => (
                 s.selected,
@@ -158,11 +162,24 @@ pub async fn enrich_prompt(
             }
         };
 
+    // Freshness pass: flag selected notes whose source paths haven't been
+    // touched in a while (`stale_threshold_days`) so they surface under
+    // the cautious FRESHNESS section and are dropped first under budget
+    // pressure. Landmines are never reclassified.
+    apply_freshness_labels(&mut selected, &gathered.candidates, config.stale_threshold_days);
+
     // 4. Assemble brief (load body excerpts from disk for each selected).
+    // The manifest is only included alongside ≥1 real note — never as a
+    // standalone brief (see the short-circuit above).
+    let manifest_ref = if selected.is_empty() {
+        None
+    } else {
+        gathered.manifest.as_deref()
+    };
     let items = build_brief_items(vault, &gathered.candidates, &selected)?;
     let brief = assemble::assemble(
         &items,
-        gathered.manifest.as_deref(),
+        manifest_ref,
         gathered.recent_journal.as_deref(),
         config.token_budget_per_brief,
     );
@@ -189,6 +206,38 @@ pub async fn enrich_prompt(
         output_tokens,
         cost_usd,
     })
+}
+
+/// Downgrade stale, non-landmine selected notes to the `Freshness`
+/// authority bucket. A note is stale when its `last_verified` date is
+/// older than `stale_threshold_days` before today. Landmines are left
+/// untouched — a known pitfall stays critical no matter how old it is.
+/// A `stale_threshold_days` of 0 disables the pass.
+fn apply_freshness_labels(
+    selected: &mut [SelectedNote],
+    candidates: &[Candidate],
+    stale_threshold_days: u32,
+) {
+    if stale_threshold_days == 0 {
+        return;
+    }
+    let cutoff = Utc::now().date_naive() - Duration::days(stale_threshold_days as i64);
+    let last_verified: HashMap<&str, &str> = candidates
+        .iter()
+        .map(|c| (c.note.note_id.as_str(), c.note.last_verified.as_str()))
+        .collect();
+    for s in selected.iter_mut() {
+        if s.authority == AuthorityLabel::Landmine {
+            continue;
+        }
+        if let Some(raw) = last_verified.get(s.note_id.as_str()) {
+            if let Ok(date) = NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
+                if date < cutoff {
+                    s.authority = AuthorityLabel::Freshness;
+                }
+            }
+        }
+    }
 }
 
 fn gather_only_selection(candidates: &[Candidate]) -> Vec<SelectedNote> {
@@ -457,6 +506,89 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         let _ = vault_id;
+    }
+
+    #[tokio::test]
+    async fn manifest_only_does_not_prepend_brief() {
+        // A vault with a MANIFEST.md but no notes matching the prompt and
+        // no journal must NOT inject a manifest-only brief — it would burn
+        // the token budget while teaching the agent nothing task-specific.
+        let (tmp, vault, db, vault_id, project) = setup();
+        std::fs::write(tmp.path().join("MANIFEST.md"), b"# Project\nbe excellent").unwrap();
+        let cfg = enabled_config();
+        let llm = MockLlmClient::new();
+        let pricing = HashMap::new();
+
+        let result = enrich_prompt(
+            &db, &vault, vault_id, &cfg, "k", &pricing, &llm, "implement the plan, please", None, &project,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.enriched_prompt, "implement the plan, please");
+        assert!(result.brief.is_empty(), "no standalone manifest brief");
+        assert!(llm.calls().is_empty());
+        // Still logged (with zero tokens / no notes) for the miss-log.
+        let guard = db.conn().lock().unwrap();
+        let (count, tokens): (i64, i64) = guard
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(brief_tokens), 0) FROM recall_enrichments",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(tokens, 0, "no phantom manifest tokens logged");
+    }
+
+    #[tokio::test]
+    async fn always_on_landmine_surfaces_on_generic_prompt() {
+        // The regression that started this work: a terse prompt naming no
+        // path used to surface nothing. The top landmine must now appear.
+        let (_tmp, vault, db, vault_id, project) = setup();
+        let n = make_note("l1", NoteType::Landmine, &["src/x.rs"], "the landmine body", &[]);
+        ingest_note(&db, vault_id, &n, std::path::Path::new("notes/landmines/l1.md")).unwrap();
+        vault.write_note(&n).unwrap();
+
+        let cfg = enabled_config();
+        let llm = MockLlmClient::new(); // mandatory-only → no LLM call
+        let pricing = HashMap::new();
+
+        let result = enrich_prompt(
+            &db, &vault, vault_id, &cfg, "k", &pricing, &llm, "implement the plan, please", None, &project,
+        )
+        .await
+        .unwrap();
+        assert!(result.brief.injected_note_ids.contains(&"l1".to_string()));
+        assert!(result.enriched_prompt.contains("LANDMINES"));
+        assert!(result.enriched_prompt.ends_with("implement the plan, please"));
+    }
+
+    #[tokio::test]
+    async fn stale_note_is_downgraded_to_freshness_section() {
+        let (_tmp, vault, db, vault_id, project) = setup();
+        // A pattern note (optional → LLM picks it) that is far past the
+        // stale threshold.
+        let mut p = make_note("p1", NoteType::Pattern, &["src/x.rs"], "old pattern body", &[]);
+        p.last_verified = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+        ingest_note(&db, vault_id, &p, std::path::Path::new("notes/patterns/p1.md")).unwrap();
+        vault.write_note(&p).unwrap();
+
+        let cfg = enabled_config(); // stale_threshold_days = 30
+        let llm = MockLlmClient::new();
+        llm.enqueue_ok(r#"{"selected":[{"id":"p1","authority":"constraint"}]}"#, 80, 20);
+        let pricing = HashMap::new();
+
+        let result = enrich_prompt(
+            &db, &vault, vault_id, &cfg, "k", &pricing, &llm, "edit src/x.rs", None, &project,
+        )
+        .await
+        .unwrap();
+        assert!(result.brief.injected_note_ids.contains(&"p1".to_string()));
+        assert!(
+            result.enriched_prompt.contains("FRESHNESS"),
+            "stale note routed to the cautious FRESHNESS section"
+        );
     }
 
     #[tokio::test]

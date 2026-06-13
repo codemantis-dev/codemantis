@@ -96,6 +96,11 @@ pub struct AppState {
     /// Used by the wake observer to grant a short post-wake grace window
     /// before counting missed pongs.
     pub last_wake_at_epoch: Arc<AtomicI64>,
+    /// Per-project Recall harvest watchers, keyed by project path and
+    /// reference-counted by open sessions. Started when the first session
+    /// for a project opens (and Recall is enabled) and cancelled when the
+    /// last one closes. See `crate::recall::harvester::git_watcher`.
+    pub harvest_watchers: Mutex<HashMap<String, crate::recall::harvester::git_watcher::HarvestWatcher>>,
 }
 
 impl AppState {
@@ -117,6 +122,7 @@ impl AppState {
             wake_recovery_reload: Arc::new(AtomicBool::new(false)),
             is_system_asleep: Arc::new(AtomicBool::new(false)),
             last_wake_at_epoch: Arc::new(AtomicI64::new(0)),
+            harvest_watchers: Mutex::new(HashMap::new()),
         }
     }
 

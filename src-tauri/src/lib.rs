@@ -510,6 +510,11 @@ pub fn run() {
                             info!("[exit] Shutting down CLI process for session {}", sid);
                             proc.shutdown().await;
                         }
+                        // Cancel all running Recall harvest watchers.
+                        {
+                            let mut watchers = state.harvest_watchers.lock().await;
+                            recall::harvester::git_watcher::stop_all_harvest_watchers(&mut watchers);
+                        }
                         // Promote any session that was still open (never explicitly
                         // closed by the user) to status='closed' so it appears in
                         // the Resume Session list on next launch. Must happen
