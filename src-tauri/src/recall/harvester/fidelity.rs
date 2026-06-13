@@ -92,7 +92,14 @@ fn build_haystack(commit: &CommitInfo) -> String {
 ///   `enricher::entity_extraction`).
 /// - Identifier-looking tokens: snake_case, CamelCase, dotted
 ///   namespace paths.
-/// - Backtick-quoted spans (one inline span = one token).
+/// - Words inside backtick spans, filtered the same way.
+///
+/// Backtick spans are split into individual *words* and run through the
+/// same `looks_codey` filter as bare tokens — a multi-word span like
+/// `400 Bad Request` or a possessive like `URL's` must not be checked as
+/// one literal phrase (it never appears verbatim in a diff), only its
+/// genuinely code-shaped sub-tokens count. Without this, accurate notes
+/// get false-flagged and their trust needlessly downgraded.
 ///
 /// Tokens inside fenced ``` blocks are NOT extracted: the LLM may
 /// quote source verbatim and we'd false-positive every line. The
@@ -103,26 +110,21 @@ fn extract_tokens(body: &str) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<String> = Vec::new();
 
-    // 1) Backtick-quoted spans (inline code). Replace each span (and
-    // its delimiters) with whitespace in `scrubbed` so the bare-token
-    // pass doesn't re-extract the same content with backticks still
-    // attached.
-    let mut scrubbed = fenced_stripped.clone();
-    for (i, span) in fenced_stripped.split('`').enumerate() {
-        if i % 2 == 1 && !span.trim().is_empty() && !span.contains('\n') {
-            let lower = span.trim().to_ascii_lowercase();
-            if lower.len() >= 3 && seen.insert(lower.clone()) {
-                out.push(lower);
-            }
-        }
-    }
-    // Remove all backtick characters from `scrubbed` so the bare-token
-    // pass below can't pick up `foo` as a single token containing them.
-    scrubbed = scrubbed.replace('`', " ");
+    // Replace inline-backtick delimiters with whitespace so backtick
+    // content is split into words exactly like prose — then the codey
+    // filter below keeps only the identifier-shaped pieces. (Multi-word
+    // backtick phrases used to be captured whole, which false-flagged.)
+    let scrubbed = fenced_stripped.replace('`', " ");
 
-    // 2) Bare tokens — paths and identifiers.
+    // Split on whitespace, common punctuation, AND apostrophes — the last
+    // so possessives like `URL's` reduce to `URL` (which then isn't codey)
+    // rather than a literal `url's` token that no diff contains.
     for raw in scrubbed.split(|c: char| {
-        c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '<' | '>' | '"' | '!' | '?')
+        c.is_whitespace()
+            || matches!(
+                c,
+                ',' | ';' | '(' | ')' | '<' | '>' | '"' | '!' | '?' | '\'' | '\u{2019}'
+            )
     }) {
         let trimmed = raw.trim_matches(|c: char| matches!(c, '.' | ':' | '[' | ']' | '{' | '}'));
         if trimmed.len() < 3 {
@@ -297,6 +299,43 @@ mod tests {
         let body = "Migration `supabase/migrations/20260601_x.sql` adds the column.";
         let report = check(body, &c);
         assert_eq!(report.status, FidelityStatus::Clean);
+    }
+
+    #[test]
+    fn multi_word_backtick_phrase_is_not_flagged_as_one_token() {
+        // Regression (eval finding): the model wrote `400 Bad Request`; the
+        // diff has `status: 400` but not that literal phrase. The phrase must
+        // be split into words — none of which are code-shaped — so the note
+        // stays Clean instead of being false-flagged and trust-downgraded.
+        let c = commit(&[(
+            "supabase/functions/generate-content/index.ts",
+            &["return new Response(body, { status: 400 });"],
+            &[],
+        )]);
+        let body = "Empty prompts now return a `400 Bad Request` instead of crashing.";
+        let report = check(body, &c);
+        assert_eq!(report.status, FidelityStatus::Clean, "got flagged: {:?}", report.flagged_tokens);
+    }
+
+    #[test]
+    fn possessive_in_backticks_is_not_flagged() {
+        // Regression (eval finding): `URL's` must reduce to `URL` (not codey),
+        // not a literal `url's` token the diff never contains.
+        let c = commit(&[("supabase/functions/cms-public-api/index.ts", &["const domain = new URL(req.url);"], &[])]);
+        let body = "Reads the `domain` from the request `URL's` query string.";
+        let report = check(body, &c);
+        assert_eq!(report.status, FidelityStatus::Clean, "got flagged: {:?}", report.flagged_tokens);
+    }
+
+    #[test]
+    fn real_invented_symbol_inside_multiword_span_still_flagged() {
+        // The split must still catch a genuinely hallucinated identifier even
+        // when it sits inside a multi-word backtick span.
+        let c = commit(&[("src/real.rs", &["fn real_function() {"], &[])]);
+        let body = "Calls the `invented_helper_fn for cleanup` path.";
+        let report = check(body, &c);
+        assert_eq!(report.status, FidelityStatus::Flagged);
+        assert!(report.flagged_tokens.iter().any(|t| t.contains("invented_helper_fn")));
     }
 
     #[test]

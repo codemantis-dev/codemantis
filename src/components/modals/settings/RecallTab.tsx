@@ -62,6 +62,16 @@ const SELECT_CLS =
   "rounded-md border border-border bg-bg-elevated text-text-primary px-2 py-1 text-ui";
 const NUM_CLS = `${SELECT_CLS} w-28`;
 
+// Reasoning/thinking levels, mapped per-provider in the backend (Gemini
+// thinkingBudget, OpenAI reasoning_effort, Anthropic thinking block).
+// "off" forces thinking off even on thinking-default models.
+const THINKING_LEVELS: { value: string; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
 const MODE_OPTIONS: { value: RecallMode; label: string; help: string }[] = [
   {
     value: "off",
@@ -390,6 +400,23 @@ export default function RecallTab() {
                 )}
               </select>
             </FieldRow>
+            <FieldRow label="Enricher thinking">
+              <select
+                aria-label="Enricher thinking"
+                value={config.enricherThinking}
+                disabled={saving}
+                onChange={(e) =>
+                  persist({ ...config, enricherThinking: e.target.value })
+                }
+                className={SELECT_CLS}
+              >
+                {THINKING_LEVELS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </FieldRow>
           </div>
 
           <div className="space-y-3">
@@ -431,6 +458,23 @@ export default function RecallTab() {
                     </option>
                   ),
                 )}
+              </select>
+            </FieldRow>
+            <FieldRow label="Harvester thinking">
+              <select
+                aria-label="Harvester thinking"
+                value={config.harvesterThinking}
+                disabled={saving}
+                onChange={(e) =>
+                  persist({ ...config, harvesterThinking: e.target.value })
+                }
+                className={SELECT_CLS}
+              >
+                {THINKING_LEVELS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </FieldRow>
           </div>

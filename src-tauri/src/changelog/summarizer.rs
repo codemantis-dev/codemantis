@@ -35,6 +35,20 @@ fn extract_api_error(provider: &str, status: reqwest::StatusCode, body: &str) ->
     format!("{} API error {}: {}", provider, status, truncated)
 }
 
+/// Normalize a thinking-level string to one of `off | low | medium | high`.
+/// Unknown / empty values fall back to `off` (the safe, cheapest default).
+/// Used by the per-provider body builders to set provider-native reasoning
+/// controls. Recall threads its `enricher_thinking`/`harvester_thinking`
+/// config here; the changelog summarizer passes `"off"`.
+pub(crate) fn normalize_thinking(level: &str) -> &'static str {
+    match level.trim().to_ascii_lowercase().as_str() {
+        "low" => "low",
+        "medium" => "medium",
+        "high" => "high",
+        _ => "off",
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummarizeRequest {
     pub user_prompt: String,
@@ -100,10 +114,11 @@ pub async fn summarize_turn(
         .unwrap_or(DEFAULT_SYSTEM_PROMPT);
     let client = reqwest::Client::new();
 
+    // Changelog summaries don't use extended thinking — fast JSON is the goal.
     let (response_text, input_tokens, output_tokens) = match provider {
-        "gemini" => call_gemini(&client, api_key, model, system_prompt, &prompt).await?,
-        "openai" => call_openai(&client, api_key, model, system_prompt, &prompt).await?,
-        "anthropic" => call_anthropic(&client, api_key, model, system_prompt, &prompt).await?,
+        "gemini" => call_gemini(&client, api_key, model, system_prompt, &prompt, "off").await?,
+        "openai" => call_openai(&client, api_key, model, system_prompt, &prompt, "off").await?,
+        "anthropic" => call_anthropic(&client, api_key, model, system_prompt, &prompt, "off").await?,
         "openrouter" => call_openrouter(&client, api_key, model, system_prompt, &prompt).await?,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
@@ -119,9 +134,9 @@ pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<
     let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\",\"technical_details\":\"\",\"tools_summary\":\"\"}";
 
     let result = match provider {
-        "gemini" => call_gemini(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
-        "openai" => call_openai(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
-        "anthropic" => call_anthropic(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
+        "gemini" => call_gemini(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt, "off").await,
+        "openai" => call_openai(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt, "off").await,
+        "anthropic" => call_anthropic(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt, "off").await,
         "openrouter" => call_openrouter(&client, api_key, model, DEFAULT_SYSTEM_PROMPT, test_prompt).await,
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
@@ -135,19 +150,21 @@ pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<
     }
 }
 
-pub(crate) async fn call_gemini(
-    client: &reqwest::Client,
-    api_key: &str,
-    model: &str,
-    system_prompt: &str,
-    prompt: &str,
-) -> Result<(String, u32, u32), String> {
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-        model
-    );
-
-    let body = serde_json::json!({
+/// Build the Gemini request body. `thinking` controls the
+/// `thinkingConfig.thinkingBudget` — critically, `off` sets it to `0`,
+/// which *forces thinking off even on thinking-default models* (e.g.
+/// gemini-3.5-flash), so reasoning tokens don't starve the output budget
+/// and truncate the JSON. Higher levels raise both the thinking budget
+/// and `maxOutputTokens` so the answer still fits.
+fn build_gemini_body(model: &str, system_prompt: &str, prompt: &str, thinking: &str) -> serde_json::Value {
+    let _ = model; // model is in the URL, not the body; kept for signature parity
+    let (thinking_budget, max_output) = match normalize_thinking(thinking) {
+        "low" => (2048, 4096),
+        "medium" => (8192, 12288),
+        "high" => (16384, 24576),
+        _ => (0, 1024), // off
+    };
+    serde_json::json!({
         "system_instruction": {
             "parts": [{"text": system_prompt}]
         },
@@ -156,10 +173,27 @@ pub(crate) async fn call_gemini(
         }],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 1024,
-            "responseMimeType": "application/json"
+            "maxOutputTokens": max_output,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": thinking_budget}
         }
-    });
+    })
+}
+
+pub(crate) async fn call_gemini(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    prompt: &str,
+    thinking: &str,
+) -> Result<(String, u32, u32), String> {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
+    );
+
+    let body = build_gemini_body(model, system_prompt, prompt, thinking);
 
     let resp = client
         .post(&url)
@@ -197,17 +231,30 @@ pub(crate) async fn call_gemini(
     Ok((text, input_tokens, output_tokens))
 }
 
-fn build_openai_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
+fn build_openai_body(model: &str, system_prompt: &str, prompt: &str, thinking: &str) -> serde_json::Value {
     // NOTE: Do not send `temperature` — GPT-5 family and reasoning models (o1/o3/o4)
     // reject non-default temperature with HTTP 400 ("Only the default (1) is supported").
     // `response_format: json_object` keeps output deterministic enough.
+    //
+    // `reasoning_effort` is the GPT-5 family's reasoning control. `off` maps
+    // to "minimal" (the lowest setting — GPT-5 has no true "none"), keeping
+    // latency/cost down and leaving the token budget for the answer. Higher
+    // levels raise both the effort and `max_completion_tokens` (reasoning
+    // tokens count against it).
+    let (effort, max_completion) = match normalize_thinking(thinking) {
+        "low" => ("low", 4096),
+        "medium" => ("medium", 8192),
+        "high" => ("high", 16384),
+        _ => ("minimal", 1024), // off
+    };
     serde_json::json!({
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        "max_completion_tokens": 1024,
+        "max_completion_tokens": max_completion,
+        "reasoning_effort": effort,
         "response_format": {"type": "json_object"}
     })
 }
@@ -218,8 +265,9 @@ pub(crate) async fn call_openai(
     model: &str,
     system_prompt: &str,
     prompt: &str,
+    thinking: &str,
 ) -> Result<(String, u32, u32), String> {
-    let body = build_openai_body(model, system_prompt, prompt);
+    let body = build_openai_body(model, system_prompt, prompt, thinking);
 
     let resp = client
         .post("https://api.openai.com/v1/chat/completions")
@@ -257,18 +305,33 @@ pub(crate) async fn call_openai(
     Ok((text, input_tokens, output_tokens))
 }
 
-fn build_anthropic_body(model: &str, system_prompt: &str, prompt: &str) -> serde_json::Value {
+fn build_anthropic_body(model: &str, system_prompt: &str, prompt: &str, thinking: &str) -> serde_json::Value {
     // NOTE: Do not send `temperature` — Anthropic deprecated it for newer models
     // (e.g. Opus 4.8 returns 400 "`temperature` is deprecated for this model").
     // The "must return JSON" prompt is enough to keep output deterministic.
-    serde_json::json!({
+    //
+    // Anthropic models don't reason unless asked, so `off` omits the
+    // `thinking` block entirely (unchanged behaviour). Higher levels enable
+    // extended thinking with a token budget; `max_tokens` must exceed the
+    // thinking budget, so we add headroom for the answer on top.
+    let budget = match normalize_thinking(thinking) {
+        "low" => 2048,
+        "medium" => 8192,
+        "high" => 16384,
+        _ => 0, // off
+    };
+    let mut body = serde_json::json!({
         "model": model,
-        "max_tokens": 1024,
+        "max_tokens": if budget > 0 { budget + 4096 } else { 1024 },
         "system": system_prompt,
         "messages": [
             {"role": "user", "content": prompt}
         ]
-    })
+    });
+    if budget > 0 {
+        body["thinking"] = serde_json::json!({"type": "enabled", "budget_tokens": budget});
+    }
+    body
 }
 
 pub(crate) async fn call_anthropic(
@@ -277,8 +340,9 @@ pub(crate) async fn call_anthropic(
     model: &str,
     system_prompt: &str,
     prompt: &str,
+    thinking: &str,
 ) -> Result<(String, u32, u32), String> {
-    let body = build_anthropic_body(model, system_prompt, prompt);
+    let body = build_anthropic_body(model, system_prompt, prompt, thinking);
 
     let resp = client
         .post("https://api.anthropic.com/v1/messages")
@@ -660,7 +724,7 @@ Hope this helps!"#;
     // hardcoded `temperature` makes the test always fail.
     #[test]
     fn test_anthropic_body_omits_temperature() {
-        let body = build_anthropic_body("claude-opus-4-8", "system", "user prompt");
+        let body = build_anthropic_body("claude-opus-4-8", "system", "user prompt", "off");
         assert!(
             body.get("temperature").is_none(),
             "Anthropic request body must not include `temperature` — it's rejected by Opus 4.8+"
@@ -669,12 +733,55 @@ Hope this helps!"#;
 
     #[test]
     fn test_anthropic_body_has_required_fields() {
-        let body = build_anthropic_body("claude-sonnet-4-6", "sys", "hi");
+        let body = build_anthropic_body("claude-sonnet-4-6", "sys", "hi", "off");
         assert_eq!(body["model"], "claude-sonnet-4-6");
         assert_eq!(body["max_tokens"], 1024);
         assert_eq!(body["system"], "sys");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"], "hi");
+    }
+
+    #[test]
+    fn test_anthropic_thinking_off_omits_thinking_block() {
+        let body = build_anthropic_body("claude-sonnet-4-6", "sys", "hi", "off");
+        assert!(body.get("thinking").is_none(), "off must not enable extended thinking");
+        assert_eq!(body["max_tokens"], 1024);
+    }
+
+    #[test]
+    fn test_anthropic_thinking_high_enables_block_with_headroom() {
+        let body = build_anthropic_body("claude-opus-4-8", "sys", "hi", "high");
+        assert_eq!(body["thinking"]["type"], "enabled");
+        let budget = body["thinking"]["budget_tokens"].as_u64().unwrap();
+        let max = body["max_tokens"].as_u64().unwrap();
+        assert!(budget > 0);
+        assert!(max > budget, "max_tokens must exceed the thinking budget");
+    }
+
+    // ── build_gemini_body ────────────────────────────────────────────────
+
+    #[test]
+    fn test_gemini_thinking_off_sets_budget_zero() {
+        // The eval finding: thinking-default models (3.5-flash) truncate the
+        // JSON unless thinking is forced off. budget 0 is that lever.
+        let body = build_gemini_body("gemini-3.5-flash", "sys", "hi", "off");
+        assert_eq!(body["generationConfig"]["thinkingConfig"]["thinkingBudget"], 0);
+        assert_eq!(body["generationConfig"]["maxOutputTokens"], 1024);
+    }
+
+    #[test]
+    fn test_gemini_thinking_high_raises_budget_and_output() {
+        let body = build_gemini_body("gemini-3.5-flash", "sys", "hi", "high");
+        let budget = body["generationConfig"]["thinkingConfig"]["thinkingBudget"].as_u64().unwrap();
+        let max = body["generationConfig"]["maxOutputTokens"].as_u64().unwrap();
+        assert!(budget > 0);
+        assert!(max > 1024, "thinking-on raises the output budget so the answer still fits");
+    }
+
+    #[test]
+    fn test_gemini_body_omits_temperature_change_and_keeps_json_mime() {
+        let body = build_gemini_body("gemini-3.1-flash-lite", "sys", "hi", "off");
+        assert_eq!(body["generationConfig"]["responseMimeType"], "application/json");
     }
 
     // ── build_openai_body ────────────────────────────────────────────────
@@ -683,7 +790,7 @@ Hope this helps!"#;
     // `temperature` with HTTP 400 ("Only the default (1) is supported").
     #[test]
     fn test_openai_body_omits_temperature() {
-        let body = build_openai_body("gpt-5.4", "system", "user prompt");
+        let body = build_openai_body("gpt-5.4", "system", "user prompt", "off");
         assert!(
             body.get("temperature").is_none(),
             "OpenAI request body must not include `temperature` — rejected by GPT-5 family and reasoning models"
@@ -692,12 +799,41 @@ Hope this helps!"#;
 
     #[test]
     fn test_openai_body_has_required_fields() {
-        let body = build_openai_body("gpt-5.4-mini", "sys", "hi");
+        let body = build_openai_body("gpt-5.4-mini", "sys", "hi", "off");
         assert_eq!(body["model"], "gpt-5.4-mini");
         assert_eq!(body["max_completion_tokens"], 1024);
         assert_eq!(body["response_format"]["type"], "json_object");
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["role"], "user");
+    }
+
+    #[test]
+    fn test_openai_thinking_off_is_minimal_effort() {
+        let body = build_openai_body("gpt-5.4", "sys", "hi", "off");
+        assert_eq!(body["reasoning_effort"], "minimal");
+        assert_eq!(body["max_completion_tokens"], 1024);
+    }
+
+    #[test]
+    fn test_openai_thinking_levels_map_to_effort_and_raise_budget() {
+        let high = build_openai_body("gpt-5.4", "sys", "hi", "high");
+        assert_eq!(high["reasoning_effort"], "high");
+        assert!(high["max_completion_tokens"].as_u64().unwrap() > 1024);
+        let med = build_openai_body("gpt-5.4", "sys", "hi", "medium");
+        assert_eq!(med["reasoning_effort"], "medium");
+    }
+
+    // ── normalize_thinking ───────────────────────────────────────────────
+
+    #[test]
+    fn test_normalize_thinking() {
+        assert_eq!(normalize_thinking("off"), "off");
+        assert_eq!(normalize_thinking("OFF"), "off");
+        assert_eq!(normalize_thinking(""), "off");
+        assert_eq!(normalize_thinking("garbage"), "off");
+        assert_eq!(normalize_thinking("Low"), "low");
+        assert_eq!(normalize_thinking("medium"), "medium");
+        assert_eq!(normalize_thinking("HIGH"), "high");
     }
 
     // ── build_openrouter_body ────────────────────────────────────────────

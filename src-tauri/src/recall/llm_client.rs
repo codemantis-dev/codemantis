@@ -29,6 +29,11 @@ pub struct LlmRequest {
     pub system_prompt: String,
     pub user_prompt: String,
     pub timeout: Duration,
+    /// Reasoning/thinking level: `off | low | medium | high`. Threaded to
+    /// the provider's native control (Gemini `thinkingBudget`, OpenAI
+    /// `reasoning_effort`, Anthropic `thinking`). `off` forces thinking off
+    /// even on thinking-default models so the output budget isn't starved.
+    pub thinking: String,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +109,7 @@ impl LlmClient for RealLlmClient {
                         &req.model,
                         &req.system_prompt,
                         &req.user_prompt,
+                        &req.thinking,
                     )
                     .await
                 }
@@ -114,6 +120,7 @@ impl LlmClient for RealLlmClient {
                         &req.model,
                         &req.system_prompt,
                         &req.user_prompt,
+                        &req.thinking,
                     )
                     .await
                 }
@@ -124,6 +131,7 @@ impl LlmClient for RealLlmClient {
                         &req.model,
                         &req.system_prompt,
                         &req.user_prompt,
+                        &req.thinking,
                     )
                     .await
                 }
@@ -244,6 +252,7 @@ mod tests {
             system_prompt: "sys".into(),
             user_prompt: "user".into(),
             timeout: Duration::from_secs(1),
+            thinking: "off".into(),
         };
         let r1 = mock.call(req.clone(), "k").await.unwrap();
         assert_eq!(r1.text, "hello");
@@ -267,6 +276,7 @@ mod tests {
             system_prompt: "".into(),
             user_prompt: "".into(),
             timeout: Duration::from_secs(1),
+            thinking: "off".into(),
         };
         let _ = mock.call(req, "k").await;
     }
@@ -280,6 +290,7 @@ mod tests {
             system_prompt: "".into(),
             user_prompt: "".into(),
             timeout: Duration::from_millis(100),
+            thinking: "off".into(),
         };
         let result = client.call(req, "k").await;
         assert!(result.is_err());
@@ -296,6 +307,7 @@ mod tests {
             system_prompt: "".into(),
             user_prompt: "".into(),
             timeout: Duration::from_millis(100),
+            thinking: "off".into(),
         };
         let result = client.call(req, "").await;
         assert!(result.is_err());

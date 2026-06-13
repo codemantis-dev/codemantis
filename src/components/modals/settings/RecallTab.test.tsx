@@ -188,6 +188,23 @@ describe("RecallTab — advanced fields", () => {
     await waitFor(() => expect(lastRecall().enricherModel).toBe("gemini-3.5-flash"));
   });
 
+  it("thinking selectors default to off and persist per side", async () => {
+    mountEnabled();
+    render(<RecallTab />);
+    const enr = (await screen.findByLabelText("Enricher thinking")) as HTMLSelectElement;
+    const harv = screen.getByLabelText("Harvester thinking") as HTMLSelectElement;
+    expect(enr.value).toBe("off");
+    expect(harv.value).toBe("off");
+
+    fireEvent.change(enr, { target: { value: "high" } });
+    await waitFor(() => {
+      const recall = lastRecall();
+      expect(recall.enricherThinking).toBe("high");
+      // Harvester thinking untouched.
+      expect(recall.harvesterThinking).toBe("off");
+    });
+  });
+
   it("every update_settings carries the full recall object", async () => {
     mountEnabled();
     render(<RecallTab />);

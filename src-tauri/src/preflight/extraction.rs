@@ -192,15 +192,16 @@ async fn call_llm(
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| ExtractionError::Api(e.to_string()))?;
+    // Preflight extraction wants fast, structured JSON — no extended thinking.
     let result = match provider {
         "anthropic" => {
-            summarizer::call_anthropic(&client, api_key, model, system_prompt, prompt).await
+            summarizer::call_anthropic(&client, api_key, model, system_prompt, prompt, "off").await
         }
         "openai" => {
-            summarizer::call_openai(&client, api_key, model, system_prompt, prompt).await
+            summarizer::call_openai(&client, api_key, model, system_prompt, prompt, "off").await
         }
         "gemini" => {
-            summarizer::call_gemini(&client, api_key, model, system_prompt, prompt).await
+            summarizer::call_gemini(&client, api_key, model, system_prompt, prompt, "off").await
         }
         "openrouter" => {
             summarizer::call_openrouter(&client, api_key, model, system_prompt, prompt).await

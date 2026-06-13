@@ -163,6 +163,7 @@ pub async fn select(
         system_prompt: SYSTEM_PROMPT.to_string(),
         user_prompt: user_payload,
         timeout: crate::recall::llm_client::DEFAULT_TIMEOUT,
+        thinking: config.enricher_thinking.clone(),
     };
 
     // First attempt.

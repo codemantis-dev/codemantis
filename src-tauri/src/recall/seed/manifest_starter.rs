@@ -108,6 +108,7 @@ pub async fn generate(
                 system_prompt: SYSTEM_PROMPT.to_string(),
                 user_prompt: user_payload.clone(),
                 timeout: crate::recall::llm_client::DEFAULT_TIMEOUT,
+                thinking: config.harvester_thinking.clone(),
             };
             match client.call(req, api_key).await {
                 Ok(resp) => {

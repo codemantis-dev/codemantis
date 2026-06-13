@@ -77,6 +77,7 @@ pub async fn generate(
         system_prompt: SYSTEM_PROMPT.to_string(),
         user_prompt: user_payload,
         timeout: crate::recall::llm_client::DEFAULT_TIMEOUT,
+        thinking: config.harvester_thinking.clone(),
     };
     let response = llm.call(req, api_key).await?;
     let parsed = parse_response(&response.text)?;
