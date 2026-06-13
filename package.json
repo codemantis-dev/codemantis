@@ -1,7 +1,7 @@
 {
   "name": "codemantis",
   "private": true,
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "A native macOS desktop UI for Claude Code and Codex",
   "author": "CodeMantis Contributors",
   "license": "MIT",

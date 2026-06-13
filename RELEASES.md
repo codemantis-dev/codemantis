@@ -1,5 +1,14 @@
 # CodeMantis Releases
 
+## 1.8.3 — Codex compaction: retry-first with auto-retry
+
+A hotfix continuing the Codex recovery hardening from 1.8.1–1.8.2.
+
+### Codex
+
+- **Retry-first compaction recovery.** Transient compaction stream drops are now auto-retried before any recovery card is shown, and a manual **Retry** action is available if the auto-retry doesn't catch it. Recovery guidance no longer steers toward the v1.7.0 "start a new session" dead-end.
+- Added a C14 compaction capture scenario to the Codex protocol diagnostics harness.
+
 ## 1.8.2 — Codex recovery: non-destructive revive first
 
 A hotfix refining the Codex session recovery introduced in 1.8.1.
