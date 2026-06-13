@@ -48,6 +48,15 @@ A free, open-source native macOS application that gives Claude Code and OpenAI C
 
 ## Features
 
+### Two Agents, One App — Claude Code & Codex
+
+CodeMantis runs every session on either **Claude Code** *or* **OpenAI Codex** — both are first-class agents sharing the same UI, streamed through a common adapter layer (Codex became first-class in **1.3.0**). When both CLIs are installed, the **+** new-session button and the Project Picker show an **agent picker** so you choose per session; sessions are locked to their agent for life.
+
+- **Per-task subscription routing** (**1.5.0**) — route Main chat, SpecWriter, Self-Drive, and Help to a specific agent in **Settings → Agents**, with a 7-day Usage Split showing where each kind of work is drawing from. Keep interactive work on Claude and push headless work to your ChatGPT subscription (or vice versa) to spread load across two billing pools.
+- **Codex Policy pill** — Codex's sandbox (`read-only` / `workspace-write` / `danger-full-access`) and approval policy (`never` / `on-request` / `untrusted`) surface as one toolbar popover, the Codex analog of Claude's mode selector.
+- **Native Codex plan mode** (**1.8.0**) — a **Plan toggle pill** flips the next Codex turn to a read-only sandbox + planning preamble, so Codex proposes a plan over the full conversation before touching files — no need to drop into the Codex TUI.
+- **Codex Management Panel** (**1.6.0**) — view and reload Codex config, MCP servers, and account from inside the app (via `/config` or `/mcp`), plus the interactive TUI commands (`/plan`, `/model`, `/approvals`, …) reachable through a real `codex resume` overlay.
+
 ### SpecWriter — Write the Spec, Not the Code
 
 Claude Code implements what you describe — but the quality of the description determines the quality of the result. SpecWriter is an AI conversation partner that draws out the details you'd forget. Attach mockups, screenshots, PDFs, or **project files via the new file picker**. It reads your codebase for real file paths and context, tags its confidence level on each recommendation, and produces implementation-ready specs with verification checklists. Save specs directly to your project and send them to Claude Code in one click.
@@ -55,6 +64,8 @@ Claude Code implements what you describe — but the quality of the description 
 **New in 1.1.11 — capability handshake.** Before generating a Feature-mode spec, SpecWriter probes the project for what's actually wired up (Supabase, Anthropic, OpenAI, Stripe, Resend, Google OAuth, BrowserMCP, env vars, docker, lockfiles…) and asks you to confirm ambiguous ones in an inline banner. Each confirmation gets **live-fired** — a real API call against your keys — so the spec only commits to services that genuinely respond. The capability record is cached in `.claude/project-capabilities.json` so subsequent runs are incremental.
 
 **New in 1.1.11 — UI-completeness audit + AUDIT-PATCH.** A new Coverage panel surfaces gaps the model would otherwise miss: orphan entities, untriggered endpoints, forms without validation, oversized sessions, leaked `{{placeholder}}` quotes, and missing indivisible markers. A single **"Patch spec & re-audit"** button asks Claude Code for an AUDIT-PATCH that splices fixes into the existing H1–H6 sections rather than rewriting the spec. Patch outcome banner ("Spec patched" / "Patch rejected — spec preserved") tells you exactly what happened, and a persisted creation log + **RESUME HERE** pill means long specs survive a context compaction.
+
+**Since 1.4.1 — runs natively on Codex.** SpecWriter works on a Codex session too (it spawns with an ephemeral `AGENTS.override.md` so your real `AGENTS.md` is untouched), and when **Recall** is enabled the spec context is enriched with the project's accumulated memory.
 
 ![SpecWriter](media/screenshots/CodeMantis_spec_writer_finished_spec_001.jpg)
 
@@ -70,13 +81,15 @@ Turn your spec into working code hands-free. Self-Drive takes an implementation 
 
 **New in 1.1.11 — evidence-driven verification.** The orchestrator now emits typed evidence claims (`command_ran_with_output`, `file_grep_match`, `pnpm_check_output`, …) parsed semantically instead of by free-text phrase-matching, and recognises which kind of prompt injection produced the current response so verdicts route correctly. A **per-label loop guard** auto-accepts a verify item after repeated evidence provisions (no more infinite recheck loops) and pauses with a named label only when the orchestrator is truly stuck. A **parity-recovery loop** lets Claude Code add a missing wire literal or emit a legitimate `DEFERRED:` line before a cross-system action parity gate halts the session. **Capability-gated verify items** tagged with `capability=<id>` auto-resolve as N/A when the capability is absent, so a missing service never masquerades as an implementation bug. The new `orchestrator-uncertain` blocker kind surfaces 1–2 sentences of orchestrator reasoning and a one-click override path when its hesitation is overcaution rather than a real failure.
 
+**Since 1.4–1.5 — agent-aware, with a budget orchestrator option.** Self-Drive runs on both Claude Code and Codex; the build-mode preamble auto-adapts to the active agent so verify-pass precision is comparable across both. Settings → Self-Drive adds an OpenRouter model picker (cheap-first) for a budget orchestrator, and a force-reset path that clears stuck cross-project starts. Self-Drive also consults the project's Preflight gate before each run and refuses to start with unsatisfied blockers.
+
 | | |
 |---|---|
 | ![Self-Drive started](media/screenshots/CodeMantis_self_drive_started_001.jpg) | ![Self-Drive running](media/screenshots/CodeMantis_self_drive_in_full_motion_001.jpg) |
 
 ### Three-Panel Layout with Mode Control
 
-The chat panel shows only conversation text. All code operations — file reads, writes, edits, bash commands — appear in the Activity Feed with color-coded tool badges, approval controls, and expandable details. Switch between **Normal** (approve each tool use), **Auto-Accept** (let Claude work autonomously), and **Plan** (reasoning only, no code changes) with `⌘.`. When a plan finishes, a **"Plan Complete — Implement Now"** dialog lets you jump straight into execution with auto-accept enabled.
+The chat panel shows only conversation text. All code operations — file reads, writes, edits, bash commands — appear in the Activity Feed with color-coded tool badges, approval controls, and expandable details. For Claude sessions, cycle modes with `⌘.` — **Normal** (approve each tool use), **Auto-Accept** (autonomous), **Plan** (reasoning only, no code changes), plus **Auto**, **Don't Ask**, and **Bypass** for trusted runs. Codex sessions get the equivalent **Policy pill** and **Plan toggle** instead (see *Two Agents, One App* above). When a plan finishes, a **"Plan Complete — Implement Now"** dialog lets you jump straight into execution with auto-accept enabled.
 
 ![Three-panel layout](media/screenshots/CodeMantis_main_application_window_chat_001.jpg)
 
@@ -95,6 +108,14 @@ A native browser window for previewing your running app alongside the conversati
 ### Super Bro — Contextual AI Coach
 
 An optional coaching layer that watches your coding sessions and offers proactive guidance. Super Bro is deployment-aware (reads live git status and recent changes), tags its confidence level, and auto-dismisses when everything looks good. Enable per-project from the sidebar. Configure provider, model, and knowledge modules in Settings.
+
+### Recall — Project & Cross-Project Memory
+
+**New in 1.6.0.** An opt-in memory layer that sits around every agent turn so decisions, gotchas, and conventions stop being re-explained. Before a prompt sends, Recall composes a focused brief from the project's Markdown vault (`<project>/.recall/`) and injects it; after the agent's work lands in a commit, it harvests one atomic, diff-anchored memory note. The vault is plain Markdown with `[[wikilinks]]` — openable directly in Obsidian. A cold-start seed bootstraps it from your git history. Off by default, per-project; the default "Suggested" mode never blocks a prompt or commit. Enable at **Settings → Recall**.
+
+### Mission Control — Capability Preflight
+
+**New in 1.1.10.** A per-project capability gate. A green/yellow/red strip at the top of the workspace tells you at a glance whether every required API key, secret, and CLI tool is satisfied; clicking it opens a setup wizard that walks you through each one (open-url, paste-and-verify, confirm-install). SpecWriter auto-writes `preflight.yaml` on spec finalization, and Self-Drive refuses to start with unsatisfied blockers.
 
 ### Multi-AI Assistants
 
@@ -121,7 +142,7 @@ Claude asks before acting. The approval modal shows exactly what tool Claude wan
 - **Monaco Editor** — Multi-tab file viewer with syntax highlighting and inline diffs
 - **Integrated Terminals** — Full PTY terminals (xterm.js) with multiple tabs
 - **15+ MCP Server Templates** — Add, edit, and remove MCP servers across global and project scopes
-- **Slash Commands** — Searchable command palette with skill templates, built-in commands, and CLI fallback
+- **Agent-aware Slash Commands** — Searchable palette scoped to the active agent (`.claude/commands` + skills on Claude, `.codex/prompts/` on Codex), with built-in commands and a CLI overlay fallback
 - **AI Changelogs** — Auto-generated structured changelogs after each session (Gemini, OpenAI, or Anthropic)
 - **Session Persistence** — Chat logs saved locally with automatic restore on resume; browse and resume previous sessions from Session History
 - **Clone from GitHub** — Clone a repo directly from the welcome screen or project picker
@@ -169,8 +190,9 @@ Grab the latest `.dmg` from the [Releases](https://github.com/codemantis-dev/cod
 **Prerequisites:**
 
 - macOS (Apple Silicon or Intel)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and signed in with a Claude Pro or Max subscription
-- The `claude` command must be on your `PATH`
+- At least one agent CLI installed and on your `PATH` (install either or both):
+  - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — the `claude` command, signed in with a Claude Pro or Max subscription
+  - [OpenAI Codex CLI](https://developers.openai.com/codex/cli) — the `codex` command, signed in with a ChatGPT Plus/Pro/Business subscription
 
 ### Build from Source
 
@@ -257,7 +279,7 @@ pnpm tauri build     # Production .dmg
 | Terminal | xterm.js |
 | Backend | Tauri v2, Rust, tokio, serde |
 | Database | rusqlite (bundled SQLite) |
-| CLI Protocol | Claude Code stream-json (bidirectional) |
+| CLI Protocol | Claude Code stream-json + Codex app-server JSON-RPC (bidirectional) |
 
 ---
 
