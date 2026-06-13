@@ -10,6 +10,7 @@
 >
 > **What's new since v1.1.4** (highlights -- see `RELEASES.md` for the full log):
 >
+> - **Native Codex plan mode + per-session agent picker** (v1.8.0). Codex sessions get a **Plan toggle pill** in the input toolbar (next to the Policy pill) -- a native plan-mode approximation that flips the next turn to a read-only sandbox + planning preamble and surfaces a plan-mode banner, giving Codex Claude-style planning without dropping into the Codex TUI. And when both Claude Code and Codex are installed, the session sub-tab bar's **+** button opens a "New session with…" menu so you can pick the agent per session (and your pick sticks as the default). See Chapters 5, 6, and 8.
 > - **Recall -- project & cross-project memory** (v1.5.x). An opt-in memory layer (Settings → Recall): when enabled, it composes a focused brief from the project's Markdown vault (`<project>/.recall/`) and injects it before each agent prompt, then harvests one memory note per commit, anchored to the diff. Decisions, gotchas, and conventions persist across sessions instead of being re-explained. Off by default, per-project; default **Suggested** mode never blocks prompts or commits. See Chapter 21C.
 > - **Default Agent per Task -- subscription-pool routing** (v1.5.0). Settings → Agents now lets you route each kind of work (main chat, Assistant panel, SpecWriter, in-app Help) to a specific local CLI, with **"Use primary"** as the default for any category you don't pin. The motivation is the 15 June 2026 Anthropic billing change that moves `claude -p` / Agent-SDK headless usage onto a metered credit pool separate from interactive subscriptions; Codex stays on your ChatGPT subscription. With per-task routing you can keep surgical work on Claude while pushing iterative SpecWriter / Help traffic to Codex (or vice versa), and a 7-day session-count breakdown shows exactly how the split is landing.
 > - **Agent-aware slash-command discovery + CLI-only commands for Codex** (v1.5.0). The command palette scans `.codex/prompts/` on Codex sessions (and `.claude/commands` + `.claude/skills` on Claude sessions); CLI-only entries surface the right agent's subcommands (`/login`, `/mcp`, `/apply` on Codex; `/bug`, `/init`, `/model`, … on Claude). The CLI Overlay runs whichever agent's binary the active session is bound to.
@@ -240,7 +241,7 @@ The active session tab has an elevated background and an accent-colored bottom b
 
 To the right of the session tabs:
 
-- A **Plus (+) button** to create a new session in the current project.
+- A **Plus (+) button** to create a new session in the current project. When **both** Claude Code and Codex are installed, clicking it opens a small **"New session with…"** menu so you can pick which agent the next session runs on (new in v1.8.0); your pick is persisted as the default for subsequent new-session flows (the `Cmd N` shortcut and Agent badge reuse it). When only one agent is installed it stays a one-click button.
 - A flexible spacer.
 - **Session History** tab (History icon) -- Shows closed sessions you can resume. See Chapter 8.
 - **Project Log** tab (ScrollText icon) -- Shows changelog entries across all sessions. See Chapter 8.
@@ -722,8 +723,8 @@ Left side buttons:
 
 Right side controls:
 
-- **Agent badge** -- A small pill (e.g. "Claude Code" or "Codex") on the far left of the right-side controls, showing which agent the active session is running on. Switch agents by creating a new session via the Project Picker's Agent Picker (Chapter 3) -- existing sessions stay bound to whichever agent they started on.
-- **Mode Selector / Codex Policy Pill** -- For **Claude Code** sessions, this shows the current mode (Shield "Normal" / ShieldCheck "Auto-Accept" / Map "Plan" / Sparkles "Auto" / Zap "Don't Ask" / ShieldAlert "Bypass"). See Chapter 6. For **Codex** sessions, the Mode Selector is replaced by the **Codex Policy pill** (e.g. `workspace-write · on-request ▾`) — Codex's sandbox and approval policy are two orthogonal axes, so the pill surfaces both as one popover. See Chapter 6 for both controls' details.
+- **Agent badge** -- A small pill (e.g. "Claude Code" or "Codex") on the far left of the right-side controls, showing which agent the active session is running on. Switch agents by creating a new session -- via the Project Picker's Agent Picker (Chapter 3), or, when both CLIs are installed, the agent menu on the session sub-tab bar's **+** button (Chapter 8). Existing sessions stay bound to whichever agent they started on.
+- **Mode Selector / Codex Policy Pill** -- For **Claude Code** sessions, this shows the current mode (Shield "Normal" / ShieldCheck "Auto-Accept" / Map "Plan" / Sparkles "Auto" / Zap "Don't Ask" / ShieldAlert "Bypass"). See Chapter 6. For **Codex** sessions, the Mode Selector is replaced by the **Codex Policy pill** (e.g. `workspace-write · on-request ▾`) — Codex's sandbox and approval policy are two orthogonal axes, so the pill surfaces both as one popover. Codex sessions also get a **Plan toggle pill** (Map icon, labelled "Plan") next to the Policy pill — a native plan-mode approximation that doesn't require dropping into the Codex TUI (new in v1.8.0). See Chapter 6 for all three controls' details.
 - A vertical divider.
 - **Model Selector** -- Shows the current model name (e.g., "Sonnet") with a dropdown chevron. Click to open a dropdown of available models.
 - **Thinking Effort selector** -- A small vertical-bars graphic plus a text label (e.g., "Medium") and a chevron. The bar count and label set come from the running model's capability manifest -- Sonnet exposes 4 levels, the Default account model exposes 5 (incl. "XHigh"), Haiku has none (in which case the selector is hidden). Click to open a dropdown listing every supported level with a "running" badge on whichever level the current CLI process was started with. Picking a level updates the **default for new sessions** and is persisted as `defaultThinkingEffort` in Settings. To apply a new level to the running session, click **"Apply {level} now (restart session)"** at the bottom of the dropdown -- CodeMantis pauses the CLI process and resumes it with the documented `--effort` flag, preserving the existing CLI session ID via `--resume`. The running session can only be restarted while idle.
@@ -975,6 +976,27 @@ Codex doesn't have a single "mode" axis. Its sandbox (what the agent is allowed 
 
 ---
 
+### Codex: Plan Toggle (native plan mode)
+
+New in **v1.8.0**, Codex sessions get a **Plan toggle pill** (Map icon, labelled "Plan") in the input toolbar, sitting next to the Policy pill -- the same slot Claude's Plan mode occupies via the Mode Selector. It gives Codex plan-mode parity with Claude **without leaving CodeMantis**: you no longer have to drop into the real Codex TUI (`/plan` resume overlay) just to plan.
+
+**Why this is a CodeMantis feature, not a Codex one.** Codex CLI 0.139.0 exposes no settable `collaborationMode` over its app-server -- there is no protocol parameter to flip Codex into plan mode. So CodeMantis approximates it natively: toggling Plan on flips the **next `turn/start`** to a **read-only sandbox** plus a **planning preamble**, so Codex reasons over your full conversation and proposes an approach without editing any files.
+
+**What you see**
+
+- **The pill** highlights yellow when active. Click to toggle; the title tooltip explains the current state. The session's mode is `"plan"` while active.
+- **A plan-mode banner** appears above the chat message list ("Plan mode -- Codex is read-only and will propose a plan from the full conversation before making changes.") so the read-only posture is always visible.
+- When Codex finishes planning, the plan surfaces through the **same Plan Complete modal** (ExitPlanMode flow, Chapter 14) that Claude uses -- approve it to proceed, and any plan file is revealed in the File Viewer.
+
+**Behaviour**
+
+- The toggle is **optimistic**: CodeMantis flips local state immediately and the Rust backend confirms with a `codex_plan_mode_changed` event. On IPC failure the pill reverts.
+- Plan mode stays in **native chat with full prior context** -- it does not spawn a separate TUI or fork the conversation.
+- CodeMantis also **syncs** the pill from Codex's own `thread/settings/updated` notifications, so if Codex reports a collaboration-mode change the toggle reflects it.
+- The TUI `/plan` command (resume overlay) still works as an alternative -- see Chapter 25 -- but the toggle is the faster, in-app path.
+
+---
+
 ## Chapter 7: Tool Approvals & Questions
 
 When the active coding agent wants to perform an action on your project, or when it needs your input to proceed, modal dialogs appear for your review and response. The **same modals** handle approvals for both Claude Code and Codex -- only the underlying wire shape differs.
@@ -1197,7 +1219,7 @@ The header has a **"Back"** button and a **"Refresh"** button.
 ### User Actions
 
 **Create a new session**
-Press `Cmd N` or click the Plus (+) button in the session sub-tab bar. A new session tab appears and becomes active. A Claude Code CLI process starts in the background.
+Press `Cmd N` or click the Plus (+) button in the session sub-tab bar. A new session tab appears and becomes active, and the active agent's CLI process starts in the background. If both Claude Code and Codex are installed, the Plus (+) button first opens a **"New session with…"** menu so you can choose the agent for this session (the choice is remembered for next time); `Cmd N` uses your current default agent. Sessions are locked to their agent for life.
 
 **Switch between sessions**
 Click a session tab, or use `Cmd 1` through `Cmd 9` to switch by position, or use `Cmd Shift [` / `Cmd Shift ]` to navigate left/right.
@@ -4664,7 +4686,7 @@ Complete reference of every slash command available in CodeMantis. Data from `sr
 
 These are surfaced only when the active session's agent is Codex. They route to one of three surfaces:
 
-- **Interactive TUI** (`/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff`) -- resumes the real Codex TUI for the current conversation (`codex resume <thread_id>`) and types `/<name>` in. These are TUI-only commands with no JSON-RPC equivalent on Codex CLI 0.139.0 (notably `/plan` -- Codex's plan mode is a TUI/config concept, not a settable protocol parameter), so the real TUI is the only way to reach them.
+- **Interactive TUI** (`/plan`, `/model`, `/approvals`, `/review`, `/status`, `/diff`) -- resumes the real Codex TUI for the current conversation (`codex resume <thread_id>`) and types `/<name>` in. These are TUI-only commands with no JSON-RPC equivalent on Codex CLI 0.139.0 (notably `/plan` -- Codex's plan mode is a TUI/config concept, not a settable protocol parameter), so the real TUI is the only way to reach the *native Codex* version of them. **For plan mode specifically, you usually don't need this:** as of v1.8.0 the input toolbar's **Plan toggle pill** (Chapter 6) gives an in-app plan-mode approximation without leaving CodeMantis. The `/plan` overlay remains available if you want Codex's own TUI plan experience.
 - **Management Panel** (`/config`, `/mcp`) -- opens the in-app **Codex Management Panel** (driven by the app-server JSON-RPC config/MCP methods, because `codex config` forwards to the interactive TUI and `codex mcp` exits without a subcommand).
 - **One-shot subcommand** (everything else) -- spawns `codex <name>` directly in the CLI Overlay.
 

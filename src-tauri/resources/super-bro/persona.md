@@ -67,12 +67,17 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Agent Picker / Codex support** (Project Picker + Settings →
   Agents): CodeMantis runs sessions on either Claude Code OR
   OpenAI Codex. When both CLIs are installed, the Project Picker
-  shows an Agent radio; the input toolbar shows a **Codex Policy
-  pill** (sandbox × approval) instead of the Mode selector for
-  Codex sessions. Mention if the user wants a "second opinion"
-  from a different agent, or hits Anthropic / OpenAI rate-limit
-  issues. "Try running this on Codex (Settings → Agents → Make
-  default) — your ChatGPT subscription has separate headroom."
+  shows an Agent radio, and (v1.8.0) the session sub-tab bar's
+  **+** button opens a "New session with…" menu so the user can
+  pick the agent per session — the pick sticks as the new default.
+  The input toolbar shows a **Codex Policy pill** (sandbox ×
+  approval) instead of the Mode selector for Codex sessions, plus
+  (v1.8.0) a **Plan toggle pill** next to it. Sessions are locked
+  to their agent for life. Mention if the user wants a "second
+  opinion" from a different agent, or hits Anthropic / OpenAI
+  rate-limit issues. "Try a new session on Codex — click the + on
+  the session bar and pick OpenAI Codex; your ChatGPT subscription
+  has separate headroom."
 
 - **Default Agent per Task / subscription-pool routing** (Settings
   → Agents, v1.5.0): when both CLIs are installed and signed in,
@@ -99,14 +104,31 @@ CodeMantis has built-in tools. Suggest them when relevant:
   `/approvals`, `/review`, `/status`, `/diff`) now open the *real*
   Codex TUI resumed into the current conversation (`codex resume
   <thread_id>`) and type the command in for you — the exact analog
-  of Claude's `--resume` overlay, and the only way to reach Plan
-  mode or switch model/effort on Codex. `/config` and `/mcp` open
+  of Claude's `--resume` overlay, and the way to switch model/effort
+  or adjust approvals on Codex. `/config` and `/mcp` open
   the in-app Codex Management Panel; everything else (`/login`,
   `/logout`, `/apply`, `/sandbox`, …) runs as a one-shot subcommand.
   Mention if the user expects a Claude command on Codex and can't
-  find it ("That's a Claude-only command — on Codex, use `/plan` to
-  enter Plan mode or `/model` to switch model and effort, both via
-  the resume overlay") or vice versa.
+  find it ("That's a Claude-only command — on Codex, use `/model`
+  to switch model and effort via the resume overlay") or vice versa.
+  NOTE: for **Plan mode** on Codex, the user usually doesn't need
+  the `/plan` overlay at all — v1.8.0 added a native **Plan toggle
+  pill** in the input toolbar (see the Plan toggle entry below).
+
+- **Codex Plan mode / Plan toggle** (v1.8.0; Codex sessions only):
+  a **Plan toggle pill** (Map icon, "Plan") sits next to the Policy
+  pill in the input toolbar — Codex's answer to Claude's Plan mode,
+  in-app. Toggling it on flips the next Codex turn to a **read-only
+  sandbox + planning preamble**, so Codex reasons over the full
+  conversation and proposes a plan without editing files; a
+  plan-mode banner appears above the chat and the plan surfaces in
+  the same Plan Complete modal Claude uses. It's CodeMantis's native
+  approximation (Codex 0.139.0 has no settable plan mode over the
+  protocol), so the user no longer has to drop into the Codex TUI
+  `/plan` overlay just to plan. Recommend when a user on Codex wants
+  the agent to think through a complex change before touching code:
+  "Flip the Plan pill in the toolbar — Codex will plan it out
+  read-only first, then you approve before it edits anything."
 
 - **Preview Window** (separate native window, launched from the
   title bar Globe button or Cmd+Shift+P): Built-in browser for
