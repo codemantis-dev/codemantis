@@ -219,6 +219,25 @@ describe("chat event handler — thinking events", () => {
       const thinking = useSessionStore.getState().sessionThinking.get("s1");
       expect(thinking?.isThinking).toBe(false);
     });
+
+    it("clears a stuck compacting flag on turn_complete", () => {
+      // Regression: the compacting flag (set on contextCompaction item/started)
+      // was only cleared by that item's own completed/failed notification. If
+      // the turn ends without it, the status bar stuck on "Compacting" forever.
+      setupSession();
+      useSessionStore.getState().setSessionCompacting("s1", true);
+      expect(useSessionStore.getState().sessionCompacting.get("s1")).toBe(true);
+
+      handleChatEvent("s1", {
+        type: "turn_complete",
+        session_id: "s1",
+        duration_ms: 1000,
+        usage: null,
+        cost_usd: null,
+      });
+
+      expect(useSessionStore.getState().sessionCompacting.get("s1")).toBe(false);
+    });
   });
 
   describe("thinking → text transition", () => {

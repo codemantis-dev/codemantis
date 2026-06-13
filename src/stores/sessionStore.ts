@@ -64,6 +64,12 @@ interface SessionState {
    * new (empty-context) thread regains continuity. Consumed + cleared on the
    * next sendMessage; the displayed user message is left unprefixed. */
   pendingRecapPrefix: Map<string, string>;
+  /** True once a Codex "Recover" (revive: kill+respawn+resume same thread) has
+   * been attempted for a session and has NOT yet produced a completed turn.
+   * Used to escalate: a compaction failure with this set means the revive
+   * didn't help → the context is genuinely un-compactable → offer "Start fresh
+   * thread" instead of another revive. Cleared on any turn_complete. */
+  codexRecoverAttempted: Map<string, boolean>;
   busySince: Map<string, number>;       // timestamp when busy started
   rateLimitUtilization: Map<string, number>;  // 0-1
   sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
@@ -120,6 +126,7 @@ interface SessionState {
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRecapPrefix: (sessionId: string, recap: string) => void;
   clearRecapPrefix: (sessionId: string) => void;
+  setCodexRecoverAttempted: (sessionId: string, attempted: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
   accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number, reasoningTokens?: number) => void;
@@ -178,6 +185,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionActivity: new Map(),
   sessionCompacting: new Map(),
   pendingRecapPrefix: new Map(),
+  codexRecoverAttempted: new Map(),
   busySince: new Map(),
   rateLimitUtilization: new Map(),
   sessionCapabilities: new Map(),
@@ -280,6 +288,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionCompacting.delete(sessionId);
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
+      const codexRecoverAttempted = new Map(state.codexRecoverAttempted);
+      codexRecoverAttempted.delete(sessionId);
       const busySince = new Map(state.busySince);
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
@@ -348,6 +358,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionActivity,
         sessionCompacting,
         pendingRecapPrefix,
+        codexRecoverAttempted,
         busySince,
         rateLimitUtilization,
         sessionCapabilities,
@@ -654,6 +665,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionCompacting.delete(sessionId);
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
+      const codexRecoverAttempted = new Map(state.codexRecoverAttempted);
+      codexRecoverAttempted.delete(sessionId);
       const busySince = new Map(state.busySince);
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
@@ -666,7 +679,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionThinking.delete(sessionId);
       const sessionReviewContent = new Map(state.sessionReviewContent);
       sessionReviewContent.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, codexRecoverAttempted, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -747,6 +760,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
       return { pendingRecapPrefix };
+    }),
+
+  setCodexRecoverAttempted: (sessionId, attempted) =>
+    set((state) => {
+      const codexRecoverAttempted = new Map(state.codexRecoverAttempted);
+      if (attempted) {
+        codexRecoverAttempted.set(sessionId, true);
+      } else {
+        codexRecoverAttempted.delete(sessionId);
+      }
+      return { codexRecoverAttempted };
     }),
 
   setRateLimitUtilization: (sessionId, utilization) =>

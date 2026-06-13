@@ -138,6 +138,19 @@ function handleThinkingDelta(sessionId: string, event: ThinkingDeltaEvent, store
 
 function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: SessionStoreState): void {
   store.setSessionBusy(sessionId, false);
+  // Clear the compacting flag on ANY turn completion. It's set when a
+  // contextCompaction item starts and was otherwise only cleared by that
+  // item's own completed/failed notification (or a ProcessError). If Codex
+  // ends the turn without a discrete compaction item/completed — or that
+  // notification is lost — the flag (which outranks busy/idle in the status
+  // bar) sticks on "Compacting" forever even though the turn is done. The
+  // turn ending is an unconditional signal that no compaction is in flight.
+  store.setSessionCompacting(sessionId, false);
+  // A completed turn means the session is healthy again — reset the Codex
+  // revive-escalation latch so a future, independent compaction failure offers
+  // a (non-destructive) revive first rather than jumping straight to a fresh
+  // thread.
+  store.setCodexRecoverAttempted(sessionId, false);
   // Flush any buffered text
   const turnFrame = pendingFrames.get(sessionId);
   if (turnFrame) cancelAnimationFrame(turnFrame);

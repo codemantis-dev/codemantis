@@ -89,11 +89,19 @@ export interface Message {
   restartable?: boolean;
   retryable?: boolean;
   /**
-   * Marks the Codex compaction-failure card. Renders a "Recover session"
-   * button that starts a fresh Codex thread in place (same tab + transcript)
-   * to escape the un-compactable-context loop. Codex-only.
+   * Marks a Codex compaction-failure / stuck card. Renders a "Recover session"
+   * button that REVIVES the session non-destructively (kill + respawn + resume
+   * the same thread) — the fix for a wedged connection / lost notification.
+   * Codex-only.
    */
   recoverable?: boolean;
+  /**
+   * Escalation flag: set on a compaction-failure card when a revive was
+   * already attempted and the context still won't compact. Renders a "Start
+   * fresh thread" button (fresh empty thread + recap) — the last resort that
+   * discards the live conversation. Codex-only.
+   */
+  freshThreadable?: boolean;
   thinkingContent?: string;
   isRestored?: boolean;
   isSelfDrive?: boolean;

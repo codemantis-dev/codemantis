@@ -53,6 +53,8 @@ function resetStore(): void {
     contextToastFired: new Map(),
     sessionActivity: new Map(),
     sessionCompacting: new Map(),
+    pendingRecapPrefix: new Map(),
+    codexRecoverAttempted: new Map(),
     busySince: new Map(),
     rateLimitUtilization: new Map(),
     sessionCapabilities: new Map(),
@@ -180,6 +182,24 @@ describe("handleProcessError", () => {
     const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
     const card = messages[messages.length - 1];
     expect(card.recoverable).toBeFalsy();
+  });
+
+  it("escalates to fresh-thread when a revive was already attempted", () => {
+    // A compaction failure AFTER a revive means the context is genuinely
+    // un-compactable → offer "Start fresh thread", not another revive.
+    getStore().setCodexRecoverAttempted(SESSION_ID, true);
+    const event: ProcessErrorEvent = {
+      type: "process_error",
+      session_id: SESSION_ID,
+      error: "remote compact task: stream disconnected before completion",
+    };
+
+    handleProcessError(SESSION_ID, event, getStore(), NOW);
+
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    const card = messages[messages.length - 1];
+    expect(card.recoverable).toBeFalsy();
+    expect(card.freshThreadable).toBe(true);
   });
 
   it("handles error when session is not streaming", () => {

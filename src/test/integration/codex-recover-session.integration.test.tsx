@@ -43,6 +43,8 @@ vi.mock("../../lib/tauri-commands", () => ({
   resetCodexThread: vi.fn().mockResolvedValue("thr_new"),
   summarizeConversationForRecap: vi.fn().mockResolvedValue("LLM RECAP"),
   RESET_THREAD_NO_LIVE_PROCESS: "NO_LIVE_PROCESS",
+  pauseSessionProcess: vi.fn().mockResolvedValue(undefined),
+  resumeSessionProcess: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../stores/toastStore", () => ({
@@ -70,6 +72,9 @@ import {
   resetCodexThread,
   summarizeConversationForRecap,
   createSession,
+  loadSessionMessages,
+  pauseSessionProcess,
+  resumeSessionProcess,
 } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 
@@ -108,7 +113,7 @@ function seedCodexSession(): void {
   });
 }
 
-describe("recoverCodexSession (Integration)", () => {
+describe("Codex recovery (Integration)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetAllStores();
@@ -118,12 +123,37 @@ describe("recoverCodexSession (Integration)", () => {
     vi.mocked(summarizeConversationForRecap).mockResolvedValue("LLM RECAP");
   });
 
-  it("uses the LLM recap, resets the thread, stores the prefix, and notes it in chat", async () => {
+  // ─── reviveCodexSession (primary, non-destructive) ────────────────────────
+
+  it("revive resumes the SAME thread (pause+resume), preserving context", async () => {
+    seedCodexSession();
+    useSessionStore.getState().setSessionCompacting(SESSION_ID, true);
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.reviveCodexSession(SESSION_ID);
+    });
+
+    // Non-destructive: same thread resumed, NOT a fresh thread, NO recap.
+    expect(pauseSessionProcess).toHaveBeenCalledWith(SESSION_ID);
+    expect(resumeSessionProcess).toHaveBeenCalled();
+    expect(resetCodexThread).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().pendingRecapPrefix.has(SESSION_ID)).toBe(false);
+    // Stuck flags cleared, escalation latch armed.
+    expect(useSessionStore.getState().sessionCompacting.get(SESSION_ID)).toBe(false);
+    expect(useSessionStore.getState().codexRecoverAttempted.get(SESSION_ID)).toBe(true);
+    const messages = useSessionStore.getState().sessionMessages.get(SESSION_ID) ?? [];
+    expect(messages[messages.length - 1].content).toContain("Reconnected");
+  });
+
+  // ─── freshThreadCodexSession (last resort) ────────────────────────────────
+
+  it("fresh-thread uses the LLM recap, resets the thread, stores the prefix", async () => {
     seedCodexSession();
     const { result } = renderHook(() => useClaudeSession());
 
     await act(async () => {
-      await result.current.recoverCodexSession(SESSION_ID);
+      await result.current.freshThreadCodexSession(SESSION_ID);
     });
 
     expect(resetCodexThread).toHaveBeenCalledWith(SESSION_ID);
@@ -133,13 +163,13 @@ describe("recoverCodexSession (Integration)", () => {
     expect(messages[messages.length - 1].content).toContain("Started a fresh Codex thread");
   });
 
-  it("falls back to a local recap when no API key is configured", async () => {
+  it("fresh-thread falls back to a local recap when no API key is configured", async () => {
     seedCodexSession();
     vi.mocked(summarizeConversationForRecap).mockRejectedValueOnce("NO_API_KEY");
     const { result } = renderHook(() => useClaudeSession());
 
     await act(async () => {
-      await result.current.recoverCodexSession(SESSION_ID);
+      await result.current.freshThreadCodexSession(SESSION_ID);
     });
 
     expect(resetCodexThread).toHaveBeenCalledWith(SESSION_ID);
@@ -154,7 +184,7 @@ describe("recoverCodexSession (Integration)", () => {
     const { result } = renderHook(() => useClaudeSession());
 
     await act(async () => {
-      await result.current.recoverCodexSession(SESSION_ID);
+      await result.current.freshThreadCodexSession(SESSION_ID);
     });
     await act(async () => {
       await result.current.sendMessage(SESSION_ID, "continue please");
@@ -176,13 +206,47 @@ describe("recoverCodexSession (Integration)", () => {
     expect(secondCall[1]).not.toContain("LLM RECAP");
   });
 
-  it("falls back to a full restart when the app-server is gone", async () => {
+  it("re-derives the Recover button on a RESUMED transcript stuck on a failed compaction", async () => {
+    // Regression: `recoverable` isn't persisted, so resuming a session that
+    // ended on the compaction-failure card used to render the dead-end card
+    // with no button — the exact limbo a user hit after reopening.
+    vi.mocked(loadSessionMessages).mockResolvedValueOnce([
+      { id: "u1", role: "user", content: "do the thing", timestamp: "" },
+      {
+        id: "a1",
+        role: "assistant",
+        content:
+          "**Context compaction failed**\n\nCodex tried to compress this conversation…",
+        timestamp: "",
+      },
+    ] as Awaited<ReturnType<typeof loadSessionMessages>>);
+
+    const { result } = renderHook(() => useClaudeSession());
+    let newId = "";
+    await act(async () => {
+      newId = await result.current.resumeFromHistory(
+        PROJECT_PATH,
+        "thr_old",
+        "Codex",
+        "orig-session",
+        undefined,
+        "codex",
+      );
+    });
+
+    const restored = useSessionStore.getState().sessionMessages.get(newId) ?? [];
+    const card = restored[restored.length - 1];
+    expect(card.content).toContain("Context compaction failed");
+    expect(card.recoverable).toBe(true);
+  });
+
+  it("fresh-thread falls back to a full restart when the app-server is gone", async () => {
     seedCodexSession();
     vi.mocked(resetCodexThread).mockRejectedValueOnce("Error: NO_LIVE_PROCESS");
     const { result } = renderHook(() => useClaudeSession());
 
     await act(async () => {
-      await result.current.recoverCodexSession(SESSION_ID);
+      await result.current.freshThreadCodexSession(SESSION_ID);
     });
 
     // A fresh session was spawned under the same agent…

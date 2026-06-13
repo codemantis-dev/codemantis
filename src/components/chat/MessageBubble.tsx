@@ -21,6 +21,7 @@ interface MessageBubbleProps {
   onRestart?: () => void;
   onRetry?: () => void;
   onRecover?: () => void;
+  onFreshThread?: () => void;
   /**
    * True when this is the most recent assistant message in the thread.
    * The Copy icon is rendered always-visible for the latest reply (so
@@ -36,6 +37,7 @@ export default React.memo(function MessageBubble({
   onRestart,
   onRetry,
   onRecover,
+  onFreshThread,
   isLatest = false,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
@@ -165,9 +167,8 @@ export default React.memo(function MessageBubble({
             Retry
           </button>
         )}
-        {/* Recover button for the Codex compaction-failure card. Starts a
-            fresh thread in place (same tab + transcript) — escapes the
-            un-compactable-context loop. */}
+        {/* Recover button for a Codex compaction-failure / stuck card. Revives
+            the session non-destructively (resume same thread, full context). */}
         {message.recoverable && onRecover && (
           <button
             onClick={onRecover}
@@ -177,9 +178,20 @@ export default React.memo(function MessageBubble({
             Recover session
           </button>
         )}
+        {/* Escalation: a revive already failed → the context is genuinely
+            un-compactable. Start a fresh empty thread + recap (last resort). */}
+        {message.freshThreadable && onFreshThread && (
+          <button
+            onClick={onFreshThread}
+            className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ui text-accent bg-accent/10 hover:bg-accent/20 transition-colors font-medium"
+          >
+            <RotateCcw size={13} />
+            Start fresh thread
+          </button>
+        )}
         {/* Turn stats + timestamp + inline Copy. Always visible on the
             latest assistant reply, hover-only on older ones. */}
-        {!message.isStreaming && !message.restartable && !message.recoverable && (
+        {!message.isStreaming && !message.restartable && !message.recoverable && !message.freshThreadable && (
           <div className="mt-1.5 flex items-center gap-2">
             {message.turnStats && <TurnStatsPopover stats={message.turnStats} />}
             <span className="text-detail text-text-ghost">

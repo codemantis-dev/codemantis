@@ -25,11 +25,14 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
   }
   const errorMsgId = nextMessageId();
   const userError = translateError(event.error);
-  // The Codex compaction-failure card gets a one-click "Recover session"
-  // button: a failed compaction doesn't shrink context, so resending just
-  // re-loops. Recovery starts a fresh thread in place. This path is Codex-only
-  // (only Codex emits compaction failures).
+  // The Codex compaction-failure card carries a recovery action (Codex-only —
+  // only Codex emits these). First failure → "Recover session" (a
+  // non-destructive revive: kill + respawn + resume the same thread, which
+  // fixes a wedged connection / lost notification while keeping history). If a
+  // revive was already attempted and it STILL failed, the context is genuinely
+  // un-compactable, so escalate to "Start fresh thread" (fresh thread + recap).
   const isCompactionFailure = userError.title === "Context compaction failed";
+  const alreadyRevived = store.codexRecoverAttempted.get(sessionId) ?? false;
   store.addMessage(sessionId, {
     id: errorMsgId,
     role: "assistant",
@@ -39,7 +42,8 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
     timestamp: now,
     activityIds: [],
     isStreaming: false,
-    recoverable: isCompactionFailure,
+    recoverable: isCompactionFailure && !alreadyRevived,
+    freshThreadable: isCompactionFailure && alreadyRevived,
   });
 }
 

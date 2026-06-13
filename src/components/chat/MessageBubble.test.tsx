@@ -114,6 +114,14 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("Recover session")).not.toBeInTheDocument();
   });
 
+  it("shows Start fresh thread button for freshThreadable messages", () => {
+    const onFreshThread = vi.fn();
+    const msg = makeMessage({ freshThreadable: true });
+    render(<MessageBubble message={msg} onFreshThread={onFreshThread} />);
+    fireEvent.click(screen.getByText("Start fresh thread"));
+    expect(onFreshThread).toHaveBeenCalledOnce();
+  });
+
   it("shows timestamp on user messages", () => {
     const msg = makeMessage({ role: "user" });
     render(<MessageBubble message={msg} />);

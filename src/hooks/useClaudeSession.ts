@@ -21,6 +21,8 @@ import {
   resetCodexThread,
   summarizeConversationForRecap,
   RESET_THREAD_NO_LIVE_PROCESS,
+  pauseSessionProcess,
+  resumeSessionProcess,
 } from "../lib/tauri-commands";
 import { buildTranscriptText, buildLocalRecap } from "../lib/recap";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -44,6 +46,48 @@ const MAX_SESSIONS = 10;
 
 // Module-level listener map — persists across re-renders
 const sessionListeners = new Map<string, UnlistenFn[]>();
+
+/**
+ * Re-attach the Codex "Recover session" affordance to a restored transcript.
+ *
+ * `Message.recoverable` is set live by `handleProcessError` but is NOT
+ * persisted (saveSessionMessages only stores role/content/timestamp/thinking).
+ * So a session restored or resumed while stuck on a failed Codex compaction
+ * would render the dead-end card with no Recover button — the exact bug a user
+ * hit after reopening such a session. Re-derive the flag on the trailing
+ * compaction-failure card so the escape hatch survives a restore. The
+ * "Context compaction failed" title is Codex-only (see error-messages.ts).
+ */
+function withRecoverableCompactionCard(messages: Message[]): Message[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (
+    last.role === "assistant" &&
+    !last.recoverable &&
+    last.content.includes("Context compaction failed")
+  ) {
+    const copy = messages.slice();
+    copy[copy.length - 1] = { ...last, recoverable: true };
+    return copy;
+  }
+  return messages;
+}
+
+/** Map persisted messages back to Message[] for a restored session, marking
+ * them `isRestored` and re-deriving the Recover affordance. */
+function restoredMessagesFrom(stored: SessionMessagePayload[]): Message[] {
+  const messages: Message[] = stored.map((m) => ({
+    id: m.id,
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    timestamp: m.timestamp,
+    activityIds: [],
+    isStreaming: false,
+    thinkingContent: m.thinkingContent ?? undefined,
+    isRestored: true,
+  }));
+  return withRecoverableCompactionCard(messages);
+}
 
 interface UseClaudeSessionReturn {
   startSession: (projectPath: string, agentOverride?: AgentId) => Promise<string>;
@@ -74,12 +118,20 @@ interface UseClaudeSessionReturn {
    */
   resumeRecoveredSession: (pausedSessionId: string) => Promise<string | null>;
   /**
-   * Recover a Codex session whose context compaction failed. Starts a fresh
-   * thread on the same live app-server (keeping the tab + transcript) and
-   * primes it with a recap (LLM summary, or a local bounded-tail fallback when
-   * no API key). Falls back to a full session restart if the app-server is gone.
+   * Primary Codex recovery: revive the SAME thread non-destructively (kill +
+   * respawn the local app-server, resume the same thread from its rollout).
+   * Full conversation/context preserved; fixes a wedged connection / lost
+   * notification. Same tab.
    */
-  recoverCodexSession: (sessionId: string) => Promise<void>;
+  reviveCodexSession: (sessionId: string) => Promise<void>;
+  /**
+   * Last-resort Codex recovery: start a fresh empty thread on the live
+   * app-server and prime it with a recap (LLM summary, or local bounded-tail
+   * fallback). Discards the live conversation — only offered after a revive
+   * has failed to make the context compactable. Falls back to a full restart
+   * if the app-server is gone.
+   */
+  freshThreadCodexSession: (sessionId: string) => Promise<void>;
 }
 
 export function useClaudeSession(): UseClaudeSessionReturn {
@@ -348,23 +400,17 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       if (preloadedMessages && preloadedMessages.length > 0) {
         const storeState = sessionStore.getState();
         const sessionMessages = new Map(storeState.sessionMessages);
-        sessionMessages.set(session.id, preloadedMessages.map((m) => ({ ...m, isRestored: true })));
+        sessionMessages.set(
+          session.id,
+          withRecoverableCompactionCard(preloadedMessages.map((m) => ({ ...m, isRestored: true }))),
+        );
         sessionStore.setState({ sessionMessages });
       } else if (originalSessionId) {
         try {
           const stored = await loadSessionMessages(originalSessionId);
           console.info(`[resumeFromHistory] Loaded ${stored.length} stored messages for ${originalSessionId} → new session ${session.id}`);
           if (stored.length > 0) {
-            const restoredMessages: Message[] = stored.map((m) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              timestamp: m.timestamp,
-              activityIds: [],
-              isStreaming: false,
-              thinkingContent: m.thinkingContent ?? undefined,
-              isRestored: true,
-            }));
+            const restoredMessages = restoredMessagesFrom(stored);
             const storeState = sessionStore.getState();
             const sessionMessages = new Map(storeState.sessionMessages);
             sessionMessages.set(session.id, restoredMessages);
@@ -425,16 +471,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       const stored = await loadSessionMessages(entry.session_id);
       if (stored.length > 0) {
-        const restoredMessages: Message[] = stored.map((m) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          content: m.content,
-          timestamp: m.timestamp,
-          activityIds: [],
-          isStreaming: false,
-          thinkingContent: m.thinkingContent ?? undefined,
-          isRestored: true,
-        }));
+        const restoredMessages = restoredMessagesFrom(stored);
         const sessionMessages = new Map(sessionStore.getState().sessionMessages);
         sessionMessages.set(entry.session_id, restoredMessages);
         sessionStore.setState({ sessionMessages });
@@ -470,16 +507,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     try {
       const stored = await loadSessionMessages(info.id);
       if (stored.length > 0) {
-        const restoredMessages: Message[] = stored.map((m) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          content: m.content,
-          timestamp: m.timestamp,
-          activityIds: [],
-          isStreaming: false,
-          thinkingContent: m.thinkingContent ?? undefined,
-          isRestored: true,
-        }));
+        const restoredMessages = restoredMessagesFrom(stored);
         const sessionMessages = new Map(sessionStore.getState().sessionMessages);
         sessionMessages.set(info.id, restoredMessages);
         sessionStore.setState({ sessionMessages });
@@ -572,7 +600,52 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [resumeFromHistory]);
 
-  const recoverCodexSession = useCallback(async (sessionId: string): Promise<void> => {
+  // Primary recovery: revive the SAME Codex thread, non-destructively. Kill
+  // the (possibly wedged) local app-server and respawn it resuming the same
+  // thread — `resume_session_process` reloads the FULL conversation from the
+  // thread's on-disk rollout, so no context is lost. We relaunch the local
+  // process only because CodeMantis talks to `codex app-server` over a
+  // stdin/stdout pipe and a wedged pipe can't be re-attached; the conversation
+  // itself is unaffected. Reuses the proven pause+resume path the stuck-banner
+  // already uses. Same tab, same listeners, full history.
+  const reviveCodexSession = useCallback(async (sessionId: string): Promise<void> => {
+    const session = sessionStore.getState().sessions.get(sessionId);
+    if (!session) return;
+    try {
+      await pauseSessionProcess(sessionId);
+      await resumeSessionProcess(sessionId, session.cli_session_id ?? null);
+    } catch (e) {
+      handleError("Failed to recover session", e);
+      return;
+    }
+    const store = sessionStore.getState();
+    // Mark that a revive was tried: if the resumed thread still can't compact,
+    // the next failure card escalates to "Start fresh thread" instead of
+    // looping on revive. Cleared automatically on the next completed turn.
+    store.setCodexRecoverAttempted(sessionId, true);
+    store.setSessionBusy(sessionId, false);
+    store.setSessionCompacting(sessionId, false);
+    if (store.sessionStreaming.get(sessionId)?.isStreaming) {
+      store.finalizeStreaming(sessionId);
+    }
+    store.addMessage(sessionId, {
+      id: `revived-${Date.now()}`,
+      role: "assistant",
+      content:
+        "**Reconnected to this Codex session.** The conversation and its full " +
+        "context were reloaded — continue where you left off.",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+    showToast("Reconnected — Codex session revived", "info", 6000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+  }, []);
+
+  // Last-resort recovery: start a FRESH empty thread + recap. Only offered
+  // after a revive has already failed to make the context compactable. This
+  // discards the live conversation (the recap carries forward a summary).
+  const freshThreadCodexSession = useCallback(async (sessionId: string): Promise<void> => {
     const session = sessionStore.getState().sessions.get(sessionId);
     if (!session) return;
 
@@ -587,7 +660,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     } catch (e) {
       // "NO_API_KEY" (expected when unconfigured) or any provider error →
       // local fallback. Both are non-fatal; recovery must still proceed.
-      console.info("[recoverCodexSession] recap summary unavailable, using local fallback:", e);
+      console.info("[freshThreadCodexSession] recap summary unavailable, using local fallback:", e);
       recap = buildLocalRecap(messages);
     }
 
@@ -604,11 +677,11 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         try {
           await startSession(session.project_path, session.agent_id);
         } catch (restartErr) {
-          handleError("Failed to recover session", restartErr);
+          handleError("Failed to start fresh thread", restartErr);
         }
         return;
       }
-      handleError("Failed to recover session", e);
+      handleError("Failed to start fresh thread", e);
       return;
     }
 
@@ -617,10 +690,11 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // regains continuity on their next message.
     const store = sessionStore.getState();
     store.setRecapPrefix(sessionId, recap);
+    store.setCodexRecoverAttempted(sessionId, false);
     store.setSessionBusy(sessionId, false);
     store.setSessionCompacting(sessionId, false);
     store.addMessage(sessionId, {
-      id: `recovered-${Date.now()}`,
+      id: `fresh-thread-${Date.now()}`,
       role: "assistant",
       content:
         "**Started a fresh Codex thread.** Your history above is preserved. " +
@@ -629,7 +703,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       activityIds: [],
       isStreaming: false,
     });
-    showToast("Recovered — fresh Codex thread ready", "info", 6000);
+    showToast("Fresh Codex thread ready", "info", 6000);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [startSession]);
 
@@ -645,6 +719,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     restorePausedSession,
     reattachLiveSession,
     resumeRecoveredSession,
-    recoverCodexSession,
+    reviveCodexSession,
+    freshThreadCodexSession,
   };
 }

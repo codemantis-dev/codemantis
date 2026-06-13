@@ -382,6 +382,15 @@ impl AgentProcessHandle for CodexProcessHandle {
                 )
             })?;
 
+        // Best-effort: abandon any in-flight turn (typically the wedged
+        // compaction that triggered recovery) before starting the fresh
+        // thread, so the new thread isn't racing a dying turn. Bounded by
+        // CODEX_INTERRUPT_ACK_TIMEOUT; errors (e.g. no active turn) are
+        // expected and ignored.
+        let _ = self
+            .send_control_request(ControlRequestPayload::Interrupt)
+            .await;
+
         // Fresh thread/start on the still-alive app-server. Empty context →
         // breaks the un-compactable-context loop without a respawn.
         let new_id = send_thread_start(&self.client, &self.session_id, params)
