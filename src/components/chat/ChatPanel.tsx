@@ -3,7 +3,7 @@ import { ArrowDown, Sparkles, X, Play } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useChatIncrementalLoad } from "../../hooks/useChatIncrementalLoad";
-import { readFileContent, generateClaudeMd } from "../../lib/tauri-commands";
+import { readFileContent, generateClaudeMd, sendMessage as sendMessageCmd } from "../../lib/tauri-commands";
 import { showToast } from "../../stores/toastStore";
 import MessageBubble from "./MessageBubble";
 import SelfDriveDecisionCard from "./SelfDriveDecisionCard";
@@ -60,6 +60,29 @@ export default function ChatPanel() {
       console.error("Failed to start fresh thread:", e)
     );
   }, [session, freshThreadCodexSession]);
+
+  // Retry a failed turn (e.g. a transient compaction-stream drop) by re-running
+  // the last user prompt — the one-click "continue" that recovered compaction
+  // before v1.7.0. Uses the raw command (no duplicate user bubble); backend
+  // Recall enrichment still applies.
+  const handleRetry = useCallback(() => {
+    if (!session) return;
+    const sid = session.id;
+    const messages = useSessionStore.getState().sessionMessages.get(sid) ?? [];
+    let lastUserPrompt = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserPrompt = messages[i].content;
+        break;
+      }
+    }
+    if (!lastUserPrompt) return;
+    useSessionStore.getState().setSessionBusy(sid, true);
+    sendMessageCmd(sid, lastUserPrompt).catch((e) => {
+      console.error("Retry failed:", e);
+      useSessionStore.getState().setSessionBusy(sid, false);
+    });
+  }, [session]);
 
   // CLAUDE.md suggestion banner
   const [showClaudeMdBanner, setShowClaudeMdBanner] = useState(false);
@@ -339,6 +362,7 @@ export default function ChatPanel() {
                         message.isStreaming ? streaming.streamingContent : undefined
                       }
                       onRestart={message.restartable ? handleRestart : undefined}
+                      onRetry={message.retryable ? handleRetry : undefined}
                       onRecover={message.recoverable ? handleRecover : undefined}
                       onFreshThread={message.freshThreadable ? handleFreshThread : undefined}
                       isLatest={isLatestAssistant}

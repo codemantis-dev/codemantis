@@ -436,12 +436,13 @@ const ERROR_CATALOG: ErrorPattern[] = [
   },
 
   // ── Codex context-compaction failure ──
-  // Codex auto-compacts when a thread nears its context limit. If that
-  // server-side "remote compact task" stream drops, the turn dies with no
-  // reply. A failed compaction does NOT shrink the context, so re-sending
-  // "continue" just re-attempts the same doomed compaction — an infinite
-  // loop. Steer the user off "try again" toward a fresh session. Match
-  // before the generic network/stream rules so this specific advice wins.
+  // Codex auto-compacts when a thread nears its context limit. The
+  // server-side "remote compact task" stream can drop mid-way (a transient
+  // network hiccup — distinct from a genuinely-too-large context, which Codex
+  // reports separately as ContextWindowExceeded). Re-running the turn
+  // re-attempts the compaction and usually succeeds — that's how compaction
+  // recovered transparently before. So steer toward Retry, NOT a new session.
+  // Match before the generic network/stream rules so this advice wins.
   {
     test: (r) => {
       const l = lower(r);
@@ -450,10 +451,10 @@ const ERROR_CATALOG: ErrorPattern[] = [
     map: () => ({
       title: "Context compaction failed",
       message:
-        "Codex tried to compress this conversation to free up context, but the compaction was interrupted before it finished. No reply was produced.",
+        "Codex was compressing this conversation to free up context and the compaction stream dropped before it finished — usually a transient hiccup. Your conversation is intact.",
       remediation:
-        "Re-sending will just retry the same compaction and usually fails the same way once a conversation gets this large. If a quick retry doesn't go through, start a new session to keep working — the messages above are preserved.",
-      toastMessage: "Context compaction failed — try a new session",
+        "Click Retry to continue — it re-runs the turn and Codex re-attempts the compaction. If it keeps failing, use Recover session to reconnect, or Start fresh thread as a last resort. The messages above are preserved either way.",
+      toastMessage: "Compaction stream dropped — Retry to continue",
     }),
   },
 

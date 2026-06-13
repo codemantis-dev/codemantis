@@ -10,6 +10,75 @@ import { nextMessageId } from "./chat";
 // Store state types (derived from Zustand store getState())
 type SessionStoreState = ReturnType<typeof useSessionStore.getState>;
 
+// Auto-retry budget for transient Codex compaction-stream drops. A dropped
+// "remote compact task" stream is usually transient (distinct from a genuinely
+// too-large context, which arrives as ContextWindowExceeded), so we re-run the
+// turn a few times before surfacing any card — restoring the pre-v1.7.0
+// "compaction just recovers" behavior. Short backoff: stream drops recover fast.
+const COMPACTION_MAX_RETRIES = 3;
+const COMPACTION_RETRY_DELAYS = [3, 8, 15];
+
+/**
+ * Schedule an automatic retry of the last turn after a transient compaction
+ * failure. Returns true if a retry was scheduled (caller shows no card), false
+ * if the budget is spent or there's nothing to retry (caller shows the card).
+ */
+function tryAutoRetryCompaction(sessionId: string, store: SessionStoreState, now: string): boolean {
+  const messages = store.sessionMessages.get(sessionId) ?? [];
+  let lastUserPrompt = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastUserPrompt = messages[i].content;
+      break;
+    }
+  }
+  if (!lastUserPrompt) return false; // nothing to re-run → fall through to card
+
+  const attempt = (store.sessionRetry.get(sessionId)?.retryAttempt ?? 0) + 1;
+  if (attempt > COMPACTION_MAX_RETRIES) {
+    // Budget spent — reset it (so a later manual Retry gets a fresh budget) and
+    // let the caller surface the Retry/Recover card.
+    store.clearRetry(sessionId);
+    return false;
+  }
+
+  const delaySec = COMPACTION_RETRY_DELAYS[Math.min(attempt - 1, COMPACTION_RETRY_DELAYS.length - 1)];
+  store.addMessage(sessionId, {
+    id: nextMessageId(),
+    role: "assistant",
+    content:
+      `**Compaction hiccup.** Codex's compaction stream dropped — retrying automatically ` +
+      `in ${delaySec}s (attempt ${attempt}/${COMPACTION_MAX_RETRIES}). Your conversation is intact.`,
+    timestamp: now,
+    activityIds: [],
+    isStreaming: false,
+  });
+  showToast(`Compaction stream dropped — auto-retrying in ${delaySec}s`, "info", delaySec * 1000);
+
+  const timerId = setTimeout(() => {
+    const s = useSessionStore.getState();
+    if (!s.sessions.has(sessionId)) return; // session closed mid-wait
+    // NOTE: do NOT clearRetry here — the attempt count must persist so a repeat
+    // failure escalates. It's cleared on success (handleTurnComplete) or when
+    // the budget is spent above.
+    import("../tauri-commands").then(({ sendMessage }) => {
+      s.setSessionBusy(sessionId, true);
+      sendMessage(sessionId, lastUserPrompt).catch((e: unknown) => {
+        console.error("Compaction auto-retry failed:", e);
+        useSessionStore.getState().setSessionBusy(sessionId, false);
+      });
+    });
+  }, delaySec * 1000);
+
+  store.setRetryState(sessionId, {
+    isRetrying: true,
+    retryAttempt: attempt,
+    retryAt: Date.now() + delaySec * 1000,
+    retryTimerId: timerId,
+  });
+  return true;
+}
+
 export function handleProcessError(sessionId: string, event: ProcessErrorEvent, store: SessionStoreState, now: string): void {
   store.setSessionBusy(sessionId, false);
   // A turn can die mid-compaction (e.g. Codex's "remote compact task: stream
@@ -23,15 +92,23 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
   if (streaming?.isStreaming) {
     store.finalizeStreaming(sessionId);
   }
-  const errorMsgId = nextMessageId();
   const userError = translateError(event.error);
-  // The Codex compaction-failure card carries a recovery action (Codex-only —
-  // only Codex emits these). First failure → "Recover session" (a
-  // non-destructive revive: kill + respawn + resume the same thread, which
-  // fixes a wedged connection / lost notification while keeping history). If a
-  // revive was already attempted and it STILL failed, the context is genuinely
-  // un-compactable, so escalate to "Start fresh thread" (fresh thread + recap).
+  // The Codex compaction-failure path (Codex-only). This is the *transient*
+  // compaction-stream drop ("remote compact task: stream disconnected") — a
+  // genuine out-of-context is a SEPARATE signal (ContextWindowExceeded →
+  // RateLimitWarning) and never reaches here. Before v1.7.0 this blip was a
+  // plain retryable error and simply re-sending continued the work; v1.7.0
+  // reframed it as a terminal "start a new session" dead-end (the regression).
+  // Restore the v1.6.0 behavior: AUTO-retry the turn a few times first; only if
+  // that's exhausted do we surface a card — retryable (manual re-run) with the
+  // non-destructive "Recover session" (revive) escalation, and "Start fresh
+  // thread" once a revive has already failed.
   const isCompactionFailure = userError.title === "Context compaction failed";
+  if (isCompactionFailure && tryAutoRetryCompaction(sessionId, store, now)) {
+    return;
+  }
+
+  const errorMsgId = nextMessageId();
   const alreadyRevived = store.codexRecoverAttempted.get(sessionId) ?? false;
   store.addMessage(sessionId, {
     id: errorMsgId,
@@ -42,6 +119,7 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
     timestamp: now,
     activityIds: [],
     isStreaming: false,
+    retryable: isCompactionFailure,
     recoverable: isCompactionFailure && !alreadyRevived,
     freshThreadable: isCompactionFailure && alreadyRevived,
   });

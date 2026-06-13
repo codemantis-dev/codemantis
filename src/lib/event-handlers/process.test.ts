@@ -155,19 +155,73 @@ describe("handleProcessError", () => {
     expect(messages[messages.length - 1].content).toContain("Context compaction failed");
   });
 
-  it("marks the compaction-failure card recoverable (Recover button)", () => {
-    const event: ProcessErrorEvent = {
-      type: "process_error",
-      session_id: SESSION_ID,
-      error: "Error running remote compact task: stream disconnected before completion",
-    };
+  const COMPACT_ERR = "Error running remote compact task: stream disconnected before completion";
+
+  function seedUserTurn(): void {
+    getStore().addMessage(SESSION_ID, {
+      id: "u1", role: "user", content: "do the thing", timestamp: NOW, activityIds: [], isStreaming: false,
+    });
+  }
+  function exhaustRetries(): void {
+    // Pretend the auto-retry budget is already spent.
+    getStore().setRetryState(SESSION_ID, {
+      isRetrying: false, retryAttempt: 3, retryAt: null, retryTimerId: null,
+    });
+  }
+
+  it("auto-retries a transient compaction failure (no card on the first failures)", () => {
+    seedUserTurn();
+    const event: ProcessErrorEvent = { type: "process_error", session_id: SESSION_ID, error: COMPACT_ERR };
+
+    handleProcessError(SESSION_ID, event, getStore(), NOW);
+
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    const last = messages[messages.length - 1];
+    // It schedules an auto-retry instead of surfacing a recovery card.
+    expect(last.content).toContain("retrying automatically");
+    expect(last.recoverable).toBeFalsy();
+    expect(last.freshThreadable).toBeFalsy();
+    const retry = getStore().sessionRetry.get(SESSION_ID);
+    expect(retry?.retryAttempt).toBe(1);
+    getStore().clearRetry(SESSION_ID); // cancel the pending timer
+  });
+
+  it("surfaces the retryable + recoverable card once the auto-retry budget is spent", () => {
+    seedUserTurn();
+    exhaustRetries();
+    const event: ProcessErrorEvent = { type: "process_error", session_id: SESSION_ID, error: COMPACT_ERR };
 
     handleProcessError(SESSION_ID, event, getStore(), NOW);
 
     const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
     const card = messages[messages.length - 1];
     expect(card.content).toContain("Context compaction failed");
+    // Retry (re-run the turn) is the 1.6.0-faithful primary action; Recover
+    // (revive) is the escalation.
+    expect(card.retryable).toBe(true);
     expect(card.recoverable).toBe(true);
+    // Budget reset so a later manual Retry gets fresh automatic retries.
+    expect(getStore().sessionRetry.has(SESSION_ID)).toBe(false);
+  });
+
+  it("auto-retry timer re-runs the last turn after the backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      mockSendMessage.mockClear();
+      seedUserTurn();
+      handleProcessError(
+        SESSION_ID,
+        { type: "process_error", session_id: SESSION_ID, error: COMPACT_ERR },
+        getStore(),
+        NOW,
+      );
+      expect(mockSendMessage).not.toHaveBeenCalled();
+      // First backoff is 3s (COMPACTION_RETRY_DELAYS[0]).
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(mockSendMessage).toHaveBeenCalledWith(SESSION_ID, "do the thing");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does NOT mark non-compaction errors recoverable", () => {
@@ -185,8 +239,11 @@ describe("handleProcessError", () => {
   });
 
   it("escalates to fresh-thread when a revive was already attempted", () => {
-    // A compaction failure AFTER a revive means the context is genuinely
-    // un-compactable → offer "Start fresh thread", not another revive.
+    // A compaction failure AFTER a revive (and after the auto-retry budget is
+    // spent) means the context is genuinely un-compactable → offer "Start fresh
+    // thread", not another revive.
+    seedUserTurn();
+    exhaustRetries();
     getStore().setCodexRecoverAttempted(SESSION_ID, true);
     const event: ProcessErrorEvent = {
       type: "process_error",
@@ -200,6 +257,8 @@ describe("handleProcessError", () => {
     const card = messages[messages.length - 1];
     expect(card.recoverable).toBeFalsy();
     expect(card.freshThreadable).toBe(true);
+    // Retry stays available at every stage.
+    expect(card.retryable).toBe(true);
   });
 
   it("handles error when session is not streaming", () => {

@@ -64,10 +64,13 @@ function withRecoverableCompactionCard(messages: Message[]): Message[] {
   if (
     last.role === "assistant" &&
     !last.recoverable &&
+    !last.retryable &&
     last.content.includes("Context compaction failed")
   ) {
     const copy = messages.slice();
-    copy[copy.length - 1] = { ...last, recoverable: true };
+    // Retry (re-run the turn) is the primary, 1.6.0-faithful action; Recover
+    // (revive) is the escalation. Both survive a resume.
+    copy[copy.length - 1] = { ...last, retryable: true, recoverable: true };
     return copy;
   }
   return messages;

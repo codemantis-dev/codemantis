@@ -889,6 +889,103 @@ async fn c13_resume_fallback_to_start() {
     s.shutdown().await;
 }
 
+/// C14 — trigger compaction ON DEMAND via `thread/compact/start` and record
+/// EXACTLY what Codex emits: a `contextCompaction` item (started/completed) and
+/// its `status` field if any, the deprecated `thread/compacted` notification,
+/// the trailing `turn/completed`, or an `error`. This is the empirical
+/// ground-truth for the compaction-recovery regression — does a SUCCESSFUL
+/// compaction carry a status the translator misreads, and which signal path
+/// actually fires? Purely diagnostic: records + prints, no brittle asserts.
+async fn c14_compaction() {
+    let mut s = CodexSession::spawn("C14").await;
+    let _ = handshake(&mut s).await;
+    let tid = start_thread(&mut s, &std::env::temp_dir().to_string_lossy()).await;
+    eprintln!("[C14] thread id: {tid}");
+
+    // Seed the thread with one turn so there is something to compact.
+    let _ = s
+        .request(
+            "turn/start",
+            json!({
+                "threadId": tid,
+                "input": [{"type": "text", "text": "Reply with the single word: ready"}],
+                "approvalPolicy": "never",
+                "sandboxPolicy": {"type": "readOnly", "networkAccess": false},
+            }),
+        )
+        .await;
+    let _ = s
+        .wait_for("turn/completed (seed)", Duration::from_secs(120), |v| {
+            v.get("method").and_then(|x| x.as_str()) == Some("turn/completed")
+        })
+        .await;
+
+    // Trigger compaction on demand — cheap, no need to fill 200K of context.
+    let compact_ack = s
+        .request("thread/compact/start", json!({"threadId": tid}))
+        .await;
+    eprintln!("[C14] thread/compact/start ack: {compact_ack}");
+
+    // Drain + record everything Codex emits for the compaction until a terminal
+    // signal or timeout. Never panics — we want the capture regardless.
+    let mut methods: Vec<String> = Vec::new();
+    let mut compaction_item: Option<Value> = None;
+    let mut saw_error: Option<Value> = None;
+    let _ = timeout(Duration::from_secs(120), async {
+        loop {
+            let v = match s.incoming.recv().await {
+                Some(v) => v,
+                None => break,
+            };
+            let method = v
+                .get("method")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !method.is_empty() {
+                methods.push(method.clone());
+            }
+            if v.pointer("/params/item/type").and_then(|x| x.as_str()) == Some("contextCompaction") {
+                compaction_item = Some(v.clone());
+            }
+            if method == "error" {
+                saw_error = Some(v.clone());
+                break;
+            }
+            if method == "thread/compacted" {
+                break;
+            }
+            if method == "item/completed"
+                && v.pointer("/params/item/type").and_then(|x| x.as_str()) == Some("contextCompaction")
+            {
+                break;
+            }
+            if method == "turn/completed" {
+                break;
+            }
+        }
+    })
+    .await;
+
+    eprintln!("[C14] methods after compact/start: {methods:?}");
+    match &compaction_item {
+        Some(item) => {
+            eprintln!("[C14] contextCompaction item: {item}");
+            eprintln!(
+                "[C14] contextCompaction status field: {:?}",
+                item.pointer("/params/item/status")
+            );
+        }
+        None => eprintln!("[C14] NO contextCompaction item observed"),
+    }
+    if let Some(err) = &saw_error {
+        eprintln!("[C14] ERROR notification: {err}");
+    }
+    eprintln!("[C14] full wire recorded to the capture NDJSON");
+
+    s.shutdown().await;
+}
+
 // =====================================================================
 // Entry points
 // =====================================================================
@@ -936,6 +1033,8 @@ async fn capture_full_battery() {
     c12_reasoning_delta().await;
     eprintln!("[harness] === C13 resume-fallback to start ===");
     c13_resume_fallback_to_start().await;
+    eprintln!("[harness] === C14 compaction ===");
+    c14_compaction().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -959,6 +1058,7 @@ async fn capture_single() {
         "C11" => c11_output_delta_heartbeat().await,
         "C12" => c12_reasoning_delta().await,
         "C13" => c13_resume_fallback_to_start().await,
-        other => panic!("set CM_HARNESS_ONLY to one of C01..C13 (got '{other}')"),
+        "C14" => c14_compaction().await,
+        other => panic!("set CM_HARNESS_ONLY to one of C01..C14 (got '{other}')"),
     }
 }

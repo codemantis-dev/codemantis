@@ -151,6 +151,10 @@ function handleTurnComplete(sessionId: string, event: TurnCompleteEvent, store: 
   // a (non-destructive) revive first rather than jumping straight to a fresh
   // thread.
   store.setCodexRecoverAttempted(sessionId, false);
+  // Also reset the compaction auto-retry budget: a turn that completed proves
+  // the transient compaction drop recovered, so a later, independent failure
+  // gets a fresh set of automatic retries.
+  store.clearRetry(sessionId);
   // Flush any buffered text
   const turnFrame = pendingFrames.get(sessionId);
   if (turnFrame) cancelAnimationFrame(turnFrame);

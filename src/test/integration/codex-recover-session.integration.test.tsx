@@ -237,6 +237,9 @@ describe("Codex recovery (Integration)", () => {
     const restored = useSessionStore.getState().sessionMessages.get(newId) ?? [];
     const card = restored[restored.length - 1];
     expect(card.content).toContain("Context compaction failed");
+    // Both the 1.6.0-faithful Retry and the Recover (revive) escalation survive
+    // the resume (neither flag is persisted; both are re-derived).
+    expect(card.retryable).toBe(true);
     expect(card.recoverable).toBe(true);
   });
 
