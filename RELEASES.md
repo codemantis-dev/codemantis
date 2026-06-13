@@ -1,5 +1,17 @@
 # CodeMantis Releases
 
+## 1.8.2 — Codex recovery: non-destructive revive first
+
+A hotfix refining the Codex session recovery introduced in 1.8.1.
+
+### Codex
+
+- **Two-step recovery.** "Recover session" now first attempts a **non-destructive revive** — pause-resuming the same thread — and only escalates to **"Start fresh thread"** if the revive fails. Wedged turns are interrupted before any thread reset, and the Recover action is re-derived on restored transcripts so it stays available after a reload.
+
+### Docs
+
+- Credits.rtf updated to mention Codex support.
+
 ## 1.8.1 — Codex recovery & plan-mode polish, Recall fixes, security bumps
 
 A fast follow-up to 1.8.0: recover wedged Codex sessions, fix UX rough edges in the new agent picker and plan toggle, harden Recall, and ship the dependency security updates that landed just after the 1.8.0 tag.
