@@ -10,6 +10,7 @@ import type { Session } from "../../types/session";
 vi.mock("../tauri-commands", () => ({
   readFileContent: vi.fn(() => Promise.resolve("")),
   syncSessionMode: vi.fn(() => Promise.resolve()),
+  writeFileContent: vi.fn(() => Promise.resolve()),
 }));
 
 // Mock plan persistence so ExitPlanMode tests don't touch the filesystem.
@@ -309,9 +310,14 @@ describe("activity event handler", () => {
         tool_input: { plan: "## Plan\nDo the thing." },
       });
       const { persistPlanDocument } = await import("../plan-actions");
-      expect(persistPlanDocument).toHaveBeenCalledWith(
-        SESSION_ID,
-        "## Plan\nDo the thing.",
+      // Persistence is fire-and-forget via a dynamic import inside the
+      // handler, so the mock call lands a microtask after the synchronous
+      // handleActivityEvent returns. waitFor avoids a CI-only timing race.
+      await vi.waitFor(() =>
+        expect(persistPlanDocument).toHaveBeenCalledWith(
+          SESSION_ID,
+          "## Plan\nDo the thing.",
+        ),
       );
     });
 
@@ -330,9 +336,11 @@ describe("activity event handler", () => {
         tool_input: { plan: "Codex plan body" },
       });
       const { persistPlanDocument } = await import("../plan-actions");
-      expect(persistPlanDocument).toHaveBeenCalledWith(
-        SESSION_ID,
-        "Codex plan body",
+      await vi.waitFor(() =>
+        expect(persistPlanDocument).toHaveBeenCalledWith(
+          SESSION_ID,
+          "Codex plan body",
+        ),
       );
     });
 
