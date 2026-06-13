@@ -1,5 +1,33 @@
 # CodeMantis Releases
 
+## 1.8.1 — Codex recovery & plan-mode polish, Recall fixes, security bumps
+
+A fast follow-up to 1.8.0: recover wedged Codex sessions, fix UX rough edges in the new agent picker and plan toggle, harden Recall, and ship the dependency security updates that landed just after the 1.8.0 tag.
+
+### Codex
+
+- **Compaction-failure recovery.** When a Codex turn can't compact its context and would otherwise loop, a new **"Recover session"** action starts a fresh thread on the live app-server, primes it with an LLM (or local) recap so continuity is kept in the same tab and transcript, and falls back to a full restart if the process is gone.
+
+### Fixes
+
+- **Agent picker no longer clipped.** The "New session with…" menu is now portalled out of the overflow-clipped session tab strip, so it renders in full instead of being cut off.
+- **Codex plan toggle** now shows an explicit Plan **"On"** indicator so the active state is unmistakable.
+- **Recall enrichment loop.** Manifest-only briefs that burned tokens on every prompt are skipped; top landmines are always injected on generic tasks; harvest watchers are refcounted to the session lifecycle; the `google`→`gemini` API-key lookup is canonicalized; stale-note freshness routing added.
+
+### Recall
+
+- **Configurable thinking levels** (off/low/medium/high) for the enricher and harvester, threaded to each provider's native reasoning controls so JSON output isn't truncated on thinking-default models. New Recall settings selectors; tighter harvest fidelity checks for multi-word backtick spans.
+
+### Security (dependencies)
+
+- **esbuild → 0.28.1** (pnpm override) — clears GHSA-gv7w-rqvm-qjhr (HIGH, NPM_CONFIG_REGISTRY binary-integrity RCE) and GHSA-g7r4-m6w7-qqqr.
+- **vitest → 4.1.8** — clears GHSA-5xrq-8626-4rwp (dev tooling).
+- **tar → 0.4.46** — clears GHSA-3pv8-6f4r-ffg2 (PAX header desync; reaches the shipped binary via the Tauri updater).
+
+### Docs
+
+- README brought current to 1.8 (Codex, agent picker, plan mode, Recall, Mission Control).
+
 ## 1.8.0 — Native Codex plan mode + per-session agent picker
 
 This release closes the last big gap between Claude Code and Codex inside CodeMantis: **Codex now gets a real, in-app plan mode**, and starting a session on the agent you want is a one-click choice on the session bar.
