@@ -47,10 +47,10 @@ export default function CodexPlanToggle({
     <button
       type="button"
       onClick={handleToggle}
-      className={`flex items-center gap-1 text-label px-3 py-1 rounded-md border transition-colors ${
+      className={`flex items-center gap-1 text-label px-3 py-1 rounded-md border font-medium transition-colors ${
         active
-          ? "border-yellow/50 bg-yellow/10 text-yellow"
-          : "border-border bg-bg-elevated text-text-secondary hover:border-accent/40"
+          ? "border-yellow bg-yellow text-bg-primary shadow-sm"
+          : "border-border bg-bg-elevated text-text-secondary font-normal hover:border-accent/40"
       }`}
       aria-pressed={active}
       title={
@@ -62,6 +62,15 @@ export default function CodexPlanToggle({
     >
       <Map size={12} />
       <span>Plan</span>
+      {active && (
+        <span
+          className="ml-0.5 flex items-center gap-1 rounded-sm bg-bg-primary/15 px-1 text-micro font-semibold uppercase tracking-wide"
+          data-testid="codex-plan-toggle-on"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+          On
+        </span>
+      )}
     </button>
   );
 }

@@ -97,6 +97,23 @@ describe("SessionSubTabs", () => {
       expect(screen.getByText("OpenAI Codex")).toBeInTheDocument();
     });
 
+    // Regression: the menu used to be an `absolute` child of the tab strip,
+    // which is an `overflow-x-auto overflow-y-hidden` scroll container — so
+    // the dropdown rendered into the DOM but was clipped to invisibility and
+    // clicking "+" appeared to do nothing. It must be portaled to <body> with
+    // `position: fixed` to escape that clip. jsdom can't assert visual
+    // clipping, so we assert the structural guarantee: the menu is NOT nested
+    // inside the overflow-hidden strip.
+    it("portals the menu out of the overflow-clipped tab strip", () => {
+      render(<SessionSubTabs {...defaultProps} />);
+      fireEvent.click(screen.getByTitle("New session — choose agent"));
+      const menu = screen.getByRole("menu");
+      // Portaled directly under <body>, not inside the clipping strip.
+      expect(menu.closest(".overflow-y-hidden")).toBeNull();
+      expect(menu).toHaveClass("fixed");
+      expect(menu.parentElement).toBe(document.body);
+    });
+
     it("creates a session with the chosen agent and persists the choice", () => {
       const setSelectedAgentId = vi.fn();
       useUiStore.setState({ setSelectedAgentId });

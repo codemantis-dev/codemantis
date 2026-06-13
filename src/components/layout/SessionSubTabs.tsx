@@ -3,6 +3,7 @@ import { Plus, X, ScrollText, History } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import StatusDot from "../shared/StatusDot";
+import Portal from "../shared/Portal";
 import type { AgentId } from "../../types/agent-events";
 
 const AGENT_LABEL: Record<AgentId, string> = {
@@ -28,16 +29,32 @@ function AddSessionButton({
   const agentInstall = useUiStore((s) => s.agentInstall);
   const setSelectedAgentId = useUiStore((s) => s.setSelectedAgentId);
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const bothInstalled = agentInstall.claude_code && agentInstall.codex;
+
+  // The menu is portaled to <body> so it escapes the tab strip's
+  // `overflow-x-auto overflow-y-hidden` clip (which previously hid it
+  // entirely). Anchor it to the trigger's rect and open downward — the
+  // strip sits near the top of the window.
+  const toggleOpen = useCallback((): void => {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPosition({ left: rect.left, top: rect.bottom + 4 });
+    }
+    setOpen((v) => !v);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent): void => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
       }
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -64,9 +81,10 @@ function AddSessionButton({
   };
 
   return (
-    <div className="relative shrink-0" ref={containerRef}>
+    <div className="relative shrink-0">
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={triggerRef}
+        onClick={toggleOpen}
         title="New session — choose agent"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -76,26 +94,29 @@ function AddSessionButton({
       </button>
 
       {open && (
-        <div
-          role="menu"
-          aria-label="New session agent"
-          className="absolute left-0 top-full mt-1 w-52 rounded-lg border border-border p-1 shadow-xl z-50"
-          style={{ background: "var(--bg-primary)" }}
-        >
-          <div className="px-2 py-1 text-detail text-text-ghost select-none">
-            New session with…
+        <Portal>
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label="New session agent"
+            className="fixed w-52 rounded-lg border border-border p-1 shadow-xl z-50"
+            style={{ background: "var(--bg-primary)", left: position.left, top: position.top }}
+          >
+            <div className="px-2 py-1 text-detail text-text-ghost select-none">
+              New session with…
+            </div>
+            {AGENT_ORDER.map((agent) => (
+              <button
+                key={agent}
+                role="menuitem"
+                onClick={() => pick(agent)}
+                className="w-full flex items-center px-2.5 py-1.5 rounded-md text-left text-ui text-text-secondary hover:bg-bg-elevated hover:text-text-primary transition-colors"
+              >
+                {AGENT_LABEL[agent]}
+              </button>
+            ))}
           </div>
-          {AGENT_ORDER.map((agent) => (
-            <button
-              key={agent}
-              role="menuitem"
-              onClick={() => pick(agent)}
-              className="w-full flex items-center px-2.5 py-1.5 rounded-md text-left text-ui text-text-secondary hover:bg-bg-elevated hover:text-text-primary transition-colors"
-            >
-              {AGENT_LABEL[agent]}
-            </button>
-          ))}
-        </div>
+        </Portal>
       )}
     </div>
   );

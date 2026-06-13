@@ -27,3 +27,4 @@ _guidance
 *.sw?
 .tauri/
 *.tauri/
+.env.local

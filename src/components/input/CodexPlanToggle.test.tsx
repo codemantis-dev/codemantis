@@ -25,6 +25,17 @@ describe("CodexPlanToggle", () => {
     );
   });
 
+  it("shows an explicit On indicator only while active", () => {
+    const { rerender } = render(
+      <CodexPlanToggle sessionId="s1" commit={vi.fn(() => Promise.resolve())} />,
+    );
+    expect(screen.queryByTestId("codex-plan-toggle-on")).toBeNull();
+
+    useSessionStore.getState().setSessionMode("s1", "plan");
+    rerender(<CodexPlanToggle sessionId="s1" commit={vi.fn(() => Promise.resolve())} />);
+    expect(screen.getByTestId("codex-plan-toggle-on")).toHaveTextContent("On");
+  });
+
   it("enables plan mode optimistically and commits via IPC", async () => {
     const commit = vi.fn(() => Promise.resolve());
     render(<CodexPlanToggle sessionId="s1" commit={commit} />);
