@@ -100,6 +100,20 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("Restart Session")).not.toBeInTheDocument();
   });
 
+  it("shows Recover button for recoverable messages", () => {
+    const onRecover = vi.fn();
+    const msg = makeMessage({ recoverable: true });
+    render(<MessageBubble message={msg} onRecover={onRecover} />);
+    fireEvent.click(screen.getByText("Recover session"));
+    expect(onRecover).toHaveBeenCalledOnce();
+  });
+
+  it("does not show Recover button when onRecover is not provided", () => {
+    const msg = makeMessage({ recoverable: true });
+    render(<MessageBubble message={msg} />);
+    expect(screen.queryByText("Recover session")).not.toBeInTheDocument();
+  });
+
   it("shows timestamp on user messages", () => {
     const msg = makeMessage({ role: "user" });
     render(<MessageBubble message={msg} />);

@@ -614,6 +614,46 @@ pub async fn set_codex_plan_mode(
         .map_err(|e| e.to_string())
 }
 
+/// Sentinel returned by [`reset_codex_thread`] when no live app-server backs
+/// the session (it crashed/exited). The frontend matches on this exact token
+/// to fall back to a full session restart instead of an in-place thread reset.
+pub const RESET_THREAD_NO_LIVE_PROCESS: &str = "NO_LIVE_PROCESS";
+
+/// Start a fresh Codex thread on the session's existing live app-server,
+/// abandoning the current (un-compactable) context. Returns the new thread id.
+///
+/// This is the "Recover session" action surfaced on the compaction-failure
+/// card: when Codex's auto-compaction stream drops, the turn dies but the
+/// context isn't shrunk, so every resend re-triggers the same doomed
+/// compaction. A fresh thread on the same process breaks the loop without a
+/// respawn — the session tab and transcript are preserved.
+///
+/// Returns the [`RESET_THREAD_NO_LIVE_PROCESS`] sentinel when the process is
+/// gone so the caller can fall back to a full restart.
+#[tauri::command]
+pub async fn reset_codex_thread(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<String, String> {
+    info!("[reset_codex_thread] session_id={session_id}");
+    let processes = state.processes.lock().await;
+    let handle = processes
+        .get(&session_id)
+        .ok_or_else(|| RESET_THREAD_NO_LIVE_PROCESS.to_string())?;
+    if !handle.is_running() {
+        return Err(RESET_THREAD_NO_LIVE_PROCESS.to_string());
+    }
+    if handle.agent_id() != AgentId::Codex {
+        return Err(format!(
+            "reset_codex_thread is only valid on Codex sessions; \
+             session {session_id} is {:?}",
+            handle.agent_id()
+        ));
+    }
+    // The handle persists the new thread id + emits CliSessionId itself.
+    handle.reset_thread().await.map_err(|e| e.to_string())
+}
+
 /// Deliver an `AskUserQuestion` answer to Claude.
 ///
 /// CLI 2.1.126 always synthesises `tool_result(is_error=true,

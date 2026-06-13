@@ -451,6 +451,23 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessionMessages.get("s1")?.[0].content).toBe("Session1");
     expect(useSessionStore.getState().sessionMessages.get("s2")?.[0].content).toBe("Session2");
   });
+
+  describe("pendingRecapPrefix (Codex recover)", () => {
+    it("setRecapPrefix stores and clearRecapPrefix removes the recap", () => {
+      const store = useSessionStore.getState();
+      store.setRecapPrefix("s1", "recap text");
+      expect(useSessionStore.getState().pendingRecapPrefix.get("s1")).toBe("recap text");
+      store.clearRecapPrefix("s1");
+      expect(useSessionStore.getState().pendingRecapPrefix.has("s1")).toBe(false);
+    });
+
+    it("removeSession evicts the pending recap prefix", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().setRecapPrefix("s1", "recap");
+      useSessionStore.getState().removeSession("s1");
+      expect(useSessionStore.getState().pendingRecapPrefix.has("s1")).toBe(false);
+    });
+  });
 });
 
 // Auto-clear stale Self-Drive state when its owning project is evicted.

@@ -365,6 +365,58 @@ impl AgentProcessHandle for CodexProcessHandle {
             .map_err(|e| map_management_error(&method, e))
     }
 
+    async fn reset_thread(&self) -> Result<String, AgentError> {
+        // Reuse the spawn-time base params (cwd / policy / model / …) captured
+        // in ThreadState so the fresh thread matches the session's shape. The
+        // active per-turn policy is re-applied on the next `turn/start`, so we
+        // don't need the *current* policy here.
+        let params = self
+            .state
+            .start_params
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| {
+                AgentError::ProtocolError(
+                    "no start params captured for this session — cannot reset thread".into(),
+                )
+            })?;
+
+        // Fresh thread/start on the still-alive app-server. Empty context →
+        // breaks the un-compactable-context loop without a respawn.
+        let new_id = send_thread_start(&self.client, &self.session_id, params)
+            .await?
+            .ok_or_else(|| {
+                AgentError::ProtocolError(
+                    "thread/start returned no thread id on reset".into(),
+                )
+            })?;
+
+        // Swap the live thread id and clear the stale turn so the next
+        // send_user_message targets the fresh thread.
+        self.state.set_thread_id(new_id.clone()).await;
+        self.state.set_current_turn(None).await;
+
+        // Persist + cache the new id (so crash recovery resumes the FRESH
+        // thread, not the broken one) and emit CliSessionId so the frontend
+        // tracks the swap — mirrors the spawn-time persistence path.
+        store_codex_cli_session_id(&self.app_handle, &self.session_id, &new_id).await;
+        emit_event_for(
+            &self.app_handle,
+            &NormalizedEvent::CliSessionId {
+                agent_id: AgentId::Codex,
+                session_id: self.session_id.clone(),
+                cli_session_id: new_id.clone(),
+            },
+        );
+
+        info!(
+            "[codex {}] reset to fresh thread {} (compaction-failure recovery)",
+            self.session_id, new_id
+        );
+        Ok(new_id)
+    }
+
     async fn shutdown(self: Box<Self>) {
         info!(
             "[codex] Shutting down session {} (pid {:?})",
@@ -675,6 +727,11 @@ pub async fn spawn_codex_session(
             params.insert("model".into(), Value::String(model.to_string()));
         }
     }
+
+    // Capture the base params (no threadId) so `reset_thread` can later mint
+    // a fresh thread on this same live app-server — the escape hatch for an
+    // un-compactable context (compaction-failure recovery).
+    thread_state.set_start_params(params.clone()).await;
 
     // Resilient start/resume: if a resume is requested but the rollout is
     // gone (archived/GC'd/stale id), fall back to a fresh thread/start

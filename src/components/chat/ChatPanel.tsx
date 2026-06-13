@@ -22,7 +22,7 @@ export default function ChatPanel() {
   const streaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId) ?? EMPTY_STREAMING : EMPTY_STREAMING);
   const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
   const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
-  const { startSession, resumeRecoveredSession } = useClaudeSession();
+  const { startSession, resumeRecoveredSession, recoverCodexSession } = useClaudeSession();
   const [resumingRecovered, setResumingRecovered] = useState(false);
 
   const handleResumeRecovered = useCallback(async () => {
@@ -43,6 +43,16 @@ export default function ChatPanel() {
       console.error("Failed to restart session:", e)
     );
   }, [session, startSession]);
+
+  // Recover from a failed Codex compaction: start a fresh thread in place
+  // (keeps the tab + transcript) and prime it with a recap. recoverCodexSession
+  // falls back to a full restart itself if the app-server is gone.
+  const handleRecover = useCallback(() => {
+    if (!session) return;
+    recoverCodexSession(session.id).catch((e) =>
+      console.error("Failed to recover session:", e)
+    );
+  }, [session, recoverCodexSession]);
 
   // CLAUDE.md suggestion banner
   const [showClaudeMdBanner, setShowClaudeMdBanner] = useState(false);
@@ -322,6 +332,7 @@ export default function ChatPanel() {
                         message.isStreaming ? streaming.streamingContent : undefined
                       }
                       onRestart={message.restartable ? handleRestart : undefined}
+                      onRecover={message.recoverable ? handleRecover : undefined}
                       isLatest={isLatestAssistant}
                     />
                   )}

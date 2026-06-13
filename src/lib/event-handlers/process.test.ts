@@ -153,6 +153,35 @@ describe("handleProcessError", () => {
     expect(messages[messages.length - 1].content).toContain("Context compaction failed");
   });
 
+  it("marks the compaction-failure card recoverable (Recover button)", () => {
+    const event: ProcessErrorEvent = {
+      type: "process_error",
+      session_id: SESSION_ID,
+      error: "Error running remote compact task: stream disconnected before completion",
+    };
+
+    handleProcessError(SESSION_ID, event, getStore(), NOW);
+
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    const card = messages[messages.length - 1];
+    expect(card.content).toContain("Context compaction failed");
+    expect(card.recoverable).toBe(true);
+  });
+
+  it("does NOT mark non-compaction errors recoverable", () => {
+    const event: ProcessErrorEvent = {
+      type: "process_error",
+      session_id: SESSION_ID,
+      error: "Process not running",
+    };
+
+    handleProcessError(SESSION_ID, event, getStore(), NOW);
+
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    const card = messages[messages.length - 1];
+    expect(card.recoverable).toBeFalsy();
+  });
+
   it("handles error when session is not streaming", () => {
     // Session is NOT streaming — finalizeStreaming should NOT be called
     const store = getStore();

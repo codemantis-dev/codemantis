@@ -18,7 +18,11 @@ import {
   initializeSession,
   saveSessionMessages,
   loadSessionMessages,
+  resetCodexThread,
+  summarizeConversationForRecap,
+  RESET_THREAD_NO_LIVE_PROCESS,
 } from "../lib/tauri-commands";
+import { buildTranscriptText, buildLocalRecap } from "../lib/recap";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { SessionMessagePayload, Message, Session, SessionHistoryEntry } from "../types/session";
 import type { AgentId } from "../types/agent-events";
@@ -69,6 +73,13 @@ interface UseClaudeSessionReturn {
    * replace the placeholder tab in-place so its position is preserved.
    */
   resumeRecoveredSession: (pausedSessionId: string) => Promise<string | null>;
+  /**
+   * Recover a Codex session whose context compaction failed. Starts a fresh
+   * thread on the same live app-server (keeping the tab + transcript) and
+   * primes it with a recap (LLM summary, or a local bounded-tail fallback when
+   * no API key). Falls back to a full session restart if the app-server is gone.
+   */
+  recoverCodexSession: (sessionId: string) => Promise<void>;
 }
 
 export function useClaudeSession(): UseClaudeSessionReturn {
@@ -166,8 +177,18 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     scheduleFlushTranscript(sessionId);
     sessionStore.getState().setSessionBusy(sessionId, true);
 
+    // After a Codex "Recover session" reset the fresh thread has no context.
+    // Prepend the stored recap (once) to the CLI payload so continuity is
+    // restored — the displayed user message stays unprefixed.
+    const recapPrefix = sessionStore.getState().pendingRecapPrefix.get(sessionId);
+    let cliPrompt = prompt;
+    if (recapPrefix) {
+      cliPrompt = `${recapPrefix}\n\n---\n\n${prompt}`;
+      sessionStore.getState().clearRecapPrefix(sessionId);
+    }
+
     try {
-      await sendMessageCmd(sessionId, prompt);
+      await sendMessageCmd(sessionId, cliPrompt);
     } catch (e) {
       handleError("Failed to send message", e);
     }
@@ -551,6 +572,67 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
   }, [resumeFromHistory]);
 
+  const recoverCodexSession = useCallback(async (sessionId: string): Promise<void> => {
+    const session = sessionStore.getState().sessions.get(sessionId);
+    if (!session) return;
+
+    // 1. Build a recap of the conversation BEFORE resetting. Prefer the LLM
+    // summary; fall back to a local bounded-tail recap when no API key is
+    // configured (or the summary call fails for any reason).
+    const messages = sessionStore.getState().sessionMessages.get(sessionId) ?? [];
+    let recap: string;
+    try {
+      const transcript = buildTranscriptText(messages);
+      recap = await summarizeConversationForRecap(sessionId, transcript);
+    } catch (e) {
+      // "NO_API_KEY" (expected when unconfigured) or any provider error →
+      // local fallback. Both are non-fatal; recovery must still proceed.
+      console.info("[recoverCodexSession] recap summary unavailable, using local fallback:", e);
+      recap = buildLocalRecap(messages);
+    }
+
+    // 2. Reset to a fresh thread on the live app-server.
+    try {
+      await resetCodexThread(sessionId);
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes(RESET_THREAD_NO_LIVE_PROCESS)) {
+        // The app-server is gone — fall back to a full restart under the same
+        // agent. (This drops the in-process recap, but a fresh session is the
+        // only path left.)
+        showToast("Codex process had ended — starting a fresh session", "info", 6000);
+        try {
+          await startSession(session.project_path, session.agent_id);
+        } catch (restartErr) {
+          handleError("Failed to recover session", restartErr);
+        }
+        return;
+      }
+      handleError("Failed to recover session", e);
+      return;
+    }
+
+    // 3. Success: stash the recap for the next turn, clear stuck state, and
+    // tell the user. The transcript above stays visible; the fresh thread
+    // regains continuity on their next message.
+    const store = sessionStore.getState();
+    store.setRecapPrefix(sessionId, recap);
+    store.setSessionBusy(sessionId, false);
+    store.setSessionCompacting(sessionId, false);
+    store.addMessage(sessionId, {
+      id: `recovered-${Date.now()}`,
+      role: "assistant",
+      content:
+        "**Started a fresh Codex thread.** Your history above is preserved. " +
+        "Your next message continues the work with a recap of the earlier conversation.",
+      timestamp: new Date().toISOString(),
+      activityIds: [],
+      isStreaming: false,
+    });
+    showToast("Recovered — fresh Codex thread ready", "info", 6000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+  }, [startSession]);
+
   return {
     startSession,
     addSessionToProject,
@@ -563,5 +645,6 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     restorePausedSession,
     reattachLiveSession,
     resumeRecoveredSession,
+    recoverCodexSession,
   };
 }

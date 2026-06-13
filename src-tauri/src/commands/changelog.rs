@@ -181,6 +181,69 @@ pub async fn generate_changelog_entry(
     })
 }
 
+/// Summarize a conversation transcript into a plain-text recap used to prime a
+/// fresh Codex thread after a failed compaction ("Recover session"). Reuses the
+/// user's configured changelog provider + API key (independent of whether the
+/// changelog feature itself is enabled). Returns `Err("NO_API_KEY")` when no key
+/// is configured so the frontend can fall back to a local bounded-tail recap.
+#[tauri::command]
+pub async fn summarize_conversation_for_recap(
+    state: State<'_, AppState>,
+    session_id: String,
+    transcript: String,
+) -> Result<String, String> {
+    let app_settings = settings::get_settings()?;
+
+    let provider = &app_settings.changelog_provider;
+    let model = validate_model_for_provider(provider, &app_settings.changelog_model);
+    let api_key = app_settings
+        .api_keys
+        .get(provider)
+        .cloned()
+        .unwrap_or_default();
+
+    if api_key.trim().is_empty() {
+        // Stable sentinel — the frontend matches on this to use its local
+        // verbatim-tail recap instead.
+        return Err("NO_API_KEY".to_string());
+    }
+
+    let response = summarizer::summarize_conversation(provider, &api_key, &model, &transcript).await;
+
+    // Log the API call (cost tracking) regardless of success/failure, mirroring
+    // the changelog summarizer path.
+    {
+        let (success, error_msg, input_tokens, output_tokens) = match &response {
+            Ok(r) => (true, None, r.input_tokens, r.output_tokens),
+            Err(e) => (false, Some(e.clone()), 0, 0),
+        };
+        let cost = if let Some(pricing) = app_settings.model_pricing.get(&model) {
+            (input_tokens as f64 / 1_000_000.0 * pricing.input)
+                + (output_tokens as f64 / 1_000_000.0 * pricing.output)
+        } else {
+            0.0
+        };
+        let log_id = uuid::Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        if let Err(e) = state.database.insert_api_log(
+            &log_id,
+            &timestamp,
+            provider,
+            &model,
+            &session_id,
+            input_tokens,
+            output_tokens,
+            cost,
+            success,
+            error_msg.as_deref(),
+        ) {
+            error!("Failed to insert API log entry for recap: {}", e);
+        }
+    }
+
+    response.map(|r| r.text)
+}
+
 #[tauri::command]
 pub async fn get_changelog_entries(
     state: State<'_, AppState>,

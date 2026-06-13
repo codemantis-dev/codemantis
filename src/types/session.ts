@@ -88,6 +88,12 @@ export interface Message {
   turnStats?: TurnStats;
   restartable?: boolean;
   retryable?: boolean;
+  /**
+   * Marks the Codex compaction-failure card. Renders a "Recover session"
+   * button that starts a fresh Codex thread in place (same tab + transcript)
+   * to escape the un-compactable-context loop. Codex-only.
+   */
+  recoverable?: boolean;
   thinkingContent?: string;
   isRestored?: boolean;
   isSelfDrive?: boolean;

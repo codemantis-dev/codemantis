@@ -259,6 +259,34 @@ export async function setCodexPlanMode(
   return invoke("set_codex_plan_mode", { sessionId, enabled });
 }
 
+/**
+ * Sentinel returned by `reset_codex_thread` when the session has no live
+ * app-server. The caller falls back to a full session restart.
+ */
+export const RESET_THREAD_NO_LIVE_PROCESS = "NO_LIVE_PROCESS";
+
+/**
+ * Start a fresh Codex thread on the session's existing live app-server,
+ * abandoning the current (un-compactable) context. Returns the new thread id.
+ * The "Recover session" action after a failed compaction. Rejects with
+ * `RESET_THREAD_NO_LIVE_PROCESS` when the process is gone. Codex-only.
+ */
+export async function resetCodexThread(sessionId: string): Promise<string> {
+  return invoke<string>("reset_codex_thread", { sessionId });
+}
+
+/**
+ * Summarize a conversation transcript into a plain-text recap to prime a fresh
+ * Codex thread after a failed compaction. Rejects with `"NO_API_KEY"` when no
+ * summarizer API key is configured (caller falls back to a local recap).
+ */
+export async function summarizeConversationForRecap(
+  sessionId: string,
+  transcript: string
+): Promise<string> {
+  return invoke<string>("summarize_conversation_for_recap", { sessionId, transcript });
+}
+
 export async function resolveToolApproval(
   requestId: string,
   approved: boolean,

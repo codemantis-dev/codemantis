@@ -129,6 +129,57 @@ pub async fn summarize_turn(
     Ok(resp)
 }
 
+/// Result of [`summarize_conversation`] — a plain-text recap plus token
+/// counts so the command layer can log the API call.
+#[derive(Debug, Clone)]
+pub struct ConversationRecap {
+    pub text: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
+const RECAP_SYSTEM_PROMPT: &str = r#"You are summarizing a coding-assistant conversation so the work can continue in a FRESH context window (the previous context was lost to a failed compaction).
+
+Write a concise but complete recap as plain text (NOT JSON, NOT markdown headings). Cover:
+- The overall goal / task being worked on.
+- Key decisions, constraints, and conclusions reached.
+- The current state: what is done, what is in progress, and the immediate next step.
+- Any important file paths, function/component names, or commands that matter for continuing.
+
+Be specific and information-dense. Omit pleasantries and filler. Aim for at most ~400 words. Start directly with the recap."#;
+
+/// Summarize a full conversation transcript into a plain-text recap used to
+/// prime a fresh Codex thread after a failed compaction. Reuses the same
+/// per-provider callers as [`summarize_turn`]; returns the raw recap text
+/// (not the changelog JSON shape).
+pub async fn summarize_conversation(
+    provider: &str,
+    api_key: &str,
+    model: &str,
+    transcript: &str,
+) -> Result<ConversationRecap, String> {
+    let client = reqwest::Client::new();
+    let prompt = format!("Conversation transcript:\n\n{transcript}");
+
+    let (response_text, input_tokens, output_tokens) = match provider {
+        "gemini" => call_gemini(&client, api_key, model, RECAP_SYSTEM_PROMPT, &prompt, "off").await?,
+        "openai" => call_openai(&client, api_key, model, RECAP_SYSTEM_PROMPT, &prompt, "off").await?,
+        "anthropic" => call_anthropic(&client, api_key, model, RECAP_SYSTEM_PROMPT, &prompt, "off").await?,
+        "openrouter" => call_openrouter(&client, api_key, model, RECAP_SYSTEM_PROMPT, &prompt).await?,
+        _ => return Err(format!("Unknown provider: {}", provider)),
+    };
+
+    let text = response_text.trim().to_string();
+    if text.is_empty() {
+        return Err("recap summary was empty".to_string());
+    }
+    Ok(ConversationRecap {
+        text,
+        input_tokens,
+        output_tokens,
+    })
+}
+
 pub async fn test_api_key(provider: &str, api_key: &str, model: &str) -> Result<bool, String> {
     let client = reqwest::Client::new();
     let test_prompt = "Say hello in one word. Return JSON: {\"headline\":\"test\",\"description\":\"test\",\"category\":\"feature\",\"technical_details\":\"\",\"tools_summary\":\"\"}";
@@ -564,6 +615,18 @@ mod tests {
         // Raw body truncated to 500 chars plus prefix
         let raw_part = result.split(": ").last().unwrap();
         assert!(raw_part.len() <= 500);
+    }
+
+    // ── summarize_conversation (recap) ───────────────────────────────────
+
+    #[tokio::test]
+    async fn summarize_conversation_rejects_unknown_provider() {
+        // Unknown provider short-circuits BEFORE any network call, so this is a
+        // cheap, deterministic unit test of the routing.
+        let result =
+            summarize_conversation("not-a-provider", "key", "model", "User: hi").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown provider"));
     }
 
     // ── build_prompt ─────────────────────────────────────────────────────

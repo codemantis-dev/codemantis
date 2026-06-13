@@ -888,6 +888,23 @@ pub trait AgentProcessHandle: Send + Sync {
         ))
     }
 
+    /// Start a fresh thread on the *existing live* app-server, abandoning the
+    /// current thread's context. Returns the new thread id so the command
+    /// layer can persist it. This is the escape hatch for an un-compactable
+    /// context: when Codex's auto-compaction stream drops, the turn dies but
+    /// the context isn't shrunk, so every resend re-triggers the same doomed
+    /// compaction. A fresh thread (empty context) on the same process breaks
+    /// that loop without a respawn — the session tab and transcript are kept.
+    /// Codex-only; Claude has no thread concept and returns
+    /// `CapabilityNotSupported` so the command layer falls back to a full
+    /// session restart.
+    async fn reset_thread(&self) -> Result<String, AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "reset_thread (default impl — Codex only)",
+        ))
+    }
+
     /// Generic Codex app-server JSON-RPC passthrough for management
     /// methods (`config/read`, `config/value/write`, `mcpServerStatus/list`,
     /// `account/*`, …). Returns the raw response `Value` so callers parse
@@ -1006,6 +1023,50 @@ pub fn activity_channel(agent_id: AgentId, session_id: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Minimal handle implementing only the required trait methods so the
+    /// default `reset_thread` (and other Codex-only defaults) can be exercised.
+    struct DummyHandle;
+
+    #[async_trait]
+    impl AgentProcessHandle for DummyHandle {
+        fn agent_id(&self) -> AgentId {
+            AgentId::ClaudeCode
+        }
+        fn session_id(&self) -> &str {
+            "dummy"
+        }
+        fn is_running(&self) -> bool {
+            true
+        }
+        async fn send_user_message(&self, _text: &str) -> Result<(), AgentError> {
+            Ok(())
+        }
+        async fn send_tool_result(
+            &self,
+            _tool_use_id: &str,
+            _approved: bool,
+        ) -> Result<(), AgentError> {
+            Ok(())
+        }
+        async fn send_control_request(
+            &self,
+            _payload: ControlRequestPayload,
+        ) -> Result<String, AgentError> {
+            Ok("req".into())
+        }
+        async fn shutdown(self: Box<Self>) {}
+    }
+
+    #[tokio::test]
+    async fn reset_thread_default_impl_is_capability_not_supported() {
+        let handle = DummyHandle;
+        let err = handle.reset_thread().await.unwrap_err();
+        assert!(matches!(
+            err,
+            AgentError::CapabilityNotSupported(AgentId::ClaudeCode, _)
+        ));
+    }
 
     #[test]
     fn agent_id_serializes_snake_case() {

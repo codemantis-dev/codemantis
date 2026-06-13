@@ -149,6 +149,12 @@ pub struct ThreadState {
     /// Per-item accumulators for streaming text / reasoning deltas.
     /// Keyed by `itemId`.
     pub item_buffers: Mutex<HashMap<String, ItemBuffer>>,
+    /// The `thread/start` base params captured at spawn (cwd / approvalPolicy /
+    /// sandbox / personality / serviceName / model, WITHOUT `threadId`). Reused
+    /// by `CodexProcessHandle::reset_thread` to start a *fresh* thread on the
+    /// live app-server after an un-compactable context (compaction-failure
+    /// recovery). Set once at spawn; `None` until then.
+    pub start_params: Mutex<Option<serde_json::Map<String, serde_json::Value>>>,
 }
 
 impl ThreadState {
@@ -158,11 +164,21 @@ impl ThreadState {
             current_turn_id: Mutex::new(None),
             pending_server_requests: Mutex::new(HashMap::new()),
             item_buffers: Mutex::new(HashMap::new()),
+            start_params: Mutex::new(None),
         }
     }
 
     pub async fn set_thread_id(&self, id: String) {
         *self.thread_id.lock().await = Some(id);
+    }
+
+    /// Capture the `thread/start` base params so a later `reset_thread` can
+    /// mint a fresh thread with an equivalent shape.
+    pub async fn set_start_params(
+        &self,
+        params: serde_json::Map<String, serde_json::Value>,
+    ) {
+        *self.start_params.lock().await = Some(params);
     }
 
     pub async fn set_current_turn(&self, turn_id: Option<String>) {
@@ -266,6 +282,24 @@ mod tests {
 
         state.set_current_turn(None).await;
         assert!(state.current_turn_id.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn start_params_roundtrip_for_reset_thread() {
+        let state = ThreadState::new();
+        // None until spawn captures them.
+        assert!(state.start_params.lock().await.is_none());
+
+        let mut params = serde_json::Map::new();
+        params.insert("cwd".into(), json!("/tmp/project"));
+        params.insert("sandbox".into(), json!("workspace-write"));
+        state.set_start_params(params.clone()).await;
+
+        let stored = state.start_params.lock().await.clone().unwrap();
+        assert_eq!(stored.get("cwd").unwrap(), &json!("/tmp/project"));
+        assert_eq!(stored.get("sandbox").unwrap(), &json!("workspace-write"));
+        // No threadId is captured — reset must mint a FRESH thread.
+        assert!(!stored.contains_key("threadId"));
     }
 
     #[tokio::test]

@@ -59,6 +59,11 @@ interface SessionState {
   contextToastFired: Map<string, Set<number>>;
   sessionActivity: Map<string, SessionActivityInfo>;
   sessionCompacting: Map<string, boolean>;
+  /** Recap text to prepend (once) to the next CLI prompt for a session.
+   * Set by the Codex "Recover session" flow after a fresh-thread reset so the
+   * new (empty-context) thread regains continuity. Consumed + cleared on the
+   * next sendMessage; the displayed user message is left unprefixed. */
+  pendingRecapPrefix: Map<string, string>;
   busySince: Map<string, number>;       // timestamp when busy started
   rateLimitUtilization: Map<string, number>;  // 0-1
   sessionCapabilities: Map<string, CapabilitiesDiscoveredEvent>;
@@ -113,6 +118,8 @@ interface SessionState {
   setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
   setSessionStuck: (sessionId: string, info: SessionStuckInfo | null) => void;
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
+  setRecapPrefix: (sessionId: string, recap: string) => void;
+  clearRecapPrefix: (sessionId: string) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
   accumulateUsage: (sessionId: string, inputTokens: number, outputTokens: number, cacheCreation: number, cacheRead: number, reasoningTokens?: number) => void;
@@ -170,6 +177,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   contextToastFired: new Map(),
   sessionActivity: new Map(),
   sessionCompacting: new Map(),
+  pendingRecapPrefix: new Map(),
   busySince: new Map(),
   rateLimitUtilization: new Map(),
   sessionCapabilities: new Map(),
@@ -270,6 +278,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionActivity.delete(sessionId);
       const sessionCompacting = new Map(state.sessionCompacting);
       sessionCompacting.delete(sessionId);
+      const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
+      pendingRecapPrefix.delete(sessionId);
       const busySince = new Map(state.busySince);
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
@@ -337,6 +347,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionReviewContent,
         sessionActivity,
         sessionCompacting,
+        pendingRecapPrefix,
         busySince,
         rateLimitUtilization,
         sessionCapabilities,
@@ -641,6 +652,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionActivity.delete(sessionId);
       const sessionCompacting = new Map(state.sessionCompacting);
       sessionCompacting.delete(sessionId);
+      const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
+      pendingRecapPrefix.delete(sessionId);
       const busySince = new Map(state.busySince);
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
@@ -653,7 +666,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionThinking.delete(sessionId);
       const sessionReviewContent = new Map(state.sessionReviewContent);
       sessionReviewContent.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -720,6 +733,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionCompacting = new Map(state.sessionCompacting);
       sessionCompacting.set(sessionId, compacting);
       return { sessionCompacting };
+    }),
+
+  setRecapPrefix: (sessionId, recap) =>
+    set((state) => {
+      const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
+      pendingRecapPrefix.set(sessionId, recap);
+      return { pendingRecapPrefix };
+    }),
+
+  clearRecapPrefix: (sessionId) =>
+    set((state) => {
+      const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
+      pendingRecapPrefix.delete(sessionId);
+      return { pendingRecapPrefix };
     }),
 
   setRateLimitUtilization: (sessionId, utilization) =>
