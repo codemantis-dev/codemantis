@@ -7,15 +7,16 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import type { Session } from "../../types/session";
 
 // Mock tauri-commands so dynamic imports resolve
+// Mock tauri-commands so dynamic imports resolve. writeFileContent is the
+// sink for plan persistence (persistPlanDocument writes through it), so
+// mocking it here keeps the ExitPlanMode tests off the real filesystem
+// WITHOUT mocking ../plan-actions — vitest does not reliably intercept the
+// fire-and-forget dynamic import("../plan-actions") in activity.ts under CI's
+// parallel pool, so we assert on this sink instead of the plan-actions mock.
 vi.mock("../tauri-commands", () => ({
   readFileContent: vi.fn(() => Promise.resolve("")),
   syncSessionMode: vi.fn(() => Promise.resolve()),
   writeFileContent: vi.fn(() => Promise.resolve()),
-}));
-
-// Mock plan persistence so ExitPlanMode tests don't touch the filesystem.
-vi.mock("../plan-actions", () => ({
-  persistPlanDocument: vi.fn(() => Promise.resolve()),
 }));
 
 import {
@@ -309,16 +310,17 @@ describe("activity event handler", () => {
         tool_name: "ExitPlanMode",
         tool_input: { plan: "## Plan\nDo the thing." },
       });
-      const { persistPlanDocument } = await import("../plan-actions");
       // Persistence is fire-and-forget via a dynamic import inside the
-      // handler, so the mock call lands a microtask after the synchronous
-      // handleActivityEvent returns. waitFor avoids a CI-only timing race.
-      await vi.waitFor(() =>
-        expect(persistPlanDocument).toHaveBeenCalledWith(
-          SESSION_ID,
-          "## Plan\nDo the thing.",
-        ),
-      );
+      // handler; persistPlanDocument writes through tauri-commands'
+      // writeFileContent (mocked above). waitFor covers the microtask gap.
+      const { writeFileContent } = await import("../tauri-commands");
+      await vi.waitFor(() => expect(writeFileContent).toHaveBeenCalled());
+      const call = vi
+        .mocked(writeFileContent)
+        .mock.calls.find(([, content]) => content.includes("Do the thing."));
+      expect(call).toBeTruthy();
+      expect(call?.[0]).toMatch(/\/tmp\/test-project\/plans\/plan-.*\.md$/);
+      expect(call?.[1]).toContain("Agent: Claude Code");
     });
 
     it("persists the plan document for a synthesized Codex plan", async () => {
@@ -335,13 +337,14 @@ describe("activity event handler", () => {
         tool_name: "ExitPlanMode",
         tool_input: { plan: "Codex plan body" },
       });
-      const { persistPlanDocument } = await import("../plan-actions");
-      await vi.waitFor(() =>
-        expect(persistPlanDocument).toHaveBeenCalledWith(
-          SESSION_ID,
-          "Codex plan body",
-        ),
-      );
+      const { writeFileContent } = await import("../tauri-commands");
+      await vi.waitFor(() => expect(writeFileContent).toHaveBeenCalled());
+      const call = vi
+        .mocked(writeFileContent)
+        .mock.calls.find(([, content]) => content.includes("Codex plan body"));
+      expect(call).toBeTruthy();
+      expect(call?.[0]).toMatch(/\/tmp\/test-project\/plans\/plan-.*\.md$/);
+      expect(call?.[1]).toContain("Agent: Codex");
     });
 
     it("direct planFilePath wins over a previously-observed Write path", () => {
