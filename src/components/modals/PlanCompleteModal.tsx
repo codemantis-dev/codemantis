@@ -3,7 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { ClipboardCheck, X } from "lucide-react";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useUiStore } from "../../stores/uiStore";
-import { useFileViewerStore } from "../../stores/fileViewerStore";
+import { openFileInViewer } from "../../hooks/useFileViewer";
 import { implementPendingPlan } from "../../lib/plan-actions";
 import { useModalSettle } from "../../hooks/useModalSettle";
 
@@ -50,8 +50,9 @@ export default function PlanCompleteModal() {
 
   const handleRevealPlanFile = useCallback(() => {
     if (!planFilePath || !sessionId) return;
-    useFileViewerStore.getState().setActiveFile(sessionId, planFilePath);
-    useUiStore.getState().setRightTab("files");
+    // Reads the file, opens a tab, and switches the right panel to "files".
+    // (setActiveFile alone is a no-op when the file isn't already open.)
+    void openFileInViewer(planFilePath);
     setShowModal(false);
   }, [planFilePath, sessionId, setShowModal]);
 

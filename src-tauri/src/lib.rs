@@ -340,6 +340,7 @@ pub fn run() {
             commands::session::sync_session_mode,
             commands::session::resolve_tool_approval,
             commands::session::set_codex_policy,
+            commands::session::set_codex_plan_mode,
             commands::codex::codex_read_config,
             commands::codex::codex_write_config_value,
             commands::codex::codex_list_mcp_status,

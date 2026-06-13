@@ -499,6 +499,40 @@ const ERROR_CATALOG: ErrorPattern[] = [
     }),
   },
 
+  // ── Codex: project config (.codex/config.toml) failed to parse ──
+  // When Codex's `thread/start` runs, the CLI parses a project-local
+  // `<project>/.codex/config.toml` if present. A TOML syntax error there is
+  // returned as JSON-RPC -32600 ("failed to load configuration: Error parsing
+  // project config file <path>: TOML parse error at line N, column M …") and
+  // bubbles up as "Protocol error: thread/start failed: …". Without this
+  // entry the generic fallback clips the message to 80 chars, hiding the file
+  // path and the parse reason — i.e. the only things that tell the user what
+  // to fix. Codex is correctly refusing a bad config; this just makes the
+  // failure self-explanatory.
+  {
+    test: (r) => lower(r).includes("failed to load configuration"),
+    map: (r) => {
+      const path = r.match(/config file (\S+\.toml)/)?.[1] ?? null;
+      const detail =
+        r.match(/failed to load configuration:\s*([^]*)$/i)?.[1]?.trim() ||
+        "Codex could not load the configuration for this project.";
+      // Last two path segments → ".codex/config.toml" for a tidy toast.
+      const fileName = path
+        ? path.split("/").slice(-2).join("/")
+        : ".codex/config.toml";
+      return {
+        title: "Codex can't read this project's config",
+        message:
+          "OpenAI Codex couldn't start a session because it failed to load this project's configuration:\n\n" +
+          detail,
+        remediation: `Fix the TOML syntax in ${
+          path ?? "the project's .codex/config.toml"
+        } — or delete the file if you don't need a project-local override — then reopen the project.`,
+        toastMessage: `Codex config error in ${fileName}`,
+      };
+    },
+  },
+
   // ── IO / File system errors ──
   {
     test: (r) => {

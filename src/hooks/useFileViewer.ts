@@ -26,52 +26,89 @@ interface UseFileViewerReturn {
   openDiff: (filePath: string, oldContent: string, newContent: string) => void;
 }
 
-export function useFileViewer(): UseFileViewerReturn {
-  const openFile = useCallback(async (filePath: string) => {
-    const sessionId = useSessionStore.getState().activeSessionId;
-    if (!sessionId) return;
+/**
+ * True when `filePath` is already absolute (POSIX `/…`, `file://…`, or a
+ * Windows drive like `C:\…`). Relative paths are resolved against the active
+ * session's project root in {@link openFileInViewer}.
+ */
+function isAbsolutePath(filePath: string): boolean {
+  return (
+    filePath.startsWith("/") ||
+    filePath.startsWith("file://") ||
+    /^[A-Za-z]:[\\/]/.test(filePath)
+  );
+}
 
-    const extension = getExtension(filePath);
-    const mimeType = IMAGE_EXTENSIONS[extension];
+/**
+ * Resolve a possibly-relative path against the project root. Chat-message and
+ * plan links carry project-relative paths (e.g. `plans/foo.md`), but the Rust
+ * file-read commands require an absolute path.
+ */
+function resolveToAbsolute(filePath: string, projectPath?: string): string {
+  if (isAbsolutePath(filePath) || !projectPath) return filePath;
+  return `${projectPath.replace(/\/+$/, "")}/${filePath}`;
+}
 
-    // Image files → open in modal preview instead of Monaco editor
-    if (mimeType) {
-      try {
-        const bytes = await readFileBytes(filePath);
-        const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
-        const blobUrl = URL.createObjectURL(blob);
-        const fileName = filePath.split("/").pop() ?? filePath;
-        useUiStore.getState().setImagePreview({
-          filePath,
-          fileName,
-          blobUrl,
-          fileSize: bytes.length,
-        });
-      } catch (e) {
-        handleError("Failed to open image", e);
-      }
-      return;
-    }
+/**
+ * Open a file in the right-panel File Viewer. Standalone (no React hooks) so it
+ * can be called from non-component code such as the markdown link handler and
+ * the plan-accept modal. Relative paths are resolved against the active
+ * session's project root.
+ */
+export async function openFileInViewer(filePath: string): Promise<void> {
+  const { activeSessionId: sessionId, sessions } = useSessionStore.getState();
+  if (!sessionId) return;
 
+  const projectPath = sessions.get(sessionId)?.project_path;
+  const absPath = resolveToAbsolute(filePath, projectPath);
+
+  const extension = getExtension(absPath);
+  const mimeType = IMAGE_EXTENSIONS[extension];
+
+  // Image files → open in modal preview instead of Monaco editor
+  if (mimeType) {
     try {
-      const content = await readFileContent(filePath);
-      const fileName = filePath.split("/").pop() ?? filePath;
-      const language = getLanguageFromPath(filePath);
-
-      useFileViewerStore.getState().openFile(sessionId, {
-        filePath,
+      const bytes = await readFileBytes(absPath);
+      const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+      const fileName = absPath.split("/").pop() ?? absPath;
+      useUiStore.getState().setImagePreview({
+        filePath: absPath,
         fileName,
-        language,
-        extension,
-        fileSize: new Blob([content]).size,
-        content,
-        isDiff: false,
+        blobUrl,
+        fileSize: bytes.length,
       });
-      useUiStore.getState().setRightTab("files");
     } catch (e) {
-      handleError("Failed to open file", e);
+      handleError("Failed to open image", e);
     }
-  }, []);
+    return;
+  }
+
+  try {
+    const content = await readFileContent(absPath);
+    const fileName = absPath.split("/").pop() ?? absPath;
+    const language = getLanguageFromPath(absPath);
+
+    useFileViewerStore.getState().openFile(sessionId, {
+      filePath: absPath,
+      fileName,
+      language,
+      extension,
+      fileSize: new Blob([content]).size,
+      content,
+      isDiff: false,
+    });
+    useUiStore.getState().setRightTab("files");
+  } catch (e) {
+    handleError("Failed to open file", e);
+  }
+}
+
+export function useFileViewer(): UseFileViewerReturn {
+  const openFile = useCallback(
+    (filePath: string) => openFileInViewer(filePath),
+    [],
+  );
 
   const openDiff = useCallback(
     (filePath: string, oldContent: string, newContent: string) => {

@@ -12,6 +12,11 @@ vi.mock("../tauri-commands", () => ({
   syncSessionMode: vi.fn(() => Promise.resolve()),
 }));
 
+// Mock plan persistence so ExitPlanMode tests don't touch the filesystem.
+vi.mock("../plan-actions", () => ({
+  persistPlanDocument: vi.fn(() => Promise.resolve()),
+}));
+
 import {
   handleActivityEvent,
   preEditContentCache,
@@ -292,6 +297,43 @@ describe("activity event handler", () => {
       expect(uiState.planCompleteFilePath).toBe(directPath);
       expect(uiState.planCompleteContent).toBe(directContent);
       expect(uiState.showPlanCompleteModal).toBe(true);
+    });
+
+    it("persists the plan document on generation (Claude session)", async () => {
+      useSessionStore.setState({ sessionModes: new Map([[SESSION_ID, "plan"]]) });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-persist-claude",
+        tool_name: "ExitPlanMode",
+        tool_input: { plan: "## Plan\nDo the thing." },
+      });
+      const { persistPlanDocument } = await import("../plan-actions");
+      expect(persistPlanDocument).toHaveBeenCalledWith(
+        SESSION_ID,
+        "## Plan\nDo the thing.",
+      );
+    });
+
+    it("persists the plan document for a synthesized Codex plan", async () => {
+      useSessionStore.setState({
+        sessions: new Map([
+          [SESSION_ID, { ...TEST_SESSION, agent_id: "codex" }],
+        ]),
+        sessionModes: new Map([[SESSION_ID, "plan"]]),
+      });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-persist-codex",
+        tool_name: "ExitPlanMode",
+        tool_input: { plan: "Codex plan body" },
+      });
+      const { persistPlanDocument } = await import("../plan-actions");
+      expect(persistPlanDocument).toHaveBeenCalledWith(
+        SESSION_ID,
+        "Codex plan body",
+      );
     });
 
     it("direct planFilePath wins over a previously-observed Write path", () => {

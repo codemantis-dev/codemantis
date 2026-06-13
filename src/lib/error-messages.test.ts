@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { translateError, formatErrorAsMarkdown } from "./error-messages";
+import {
+  translateError,
+  translateErrorForToast,
+  formatErrorAsMarkdown,
+} from "./error-messages";
 
 describe("translateError — API provider errors", () => {
   // ── OpenRouter guardrail 404 ──
@@ -279,6 +283,49 @@ describe("translateError — Codex context compaction failure", () => {
   it("wins over the generic fallback for a bare compaction-failed string", () => {
     const result = translateError("context compaction failed");
     expect(result.title).toBe("Context compaction failed");
+  });
+});
+
+describe("translateError — Codex project config (.codex/config.toml) parse failure", () => {
+  // The real, full string the backend produces (Codex CLI -32600 wrapped by
+  // AgentError::ProtocolError). The screenshot showed only "…failed to load
+  // configurat…" because the generic fallback clipped it to 80 chars.
+  const raw =
+    "Protocol error: thread/start failed: rpc error -32600: failed to load configuration: " +
+    "Error parsing project config file /Users/x/proj/.codex/config.toml: " +
+    "TOML parse error at line 1, column 17\n  |\n1 | model = \"gpt-5.5\n  |                 ^\ninvalid basic string, expected `\"`\n";
+
+  it("surfaces the file path and parse detail instead of the clipped fallback", () => {
+    const result = translateError(raw);
+    expect(result.title).toBe("Codex can't read this project's config");
+    // The actionable details — full path + parse reason — must survive.
+    expect(result.message).toContain("/Users/x/proj/.codex/config.toml");
+    expect(result.message).toContain("TOML parse error");
+    expect(result.remediation).toBeTruthy();
+    expect(result.remediation).toContain("/Users/x/proj/.codex/config.toml");
+    // Must NOT fall through to the generic 80-char-clipped fallback.
+    expect(result.title).not.toBe("Something went wrong");
+  });
+
+  it("produces a short, file-identifying toast (not mid-word truncated)", () => {
+    const toast = translateErrorForToast(raw);
+    expect(toast).toBe("Codex config error in .codex/config.toml");
+    expect(toast).not.toContain("…");
+    expect(toast).not.toContain("...");
+  });
+
+  it("degrades gracefully when the path can't be parsed", () => {
+    const result = translateError(
+      "Protocol error: thread/start failed: rpc error -32600: failed to load configuration: something odd",
+    );
+    expect(result.title).toBe("Codex can't read this project's config");
+    expect(result.toastMessage).toBe("Codex config error in .codex/config.toml");
+    expect(result.message).toContain("something odd");
+  });
+
+  it("does not over-match unrelated errors (guards against greedy test)", () => {
+    const result = translateError("Some unrelated failure with no config involved");
+    expect(result.title).toBe("Something went wrong");
   });
 });
 

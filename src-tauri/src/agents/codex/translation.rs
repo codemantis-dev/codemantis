@@ -90,6 +90,13 @@ impl Translator {
             //   v2/AccountRateLimitsUpdatedNotification.json
             "mcpServer/startupStatus/updated" => self.on_mcp_startup_status(params),
             "account/rateLimits/updated" => self.on_rate_limits_updated(params),
+            // Codex reports its real collaboration mode here. The native Plan
+            // pill doesn't trigger this (it only flips our read-only override),
+            // but if Codex ever reports `collaborationMode.mode == "plan"`
+            // (e.g. set via a TUI excursion, or a future settable lever), this
+            // keeps the in-app plan indicator in sync.
+            // Schema: docs/internal/codex-app-server-schemas/v2/ThreadSettingsUpdatedNotification.json
+            "thread/settings/updated" => self.on_thread_settings_updated(params),
             "error" => self.map_error(params).await,
             // Intentionally NOT handled (v1.4.1 Phase A.4):
             //   `item/fileChange/outputDelta` — the schema at
@@ -101,6 +108,26 @@ impl Translator {
             //   the same `{itemId, delta}` shape.
             // Unknown notification — log and swallow (S4 wires the logger).
             _ => Vec::new(),
+        }
+    }
+
+    /// Translate `thread/settings/updated` → `CodexPlanModeChanged` when the
+    /// reported `collaborationMode.mode` flips. Emits nothing for non-mode
+    /// settings changes (model/sandbox/etc.) so we don't spam the frontend.
+    /// Params shape: `{ threadId, threadSettings: { collaborationMode: { mode } } }`.
+    fn on_thread_settings_updated(&self, params: Value) -> Vec<NormalizedEvent> {
+        let mode = params
+            .get("threadSettings")
+            .and_then(|s| s.get("collaborationMode"))
+            .and_then(|c| c.get("mode"))
+            .and_then(|m| m.as_str());
+        match mode {
+            Some(m) => vec![NormalizedEvent::CodexPlanModeChanged {
+                agent_id: self.agent_id,
+                session_id: self.session_id.clone(),
+                enabled: m == "plan",
+            }],
+            None => Vec::new(),
         }
     }
 
@@ -2193,6 +2220,63 @@ mod tests {
             }
             other => panic!("expected ReviewModeExited, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn thread_settings_updated_plan_mode_emits_enabled() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "thread/settings/updated",
+                json!({
+                    "threadId": "thr_abc",
+                    "threadSettings": {
+                        "collaborationMode": { "mode": "plan", "settings": {} }
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            NormalizedEvent::CodexPlanModeChanged { enabled, agent_id, .. } => {
+                assert!(*enabled);
+                assert_eq!(*agent_id, AgentId::Codex);
+            }
+            other => panic!("expected CodexPlanModeChanged, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn thread_settings_updated_default_mode_emits_disabled() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "thread/settings/updated",
+                json!({
+                    "threadId": "thr_abc",
+                    "threadSettings": {
+                        "collaborationMode": { "mode": "default", "settings": {} }
+                    }
+                }),
+            )
+            .await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            NormalizedEvent::CodexPlanModeChanged { enabled, .. } => assert!(!*enabled),
+            other => panic!("expected CodexPlanModeChanged, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn thread_settings_updated_without_collaboration_mode_emits_nothing() {
+        let t = translator();
+        let events = t
+            .on_notification(
+                "thread/settings/updated",
+                json!({ "threadId": "thr_abc", "threadSettings": { "model": "gpt-5" } }),
+            )
+            .await;
+        assert!(events.is_empty());
     }
 
     #[tokio::test]

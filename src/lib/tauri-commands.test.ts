@@ -28,6 +28,7 @@ import {
   codexLogin,
   codexLogout,
   codexOpenConfigToml,
+  setCodexPlanMode,
   sendMessage,
   setSessionMode,
   syncSessionMode,
@@ -171,6 +172,16 @@ describe("codex management wrappers", () => {
   it("codexReadConfig defaults includeLayers to false", async () => {
     await codexReadConfig("s1");
     expectInvoke("codex_read_config", { sessionId: "s1", includeLayers: false });
+  });
+
+  it("setCodexPlanMode passes sessionId + enabled", async () => {
+    await setCodexPlanMode("s1", true);
+    expectInvoke("set_codex_plan_mode", { sessionId: "s1", enabled: true });
+  });
+
+  it("setCodexPlanMode forwards enabled=false", async () => {
+    await setCodexPlanMode("s1", false);
+    expectInvoke("set_codex_plan_mode", { sessionId: "s1", enabled: false });
   });
 
   it("codexWriteConfigValue passes the full write payload", async () => {

@@ -80,7 +80,40 @@ pub struct CodexProcessHandle {
     /// on-request) per spec §2.3 ("Auto" preset). Updated by
     /// `set_codex_policy` and applied on the next `turn/start`.
     current_policy: Mutex<CodexSessionPolicy>,
+    /// CodeMantis-native "plan mode". When `true`, the next `turn/start`
+    /// forces a read-only sandbox and prepends a planning preamble to the
+    /// user input so Codex plans (over the full prior thread context)
+    /// without editing. Toggled by `set_codex_plan_mode`. Codex 0.139.0
+    /// exposes no settable `collaborationMode`, so this is an approximation.
+    plan_mode: Mutex<bool>,
     app_handle: AppHandle,
+}
+
+/// Preamble prepended to the turn input when plan mode is on. Worded to use
+/// the ENTIRE prior conversation in this thread (which `turn/start` preserves
+/// by reusing the same `threadId`), and to plan only — no file edits.
+pub(crate) const CODEX_PLAN_MODE_PREAMBLE: &str = "\
+[Plan mode] You are in planning mode. Take the ENTIRE preceding conversation \
+in this thread into account. Investigate as needed (read-only), then produce a \
+clear, step-by-step implementation plan. Do NOT edit files, create/delete files, \
+or run mutating commands — the sandbox is read-only. Present the plan for review.\n\n";
+
+/// Apply native plan-mode overrides to a turn's `(policy, input_text)`. When
+/// plan mode is on: force a read-only sandbox (real enforcement), disable
+/// network access, and prepend the planning preamble. Pure — unit-testable
+/// without a live handle. Off → returns the policy and text unchanged.
+pub(crate) fn apply_plan_mode(
+    mut policy: CodexSessionPolicy,
+    plan_mode: bool,
+    text: &str,
+) -> (CodexSessionPolicy, String) {
+    if plan_mode {
+        policy.sandbox = CodexSandbox::ReadOnly;
+        policy.network_access = false;
+        (policy, format!("{CODEX_PLAN_MODE_PREAMBLE}{text}"))
+    } else {
+        (policy, text.to_string())
+    }
 }
 
 #[async_trait]
@@ -110,14 +143,21 @@ impl AgentProcessHandle for CodexProcessHandle {
             .clone()
             .ok_or_else(|| AgentError::ProtocolError("no thread/started yet".into()))?;
 
-        let policy = *self.current_policy.lock().await;
+        // Native plan mode: force a read-only sandbox (the real enforcement —
+        // Codex literally can't edit) and prepend the planning preamble. The
+        // same `threadId` is reused below, so Codex still sees the full prior
+        // conversation. Approval policy is left untouched (read-only already
+        // blocks mutations).
+        let base_policy = *self.current_policy.lock().await;
+        let plan_mode = *self.plan_mode.lock().await;
+        let (policy, input_text) = apply_plan_mode(base_policy, plan_mode, text);
         // turn/start uses `sandboxPolicy` (an OBJECT, camelCase type tag),
         // NOT `sandbox` (the SandboxMode string thread/start takes). Sending
         // `sandbox` here is silently ignored by Codex 0.137, so per-turn
         // sandbox overrides from the Policy pill were a no-op before this.
         let mut params = json!({
             "threadId": thread_id,
-            "input": [{"type": "text", "text": text}],
+            "input": [{"type": "text", "text": input_text}],
             "sandboxPolicy": policy.as_turn_sandbox_policy(),
             "approvalPolicy": policy.approval.as_codex_wire(),
         });
@@ -295,6 +335,22 @@ impl AgentProcessHandle for CodexProcessHandle {
         policy: CodexSessionPolicy,
     ) -> Result<(), AgentError> {
         *self.current_policy.lock().await = policy;
+        Ok(())
+    }
+
+    async fn set_codex_plan_mode(&self, enabled: bool) -> Result<(), AgentError> {
+        *self.plan_mode.lock().await = enabled;
+        // Echo back so the frontend confirms the toggle (mirrors the
+        // ModelChanged / EffortChanged pattern — Codex never echoes these
+        // itself). chat.ts flips SessionMode::Plan on / off from this.
+        emit_event_for(
+            &self.app_handle,
+            &NormalizedEvent::CodexPlanModeChanged {
+                agent_id: AgentId::Codex,
+                session_id: self.session_id.clone(),
+                enabled,
+            },
+        );
         Ok(())
     }
 
@@ -653,6 +709,7 @@ pub async fn spawn_codex_session(
         current_model: Mutex::new(config.model_override),
         current_effort: Mutex::new(config.effort_override),
         current_policy: Mutex::new(initial_policy),
+        plan_mode: Mutex::new(false),
         app_handle,
     }))
 }
@@ -1288,6 +1345,7 @@ fn short_kind(ev: &NormalizedEvent) -> &'static str {
         NormalizedEvent::EffortChanged { .. } => "EffortChanged",
         NormalizedEvent::ReviewModeEntered { .. } => "ReviewModeEntered",
         NormalizedEvent::ReviewModeExited { .. } => "ReviewModeExited",
+        NormalizedEvent::CodexPlanModeChanged { .. } => "CodexPlanModeChanged",
         NormalizedEvent::HookPrompt { .. } => "HookPrompt",
         NormalizedEvent::HookStatus { .. } => "HookStatus",
         NormalizedEvent::AuthTokenRefreshRequested { .. } => "AuthTokenRefreshRequested",
@@ -1339,6 +1397,43 @@ pub async fn resolve_codex_approval(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn auto_policy() -> CodexSessionPolicy {
+        CodexSessionPolicy {
+            sandbox: CodexSandbox::WorkspaceWrite,
+            approval: CodexApproval::OnRequest,
+            network_access: true,
+        }
+    }
+
+    #[test]
+    fn apply_plan_mode_off_is_passthrough() {
+        let (policy, text) = apply_plan_mode(auto_policy(), false, "hello");
+        assert_eq!(policy.sandbox, CodexSandbox::WorkspaceWrite);
+        assert!(policy.network_access);
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn apply_plan_mode_on_forces_readonly_and_prepends_preamble() {
+        let (policy, text) = apply_plan_mode(auto_policy(), true, "build a feature");
+        // Read-only sandbox is the real enforcement; network disabled.
+        assert_eq!(policy.sandbox, CodexSandbox::ReadOnly);
+        assert!(!policy.network_access);
+        // Approval policy is untouched.
+        assert_eq!(policy.approval, CodexApproval::OnRequest);
+        // The original prompt survives, prefixed by the planning preamble.
+        assert!(text.starts_with(CODEX_PLAN_MODE_PREAMBLE));
+        assert!(text.ends_with("build a feature"));
+    }
+
+    #[test]
+    fn plan_mode_preamble_instructs_full_context_and_no_edits() {
+        // R1: the preamble must steer Codex to use the whole prior thread.
+        assert!(CODEX_PLAN_MODE_PREAMBLE.contains("ENTIRE preceding conversation"));
+        // And it must forbid edits (read-only intent reinforced in text).
+        assert!(CODEX_PLAN_MODE_PREAMBLE.contains("Do NOT edit files"));
+    }
 
     #[test]
     fn session_id_of_extracts_from_every_variant_uniformly() {

@@ -60,7 +60,10 @@ describe("useFileViewer", () => {
     vi.clearAllMocks();
     vi.mocked(useSessionStore.getState).mockReturnValue({
       activeSessionId: "session-1",
-    } as ReturnType<typeof useSessionStore.getState>);
+      sessions: new Map([
+        ["session-1", { project_path: "/test/project" }],
+      ]),
+    } as unknown as ReturnType<typeof useSessionStore.getState>);
   });
 
   it("openFile reads content and opens in fileViewerStore", async () => {
@@ -82,6 +85,39 @@ describe("useFileViewer", () => {
       content: "console.log('hello');",
       isDiff: false,
     });
+  });
+
+  it("openFile resolves a relative path against the session project root", async () => {
+    mockReadFileContent.mockResolvedValueOnce("# plan");
+
+    const { result } = renderHook(() => useFileViewer());
+
+    await act(async () => {
+      await result.current.openFile("plans/foo.md");
+    });
+
+    expect(mockReadFileContent).toHaveBeenCalledWith("/test/project/plans/foo.md");
+    expect(mockOpenFile).toHaveBeenCalledWith("session-1", {
+      filePath: "/test/project/plans/foo.md",
+      fileName: "foo.md",
+      language: "markdown",
+      extension: "md",
+      fileSize: expect.any(Number),
+      content: "# plan",
+      isDiff: false,
+    });
+  });
+
+  it("openFile leaves an absolute path unchanged", async () => {
+    mockReadFileContent.mockResolvedValueOnce("content");
+
+    const { result } = renderHook(() => useFileViewer());
+
+    await act(async () => {
+      await result.current.openFile("/elsewhere/file.ts");
+    });
+
+    expect(mockReadFileContent).toHaveBeenCalledWith("/elsewhere/file.ts");
   });
 
   it("openFile sets right tab to files", async () => {

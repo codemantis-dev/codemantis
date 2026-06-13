@@ -544,6 +544,34 @@ pub async fn set_codex_policy(
         .map_err(|e| e.to_string())
 }
 
+/// Toggle CodeMantis-native Codex "plan mode" on a live session. Takes effect
+/// on the next `turn/start` (read-only sandbox + planning preamble). The Plan
+/// pill in the Codex toolbar calls this. Codex-only — Claude has real plan
+/// mode via `set_session_mode`.
+#[tauri::command]
+pub async fn set_codex_plan_mode(
+    state: State<'_, AppState>,
+    session_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    info!("[set_codex_plan_mode] session_id={session_id} enabled={enabled}");
+    let processes = state.processes.lock().await;
+    let handle = processes
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {session_id}"))?;
+    if handle.agent_id() != AgentId::Codex {
+        return Err(format!(
+            "set_codex_plan_mode is only valid on Codex sessions; \
+             session {session_id} is {:?}",
+            handle.agent_id()
+        ));
+    }
+    handle
+        .set_codex_plan_mode(enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Deliver an `AskUserQuestion` answer to Claude.
 ///
 /// CLI 2.1.126 always synthesises `tool_result(is_error=true,

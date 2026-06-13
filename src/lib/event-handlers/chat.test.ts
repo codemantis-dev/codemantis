@@ -949,3 +949,30 @@ describe("chat event handler — session_notice", () => {
     expect(level).toBe("info");
   });
 });
+
+describe("chat event handler — codex_plan_mode_changed", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    vi.clearAllMocks();
+  });
+
+  it("flips the session into plan mode when enabled", () => {
+    handleChatEvent("s1", {
+      type: "codex_plan_mode_changed",
+      session_id: "s1",
+      enabled: true,
+    });
+    expect(useSessionStore.getState().sessionModes.get("s1")).toBe("plan");
+  });
+
+  it("restores normal mode when disabled", () => {
+    useSessionStore.getState().setSessionMode("s1", "plan");
+    handleChatEvent("s1", {
+      type: "codex_plan_mode_changed",
+      session_id: "s1",
+      enabled: false,
+    });
+    expect(useSessionStore.getState().sessionModes.get("s1")).toBe("normal");
+  });
+});

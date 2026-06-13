@@ -143,6 +143,12 @@ function handleToolUseStart(
       }
       if (directPlanContent) {
         uiState.setPlanCompleteContent(directPlanContent);
+        // Persist the generated plan to <project_root>/plans/ for both
+        // agents (Codex's synthesized ExitPlanMode flows through here too).
+        // Fire-and-forget — failures toast but never block the plan flow.
+        import("../plan-actions").then(({ persistPlanDocument }) => {
+          void persistPlanDocument(sessionId, directPlanContent);
+        });
       }
 
       // Modal + auto-open the file viewer ONLY for the currently-active

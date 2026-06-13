@@ -247,6 +247,18 @@ export async function setCodexPolicy(
   return invoke("set_codex_policy", { sessionId, policy });
 }
 
+/**
+ * Toggle CodeMantis-native Codex "plan mode". Takes effect on the next
+ * `turn/start` (read-only sandbox + planning preamble). Codex-only — Claude
+ * uses `setSessionMode("plan")`. See the backend `set_codex_plan_mode`.
+ */
+export async function setCodexPlanMode(
+  sessionId: string,
+  enabled: boolean
+): Promise<void> {
+  return invoke("set_codex_plan_mode", { sessionId, enabled });
+}
+
 export async function resolveToolApproval(
   requestId: string,
   approved: boolean,

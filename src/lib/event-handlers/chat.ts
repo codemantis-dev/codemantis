@@ -527,6 +527,16 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
     }
 
+    case "codex_plan_mode_changed": {
+      // Native Codex plan mode toggled (confirmed by the backend, or
+      // reported by Codex via thread/settings/updated). Flip the session
+      // into / out of "plan" — drives CodexPlanModeBanner + the lit pill.
+      // This is local state only (setSessionMode doesn't round-trip to the
+      // CLI); the toggle itself already went through set_codex_plan_mode.
+      store.setSessionMode(sessionId, event.enabled ? "plan" : "normal");
+      break;
+    }
+
     case "auth_token_refresh_requested": {
       // v1.4.1 Phase A.3 — Codex hit a 401 and asked us to refresh.
       // We don't yet implement the OAuth handoff, so the spawn loop

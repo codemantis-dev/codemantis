@@ -482,6 +482,24 @@ pub enum NormalizedEvent {
         final_review: String,
     },
 
+    /// CodeMantis-native Codex "plan mode" toggled. Emitted both when the
+    /// Plan pill flips `set_codex_plan_mode` (confirming the local change)
+    /// and when Codex reports a real `collaborationMode` via
+    /// `thread/settings/updated`. `chat.ts` flips the session into / out of
+    /// `SessionMode::Plan`, which drives the plan-mode banner above the chat.
+    ///
+    /// Note: this is NOT Codex's built-in `/plan` — the app-server exposes no
+    /// settable `collaborationMode` lever (verified against the 0.139.0
+    /// schema), so the native approximation flips the next `turn/start` to a
+    /// read-only sandbox + a planning preamble. The `thread/settings/updated`
+    /// path future-proofs the indicator for a real plan signal.
+    #[serde(rename = "codex_plan_mode_changed")]
+    CodexPlanModeChanged {
+        agent_id: AgentId,
+        session_id: String,
+        enabled: bool,
+    },
+
     /// Codex `hookPrompt` ThreadItem at item/completed. Each fragment is
     /// surfaced as an info toast. Distinct from hook lifecycle status
     /// (started/completed) below — `hookPrompt` is hook-emitted content,
@@ -854,6 +872,19 @@ pub trait AgentProcessHandle: Send + Sync {
         Err(AgentError::CapabilityNotSupported(
             self.agent_id(),
             "set_codex_policy (default impl)",
+        ))
+    }
+
+    /// Toggle CodeMantis-native Codex "plan mode". When enabled, the next
+    /// `turn/start` is forced to a read-only sandbox and a planning preamble
+    /// is injected so Codex plans (using the full prior thread context)
+    /// without editing files. Takes effect on the next `send_user_message`.
+    /// Claude returns `CapabilityNotSupported` (it has real plan mode via
+    /// `apply_mode` / `set_permission_mode`).
+    async fn set_codex_plan_mode(&self, _enabled: bool) -> Result<(), AgentError> {
+        Err(AgentError::CapabilityNotSupported(
+            self.agent_id(),
+            "set_codex_plan_mode (default impl — Codex only)",
         ))
     }
 

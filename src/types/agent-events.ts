@@ -31,6 +31,7 @@ export type FrontendEvent =
   | EffortChangedEvent
   | ReviewModeEnteredEvent
   | ReviewModeExitedEvent
+  | CodexPlanModeChangedEvent
   | HookPromptEvent
   | HookStatusEvent
   | AuthTokenRefreshRequestedEvent
@@ -268,6 +269,19 @@ export interface ReviewModeExitedEvent {
   session_id: string;
   item_id: string;
   final_review: string;
+}
+
+/**
+ * CodeMantis-native Codex plan-mode toggle. Emitted by the backend when the
+ * Plan pill flips `set_codex_plan_mode` (confirming the change) and when Codex
+ * reports a real `collaborationMode` via `thread/settings/updated`. Drives the
+ * plan-mode banner / pill via `SessionMode "plan"`.
+ */
+export interface CodexPlanModeChangedEvent {
+  type: "codex_plan_mode_changed";
+  agent_id?: AgentId;
+  session_id: string;
+  enabled: boolean;
 }
 
 export interface HookPromptFragment {

@@ -11,6 +11,10 @@ vi.mock("../../lib/tauri-commands", () => ({
 }));
 vi.mock("../../lib/error-handler", () => ({ handleError: vi.fn() }));
 vi.mock("../../stores/toastStore", () => ({ showToast: vi.fn() }));
+const openFileInViewer = vi.fn().mockResolvedValue(undefined);
+vi.mock("../../hooks/useFileViewer", () => ({
+  openFileInViewer: (...args: unknown[]) => openFileInViewer(...args),
+}));
 const implementPendingPlan = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../lib/plan-actions", () => ({
   implementPendingPlan: (...args: unknown[]) => implementPendingPlan(...args),
@@ -112,18 +116,13 @@ describe("PlanCompleteModal", () => {
     expect(screen.getByText("Reveal in File Viewer →")).toBeInTheDocument();
   });
 
-  it("reveals plan file in File Viewer when plan file card is clicked", async () => {
+  it("opens plan file in File Viewer when plan file card is clicked", () => {
     const setShowModal = vi.fn();
-    const setRightTab = vi.fn();
-    const setActiveFile = vi.fn();
-    const { useFileViewerStore } = await import("../../stores/fileViewerStore");
-    useFileViewerStore.setState({ setActiveFile });
     useUiStore.setState({
       showPlanCompleteModal: true,
       planCompleteSessionId: "s1",
       planCompleteFilePath: "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
       setShowPlanCompleteModal: setShowModal,
-      setRightTab,
     });
     const session: Session = {
       id: "s1",
@@ -137,11 +136,9 @@ describe("PlanCompleteModal", () => {
     useSessionStore.setState({ sessions: new Map([["s1", session]]) });
     render(<PlanCompleteModal />);
     fireEvent.click(screen.getByText("jazzy-prancing-wilkes.md"));
-    expect(setActiveFile).toHaveBeenCalledWith(
-      "s1",
+    expect(openFileInViewer).toHaveBeenCalledWith(
       "/Users/hr/.claude/plans/jazzy-prancing-wilkes.md",
     );
-    expect(setRightTab).toHaveBeenCalledWith("files");
     expect(setShowModal).toHaveBeenCalledWith(false);
   });
 
@@ -210,10 +207,7 @@ describe("PlanCompleteModal", () => {
     nowSpy.mockRestore();
   });
 
-  it("Reveal in File Viewer preserves pending plan state", async () => {
-    const setActiveFile = vi.fn();
-    const { useFileViewerStore } = await import("../../stores/fileViewerStore");
-    useFileViewerStore.setState({ setActiveFile });
+  it("Reveal in File Viewer preserves pending plan state", () => {
     useUiStore.setState({
       showPlanCompleteModal: true,
       planCompleteSessionId: "s1",

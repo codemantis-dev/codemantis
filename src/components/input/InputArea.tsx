@@ -9,6 +9,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
 import PolicyPill from "./PolicyPill";
+import CodexPlanToggle from "./CodexPlanToggle";
 import AgentBadge from "./AgentBadge";
 import ModelSelector from "./ModelSelector";
 import EffortSelector from "./EffortSelector";
@@ -618,10 +619,13 @@ function CodexPolicyControl({ sessionId }: { sessionId: string }): React.ReactEl
   const updateLocal = useUiStore((s) => s.updateCodexPolicyLocal);
   const policy = stored ?? DEFAULT_CODEX_POLICY;
   return (
-    <PolicyPill
-      sessionId={sessionId}
-      value={policy}
-      onChange={(next) => updateLocal(sessionId, next)}
-    />
+    <div className="flex items-center gap-1.5">
+      <CodexPlanToggle sessionId={sessionId} />
+      <PolicyPill
+        sessionId={sessionId}
+        value={policy}
+        onChange={(next) => updateLocal(sessionId, next)}
+      />
+    </div>
   );
 }

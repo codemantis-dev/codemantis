@@ -7,13 +7,20 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../hooks/useFileViewer", () => ({
+  openFileInViewer: vi.fn(() => Promise.resolve()),
+}));
+
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { openFileInViewer } from "../hooks/useFileViewer";
 
 const mockOpenUrl = vi.mocked(openUrl);
+const mockOpenFileInViewer = vi.mocked(openFileInViewer);
 
 describe("ExternalLink", () => {
   beforeEach(() => {
     mockOpenUrl.mockClear();
+    mockOpenFileInViewer.mockClear();
   });
 
   it("renders an anchor element with the correct href", () => {
@@ -59,6 +66,60 @@ describe("ExternalLink", () => {
     const a = container.querySelector("a")!;
     fireEvent.click(a);
     expect(mockOpenUrl).toHaveBeenCalledWith("mailto:test@example.com");
+  });
+
+  it("opens a relative file path in the File Viewer, not the browser", () => {
+    const { container } = render(
+      createElement(ExternalLink, { href: "plans/foo.md" }, "plans/foo.md"),
+    );
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockOpenFileInViewer).toHaveBeenCalledWith("plans/foo.md");
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it("opens an absolute file path in the File Viewer", () => {
+    const { container } = render(
+      createElement(ExternalLink, { href: "/Users/x/foo.md" }, "foo.md"),
+    );
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockOpenFileInViewer).toHaveBeenCalledWith("/Users/x/foo.md");
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it("does not route web URLs to the File Viewer", () => {
+    const { container } = render(
+      createElement(ExternalLink, { href: "https://example.com" }, "link"),
+    );
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockOpenFileInViewer).not.toHaveBeenCalled();
+    expect(mockOpenUrl).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("ignores pure in-page anchors", () => {
+    const { container } = render(
+      createElement(ExternalLink, { href: "#section" }, "jump"),
+    );
+    fireEvent.click(container.querySelector("a")!);
+    expect(mockOpenFileInViewer).not.toHaveBeenCalled();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it("logs error when opening a file path rejects", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockOpenFileInViewer.mockRejectedValueOnce(new Error("nope"));
+
+    const { container } = render(
+      createElement(ExternalLink, { href: "plans/foo.md" }, "link"),
+    );
+    fireEvent.click(container.querySelector("a")!);
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Failed to open file:",
+        expect.any(Error),
+      );
+    });
+    consoleSpy.mockRestore();
   });
 
   it("strips the node prop without passing it to the DOM", () => {

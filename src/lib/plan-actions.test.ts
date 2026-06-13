@@ -6,6 +6,7 @@ import { useUiStore } from "../stores/uiStore";
 vi.mock("./tauri-commands", () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
   setSessionMode: vi.fn().mockResolvedValue(undefined),
+  writeFileContent: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../stores/toastStore", () => ({
   showToast: vi.fn(),
@@ -14,8 +15,8 @@ vi.mock("./error-handler", () => ({
   handleError: vi.fn(),
 }));
 
-import { implementPendingPlan } from "./plan-actions";
-import { sendMessage, setSessionMode } from "./tauri-commands";
+import { implementPendingPlan, persistPlanDocument } from "./plan-actions";
+import { sendMessage, setSessionMode, writeFileContent } from "./tauri-commands";
 import { showToast } from "../stores/toastStore";
 
 const SESSION_ID = "session-abc";
@@ -128,5 +129,58 @@ describe("implementPendingPlan", () => {
     // Pending state cleared — the user-visible chat message is already there,
     // keeping the banner would be misleading.
     expect(useUiStore.getState().pendingPlanSessionId).toBeNull();
+  });
+});
+
+describe("persistPlanDocument", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    seedSession();
+  });
+
+  it("writes a plan markdown file under <project>/plans/ with a header", async () => {
+    await persistPlanDocument(SESSION_ID, "# Add feature X\n\nStep 1...");
+    expect(writeFileContent).toHaveBeenCalledTimes(1);
+    const [filePath, content] = vi.mocked(writeFileContent).mock.calls[0];
+    expect(filePath).toMatch(/^\/tmp\/test\/plans\/plan-\d{8}-\d{6}-add-feature-x\.md$/);
+    expect(content).toContain("# Plan — Test");
+    expect(content).toContain("Agent: Claude Code");
+    expect(content).toContain("# Add feature X");
+    expect(showToast).toHaveBeenCalledWith(
+      expect.stringContaining("Plan saved to plans/"),
+      "success",
+    );
+  });
+
+  it("labels the agent as Codex for codex sessions", async () => {
+    useSessionStore.setState({
+      sessions: new Map([[
+        SESSION_ID,
+        {
+          id: SESSION_ID,
+          agent_id: "codex",
+          name: "Test",
+          project_path: "/tmp/test",
+          status: "connected",
+          created_at: new Date().toISOString(),
+          model: null,
+          icon_index: 0,
+        },
+      ]]),
+    });
+    await persistPlanDocument(SESSION_ID, "Plan body");
+    const [, content] = vi.mocked(writeFileContent).mock.calls[0];
+    expect(content).toContain("Agent: Codex");
+  });
+
+  it("no-ops when the plan content is empty", async () => {
+    await persistPlanDocument(SESSION_ID, "   ");
+    expect(writeFileContent).not.toHaveBeenCalled();
+  });
+
+  it("no-ops when the session has no project path", async () => {
+    useSessionStore.setState({ sessions: new Map() });
+    await persistPlanDocument("missing", "Plan body");
+    expect(writeFileContent).not.toHaveBeenCalled();
   });
 });
