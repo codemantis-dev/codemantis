@@ -101,6 +101,11 @@ export interface AppSettings {
   sessionLogsEnabled: boolean;
   sessionLogsRetentionDays: number;
 
+  /** Capture the raw Codex JSON-RPC wire (both directions) to a per-session
+   * NDJSON file under the app data dir, for troubleshooting compaction stalls
+   * and other protocol issues. */
+  codexDebugLoggingEnabled: boolean;
+
   // Super-Bro
   superBroEnabled: boolean;
   superBroProvider: string;

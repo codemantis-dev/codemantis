@@ -137,7 +137,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     triviaEnabled: true, defaultContextWindow: 1000000, autoOpenFiles: false,
     claudeBinaryOverride: null, onboardingCompleted: false, apiKeyBannerDismissed: false,
     lastCloneDirectory: null,
-    sessionLogsEnabled: true, sessionLogsRetentionDays: 30,
+    sessionLogsEnabled: true, sessionLogsRetentionDays: 30, codexDebugLoggingEnabled: true,
     superBroEnabled: true, superBroProvider: "auto", superBroModel: "auto",
     selfDriveProvider: "anthropic", selfDriveModel: "claude-haiku-4-5",
     selfDriveMaxFixAttempts: 3, selfDriveRunBuildCheck: true,

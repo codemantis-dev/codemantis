@@ -67,6 +67,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   apiKeyBannerDismissed: false,
   lastCloneDirectory: null,
   sessionLogsEnabled: true,
+  codexDebugLoggingEnabled: true,
   sessionLogsRetentionDays: 30,
   superBroEnabled: true,
   superBroProvider: "auto",

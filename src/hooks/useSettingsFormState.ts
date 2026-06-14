@@ -71,6 +71,11 @@ export function useSettingsFormState() {
     setSessionLogsEnabledLocal(v);
     updateSettings({ sessionLogsEnabled: v });
   }, [updateSettings]);
+  const [codexDebugLoggingEnabled, setCodexDebugLoggingEnabledLocal] = useState(settings.codexDebugLoggingEnabled);
+  const setCodexDebugLoggingEnabled = useCallback((v: boolean) => {
+    setCodexDebugLoggingEnabledLocal(v);
+    updateSettings({ codexDebugLoggingEnabled: v });
+  }, [updateSettings]);
   const [sessionLogsRetentionDays, setSessionLogsRetentionDaysLocal] = useState(settings.sessionLogsRetentionDays);
   const setSessionLogsRetentionDays = useCallback((d: number) => {
     setSessionLogsRetentionDaysLocal(d);
@@ -137,6 +142,7 @@ export function useSettingsFormState() {
       setPreviewCustomDevCommand(settings.previewCustomDevCommand ?? "");
       setPreviewConsoleAutoOpen(settings.previewConsoleAutoOpen);
       setSessionLogsEnabledLocal(settings.sessionLogsEnabled);
+      setCodexDebugLoggingEnabledLocal(settings.codexDebugLoggingEnabled);
       setSessionLogsRetentionDaysLocal(settings.sessionLogsRetentionDays);
       setSuperBroEnabled(settings.superBroEnabled);
       setSuperBroProvider(settings.superBroProvider);
@@ -201,6 +207,7 @@ export function useSettingsFormState() {
       taskBoardAutoStartNext,
       taskBoardAutoOpenSlideOver,
       sessionLogsEnabled,
+      codexDebugLoggingEnabled,
       sessionLogsRetentionDays,
       superBroEnabled,
       superBroProvider,
@@ -374,6 +381,8 @@ export function useSettingsFormState() {
     // Session Logs tab
     sessionLogsEnabled,
     setSessionLogsEnabled,
+    codexDebugLoggingEnabled,
+    setCodexDebugLoggingEnabled,
     sessionLogsRetentionDays,
     setSessionLogsRetentionDays,
 

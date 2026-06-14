@@ -109,6 +109,10 @@ pub struct AppSettings {
     #[serde(default = "default_session_logs_retention_days")]
     pub session_logs_retention_days: u32,
 
+    // --- Codex debug logging (raw JSON-RPC wire capture for troubleshooting) ---
+    #[serde(default = "default_true")]
+    pub codex_debug_logging_enabled: bool,
+
     // --- Super-Bro ---
     #[serde(default = "default_true")]
     pub super_bro_enabled: bool,
@@ -294,6 +298,7 @@ impl Default for AppSettings {
             last_clone_directory: None,
             session_logs_enabled: true,
             session_logs_retention_days: default_session_logs_retention_days(),
+            codex_debug_logging_enabled: true,
             super_bro_enabled: true,
             super_bro_provider: default_super_bro_provider(),
             super_bro_model: default_super_bro_model(),

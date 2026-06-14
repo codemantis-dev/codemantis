@@ -513,4 +513,27 @@ describe("stale detection", () => {
     expect(ts2).toBeDefined();
     stopStaleDetection(SESSION_ID);
   });
+
+  it("surfaces an actionable card when a Codex compaction stalls (silent too long)", async () => {
+    startStaleDetection(SESSION_ID);
+    const store = getStore();
+    store.setSessionBusy(SESSION_ID, true);
+    store.setSessionCompacting(SESSION_ID, true);
+
+    // Advance well past the 240s compaction-stall threshold; the 15s shared
+    // interval ticks and the stall branch fires (needs a tick strictly > 240s).
+    await vi.advanceTimersByTimeAsync(270_000);
+
+    const messages = getStore().sessionMessages.get(SESSION_ID) ?? [];
+    const card = messages.find((m) => m.content.includes("Compaction stalled"));
+    expect(card).toBeDefined();
+    // All three escapes offered; the infinite "Compacting" becomes actionable.
+    expect(card?.retryable).toBe(true);
+    expect(card?.recoverable).toBe(true);
+    expect(card?.freshThreadable).toBe(true);
+    // Stuck flags cleared so the user isn't frozen.
+    expect(getStore().sessionCompacting.get(SESSION_ID)).toBe(false);
+    expect(getStore().sessionBusy.get(SESSION_ID)).toBe(false);
+    stopStaleDetection(SESSION_ID);
+  });
 });

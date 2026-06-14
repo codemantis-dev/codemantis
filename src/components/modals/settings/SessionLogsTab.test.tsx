@@ -8,6 +8,8 @@ describe("SessionLogsTab", () => {
     retentionDays: 30,
     onEnabledChange: vi.fn(),
     onRetentionDaysChange: vi.fn(),
+    codexDebugLoggingEnabled: true,
+    onCodexDebugLoggingChange: vi.fn(),
   };
 
   beforeEach(() => {
@@ -32,6 +34,16 @@ describe("SessionLogsTab", () => {
   it("renders the toggle sub-explanation", () => {
     render(<SessionLogsTab {...defaultProps} />);
     expect(screen.getByText(/Store all messages when a session closes/)).toBeInTheDocument();
+  });
+
+  it("renders the Codex debug logging toggle and fires its change handler", () => {
+    render(<SessionLogsTab {...defaultProps} codexDebugLoggingEnabled={true} />);
+    const label = screen.getByText("Codex debug logging");
+    expect(label).toBeInTheDocument();
+    const toggleBtn = label.closest("div")?.parentElement?.querySelector("button");
+    expect(toggleBtn).toBeTruthy();
+    fireEvent.click(toggleBtn!);
+    expect(defaultProps.onCodexDebugLoggingChange).toHaveBeenCalledWith(false);
   });
 
   it("calls onEnabledChange(true) when toggle clicked while disabled", () => {

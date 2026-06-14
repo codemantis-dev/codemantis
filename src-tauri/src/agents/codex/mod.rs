@@ -26,6 +26,7 @@ pub mod rollout;
 pub mod spawn;
 pub mod thread_state;
 pub mod translation;
+pub mod wire_log;
 
 use async_trait::async_trait;
 use tauri::AppHandle;

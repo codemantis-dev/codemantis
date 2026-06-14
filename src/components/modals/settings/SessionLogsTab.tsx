@@ -5,11 +5,15 @@ export default function SessionLogsTab({
   retentionDays,
   onEnabledChange,
   onRetentionDaysChange,
+  codexDebugLoggingEnabled,
+  onCodexDebugLoggingChange,
 }: {
   enabled: boolean;
   retentionDays: number;
   onEnabledChange: (v: boolean) => void;
   onRetentionDaysChange: (d: number) => void;
+  codexDebugLoggingEnabled: boolean;
+  onCodexDebugLoggingChange: (v: boolean) => void;
 }) {
   return (
     <div>
@@ -37,6 +41,29 @@ export default function SessionLogsTab({
           <div
             className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
               enabled ? "translate-x-5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Codex debug logging (raw JSON-RPC wire capture) */}
+      <div className="flex items-center justify-between py-2 mb-3 border-t border-border-light pt-4">
+        <div>
+          <label className="text-ui text-text-secondary">Codex debug logging</label>
+          <p className="text-label text-text-ghost">
+            Capture the raw Codex protocol (both directions) to a per-session file under the app
+            data folder (codex-wire-logs). Helps troubleshoot compaction stalls. Safe to leave on.
+          </p>
+        </div>
+        <button
+          onClick={() => onCodexDebugLoggingChange(!codexDebugLoggingEnabled)}
+          className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+            codexDebugLoggingEnabled ? "bg-accent" : "bg-bg-elevated border border-border"
+          }`}
+        >
+          <div
+            className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform ${
+              codexDebugLoggingEnabled ? "translate-x-5" : "translate-x-0.5"
             }`}
           />
         </button>

@@ -53,6 +53,7 @@ function resetStore(): void {
       taskBoardAutoStartNext: true,
       taskBoardAutoOpenSlideOver: true,
       sessionLogsEnabled: true,
+      codexDebugLoggingEnabled: true,
       sessionLogsRetentionDays: 30,
       superBroEnabled: true,
       superBroProvider: "auto",

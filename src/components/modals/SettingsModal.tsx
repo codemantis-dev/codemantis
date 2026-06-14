@@ -196,6 +196,8 @@ export default function SettingsModal() {
                 retentionDays={state.sessionLogsRetentionDays}
                 onEnabledChange={state.setSessionLogsEnabled}
                 onRetentionDaysChange={state.setSessionLogsRetentionDays}
+                codexDebugLoggingEnabled={state.codexDebugLoggingEnabled}
+                onCodexDebugLoggingChange={state.setCodexDebugLoggingEnabled}
               />
             )}
 

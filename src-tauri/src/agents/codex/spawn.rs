@@ -586,12 +586,32 @@ pub async fn spawn_codex_session(
         .ok_or_else(|| AgentError::SpawnFailed("child stdout not piped".into()))?;
     let stderr_opt = child.stderr.take();
 
+    // Optional raw-wire logger (both directions + stderr → per-session NDJSON).
+    // Enabled by the `codexDebugLoggingEnabled` setting or `CM_CODEX_WIRE_LOG=1`.
+    // The diagnostic of record for compaction stalls — the harness proves the
+    // protocol completes at every context size, so a real stall must be captured
+    // from the user's actual session.
+    let wire_log = if super::wire_log::WireLog::is_enabled_by_config() {
+        let wl = super::wire_log::WireLog::open(
+            &config.session_id,
+            chrono::Utc::now().timestamp_millis(),
+        );
+        if let Some(p) = wl.path() {
+            info!("[codex {}] wire logging → {}", config.session_id, p.display());
+        }
+        wl
+    } else {
+        super::wire_log::WireLog::disabled()
+    };
+
     // 3. Outbound channel + stdin writer task.
     let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<String>();
     let sid_for_writer = config.session_id.clone();
+    let wire_writer = wire_log.clone();
     tokio::spawn(async move {
         let mut stdin = stdin;
         while let Some(line) = outbound_rx.recv().await {
+            wire_writer.record("send", &line);
             if stdin.write_all(line.as_bytes()).await.is_err() {
                 debug!("[codex {}] stdin write failed — child exited", sid_for_writer);
                 break;
@@ -606,9 +626,11 @@ pub async fn spawn_codex_session(
     // errors via the JSON-RPC `error` notification).
     if let Some(stderr) = stderr_opt {
         let sid = config.session_id.clone();
+        let wire_stderr = wire_log.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                wire_stderr.record("stderr", &line);
                 debug!("[codex {} stderr] {}", sid, line);
             }
         });
@@ -639,9 +661,11 @@ pub async fn spawn_codex_session(
     // 5. Stdout reader task.
     let client_for_reader = client.clone();
     let sid_for_reader = config.session_id.clone();
+    let wire_reader = wire_log.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
+            wire_reader.record("recv", &line);
             if let Err(e) = client_for_reader.handle_incoming_line(&line).await {
                 warn!("[codex {}] parse error: {} (line: {})", sid_for_reader, e, line);
             }

@@ -113,6 +113,7 @@ function setupSettings(): void {
       apiKeyBannerDismissed: false,
       lastCloneDirectory: null,
       sessionLogsEnabled: false,
+      codexDebugLoggingEnabled: true,
       sessionLogsRetentionDays: 30,
       superBroEnabled: false,
       superBroProvider: "auto" as const,

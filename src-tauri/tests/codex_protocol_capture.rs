@@ -99,9 +99,24 @@ struct CodexSession {
 
 impl CodexSession {
     async fn spawn(scenario: &str) -> Self {
+        Self::spawn_with_config(scenario, &[]).await
+    }
+
+    /// Spawn with extra `-c key=value` config overrides (each `cfg` becomes
+    /// `-c <cfg>`), placed BEFORE the `app-server` subcommand exactly like
+    /// production's `build_app_server_args`. Lets a scenario force, e.g.,
+    /// `model_auto_compact_token_limit=2000` so real auto-compaction triggers
+    /// cheaply.
+    async fn spawn_with_config(scenario: &str, configs: &[&str]) -> Self {
         let capture = Capture::open(scenario);
+        let mut args: Vec<String> = Vec::new();
+        for cfg in configs {
+            args.push("-c".to_string());
+            args.push((*cfg).to_string());
+        }
+        args.extend(["app-server", "--listen", "stdio://"].map(str::to_string));
         let mut child = Command::new("codex")
-            .args(["app-server", "--listen", "stdio://"])
+            .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -986,6 +1001,138 @@ async fn c14_compaction() {
     s.shutdown().await;
 }
 
+/// C15 — force REAL auto-compaction under load (the actual failing path). Spawn
+/// with a tiny `model_auto_compact_token_limit` so a couple of ordinary turns
+/// cross it and Codex auto-compacts on its own — then record the full wire to
+/// answer the only question that matters: does auto-compaction COMPLETE, ERROR,
+/// or HANG? (The trivial C14 manual compaction on an empty thread never tested
+/// this.) Diagnostic: records + prints, no brittle asserts.
+async fn c15_auto_compaction() {
+    // Tunable via env so we can escalate context size without recompiling:
+    //   CM_C15_LIMIT  — model_auto_compact_token_limit (default 2000)
+    //   CM_C15_REPEAT — filler repeat count per turn (default 30 ≈ 1.6KB)
+    //   CM_C15_TURNS  — max turns (default 6)
+    let limit = std::env::var("CM_C15_LIMIT").unwrap_or_else(|_| "2000".into());
+    let repeat: usize = std::env::var("CM_C15_REPEAT").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+    let max_turns: u32 = std::env::var("CM_C15_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(6);
+    eprintln!("[C15] config: limit={limit} repeat={repeat} max_turns={max_turns}");
+
+    let mut s = CodexSession::spawn_with_config(
+        "C15_auto_compaction",
+        &[&format!("model_auto_compact_token_limit={limit}")],
+    )
+    .await;
+    let _ = handshake(&mut s).await;
+    let tid = start_thread(&mut s, &std::env::temp_dir().to_string_lossy()).await;
+    eprintln!("[C15] thread id: {tid}");
+
+    let filler = "lorem ipsum dolor sit amet consectetur adipiscing elit ".repeat(repeat);
+
+    let mut model_ctx_window: Option<u64> = None;
+    let mut total_tokens: Option<u64> = None;
+    let mut saw_compaction_started = false;
+    let mut saw_compaction_completed = false;
+    let mut saw_error: Option<String> = None;
+    let mut hung = false;
+
+    'turns: for turn_no in 1..=max_turns {
+        let prompt = format!("Turn {turn_no}: reply with just OK. Ignore this filler: {filler}");
+        let resp = s
+            .request(
+                "turn/start",
+                json!({
+                    "threadId": tid,
+                    "input": [{"type": "text", "text": prompt}],
+                    "approvalPolicy": "never",
+                    "sandboxPolicy": {"type": "readOnly", "networkAccess": false},
+                }),
+            )
+            .await;
+        if resp.get("error").is_some() {
+            saw_error = Some(format!("turn/start error: {resp}"));
+            break 'turns;
+        }
+
+        // Drain this turn until turn/completed | error | HANG (no terminal in 300s).
+        let turn_result: Result<Option<String>, _> = timeout(Duration::from_secs(300), async {
+            loop {
+                let v = match s.incoming.recv().await {
+                    Some(v) => v,
+                    None => return Some("stdout-closed".to_string()),
+                };
+                let method = v.get("method").and_then(|x| x.as_str()).unwrap_or("");
+                if method == "thread/tokenUsage/updated" {
+                    if let Some(tu) = v.pointer("/params/tokenUsage") {
+                        if let Some(w) = tu.get("modelContextWindow").and_then(|x| x.as_u64()) {
+                            model_ctx_window = Some(w);
+                        }
+                        // `total`/`last` are OBJECTS: {totalTokens, inputTokens, ...}.
+                        if let Some(t) = tu.pointer("/total/totalTokens").and_then(|x| x.as_u64()) {
+                            total_tokens = Some(t);
+                        }
+                    }
+                }
+                if v.pointer("/params/item/type").and_then(|x| x.as_str()) == Some("contextCompaction") {
+                    if method == "item/started" {
+                        saw_compaction_started = true;
+                        eprintln!(
+                            "[C15] contextCompaction item/started on turn {turn_no} (total so far={total_tokens:?})"
+                        );
+                    }
+                    if method == "item/completed" {
+                        saw_compaction_completed = true;
+                        eprintln!("[C15] contextCompaction item/completed on turn {turn_no}");
+                    }
+                }
+                if method == "error" {
+                    let msg = v
+                        .pointer("/params/error/message")
+                        .or_else(|| v.pointer("/params/message"))
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("?");
+                    return Some(format!("error: {msg}"));
+                }
+                if method == "turn/completed" {
+                    let status = v.pointer("/params/turn/status").and_then(|x| x.as_str()).unwrap_or("?");
+                    eprintln!(
+                        "[C15] turn {turn_no} completed status={status} (window={model_ctx_window:?} total={total_tokens:?})"
+                    );
+                    return None;
+                }
+            }
+        })
+        .await;
+
+        match turn_result {
+            Ok(None) => { /* turn completed cleanly */ }
+            Ok(Some(reason)) => {
+                saw_error = Some(reason);
+                break 'turns;
+            }
+            Err(_elapsed) => {
+                hung = true;
+                eprintln!("[C15] turn {turn_no} HUNG — no turn/completed in 300s");
+                break 'turns;
+            }
+        }
+
+        if saw_compaction_completed {
+            break 'turns;
+        }
+    }
+
+    eprintln!("[C15] ===== DIAGNOSIS =====");
+    eprintln!("[C15] modelContextWindow: {model_ctx_window:?}");
+    eprintln!("[C15] total tokens seen: {total_tokens:?}");
+    eprintln!("[C15] compaction started: {saw_compaction_started}");
+    eprintln!("[C15] compaction completed: {saw_compaction_completed}");
+    eprintln!("[C15] error: {saw_error:?}");
+    eprintln!("[C15] hung: {hung}");
+    eprintln!("[C15] full wire: target/codex-captures/C15_auto_compaction.jsonl");
+
+    s.shutdown().await;
+}
+
 // =====================================================================
 // Entry points
 // =====================================================================
@@ -1035,6 +1182,8 @@ async fn capture_full_battery() {
     c13_resume_fallback_to_start().await;
     eprintln!("[harness] === C14 compaction ===");
     c14_compaction().await;
+    eprintln!("[harness] === C15 auto-compaction under load ===");
+    c15_auto_compaction().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1059,6 +1208,7 @@ async fn capture_single() {
         "C12" => c12_reasoning_delta().await,
         "C13" => c13_resume_fallback_to_start().await,
         "C14" => c14_compaction().await,
-        other => panic!("set CM_HARNESS_ONLY to one of C01..C14 (got '{other}')"),
+        "C15" => c15_auto_compaction().await,
+        other => panic!("set CM_HARNESS_ONLY to one of C01..C15 (got '{other}')"),
     }
 }

@@ -145,10 +145,20 @@ impl Translator {
     /// so we hand-build it from the camelCase Codex payload rather than
     /// polluting the shared struct with Codex-only aliases.
     fn on_token_usage_updated(&self, params: Value) -> Vec<NormalizedEvent> {
-        let breakdown = match params
-            .get("tokenUsage")
-            .and_then(|v| v.get("last"))
-        {
+        let tu = params.get("tokenUsage");
+        // Tier-1 diagnostic: log the REAL window + cumulative total so we can
+        // reconcile the misleading "Nm tokens" UI counter and the "compacting at
+        // ctx X%" question against ground truth (`total` is cumulative/monotonic).
+        if let Some(tu) = tu {
+            log::info!(
+                "[codex {}] tokenUsage: window={:?} total={:?} last={:?}",
+                self.session_id,
+                tu.get("modelContextWindow").and_then(|v| v.as_u64()),
+                tu.pointer("/total/totalTokens").and_then(|v| v.as_u64()),
+                tu.pointer("/last/totalTokens").and_then(|v| v.as_u64()),
+            );
+        }
+        let breakdown = match tu.and_then(|v| v.get("last")) {
             Some(v) => v,
             None => return Vec::new(),
         };
@@ -474,11 +484,14 @@ impl Translator {
                 }]
             }
 
-            "contextCompaction" => vec![NormalizedEvent::CompactingStatus {
-                agent_id: AgentId::Codex,
-                session_id: self.session_id.clone(),
-                is_compacting: true,
-            }],
+            "contextCompaction" => {
+                log::info!("[codex {}] contextCompaction started (item/started)", self.session_id);
+                vec![NormalizedEvent::CompactingStatus {
+                    agent_id: AgentId::Codex,
+                    session_id: self.session_id.clone(),
+                    is_compacting: true,
+                }]
+            }
 
             // ── v1.4.0 ThreadItem types ──
             // Phase 2 spec §2.4.4 deferred these as v1.4.0 work; the
@@ -722,6 +735,10 @@ impl Translator {
                 // card (`error-messages.ts`) + the compacting-flag reset in
                 // `handleProcessError`. The message text deliberately contains
                 // "compact"/"failed" so that catalog rule matches.
+                log::info!(
+                    "[codex {}] contextCompaction completed (item/completed status={status})",
+                    self.session_id
+                );
                 if status == "completed" {
                     let pre_tokens = item.get("preTokens").and_then(|v| v.as_u64());
                     vec![NormalizedEvent::CompactComplete {
@@ -1028,6 +1045,14 @@ impl Translator {
             .and_then(|i| i.get("type"))
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        // Tier-1 diagnostic: always log the full Codex error (type + message).
+        // This is where a compaction-stream drop surfaces.
+        log::warn!(
+            "[codex {}] error notification: type={:?} message={:?}",
+            self.session_id,
+            info_type,
+            error.get("message").and_then(|v| v.as_str()),
+        );
         let message = error
             .get("message")
             .and_then(|v| v.as_str())

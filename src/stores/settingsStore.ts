@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastCloneDirectory: null,
   sessionLogsEnabled: true,
   sessionLogsRetentionDays: 30,
+  codexDebugLoggingEnabled: true,
   superBroEnabled: true,
   superBroProvider: "auto",
   superBroModel: "auto",

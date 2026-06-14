@@ -253,7 +253,17 @@ export function handleProcessExited(sessionId: string, event: ProcessExitedEvent
 // instead of one timer per session (N sessions = N timers was wasteful).
 const staleSessions = new Set<string>();
 const staleWarningCount = new Map<string, number>();
+// Sessions for which we've already surfaced the "compaction stalled" recovery,
+// so we don't repeat it every tick. Reset when the session leaves busy state.
+const compactionStallNotified = new Set<string>();
 let sharedStaleTimer: ReturnType<typeof setInterval> | null = null;
+
+// A Codex compaction that produces NO events (no item/completed, no
+// turn/completed, no error) for this long is treated as stalled. Working
+// compactions complete well within this — the harness shows even near-full
+// (~230K) compactions finish in seconds. 4 min is generous margin so we don't
+// disturb a slow-but-live one while still bounding the infinite hang.
+const COMPACTION_STALL_MS = 240_000;
 
 async function checkAllStaleSessions(): Promise<void> {
   const s = useSessionStore.getState();
@@ -262,6 +272,7 @@ async function checkAllStaleSessions(): Promise<void> {
     const isBusy = s.sessionBusy.get(sessionId) ?? false;
     if (!isBusy) {
       staleWarningCount.set(sessionId, 0);
+      compactionStallNotified.delete(sessionId);
       continue;
     }
 
@@ -272,6 +283,42 @@ async function checkAllStaleSessions(): Promise<void> {
     if (elapsed <= 120_000) continue;
     const streaming = s.sessionStreaming.get(sessionId);
     if (streaming?.isStreaming) continue;
+
+    // ── Stalled Codex compaction ──
+    // A turn can die *silently* after compaction begins — no reply, no
+    // turn/completed, no error (content/network specific; the raw protocol
+    // completes at every scale in the harness). Without this, the status bar
+    // sits on "Compacting" forever and every "Continue" re-triggers it. Turn
+    // that infinite hang into an actionable recovery instead.
+    const isCompacting = s.sessionCompacting.get(sessionId) ?? false;
+    if (isCompacting && elapsed > COMPACTION_STALL_MS && !compactionStallNotified.has(sessionId)) {
+      compactionStallNotified.add(sessionId);
+      const now = new Date().toISOString();
+      const elapsedMin = Math.round(elapsed / 60_000);
+      s.setSessionBusy(sessionId, false);
+      s.setSessionCompacting(sessionId, false);
+      if (s.sessionStreaming.get(sessionId)?.isStreaming) {
+        s.finalizeStreaming(sessionId);
+      }
+      s.addMessage(sessionId, {
+        id: `compaction-stall-${Date.now()}`,
+        role: "assistant",
+        content:
+          `**Compaction stalled.** Codex has been compacting for ${elapsedMin}m with no ` +
+          `response — it appears to have stalled. Your conversation is preserved.\n\n` +
+          `**How to fix:** Retry to re-run the turn, Recover session to reconnect, or Start fresh thread ` +
+          `if it keeps stalling (a very large context can be slow or impossible to compact).`,
+        timestamp: now,
+        activityIds: [],
+        isStreaming: false,
+        retryable: true,
+        recoverable: true,
+        freshThreadable: true,
+      });
+      showToast("Compaction stalled — Retry, Recover, or Start fresh thread", "error", 10000);
+      staleWarningCount.set(sessionId, 0);
+      continue;
+    }
 
     // Check if the process is actually still alive
     try {
@@ -333,6 +380,7 @@ export function startStaleDetection(sessionId: string): void {
 export function stopStaleDetection(sessionId: string): void {
   staleSessions.delete(sessionId);
   staleWarningCount.delete(sessionId);
+  compactionStallNotified.delete(sessionId);
 
   if (staleSessions.size === 0 && sharedStaleTimer) {
     clearInterval(sharedStaleTimer);
