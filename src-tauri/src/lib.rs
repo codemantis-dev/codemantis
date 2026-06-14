@@ -342,6 +342,8 @@ pub fn run() {
             commands::session::set_codex_policy,
             commands::session::set_codex_plan_mode,
             commands::session::reset_codex_thread,
+            commands::session::mark_codex_compaction_failed,
+            commands::session::is_codex_compaction_failed,
             commands::codex::codex_read_config,
             commands::codex::codex_write_config_value,
             commands::codex::codex_list_mcp_status,

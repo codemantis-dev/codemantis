@@ -65,6 +65,19 @@ pub const MIGRATE_SESSION_AGENT_ID: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id)",
 ];
 
+// Codex compaction-deadlock marker. Codex's upstream remote-compaction endpoint
+// times out/drops on a large context (known OpenAI bug, e.g. openai/codex#17392),
+// leaving the thread unresumable: `thread/resume` reloads the full context and
+// instantly re-triggers the broken compaction. We mark such sessions so a later
+// Resume routes to a FRESH thread + carried chat context instead of the doomed
+// `thread/resume`. Dedicated table keeps it off the hot `sessions` SELECTs.
+pub const MIGRATE_CODEX_COMPACTION_FAILED: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS codex_compaction_failed (
+        session_id TEXT PRIMARY KEY,
+        marked_at  TEXT NOT NULL
+    )",
+];
+
 pub const MIGRATE_CHANGELOG_DETAIL: &[&str] = &[
     "ALTER TABLE changelog_entries ADD COLUMN technical_details TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE changelog_entries ADD COLUMN tools_summary TEXT NOT NULL DEFAULT ''",

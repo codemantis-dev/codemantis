@@ -161,6 +161,10 @@ impl Database {
             let _ = conn.execute_batch(sql);
         }
 
+        for sql in migrations::MIGRATE_CODEX_COMPACTION_FAILED {
+            let _ = conn.execute_batch(sql);
+        }
+
         for sql in migrations::MIGRATE_CHANGELOG_DETAIL {
             let _ = conn.execute_batch(sql);
         }
@@ -423,6 +427,37 @@ impl Database {
         )
         .map_err(|e| AppError::DatabaseError(format!("Set was_open failed: {}", e)))?;
         Ok(())
+    }
+
+    /// Mark a Codex session as having hit the compaction deadlock (upstream
+    /// OpenAI bug). A later Resume reads this and routes to a fresh thread +
+    /// carried chat context instead of the doomed `thread/resume`. Idempotent.
+    pub fn mark_codex_compaction_failed(&self, session_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        conn.execute(
+            "INSERT OR REPLACE INTO codex_compaction_failed (session_id, marked_at) \
+             VALUES (?1, ?2)",
+            rusqlite::params![session_id, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| AppError::DatabaseError(format!("Mark codex compaction failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// True if this session previously hit the Codex compaction deadlock.
+    pub fn is_codex_compaction_failed(&self, session_id: &str) -> Result<bool, AppError> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::DatabaseError(format!("Lock poisoned: {}", e))
+        })?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM codex_compaction_failed WHERE session_id = ?1",
+                rusqlite::params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| AppError::DatabaseError(format!("Query codex compaction failed: {}", e)))?;
+        Ok(count > 0)
     }
 
     /// Bulk-clear was_open across every session. Called from the graceful-shutdown
@@ -1605,6 +1640,23 @@ mod tests {
 
         db.set_session_was_open("s1", false).unwrap();
         assert!(db.list_was_open_session_ids().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_codex_compaction_failed_marker_roundtrips() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_session("s1", "A", "/p", "connected", "2026-06-14T00:00:00Z", None, 0, "codex")
+            .unwrap();
+        // Unmarked by default.
+        assert!(!db.is_codex_compaction_failed("s1").unwrap());
+        // Mark and read back.
+        db.mark_codex_compaction_failed("s1").unwrap();
+        assert!(db.is_codex_compaction_failed("s1").unwrap());
+        // Idempotent (INSERT OR REPLACE — no error, still marked).
+        db.mark_codex_compaction_failed("s1").unwrap();
+        assert!(db.is_codex_compaction_failed("s1").unwrap());
+        // Unrelated session stays unmarked.
+        assert!(!db.is_codex_compaction_failed("other").unwrap());
     }
 
     #[test]

@@ -229,12 +229,13 @@ export default function App() {
     name: string,
     sessionId: string,
     agentId: AgentId,
+    forceFreshThread?: boolean,
   ): Promise<void> => {
     setError(null);
     addRecentProject(projectPath);
     useSessionStore.getState().setActiveProject(projectPath);
     cleanupOldAttachments(projectPath, 7).catch(() => {});
-    await resumeFromHistory(projectPath, cliSessionId, name, sessionId, undefined, agentId);
+    await resumeFromHistory(projectPath, cliSessionId, name, sessionId, undefined, agentId, forceFreshThread);
   };
 
   if (checking || !settingsLoaded) {

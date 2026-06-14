@@ -16,6 +16,12 @@ import type { Message } from "../types/session";
  * millions of tokens (the very reason compaction was attempted). */
 export const MAX_TRANSCRIPT_CHARS = 24_000;
 
+/** Budget (chars ≈ tokens×4) for carrying the FULL displayed chat into a fresh
+ * resumed Codex thread. ~120K tokens. The displayed chat excludes tool outputs,
+ * so it's far smaller than Codex's internal context — usually it fits verbatim,
+ * giving the new thread the real prior conversation rather than a summary. */
+export const RESUME_CONTEXT_BUDGET_CHARS = 480_000;
+
 /** How many recent turns the local fallback recap quotes verbatim. */
 export const LOCAL_RECAP_MESSAGES = 6;
 
@@ -55,6 +61,14 @@ export function buildTranscriptText(
   }
   lines.reverse();
   return lines.join("\n\n");
+}
+
+/** Total characters of the conversational (non-card) messages — used to decide
+ * whether the full chat fits the resume-context budget. */
+export function conversationalCharCount(messages: Message[]): number {
+  return messages
+    .filter(isConversational)
+    .reduce((sum, m) => sum + m.content.trim().length, 0);
 }
 
 /**

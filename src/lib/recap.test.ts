@@ -3,6 +3,7 @@ import type { Message } from "../types/session";
 import {
   buildTranscriptText,
   buildLocalRecap,
+  conversationalCharCount,
   LOCAL_RECAP_MESSAGES,
   LOCAL_RECAP_PER_MESSAGE_CHARS,
 } from "./recap";
@@ -47,6 +48,21 @@ describe("buildTranscriptText", () => {
     );
     expect(out).toContain("NEW");
     expect(out).not.toContain("OLD");
+  });
+});
+
+describe("conversationalCharCount", () => {
+  it("sums trimmed lengths of conversational messages only", () => {
+    const messages = [
+      msg({ role: "user", content: "  hello  " }), // 5 trimmed
+      msg({ role: "assistant", content: "world!" }), // 6
+      msg({ role: "assistant", content: "skip me", recoverable: true }), // excluded (card)
+    ];
+    expect(conversationalCharCount(messages)).toBe(11);
+  });
+
+  it("returns 0 for only cards/empty", () => {
+    expect(conversationalCharCount([msg({ role: "assistant", content: "x", restartable: true })])).toBe(0);
   });
 });
 

@@ -287,6 +287,19 @@ export async function summarizeConversationForRecap(
   return invoke<string>("summarize_conversation_for_recap", { sessionId, transcript });
 }
 
+/**
+ * Mark a Codex session as having hit the compaction deadlock (upstream OpenAI
+ * bug). A later Resume reads this to route to a fresh thread + carried context.
+ */
+export async function markCodexCompactionFailed(sessionId: string): Promise<void> {
+  return invoke("mark_codex_compaction_failed", { sessionId });
+}
+
+/** Whether a session previously hit the Codex compaction deadlock. */
+export async function isCodexCompactionFailed(sessionId: string): Promise<boolean> {
+  return invoke<boolean>("is_codex_compaction_failed", { sessionId });
+}
+
 export async function resolveToolApproval(
   requestId: string,
   approved: boolean,

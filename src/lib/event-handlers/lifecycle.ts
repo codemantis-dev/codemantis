@@ -28,20 +28,33 @@ export function handleUsageUpdate(sessionId: string, event: UsageUpdateEvent, st
     event.usage.reasoning_output_tokens ?? 0,
   );
   // Real-time context update: each usage_update represents a single API
-  // call, so the total tokens IS the context window size at that point.
-  const callContext =
-    (event.usage.input_tokens ?? 0) +
-    (event.usage.cache_creation_input_tokens ?? 0) +
-    (event.usage.cache_read_input_tokens ?? 0) +
-    (event.usage.output_tokens ?? 0);
+  // call, so the current tokens ARE the context window fill at that point.
+  // Codex reports its REAL window (`model_context_window`) and its cached
+  // input is a SUBSET of input_tokens — so for Codex the fill is
+  // input+output (adding cache_read would double-count) and the max is the
+  // reported window (not a guess). This fixes the "ctx 47% while actually
+  // 93%" bug. Claude keeps the historical formula (cache_read is separate).
+  const realWindow = event.usage.model_context_window ?? null;
+  const callContext = realWindow
+    ? (event.usage.input_tokens ?? 0) + (event.usage.output_tokens ?? 0)
+    : (event.usage.input_tokens ?? 0) +
+      (event.usage.cache_creation_input_tokens ?? 0) +
+      (event.usage.cache_read_input_tokens ?? 0) +
+      (event.usage.output_tokens ?? 0);
   if (callContext > 0) {
-    // Use the largest known max — protects against CLI under-reporting for [1m] models
-    const settingsDefaultForUsage = useSettingsStore.getState().settings.defaultContextWindow;
-    const modelMaxForUsage = getContextWindowForModel(store.sessions.get(sessionId)?.model, settingsDefaultForUsage);
-    const currentMax = Math.max(
-      store.sessionContext.get(sessionId)?.max ?? 0,
-      modelMaxForUsage,
-    );
+    let currentMax: number;
+    if (realWindow) {
+      // Codex's authoritative window wins outright.
+      currentMax = realWindow;
+    } else {
+      // Use the largest known max — protects against CLI under-reporting for [1m] models
+      const settingsDefaultForUsage = useSettingsStore.getState().settings.defaultContextWindow;
+      const modelMaxForUsage = getContextWindowForModel(store.sessions.get(sessionId)?.model, settingsDefaultForUsage);
+      currentMax = Math.max(
+        store.sessionContext.get(sessionId)?.max ?? 0,
+        modelMaxForUsage,
+      );
+    }
     store.updateContext(sessionId, callContext, currentMax);
     checkContextThresholds(sessionId);
   }

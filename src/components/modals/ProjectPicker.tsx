@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { LayoutGrid, FolderOpen, Clock, GitBranch, History, Loader2, Play, X } from "lucide-react";
+import { LayoutGrid, FolderOpen, Clock, GitBranch, History, Loader2, Play, RotateCcw, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useUiStore, type ProjectPickerTab } from "../../stores/uiStore";
 import { showToast } from "../../stores/toastStore";
@@ -31,6 +31,7 @@ interface ProjectPickerProps {
     name: string,
     sessionId: string,
     agentId: AgentId,
+    forceFreshThread?: boolean,
   ) => Promise<void> | void;
 }
 
@@ -89,7 +90,7 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
     };
   }, [showProjectPicker, activeTab, recentSessions]);
 
-  const handleResume = async (entry: SessionHistoryEntry): Promise<void> => {
+  const handleResume = async (entry: SessionHistoryEntry, forceFreshThread = false): Promise<void> => {
     if (resumingSessionId) return;
     setResumingSessionId(entry.session_id);
     try {
@@ -99,6 +100,7 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
         entry.name,
         entry.session_id,
         entry.agent_id,
+        forceFreshThread,
       );
       setShowProjectPicker(false);
     } catch (e) {
@@ -401,19 +403,36 @@ export default function ProjectPicker({ onSelectProject, onResumeSession }: Proj
                                 </ul>
                               )}
                             </div>
-                            <button
-                              onClick={() => handleResume(entry)}
-                              disabled={isResuming || resumingSessionId !== null}
-                              data-testid={`resume-button-${entry.session_id}`}
-                              className="mt-0.5 flex items-center gap-1 px-2 py-1 rounded text-label font-medium bg-accent-dim text-accent hover:bg-accent hover:text-white transition-colors shrink-0 disabled:opacity-50"
-                            >
-                              {isResuming ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <Play size={12} />
+                            <div className="mt-0.5 flex flex-col items-end gap-1 shrink-0">
+                              <button
+                                onClick={() => handleResume(entry)}
+                                disabled={isResuming || resumingSessionId !== null}
+                                data-testid={`resume-button-${entry.session_id}`}
+                                className="flex items-center gap-1 px-2 py-1 rounded text-label font-medium bg-accent-dim text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50"
+                              >
+                                {isResuming ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <Play size={12} />
+                                )}
+                                <span>Resume</span>
+                              </button>
+                              {/* Codex large-thread escape: resume into a fresh thread
+                                  carrying the prior chat as context. Avoids the
+                                  upstream compaction deadlock on big sessions. */}
+                              {entry.agent_id === "codex" && (
+                                <button
+                                  onClick={() => handleResume(entry, true)}
+                                  disabled={isResuming || resumingSessionId !== null}
+                                  data-testid={`resume-fresh-button-${entry.session_id}`}
+                                  title="Start a fresh Codex thread carrying this chat as context — use if a normal Resume hangs on 'Compacting…'"
+                                  className="flex items-center gap-1 px-2 py-1 rounded text-label text-text-dim hover:text-accent hover:bg-accent-dim transition-colors disabled:opacity-50"
+                                >
+                                  <RotateCcw size={11} />
+                                  <span>Resume in fresh thread</span>
+                                </button>
                               )}
-                              <span>Resume</span>
-                            </button>
+                            </div>
                           </div>
                         </div>
                       );

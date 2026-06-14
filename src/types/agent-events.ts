@@ -171,6 +171,10 @@ export interface UsageInfo {
    * *that* reasoning happened even when the content is unavailable.
    * Claude leaves this undefined. */
   reasoning_output_tokens?: number | null;
+  /** Codex-only: the model's REAL context window (from `tokenUsage.modelContextWindow`).
+   * The context meter uses this as the authoritative max instead of a guessed
+   * value, so "ctx %" reflects the true fill. Claude leaves this undefined. */
+  model_context_window?: number | null;
 }
 
 export interface UsageIteration {

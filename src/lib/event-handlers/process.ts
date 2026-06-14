@@ -108,6 +108,13 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
     return;
   }
 
+  // Auto-retry exhausted (or nothing to retry) → this compaction is genuinely
+  // stuck. Persist the marker so a later Resume routes to a fresh thread + chat
+  // context instead of the doomed thread/resume (Codex upstream bug #17392).
+  if (isCompactionFailure) {
+    persistCompactionFailed(sessionId);
+  }
+
   const errorMsgId = nextMessageId();
   const alreadyRevived = store.codexRecoverAttempted.get(sessionId) ?? false;
   store.addMessage(sessionId, {
@@ -123,6 +130,15 @@ export function handleProcessError(sessionId: string, event: ProcessErrorEvent, 
     recoverable: isCompactionFailure && !alreadyRevived,
     freshThreadable: isCompactionFailure && alreadyRevived,
   });
+}
+
+/** Fire-and-forget: persist that this session hit the Codex compaction deadlock,
+ * so a future Resume goes fresh-thread-with-context. Dynamic import matches the
+ * retry path; failures are non-fatal. */
+function persistCompactionFailed(sessionId: string): void {
+  import("../tauri-commands")
+    .then(({ markCodexCompactionFailed }) => markCodexCompactionFailed(sessionId).catch(() => {}))
+    .catch(() => {});
 }
 
 export function handleProcessExited(sessionId: string, event: ProcessExitedEvent, store: SessionStoreState, now: string): void {
@@ -293,6 +309,9 @@ async function checkAllStaleSessions(): Promise<void> {
     const isCompacting = s.sessionCompacting.get(sessionId) ?? false;
     if (isCompacting && elapsed > COMPACTION_STALL_MS && !compactionStallNotified.has(sessionId)) {
       compactionStallNotified.add(sessionId);
+      // A stalled compaction = this thread is un-resumable; mark it so the next
+      // Resume goes fresh-thread-with-context instead of the doomed thread/resume.
+      persistCompactionFailed(sessionId);
       const now = new Date().toISOString();
       const elapsedMin = Math.round(elapsed / 60_000);
       s.setSessionBusy(sessionId, false);

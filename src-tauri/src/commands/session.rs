@@ -654,6 +654,32 @@ pub async fn reset_codex_thread(
     handle.reset_thread().await.map_err(|e| e.to_string())
 }
 
+/// Mark a Codex session as having hit the compaction deadlock so a later Resume
+/// routes to a fresh thread + carried chat context (see `is_codex_compaction_failed`).
+#[tauri::command]
+pub async fn mark_codex_compaction_failed(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .database
+        .mark_codex_compaction_failed(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Whether a session previously hit the Codex compaction deadlock. Read at
+/// resume time to decide fresh-thread-with-context vs normal `thread/resume`.
+#[tauri::command]
+pub async fn is_codex_compaction_failed(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    state
+        .database
+        .is_codex_compaction_failed(&session_id)
+        .map_err(|e| e.to_string())
+}
+
 /// Deliver an `AskUserQuestion` answer to Claude.
 ///
 /// CLI 2.1.126 always synthesises `tool_result(is_error=true,

@@ -280,6 +280,28 @@ describe("ProjectPicker", () => {
         "Old session",
         "sess-99",
         "codex",
+        false, // normal Resume → not forced fresh-thread
+      ),
+    );
+  });
+
+  it("Resume in fresh thread (Codex) forwards forceFreshThread=true", async () => {
+    const entry = makeEntry({
+      session_id: "sess-fresh",
+      name: "Big Codex session",
+      project_path: "/Users/me/big",
+      cli_session_id: "thr-big",
+      agent_id: "codex",
+    });
+    listRecentSessionsMock.mockResolvedValueOnce([entry]);
+    openPicker("resume");
+    renderPicker();
+    await waitFor(() => expect(screen.getByText("Big Codex session")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("resume-fresh-button-sess-fresh"));
+    await waitFor(() =>
+      expect(onResumeSession).toHaveBeenCalledWith(
+        "/Users/me/big", "thr-big", "Big Codex session", "sess-fresh", "codex", true,
       ),
     );
   });

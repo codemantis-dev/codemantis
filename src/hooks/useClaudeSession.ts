@@ -23,8 +23,15 @@ import {
   RESET_THREAD_NO_LIVE_PROCESS,
   pauseSessionProcess,
   resumeSessionProcess,
+  isCodexCompactionFailed,
 } from "../lib/tauri-commands";
-import { buildTranscriptText, buildLocalRecap } from "../lib/recap";
+import {
+  buildTranscriptText,
+  buildLocalRecap,
+  conversationalCharCount,
+  MAX_TRANSCRIPT_CHARS,
+  RESUME_CONTEXT_BUDGET_CHARS,
+} from "../lib/recap";
 import { useSettingsStore } from "../stores/settingsStore";
 import type { SessionMessagePayload, Message, Session, SessionHistoryEntry } from "../types/session";
 import type { AgentId } from "../types/agent-events";
@@ -76,6 +83,33 @@ function withRecoverableCompactionCard(messages: Message[]): Message[] {
   return messages;
 }
 
+/** Build the context to carry into a fresh resumed Codex thread. Prefer the FULL
+ * displayed chat when it fits the budget (verbatim continuity); else an LLM
+ * summary; else a local bounded recap. Stashed as the recap prefix, prepended
+ * once to the user's next message. */
+async function buildResumeContextCarry(sessionId: string, messages: Message[]): Promise<string> {
+  const chars = conversationalCharCount(messages);
+  if (chars > 0 && chars <= RESUME_CONTEXT_BUDGET_CHARS) {
+    return (
+      "You are resuming a previous Codex session in a fresh thread. Here is the full prior " +
+      "conversation for context — continue seamlessly from it:\n\n" +
+      buildTranscriptText(messages, RESUME_CONTEXT_BUDGET_CHARS)
+    );
+  }
+  // Too large to carry verbatim → summarize (LLM, with local fallback).
+  try {
+    const transcript = buildTranscriptText(messages, MAX_TRANSCRIPT_CHARS);
+    const summary = await summarizeConversationForRecap(sessionId, transcript);
+    return (
+      "You are resuming a previous Codex session in a fresh thread. The prior conversation " +
+      "was too large to include verbatim; here is a summary for context:\n\n" + summary
+    );
+  } catch (e) {
+    console.info("[resume] recap summary unavailable, using local fallback:", e);
+    return buildLocalRecap(messages);
+  }
+}
+
 /** Map persisted messages back to Message[] for a restored session, marking
  * them `isRestored` and re-deriving the Recover affordance. */
 function restoredMessagesFrom(stored: SessionMessagePayload[]): Message[] {
@@ -100,7 +134,7 @@ interface UseClaudeSessionReturn {
   closeAllSessionsInProject: (projectPath: string) => Promise<void>;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => Promise<void>;
-  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string, preloadedMessages?: Message[], agentId?: AgentId) => Promise<string>;
+  resumeFromHistory: (projectPath: string, cliSessionId: string, originalName: string, originalSessionId?: string, preloadedMessages?: Message[], agentId?: AgentId, forceFreshThread?: boolean) => Promise<string>;
   /**
    * Add a tab in 'paused-recovered' status from a crash-recovery entry.
    * Loads the stored transcript but does NOT spawn a CLI subprocess; the user
@@ -373,6 +407,7 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     originalSessionId?: string,
     preloadedMessages?: Message[],
     agentId?: AgentId,
+    forceFreshThread?: boolean,
   ): Promise<string> => {
     const state = sessionStore.getState();
     if (state.tabOrder.length >= MAX_SESSIONS) {
@@ -381,13 +416,29 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     }
 
     try {
+      // A large Codex thread CANNOT be resumed: `thread/resume` reloads the full
+      // context and instantly re-triggers Codex's broken upstream compaction
+      // (OpenAI bug #17392) → deadlock. So for Codex sessions flagged as
+      // compaction-failed (or when the caller forces it), resume into a FRESH
+      // thread and carry the prior chat as context instead of `thread/resume`.
+      let freshThread = forceFreshThread ?? false;
+      if (!freshThread && agentId === "codex" && originalSessionId) {
+        try {
+          freshThread = await isCodexCompactionFailed(originalSessionId);
+        } catch (e) {
+          console.warn("[resumeFromHistory] compaction-failed check failed:", e);
+        }
+      }
+
       // `agentId` MUST be threaded through: `cliSessionId` is an
       // agent-specific resume token (a Claude session id OR a Codex thread
       // id). Omitting it makes the Rust `create_session` default to
       // ClaudeCode, which then rejects a Codex thread-id with "No
       // conversation found with session ID". Resume must re-spawn the same
       // agent the session originally ran under.
-      const session = await createSession(projectPath, originalName, cliSessionId, agentId);
+      // `freshThread` → omit the resume token so a brand-new thread is started.
+      const resumeToken = freshThread ? undefined : cliSessionId;
+      const session = await createSession(projectPath, originalName, resumeToken, agentId);
       sessionStore.getState().addSession(session);
 
       const spawnEffort = useSettingsStore.getState().settings.defaultThinkingEffort;
@@ -422,6 +473,29 @@ export function useClaudeSession(): UseClaudeSessionReturn {
         } catch (e) {
           console.error("[resumeFromHistory] Failed to load stored messages:", e);
         }
+      }
+
+      // Fresh-thread resume: carry the prior chat into the new (empty) thread.
+      // Prefer the FULL displayed transcript when it fits the budget (it
+      // excludes tool outputs, so it's far smaller than Codex's internal
+      // context and usually fits verbatim); else an LLM summary; else a local
+      // recap. Stashed as the recap prefix, consumed once on the next send.
+      if (freshThread) {
+        const msgs = sessionStore.getState().sessionMessages.get(session.id) ?? [];
+        const carry = await buildResumeContextCarry(session.id, msgs);
+        sessionStore.getState().setRecapPrefix(session.id, carry);
+        sessionStore.getState().addMessage(session.id, {
+          id: `resumed-fresh-${Date.now()}`,
+          role: "assistant",
+          content:
+            "**Resumed in a fresh Codex thread.** The original thread was too large for " +
+            "Codex to compact (a known OpenAI bug), so it couldn't be resumed directly. " +
+            "Your prior chat above is carried as context — just continue.",
+          timestamp: new Date().toISOString(),
+          activityIds: [],
+          isStreaming: false,
+        });
+        showToast("Resumed in a fresh Codex thread — your chat is carried as context", "info", 7000);
       }
 
       const unlistenChat = await listenChatEvents(session.id, (event) =>

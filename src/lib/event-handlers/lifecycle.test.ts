@@ -107,6 +107,7 @@ function makeUsageEvent(overrides: Partial<UsageUpdateEvent["usage"]> = {}): Usa
       cache_creation_input_tokens: overrides.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: overrides.cache_read_input_tokens ?? 0,
       reasoning_output_tokens: overrides.reasoning_output_tokens,
+      model_context_window: overrides.model_context_window,
     },
   };
 }
@@ -217,6 +218,25 @@ describe("handleUsageUpdate", () => {
     // max should be at least 200_000 (from the mocked getContextWindowForModel)
     expect(updateContextSpy.mock.calls[0][2]).toBeGreaterThanOrEqual(200_000);
 
+    updateContextSpy.mockRestore();
+  });
+
+  it("uses Codex's real window as max and input+output as fill (no cache double-count)", () => {
+    // Regression for the "ctx 47% while actually 93%" bug: when Codex reports
+    // model_context_window, the meter must use it as max and NOT add cache_read
+    // (Codex cached ⊂ input).
+    const store = useSessionStore.getState();
+    const updateContextSpy = vi.spyOn(store, "updateContext");
+
+    handleUsageUpdate("s1", makeUsageEvent({
+      input_tokens: 240000,   // includes cached
+      output_tokens: 543,
+      cache_read_input_tokens: 150000, // subset of input — must NOT be added
+      model_context_window: 258400,
+    }), store);
+
+    // used = input + output = 240543 (cache_read NOT added); max = real window.
+    expect(updateContextSpy).toHaveBeenCalledWith("s1", 240543, 258400);
     updateContextSpy.mockRestore();
   });
 

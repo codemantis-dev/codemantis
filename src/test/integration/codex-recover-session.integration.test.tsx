@@ -45,6 +45,8 @@ vi.mock("../../lib/tauri-commands", () => ({
   RESET_THREAD_NO_LIVE_PROCESS: "NO_LIVE_PROCESS",
   pauseSessionProcess: vi.fn().mockResolvedValue(undefined),
   resumeSessionProcess: vi.fn().mockResolvedValue(undefined),
+  isCodexCompactionFailed: vi.fn().mockResolvedValue(false),
+  markCodexCompactionFailed: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../stores/toastStore", () => ({
@@ -75,6 +77,7 @@ import {
   loadSessionMessages,
   pauseSessionProcess,
   resumeSessionProcess,
+  isCodexCompactionFailed,
 } from "../../lib/tauri-commands";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 
@@ -121,6 +124,10 @@ describe("Codex recovery (Integration)", () => {
     sessionCounter = 0;
     vi.mocked(resetCodexThread).mockResolvedValue("thr_new");
     vi.mocked(summarizeConversationForRecap).mockResolvedValue("LLM RECAP");
+    // Reset clears any leaked `mockResolvedValueOnce` queue from a prior test,
+    // then default to "not failed" (normal resume).
+    vi.mocked(isCodexCompactionFailed).mockReset();
+    vi.mocked(isCodexCompactionFailed).mockResolvedValue(false);
   });
 
   // ─── reviveCodexSession (primary, non-destructive) ────────────────────────
@@ -256,5 +263,64 @@ describe("Codex recovery (Integration)", () => {
     expect(createSession).toHaveBeenCalled();
     // …and no recap prefix was stored (the in-process recap can't carry over).
     expect(useSessionStore.getState().pendingRecapPrefix.has(SESSION_ID)).toBe(false);
+  });
+
+  // ─── resumeFromHistory: fresh-thread routing for doomed Codex sessions ─────
+
+  it("resume of a MARKED Codex session starts a fresh thread + carries chat as context", async () => {
+    vi.mocked(isCodexCompactionFailed).mockResolvedValueOnce(true);
+    vi.mocked(loadSessionMessages).mockResolvedValueOnce([
+      { id: "u1", role: "user", content: "refactor the parser", timestamp: "" },
+      { id: "a1", role: "assistant", content: "done — split into tokens", timestamp: "" },
+    ] as Awaited<ReturnType<typeof loadSessionMessages>>);
+
+    const { result } = renderHook(() => useClaudeSession());
+    let newId = "";
+    await act(async () => {
+      newId = await result.current.resumeFromHistory(
+        PROJECT_PATH, "thr_old", "Codex", "orig-session", undefined, "codex",
+      );
+    });
+
+    // FRESH thread: createSession called with NO resume token (3rd arg undefined).
+    const calls = vi.mocked(createSession).mock.calls;
+    const call = calls[calls.length - 1];
+    expect(call[2]).toBeUndefined();
+    // Chat carried as context (small transcript → full verbatim).
+    const prefix = useSessionStore.getState().pendingRecapPrefix.get(newId);
+    expect(prefix).toContain("full prior conversation");
+    expect(prefix).toContain("refactor the parser");
+    // User is told what happened.
+    const msgs = useSessionStore.getState().sessionMessages.get(newId) ?? [];
+    expect(msgs.some((m) => m.content.includes("Resumed in a fresh Codex thread"))).toBe(true);
+  });
+
+  it("resume of an UNMARKED Codex session uses normal thread/resume (full context)", async () => {
+    vi.mocked(isCodexCompactionFailed).mockResolvedValueOnce(false);
+    const { result } = renderHook(() => useClaudeSession());
+    let newId = "";
+    await act(async () => {
+      newId = await result.current.resumeFromHistory(
+        PROJECT_PATH, "thr_old", "Codex", "orig-session", undefined, "codex",
+      );
+    });
+    // Normal resume: the thread-id resume token IS passed.
+    const calls = vi.mocked(createSession).mock.calls;
+    const call = calls[calls.length - 1];
+    expect(call[2]).toBe("thr_old");
+    expect(useSessionStore.getState().pendingRecapPrefix.has(newId)).toBe(false);
+  });
+
+  it("forceFreshThread=true resumes fresh even when unmarked", async () => {
+    vi.mocked(isCodexCompactionFailed).mockResolvedValue(false);
+    const { result } = renderHook(() => useClaudeSession());
+    await act(async () => {
+      await result.current.resumeFromHistory(
+        PROJECT_PATH, "thr_old", "Codex", "orig-session", undefined, "codex", true,
+      );
+    });
+    const calls = vi.mocked(createSession).mock.calls;
+    const call = calls[calls.length - 1];
+    expect(call[2]).toBeUndefined();
   });
 });

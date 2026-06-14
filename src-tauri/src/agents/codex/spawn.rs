@@ -508,14 +508,25 @@ fn emit_failure_chat_event(session_id: &str, method: &str) -> NormalizedEvent {
 /// `extra_dir`, if `Some`, is appended as `--add-dir <path>` (SpecWriter
 /// mode: the project path is exposed to Codex even though cwd is the
 /// ephemeral AGENTS.override.md tree).
-fn build_app_server_args(extra_dir: Option<&str>) -> Vec<String> {
+fn build_app_server_args(extra_dir: Option<&str>, auto_compact_limit: Option<u64>) -> Vec<String> {
     let mut argv = vec![
         "-c".to_string(),
         "shell_environment_policy.inherit=all".to_string(),
+    ];
+    // Compact EARLIER than Codex's near-full default. Codex's upstream compact
+    // request (chatgpt.com/.../compact) times out and drops the stream when
+    // compacting a ~240K context (verified from a real session log: 5 min then
+    // "stream disconnected before completion"). A smaller context compacts
+    // faster and beats the timeout. Only set when >0 (0 = leave Codex default).
+    if let Some(limit) = auto_compact_limit.filter(|n| *n > 0) {
+        argv.push("-c".to_string());
+        argv.push(format!("model_auto_compact_token_limit={limit}"));
+    }
+    argv.extend([
         "app-server".to_string(),
         "--listen".to_string(),
         "stdio://".to_string(),
-    ];
+    ]);
     if let Some(p) = extra_dir {
         argv.push("--add-dir".to_string());
         argv.push(p.to_string());
@@ -561,7 +572,12 @@ pub async fn spawn_codex_session(
     // Codex sessions; without it Codex strips HOME/DOCKER_HOST/etc. from
     // sub-shells and tools silently fail with EACCES.
     let extra_dir = agents_md_dir.as_ref().map(|_| config.project_path.as_str());
-    cmd.args(build_app_server_args(extra_dir));
+    // Earlier-compaction mitigation (see build_app_server_args): read the
+    // configurable limit; 0/absent leaves Codex's default.
+    let auto_compact_limit = crate::commands::settings::get_settings()
+        .ok()
+        .map(|s| s.codex_auto_compact_token_limit);
+    cmd.args(build_app_server_args(extra_dir, auto_compact_limit));
     cmd.current_dir(&cwd)
         .env("PATH", login_shell_path())
         .stdin(std::process::Stdio::piped())
@@ -1588,7 +1604,7 @@ mod tests {
         // Asserting exact shape so a refactor that drops the override fails
         // loudly here instead of silently breaking docker/gh/aws inside
         // Codex sessions.
-        let argv = build_app_server_args(None);
+        let argv = build_app_server_args(None, None);
         assert_eq!(
             argv,
             vec![
@@ -1605,8 +1621,27 @@ mod tests {
         let env_idx = argv.iter().position(|a| a == "-c").unwrap();
         let sub_idx = argv.iter().position(|a| a == "app-server").unwrap();
         assert!(env_idx < sub_idx);
-        // Override appears exactly once.
+        // Override appears exactly once (no auto-compact limit given).
         assert_eq!(argv.iter().filter(|a| a.as_str() == "-c").count(), 1);
+    }
+
+    #[test]
+    fn build_app_server_args_sets_auto_compact_limit_when_given() {
+        let argv = build_app_server_args(None, Some(180_000));
+        // The earlier-compaction override is present, before the subcommand.
+        let pos = argv
+            .iter()
+            .position(|a| a == "model_auto_compact_token_limit=180000")
+            .expect("auto-compact limit must be passed as a -c override");
+        let sub_idx = argv.iter().position(|a| a == "app-server").unwrap();
+        assert!(pos < sub_idx);
+        assert_eq!(argv[pos - 1], "-c");
+    }
+
+    #[test]
+    fn build_app_server_args_omits_auto_compact_limit_when_zero() {
+        let argv = build_app_server_args(None, Some(0));
+        assert!(!argv.iter().any(|a| a.contains("model_auto_compact_token_limit")));
     }
 
     #[test]
@@ -1853,7 +1888,7 @@ mod tests {
 
     #[test]
     fn build_app_server_args_appends_add_dir_when_specwriter_mode() {
-        let argv = build_app_server_args(Some("/Users/hr/project"));
+        let argv = build_app_server_args(Some("/Users/hr/project"), None);
         assert_eq!(
             argv,
             vec![

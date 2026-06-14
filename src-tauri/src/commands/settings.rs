@@ -113,6 +113,15 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub codex_debug_logging_enabled: bool,
 
+    // --- Codex auto-compaction threshold ---
+    // Passed to `codex app-server` as `-c model_auto_compact_token_limit=N` so
+    // Codex compacts EARLIER (smaller, faster context) than its near-full
+    // default — its upstream compact request times out/drops on a ~240K
+    // context. 0 = leave Codex's default. Default 180000 (~70% of the 258400
+    // window) beats the ~5-min timeout while keeping most context per cycle.
+    #[serde(default = "default_codex_auto_compact_token_limit")]
+    pub codex_auto_compact_token_limit: u64,
+
     // --- Super-Bro ---
     #[serde(default = "default_true")]
     pub super_bro_enabled: bool,
@@ -177,6 +186,9 @@ pub struct AssistantShortcut {
     pub prompt: String,
 }
 
+fn default_codex_auto_compact_token_limit() -> u64 {
+    180_000
+}
 fn default_theme() -> String {
     "sand".to_string()
 }
@@ -299,6 +311,7 @@ impl Default for AppSettings {
             session_logs_enabled: true,
             session_logs_retention_days: default_session_logs_retention_days(),
             codex_debug_logging_enabled: true,
+            codex_auto_compact_token_limit: default_codex_auto_compact_token_limit(),
             super_bro_enabled: true,
             super_bro_provider: default_super_bro_provider(),
             super_bro_model: default_super_bro_model(),

@@ -173,6 +173,11 @@ impl Translator {
             reasoning_output_tokens: breakdown
                 .get("reasoningOutputTokens")
                 .and_then(|v| v.as_u64()),
+            // Codex's authoritative window → the meter shows the real ctx %
+            // instead of a guessed window (the "47% while actually 93%" bug).
+            model_context_window: tu
+                .and_then(|t| t.get("modelContextWindow"))
+                .and_then(|v| v.as_u64()),
         };
         vec![NormalizedEvent::UsageUpdate {
             agent_id: AgentId::Codex,

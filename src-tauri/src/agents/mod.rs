@@ -159,6 +159,10 @@ pub struct UsageInfo {
         alias = "reasoningOutputTokens"
     )]
     pub reasoning_output_tokens: Option<u64>,
+    /// Codex-only: the model's real context window (`modelContextWindow`). Lets
+    /// the frontend context meter use the authoritative max instead of a guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_context_window: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1358,6 +1362,7 @@ mod tests {
                 server_tool_use: None,
                 iterations: None,
                 reasoning_output_tokens: None,
+                model_context_window: None,
             }),
             cost_usd: Some(0.01),
             duration_api_ms: Some(900),

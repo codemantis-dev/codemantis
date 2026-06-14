@@ -40,6 +40,8 @@ export function resetAllStores(): void {
     sessionActivity: new Map(),
     sessionStuck: new Map(),
     sessionCompacting: new Map(),
+    pendingRecapPrefix: new Map(),
+    codexRecoverAttempted: new Map(),
     busySince: new Map(),
     rateLimitUtilization: new Map(),
     sessionCapabilities: new Map(),
