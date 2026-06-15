@@ -192,4 +192,38 @@ describe("StuckActivityBanner", () => {
     expect(useSessionStore.getState().sessionBusy.get(SID)).toBe(false);
     expect(useSessionStore.getState().sessionStuck.get(SID)).toBeUndefined();
   });
+
+  // A Codex session stuck WHILE COMPACTING is the upstream-compaction hang.
+  // "Stop session" (revive) would re-load the doomed context and re-hang, so
+  // the banner must offer "Start fresh thread" as the way out, with copy that
+  // names the known OpenAI bug.
+  it("offers 'Start fresh thread' (not just Stop) for a Codex session stuck while compacting", async () => {
+    seedSession("codex");
+    let resetCalled = false;
+    mockInvoke({
+      summarize_conversation_for_recap: () => "RECAP",
+      reset_codex_thread: (args: unknown) => {
+        if ((args as { sessionId: string }).sessionId === SID) resetCalled = true;
+        return "thr_new";
+      },
+    });
+    useSessionStore.getState().setSessionBusy(SID, true);
+    useSessionStore.getState().setSessionCompacting(SID, true);
+    useSessionStore.getState().setSessionStuck(SID, {
+      since: Date.now() - 35_000,
+      reason: "no-progress",
+    });
+    render(<StuckActivityBanner sessionId={SID} />);
+
+    // Compaction-aware copy + the fresh-thread escape.
+    expect(screen.getByText(/Codex has been compacting/i)).toBeInTheDocument();
+    expect(screen.getByText(/known OpenAI bug/i)).toBeInTheDocument();
+    const freshBtn = screen.getByRole("button", { name: /Start fresh thread/i });
+
+    await act(async () => {
+      fireEvent.click(freshBtn);
+    });
+
+    expect(resetCalled).toBe(true);
+  });
 });
