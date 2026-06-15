@@ -28,6 +28,43 @@ pub mod claude_code;
 pub mod codex;
 pub mod registry;
 
+/// Kill and **reap** a child process held in a shared `Arc<Mutex<Option<Child>>>`,
+/// then unregister its PID. Shared by every agent's `shutdown()`.
+///
+/// Why reaping matters: a `tokio::process::Child` dropped while still unreaped
+/// runs orphan-queue/reaper registration in its `Drop`. If that drop happens
+/// while the stack is already unwinding from another panic, the second panic
+/// escalates to `core::panicking::panic_in_cleanup` → `abort()` — a whole-app
+/// SIGABRT (observed in both the Claude and Codex teardown paths). By taking
+/// the child out (releasing the lock before any `.await`), `start_kill()`-ing
+/// it (synchronous, idempotent — `Err`, never panic, if already gone) and
+/// `wait()`-ing to reap it, the subsequent drop is a no-op and cannot panic.
+///
+/// `label` is only used for log lines (`"process"` for Claude, `"codex"` for
+/// Codex). Calling this twice is safe: the second call finds `None` and is a
+/// no-op.
+pub(crate) async fn reap_child(
+    child: &tokio::sync::Mutex<Option<tokio::process::Child>>,
+    pid: Option<u32>,
+    label: &str,
+) {
+    let taken = {
+        let mut guard = child.lock().await;
+        guard.take()
+    };
+    if let Some(mut child) = taken {
+        if let Err(e) = child.start_kill() {
+            log::warn!("[{label}] failed to signal child for reaping: {e}");
+        }
+        if let Err(e) = child.wait().await {
+            log::warn!("[{label}] failed to reap child: {e}");
+        }
+        if let Some(pid) = pid {
+            crate::utils::pid_tracker::unregister_pid(pid);
+        }
+    }
+}
+
 // CODEMANTIS_FORCE_LEGACY_CLAUDE removed in v1.3.0 / Phase 2 S8 per
 // spec §12. The v1.2.0 soak surfaced no adapter-related regressions, so
 // the diagnostic indicator and its IPC wrapper are gone. Rollback for
@@ -1022,6 +1059,79 @@ pub fn activity_channel(agent_id: AgentId, session_id: &str) -> String {
 // ─────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod reap_child_tests {
+    //! Regression tests for the shared agent teardown helper. The bug this
+    //! guards against is a whole-app `SIGABRT` (`panic_in_cleanup`) caused by
+    //! a `tokio::process::Child` being dropped unreaped during an unwind. These
+    //! exercise the real reap path used by both Claude and Codex `shutdown()`.
+    use super::reap_child;
+    use std::sync::Arc;
+    use tokio::process::Command;
+    use tokio::sync::Mutex;
+
+    fn pid_is_alive(pid: u32) -> bool {
+        // kill(pid, 0) probes existence without sending a signal.
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    }
+
+    #[tokio::test]
+    async fn reaps_a_running_child_and_empties_the_slot() {
+        let child = Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id().expect("child pid");
+        let slot = Arc::new(Mutex::new(Some(child)));
+
+        // pid=None so the test never touches the real on-disk PID file.
+        reap_child(&slot, None, "test").await;
+
+        // The child must have been taken out of the slot (reaped, not leaked)…
+        assert!(slot.lock().await.is_none());
+        // …and the OS process must be gone.
+        assert!(!pid_is_alive(pid), "child should have been killed and reaped");
+    }
+
+    #[tokio::test]
+    async fn is_idempotent_when_called_twice() {
+        let child = Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("spawn sleep");
+        let slot = Arc::new(Mutex::new(Some(child)));
+
+        reap_child(&slot, None, "test").await;
+        // Second call finds None — must be a clean no-op, never a panic.
+        reap_child(&slot, None, "test").await;
+        assert!(slot.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn handles_an_already_exited_child_without_panicking() {
+        // Process exits on its own before we reap it — `start_kill()` on a dead
+        // process returns Err (handled), and `wait()` reaps the zombie. This is
+        // the exact race that produced the crash.
+        let child = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn exit");
+        let slot = Arc::new(Mutex::new(Some(child)));
+        // Give it a moment to exit.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        reap_child(&slot, None, "test").await; // must not panic
+        assert!(slot.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn empty_slot_is_a_noop() {
+        let slot: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(None));
+        reap_child(&slot, None, "test").await; // must not panic
+        assert!(slot.lock().await.is_none());
+    }
+}
 
 #[cfg(test)]
 mod tests {

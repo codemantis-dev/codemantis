@@ -672,15 +672,10 @@ impl ClaudeProcess {
 
     pub async fn shutdown(&mut self) {
         info!("Shutting down Claude process for session {}", self.session_id);
-        let mut guard = self.child.lock().await;
-        if let Some(mut child) = guard.take() {
-            if let Err(e) = child.kill().await {
-                warn!("[process] Failed to kill child process for session {}: {}", self.session_id, e);
-            }
-            if let Some(pid) = self.pid {
-                crate::utils::pid_tracker::unregister_pid(pid);
-            }
-        }
+        // Reap (not just kill) the child so its `Drop` can't run orphan-queue
+        // work during an unwind and turn a teardown failure into a whole-app
+        // `abort()`. See `crate::agents::reap_child`.
+        crate::agents::reap_child(&self.child, self.pid, "process").await;
     }
 
     pub fn is_running(&self) -> bool {
@@ -695,6 +690,14 @@ impl ClaudeProcess {
 
 impl Drop for ClaudeProcess {
     fn drop(&mut self) {
+        // Never do work while the stack is already unwinding from a panic: a
+        // second panic here would escalate to `panic_in_cleanup` → `abort()`.
+        // `shutdown()` is the normal teardown path; this net only matters when
+        // the handle is dropped without it, which never coincides with an
+        // in-flight unwind we need to service.
+        if std::thread::panicking() {
+            return;
+        }
         // Last-resort safety net: if the child is still alive when we're dropped,
         // send SIGKILL synchronously. Uses try_lock to avoid deadlocking.
         if let Some(pid) = self.pid {
@@ -717,6 +720,68 @@ impl Drop for ClaudeProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── teardown panic-safety (regression: whole-app SIGABRT) ──
+
+    /// `ClaudeProcess::Drop` must do NOTHING while the stack is already
+    /// unwinding from a panic — any work there risks a second panic, which
+    /// Rust escalates to `panic_in_cleanup` → `abort()` (the observed crash).
+    /// Here we drop a live handle mid-panic and assert the child was NOT killed
+    /// by Drop (proving the guard early-returned).
+    #[tokio::test]
+    async fn drop_is_a_noop_while_panicking() {
+        let child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id().expect("child pid");
+        let proc = ClaudeProcess {
+            child: Arc::new(tokio::sync::Mutex::new(Some(child))),
+            stdin_tx: mpsc::unbounded_channel().0,
+            session_id: "test-drop".to_string(),
+            pid: Some(pid),
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _moved = proc; // dropped here, during the unwind below
+            panic!("simulated unwind");
+        }));
+        assert!(result.is_err(), "the closure must have panicked");
+
+        // Drop ran while panicking → it must have skipped its SIGKILL, so the
+        // process is still alive. (tokio's Child::drop does not kill by default.)
+        let alive = unsafe { libc::kill(pid as libc::pid_t, 0) == 0 };
+        assert!(alive, "Drop must not kill the child while the thread is panicking");
+
+        // Cleanup so the test never leaks the sleeper.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+    }
+
+    /// `shutdown()` reaps the child (kills it AND clears the slot), and is safe
+    /// to call twice.
+    #[tokio::test]
+    async fn shutdown_reaps_child_and_is_idempotent() {
+        let child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id().expect("child pid");
+        let mut proc = ClaudeProcess {
+            child: Arc::new(tokio::sync::Mutex::new(Some(child))),
+            stdin_tx: mpsc::unbounded_channel().0,
+            session_id: "test-shutdown".to_string(),
+            pid: None, // avoid touching the on-disk PID file
+        };
+
+        proc.shutdown().await;
+        assert!(proc.child.lock().await.is_none(), "child slot should be empty after shutdown");
+        assert!(
+            unsafe { libc::kill(pid as libc::pid_t, 0) != 0 },
+            "process should be dead after shutdown"
+        );
+        // Second shutdown is a clean no-op.
+        proc.shutdown().await;
+    }
 
     // ── argv invariant (spec §5.3) ──
 

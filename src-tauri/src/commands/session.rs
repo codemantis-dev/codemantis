@@ -11,6 +11,30 @@ use std::path::Path;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
+/// Tear down an agent process handle on an isolated task and await it.
+///
+/// The handle's own `shutdown()` is already panic-safe (it reaps the child so
+/// no destructor runs orphan-queue work during an unwind), but running it on a
+/// dedicated task and awaiting the `JoinHandle` adds defence in depth: any
+/// panic in teardown surfaces as a logged `JoinError` here instead of
+/// unwinding the IPC command, and the owned process resources are dropped in
+/// the child task's frame. Awaiting (rather than detaching) preserves the
+/// guarantee that the OS process is dead before the calling command returns.
+async fn shutdown_handle_isolated(
+    session_id: &str,
+    process: Box<dyn crate::agents::AgentProcessHandle>,
+) {
+    let join = tokio::spawn(async move {
+        process.shutdown().await;
+    });
+    if let Err(e) = join.await {
+        error!(
+            "[shutdown] teardown task for session {} did not complete cleanly: {}",
+            session_id, e
+        );
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionHistoryEntry {
     pub session_id: String,
@@ -260,7 +284,7 @@ pub async fn pause_session_process(
         processes.remove(&session_id)
     };
     if let Some(process) = removed {
-        process.shutdown().await;
+        shutdown_handle_isolated(&session_id, process).await;
     }
     let mut sessions = state.sessions.lock().await;
     if let Some(session) = sessions.get_mut(&session_id) {
@@ -809,7 +833,7 @@ pub async fn close_session(
         processes.remove(&session_id)
     };
     if let Some(process) = removed {
-        process.shutdown().await;
+        shutdown_handle_isolated(&session_id, process).await;
     }
 
     // Close all terminals for this session
@@ -1504,7 +1528,7 @@ pub async fn close_specwriter_session(
         processes.remove(&session_id)
     };
     if let Some(process) = removed {
-        process.shutdown().await;
+        shutdown_handle_isolated(&session_id, process).await;
     }
     {
         let mut modes = state.session_modes.lock().await;

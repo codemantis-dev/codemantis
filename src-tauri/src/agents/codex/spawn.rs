@@ -431,18 +431,10 @@ impl AgentProcessHandle for CodexProcessHandle {
             "[codex] Shutting down session {} (pid {:?})",
             self.session_id, self.pid
         );
-        let mut guard = self.child.lock().await;
-        if let Some(mut child) = guard.take() {
-            if let Err(e) = child.kill().await {
-                warn!(
-                    "[codex] Failed to kill child for session {}: {}",
-                    self.session_id, e
-                );
-            }
-            if let Some(pid) = self.pid {
-                crate::utils::pid_tracker::unregister_pid(pid);
-            }
-        }
+        // Reap (not just kill) the child so its `Drop` can't run orphan-queue
+        // work during an unwind and turn a teardown failure into a whole-app
+        // `abort()`. See `crate::agents::reap_child`.
+        crate::agents::reap_child(&self.child, self.pid, "codex").await;
         // Drop the ephemeral AGENTS.md dir (if any) for cleanup.
         let _ = self.agents_md_dir.lock().await.take();
     }
@@ -450,6 +442,11 @@ impl AgentProcessHandle for CodexProcessHandle {
 
 impl Drop for CodexProcessHandle {
     fn drop(&mut self) {
+        // Never do work while the stack is already unwinding from a panic: a
+        // second panic here would escalate to `panic_in_cleanup` → `abort()`.
+        if std::thread::panicking() {
+            return;
+        }
         // Last-resort kill if shutdown() was never called (e.g. panic mid-
         // session). Parallels ClaudeProcess's Drop guard.
         if let Some(pid) = self.pid {

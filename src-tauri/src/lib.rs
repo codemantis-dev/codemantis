@@ -48,6 +48,37 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── Panic visibility ──
+    // Route every panic through the app log before the default hook runs.
+    // Without this, a panic (and especially a double-panic `abort()` during
+    // unwind) leaves NO trace in codemantis.log — the first panic's message is
+    // lost, making SIGABRT crashes undiagnosable. The closure runs at panic
+    // time, by which point tauri_plugin_log is initialised.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".to_string());
+        // Capture a backtrace only when the user opted in, to avoid the cost
+        // on every panic.
+        let backtrace = std::backtrace::Backtrace::capture();
+        log::error!(
+            "[panic] thread '{}' panicked at {}: {}\n{}",
+            std::thread::current().name().unwrap_or("<unnamed>"),
+            location,
+            payload,
+            backtrace
+        );
+        prev_hook(info);
+    }));
+
     // ── Migrate data from old app identifier (dev.codemantis.app → dev.codemantis.myapp) ──
     // The APP_ID was updated to match tauri.conf.json's bundle identifier.
     // Move all files from the old data directory so existing users keep their
