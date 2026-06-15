@@ -239,24 +239,30 @@ describe("useAssistantSession (Integration)", () => {
 
   // ─── MAX_ASSISTANTS limit ────────────────────────────────────────────
 
-  it("MAX_ASSISTANTS limit prevents creating more than 6", async () => {
+  it("MAX_ASSISTANTS limit prevents creating more than 6 per session", async () => {
     const { result } = renderHook(() => useAssistantSession());
 
-    // Create 6 assistants (the maximum)
+    // Create 6 assistants under one tab (the maximum)
     await act(async () => {
       for (let i = 0; i < 6; i++) {
         await result.current.createAssistant(PROJECT_PATH, PARENT_SESSION_ID, "gemini");
       }
     });
 
-    expect(useAssistantStore.getState().getAssistants(PROJECT_PATH)).toHaveLength(6);
+    expect(useAssistantStore.getState().findAssistantsForParent(PARENT_SESSION_ID)).toHaveLength(6);
 
-    // The 7th assistant should throw
+    // The 7th assistant under the same tab should throw
     await expect(
       act(async () => {
         await result.current.createAssistant(PROJECT_PATH, PARENT_SESSION_ID, "gemini");
       })
-    ).rejects.toThrow("Maximum 6 assistants allowed");
+    ).rejects.toThrow("Maximum 6 assistants per session");
+
+    // But a different tab in the same project is unaffected by that tab's cap.
+    await act(async () => {
+      await result.current.createAssistant(PROJECT_PATH, "other-parent", "gemini");
+    });
+    expect(useAssistantStore.getState().findAssistantsForParent("other-parent")).toHaveLength(1);
   });
 
   // ─── sendMessage ──────────────────────────────────────────────────────

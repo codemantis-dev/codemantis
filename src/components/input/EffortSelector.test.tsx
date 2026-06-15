@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import EffortSelector from "./EffortSelector";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { resetAllStores } from "../../test/helpers/store-reset";
 import type { Session } from "../../types/session";
@@ -106,6 +107,42 @@ describe("EffortSelector", () => {
   });
 
   it("renders nothing when capabilities are not yet known", () => {
+    useSessionStore.setState({
+      sessions: new Map([[SESSION.id, SESSION]]),
+      activeSessionId: SESSION.id,
+      sessionEffort: new Map(),
+      sessionCapabilities: new Map(),
+      tabOrder: [SESSION.id],
+    });
+    const { container } = render(<EffortSelector />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders from the per-agent cache when the session lost its caps (e.g. after /clear or a resume)", () => {
+    // Regression: a respawn/`/clear` drops the session's live capabilities and
+    // the resume path never re-runs the initialize handshake. Instead of the
+    // effort selector vanishing, it must fall back to the per-agent
+    // last-known-good cache — which carries supportsEffort/supportedEffortLevels.
+    useSessionStore.setState({
+      sessions: new Map([[SESSION.id, { ...SESSION, model: "default" }]]),
+      activeSessionId: SESSION.id,
+      sessionEffort: new Map(),
+      sessionBusy: new Map([[SESSION.id, false]]),
+      sessionStreaming: new Map(),
+      sessionCapabilities: new Map(), // caps absent for this session
+      tabOrder: [SESSION.id],
+    });
+    useCliModelCacheStore.getState().setModels("claude_code", DEFAULT_CAPS.models);
+
+    render(<EffortSelector />);
+    fireEvent.click(screen.getByText("Low"));
+    expect(screen.getByText("XHigh")).toBeInTheDocument();
+    expect(screen.getByText("Max")).toBeInTheDocument();
+  });
+
+  it("still renders nothing when both session caps and the per-agent cache are empty", () => {
+    // The cache is empty by default (resetAllStores clears it), so this is the
+    // genuine cold-start case that must keep returning null.
     useSessionStore.setState({
       sessions: new Map([[SESSION.id, SESSION]]),
       activeSessionId: SESSION.id,

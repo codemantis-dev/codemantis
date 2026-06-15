@@ -6,7 +6,7 @@ import { useAttachmentStore } from "../stores/attachmentStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useChangelogStore } from "../stores/changelogStore";
 import { useAssistantStore } from "../stores/assistantStore";
-import { getAssistantListeners } from "./useAssistantSession";
+import { getAssistantListeners, closeAssistantsForParentSession } from "./useAssistantSession";
 import {
   createSession,
   sendMessage as sendMessageCmd,
@@ -325,6 +325,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
       }
       sessionListeners.delete(sessionId);
     }
+
+    // Tear down assistants spawned under this tab so they don't orphan in the
+    // store (keeping backend subprocesses alive and counting toward the cap).
+    await closeAssistantsForParentSession(sessionId);
 
     cleanupSession(sessionId);
 

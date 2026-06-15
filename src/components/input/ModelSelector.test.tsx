@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import ModelSelector from "./ModelSelector";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import type { Session } from "../../types/session";
-import type { CapabilitiesDiscoveredEvent } from "../../types/agent-events";
+import type { CapabilitiesDiscoveredEvent, CliModelInfo } from "../../types/agent-events";
 
 const SESSION: Session = {
   id: "s1",
@@ -33,8 +34,19 @@ function resetStore(session: Session | null = SESSION): void {
   }
 }
 
+const DETAILED_CLAUDE_MODELS: CliModelInfo[] = [
+  { value: "default", displayName: "Default", description: "Opus 4.8 with 1M context · Best for everyday, complex tasks", isDefault: true },
+  { value: "opus[1m]", displayName: "Opus", description: "Opus 4.8 with 1M context" },
+  { value: "sonnet", displayName: "Sonnet", description: "Sonnet 4.6 · Efficient for routine tasks" },
+  { value: "sonnet[1m]", displayName: "Sonnet (1M context)", description: "Sonnet 4.6 with 1M context · Draws from usage credits · $3/$15 per Mtok" },
+  { value: "haiku", displayName: "Haiku", description: "Haiku 4.5 · Fastest for quick answers" },
+];
+
 describe("ModelSelector", () => {
-  beforeEach(() => resetStore());
+  beforeEach(() => {
+    useCliModelCacheStore.getState().clear();
+    resetStore();
+  });
 
   it("renders nothing when no session", () => {
     resetStore(null);
@@ -148,5 +160,64 @@ describe("ModelSelector", () => {
     resetStore(codexSession);
     render(<ModelSelector />);
     expect(screen.getByText("GPT-5.5")).toBeInTheDocument();
+  });
+
+  it("falls back to the per-agent cached detailed list when session caps are absent", () => {
+    // Regression: after `/clear` or a resume/respawn the session loses its
+    // live capabilities. Instead of reverting to the reduced hardcoded list,
+    // the picker must use the per-agent last-known-good cache (the detailed
+    // list any prior session already produced).
+    useCliModelCacheStore.getState().setModels("claude_code", DETAILED_CLAUDE_MODELS);
+    render(<ModelSelector />);
+    fireEvent.click(screen.getByText("Sonnet 4.6"));
+
+    expect(screen.getByText("Sonnet 4.6 · Efficient for routine tasks")).toBeInTheDocument();
+    expect(
+      screen.getByText("Sonnet 4.6 with 1M context · Draws from usage credits · $3/$15 per Mtok"),
+    ).toBeInTheDocument();
+    // The reduced hardcoded descriptions must NOT appear.
+    expect(screen.queryByText("Account default")).not.toBeInTheDocument();
+    expect(screen.queryByText("Extended context")).not.toBeInTheDocument();
+  });
+
+  it("prefers live session caps over the per-agent cache", () => {
+    useCliModelCacheStore.getState().setModels("claude_code", DETAILED_CLAUDE_MODELS);
+    const caps: CapabilitiesDiscoveredEvent = {
+      type: "capabilities_discovered",
+      session_id: "s1",
+      models: [
+        { value: "sonnet", displayName: "Sonnet 4.6", description: "Live caps win" },
+      ],
+      commands: [],
+      agents: [],
+      account: null,
+      output_styles: [],
+    };
+    useSessionStore.getState().setSessionCapabilities("s1", caps);
+    render(<ModelSelector />);
+    fireEvent.click(screen.getByText("Sonnet 4.6"));
+    expect(screen.getByText("Live caps win")).toBeInTheDocument();
+    // Cached detailed description must not leak through when live caps exist.
+    expect(screen.queryByText("Sonnet 4.6 · Efficient for routine tasks")).not.toBeInTheDocument();
+  });
+
+  it("Codex sessions never show the Claude cache (agent-scoped lookup)", () => {
+    // The cache is keyed by agent; a Claude-populated cache must never bleed
+    // into a Codex session's picker.
+    useCliModelCacheStore.getState().setModels("claude_code", DETAILED_CLAUDE_MODELS);
+    const codexSession: Session = { ...SESSION, model: null, agent_id: "codex" };
+    resetStore(codexSession);
+    render(<ModelSelector />);
+    fireEvent.click(screen.getByText("GPT-5.5"));
+    // Claude-only detailed entry must not appear in a Codex picker.
+    expect(screen.queryByText("Sonnet 4.6 · Efficient for routine tasks")).not.toBeInTheDocument();
+  });
+
+  it("still uses the hardcoded fallback when both caps and cache are empty", () => {
+    // Cold-start safety net: nothing cached, no live caps.
+    render(<ModelSelector />);
+    fireEvent.click(screen.getByText("Sonnet 4.6"));
+    expect(screen.getByText("Account default")).toBeInTheDocument();
+    expect(screen.getByText("Opus (1M)")).toBeInTheDocument();
   });
 });

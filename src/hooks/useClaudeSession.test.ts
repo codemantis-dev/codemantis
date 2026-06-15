@@ -51,6 +51,7 @@ vi.mock("../lib/event-classifier", () => ({
 // Mock useAssistantSession
 vi.mock("./useAssistantSession", () => ({
   getAssistantListeners: () => new Map(),
+  closeAssistantsForParentSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../lib/tauri-commands", () => ({

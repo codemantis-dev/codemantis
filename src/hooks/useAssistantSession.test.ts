@@ -69,7 +69,7 @@ vi.mock("../stores/toastStore", () => ({
   showToast: vi.fn(),
 }));
 
-import { useAssistantSession } from "./useAssistantSession";
+import { useAssistantSession, closeAssistantsForParentSession } from "./useAssistantSession";
 
 const PROJECT_PATH = "/tmp/project";
 
@@ -218,13 +218,12 @@ describe("useAssistantSession", () => {
     expect(mockListenActivityEvents).toHaveBeenCalledWith("asst-1", expect.any(Function));
   });
 
-  it("createAssistant throws at MAX_ASSISTANTS (6)", async () => {
-    // Add 6 assistants
-    for (let i = 0; i < 6; i++) {
+  function seedAssistants(parentSessionId: string, count: number): void {
+    for (let i = 0; i < count; i++) {
       useAssistantStore.getState().addAssistant(PROJECT_PATH, {
-        id: `a${i}`,
+        id: `${parentSessionId}-a${i}`,
         projectPath: PROJECT_PATH,
-        parentSessionId: "main-s1",
+        parentSessionId,
         name: `Asst ${i}`,
         provider: "openai",
         model: "gpt-5.4-mini",
@@ -232,6 +231,10 @@ describe("useAssistantSession", () => {
         createdAt: new Date().toISOString(),
       });
     }
+  }
+
+  it("createAssistant throws at MAX_ASSISTANTS (6) per session", async () => {
+    seedAssistants("main-s1", 6);
 
     const { result } = renderHook(() => useAssistantSession());
 
@@ -239,7 +242,25 @@ describe("useAssistantSession", () => {
       act(async () => {
         await result.current.createAssistant(PROJECT_PATH, "main-s1", "openai");
       })
-    ).rejects.toThrow("Maximum 6 assistants allowed");
+    ).rejects.toThrow("Maximum 6 assistants per session");
+  });
+
+  it("cap is per session tab — a full tab does not block other tabs", async () => {
+    // Tab "main-s1" is at the limit, but tab "main-s2" (same project) is empty.
+    seedAssistants("main-s1", 6);
+
+    const { result } = renderHook(() => useAssistantSession());
+
+    let id: string = "";
+    await act(async () => {
+      id = await result.current.createAssistant(PROJECT_PATH, "main-s2", "openai");
+    });
+
+    expect(id).toMatch(/^api-asst-/);
+    const siblings = useAssistantStore
+      .getState()
+      .findAssistantsForParent("main-s2");
+    expect(siblings).toHaveLength(1);
   });
 
   it("createAssistant with openai creates API session (no CLI)", async () => {
@@ -455,5 +476,43 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().getAssistants(PROJECT_PATH)).toHaveLength(0);
     // Both CLI sessions should have been closed
     expect(mockCloseSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("closeAssistantsForParentSession removes only the matching parent's assistants", async () => {
+    const { result } = renderHook(() => useAssistantSession());
+
+    mockCreateSession
+      .mockResolvedValueOnce(makeSession("asst-1"))
+      .mockResolvedValueOnce(makeSession("asst-2"));
+
+    // Two assistants under main-s1, one under main-s2 (same project).
+    await act(async () => {
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
+    });
+    await act(async () => {
+      await result.current.createAssistant(PROJECT_PATH, "main-s1", "claude-code");
+    });
+    mockCreateSession.mockResolvedValue(makeSession("asst-3"));
+    await act(async () => {
+      await result.current.createAssistant(PROJECT_PATH, "main-s2", "claude-code");
+    });
+
+    await act(async () => {
+      await closeAssistantsForParentSession("main-s1");
+    });
+
+    const remaining = useAssistantStore.getState().getAssistants(PROJECT_PATH);
+    expect(remaining.map((a) => a.id)).toEqual(["asst-3"]);
+    // Both local-CLI assistants under main-s1 should have their CLI session closed.
+    expect(mockCloseSession).toHaveBeenCalledWith("asst-1");
+    expect(mockCloseSession).toHaveBeenCalledWith("asst-2");
+    expect(mockCloseSession).not.toHaveBeenCalledWith("asst-3");
+  });
+
+  it("closeAssistantsForParentSession is a no-op when no assistants match", async () => {
+    await act(async () => {
+      await closeAssistantsForParentSession("main-nonexistent");
+    });
+    expect(mockCloseSession).not.toHaveBeenCalled();
   });
 });

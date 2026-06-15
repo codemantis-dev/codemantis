@@ -223,21 +223,31 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models).toHaveLength(2);
   });
 
-  it("clearSessionData removes capabilities", () => {
+  it("clearSessionData preserves capabilities (the CLI is respawned, not changed)", () => {
+    // `/clear` clears the conversation and respawns the SAME CLI process via
+    // pause+resume — which does not re-run the initialize handshake. The live
+    // model list and effort levels are therefore unchanged and must survive,
+    // or ModelSelector reverts to its reduced hardcoded list and EffortSelector
+    // hides entirely after every `/clear`.
     useSessionStore.getState().addSession(TEST_SESSION);
     const caps: CapabilitiesDiscoveredEvent = {
       type: "capabilities_discovered",
       session_id: "s1",
-      models: [],
+      models: [{ value: "sonnet", displayName: "Sonnet", description: "Fast" }],
       commands: [],
       agents: [],
       account: null,
       output_styles: [],
     };
     useSessionStore.getState().setSessionCapabilities("s1", caps);
-    expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeDefined();
+    useSessionStore.getState().addMessage("s1", {
+      id: "m1", role: "user", content: "Hello", timestamp: "", activityIds: [], isStreaming: false,
+    });
     useSessionStore.getState().clearSessionData("s1");
-    expect(useSessionStore.getState().sessionCapabilities.get("s1")).toBeUndefined();
+    // Conversation cleared…
+    expect(useSessionStore.getState().sessionMessages.get("s1")).toEqual([]);
+    // …but capabilities retained.
+    expect(useSessionStore.getState().sessionCapabilities.get("s1")?.models[0].value).toBe("sonnet");
   });
 
   it("capabilities are isolated between sessions", () => {

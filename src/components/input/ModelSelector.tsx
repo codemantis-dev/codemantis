@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import { setSessionModel } from "../../lib/tauri-commands";
 import { formatModelName } from "../../lib/format-utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -24,21 +25,32 @@ export default function ModelSelector() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const sessionCapabilities = useSessionStore((s) => s.sessionCapabilities);
+  // Subscribe to the per-agent last-known-good model cache so we re-render
+  // when any session populates it.
+  const cachedModelsByAgent = useCliModelCacheStore((s) => s.models);
 
   const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
   const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  const agent = session?.agent_id ?? "claude_code";
   // Agent-aware fallback: Codex sessions must never see Claude models
   // (Sonnet/Opus/Haiku) — that's user-visibly wrong even for the brief
   // pre-CapabilitiesDiscovered window. Pick the correct static list
   // based on the session's agent, then let the live event override.
   const agentFallback =
-    (session?.agent_id ?? "claude_code") === "codex"
-      ? CODEX_FALLBACK_MODELS
-      : CLAUDE_FALLBACK_MODELS;
+    agent === "codex" ? CODEX_FALLBACK_MODELS : CLAUDE_FALLBACK_MODELS;
+  // Resolution order: live per-session caps → per-agent last-known-good
+  // cache → hardcoded fallback. The cache holds the *detailed* live list
+  // any prior session of this agent already produced, so a session that
+  // momentarily lost its caps (after `/clear`, a resume/respawn, or an
+  // app restart within the run) still shows the real models instead of
+  // the reduced hardcoded list. Hardcoded fallback is the cold-start net.
+  const cachedModels = cachedModelsByAgent[agent];
   const models: CliModelInfo[] =
     caps?.models && Array.isArray(caps.models) && caps.models.length > 0
       ? caps.models
-      : agentFallback;
+      : cachedModels && cachedModels.length > 0
+        ? cachedModels
+        : agentFallback;
 
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));

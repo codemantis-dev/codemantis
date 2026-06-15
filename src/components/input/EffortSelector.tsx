@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { handleError } from "../../lib/error-handler";
@@ -110,6 +111,9 @@ export default function EffortSelector() {
     s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null,
   );
   const sessionCapabilities = useSessionStore((s) => s.sessionCapabilities);
+  // Subscribe to the per-agent last-known-good model cache so the effort
+  // selector survives brief capability gaps and re-renders when it populates.
+  const cachedModelsByAgent = useCliModelCacheStore((s) => s.models);
   const sessionEffort = useSessionStore((s) =>
     s.activeSessionId ? s.sessionEffort.get(s.activeSessionId) : undefined,
   );
@@ -130,6 +134,18 @@ export default function EffortSelector() {
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  const agent = session?.agent_id ?? "claude_code";
+  // Model-list source, in resolution order: live per-session caps →
+  // per-agent last-known-good cache → empty. The cache carries full
+  // `CliModelInfo` (incl. supportsEffort / supportedEffortLevels), so the
+  // effort bars stay visible whenever the session momentarily lost its
+  // caps (after `/clear`, a resume/respawn, or an app restart within the
+  // run) instead of the selector vanishing entirely.
+  const modelList: CliModelInfo[] = useMemo(() => {
+    const live = Array.isArray(caps?.models) ? (caps?.models as CliModelInfo[]) : [];
+    if (live.length > 0) return live;
+    return cachedModelsByAgent[agent] ?? [];
+  }, [caps?.models, cachedModelsByAgent, agent]);
   // Resolved-model lookup: when the user hasn't picked a model yet,
   // `session.model` is null and findManifestEntry returns null, which
   // would hide the EffortSelector forever on a fresh Codex session
@@ -139,16 +155,15 @@ export default function EffortSelector() {
   // succeeds — same resolved-default pattern as ModelSelector.
   const resolvedModelValue = useMemo(() => {
     if (session?.model) return session.model;
-    const list = Array.isArray(caps?.models) ? caps?.models as CliModelInfo[] : [];
     return (
-      list.find((m) => m.isDefault === true)?.value ??
-      list[0]?.value ??
+      modelList.find((m) => m.isDefault === true)?.value ??
+      modelList[0]?.value ??
       null
     );
-  }, [session?.model, caps?.models]);
+  }, [session?.model, modelList]);
   const activeModel = useMemo(
-    () => findManifestEntry(caps?.models, resolvedModelValue),
-    [caps?.models, resolvedModelValue],
+    () => findManifestEntry(modelList, resolvedModelValue),
+    [modelList, resolvedModelValue],
   );
 
   const supportsEffort = activeModel?.supportsEffort === true;

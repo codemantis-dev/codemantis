@@ -49,11 +49,11 @@ export function useAssistantSession(): UseAssistantSessionReturn {
   ): Promise<string> => {
     const store = useAssistantStore.getState();
     const existing = store.getAssistants(projectPath);
-    if (existing.length >= MAX_ASSISTANTS) {
-      throw new Error(`Maximum ${MAX_ASSISTANTS} assistants allowed`);
+    const siblings = existing.filter((a) => a.parentSessionId === parentSessionId);
+    if (siblings.length >= MAX_ASSISTANTS) {
+      throw new Error(`Maximum ${MAX_ASSISTANTS} assistants per session`);
     }
 
-    const siblings = existing.filter((a) => a.parentSessionId === parentSessionId);
     const num = siblings.length + 1;
     const providerLabel = provider === "claude-code" ? "Claude" :
       provider === "codex" ? "Codex" :
@@ -497,4 +497,50 @@ async function sendApiMessage(
 // Exported for use in useClaudeSession cleanup
 export function getAssistantListeners(): Map<string, UnlistenFn[]> {
   return assistantListeners;
+}
+
+/**
+ * Tear down every assistant spawned under a given parent session tab.
+ *
+ * Called from `closeSessionFn` so that closing a session tab also removes its
+ * assistants — otherwise they orphan in the store, keep their backend CLI
+ * subprocesses alive, and keep counting toward the per-session assistant cap
+ * (a now-closed tab silently exhausting the quota was the "Maximum N
+ * assistants" false positive). Mirrors `closeAllAssistants`, scoped by parent.
+ */
+export async function closeAssistantsForParentSession(parentSessionId: string): Promise<void> {
+  const store = useAssistantStore.getState();
+  const targets = store.findAssistantsForParent(parentSessionId);
+  if (targets.length === 0) return;
+
+  const { assistantInputDrafts } = await import("../lib/input-drafts");
+
+  for (const asst of targets) {
+    // Cancel in-flight API streams (local CLIs don't have these)
+    if (!isLocalCliProvider(asst.provider) && store.busy.get(asst.id)) {
+      cancelAssistantChat(asst.id).catch((e) =>
+        console.error("[assistant] Failed to cancel API stream on close:", e)
+      );
+    }
+
+    const listeners = assistantListeners.get(asst.id);
+    if (listeners) {
+      for (const unlisten of listeners) {
+        unlisten();
+      }
+      assistantListeners.delete(asst.id);
+    }
+
+    if (isLocalCliProvider(asst.provider)) {
+      try {
+        await closeSessionCmd(asst.id);
+      } catch (e) {
+        console.error("Failed to close assistant session:", e);
+      }
+    }
+
+    cleanupAssistantBuffers(asst.id);
+    assistantInputDrafts.delete(asst.id);
+    store.removeAssistant(asst.projectPath, asst.id);
+  }
 }

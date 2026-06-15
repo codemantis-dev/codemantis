@@ -69,6 +69,8 @@ vi.mock("../../lib/error-messages", () => ({
 
 import { showToast } from "../../stores/toastStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
+import { useAssistantSession } from "../../hooks/useAssistantSession";
+import { useAssistantStore } from "../../stores/assistantStore";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -357,5 +359,70 @@ describe("useClaudeSession (Integration)", () => {
     });
 
     expect(useActivityStore.getState().getActiveEntries(sessionId!)).toHaveLength(0);
+  });
+
+  // ─── closeSession cleans up the tab's assistants (orphan-leak regression) ──
+
+  it("closeSession removes assistants spawned under the closed tab", async () => {
+    // Regression for the false-positive "Maximum N assistants" toast: closing a
+    // session tab used to leave its assistants orphaned in the store, where they
+    // kept counting toward the cap even though no panel showed them.
+    const { result: claude } = renderHook(() => useClaudeSession());
+    const { result: assistant } = renderHook(() => useAssistantSession());
+
+    let sessionId: string;
+    await act(async () => {
+      sessionId = await claude.current.startSession(PROJECT_PATH);
+    });
+
+    // Fill the tab to the per-session cap.
+    await act(async () => {
+      for (let i = 0; i < 6; i++) {
+        await assistant.current.createAssistant(PROJECT_PATH, sessionId!, "claude-code");
+      }
+    });
+    expect(useAssistantStore.getState().findAssistantsForParent(sessionId!)).toHaveLength(6);
+
+    await act(async () => {
+      await claude.current.closeSession(sessionId!);
+    });
+
+    // All of that tab's assistants are gone from the store …
+    expect(useAssistantStore.getState().findAssistantsForParent(sessionId!)).toHaveLength(0);
+    expect(useAssistantStore.getState().getAssistants(PROJECT_PATH)).toHaveLength(0);
+
+    // … so a fresh tab can create assistants again — no false "Maximum" error.
+    let newSessionId: string;
+    await act(async () => {
+      newSessionId = await claude.current.startSession(PROJECT_PATH);
+    });
+    await act(async () => {
+      await assistant.current.createAssistant(PROJECT_PATH, newSessionId!, "claude-code");
+    });
+    expect(useAssistantStore.getState().findAssistantsForParent(newSessionId!)).toHaveLength(1);
+  });
+
+  it("closeSession leaves other tabs' assistants intact", async () => {
+    const { result: claude } = renderHook(() => useClaudeSession());
+    const { result: assistant } = renderHook(() => useAssistantSession());
+
+    let tabA: string;
+    let tabB: string;
+    await act(async () => {
+      tabA = await claude.current.startSession(PROJECT_PATH);
+      tabB = await claude.current.startSession(PROJECT_PATH);
+    });
+
+    await act(async () => {
+      await assistant.current.createAssistant(PROJECT_PATH, tabA!, "claude-code");
+      await assistant.current.createAssistant(PROJECT_PATH, tabB!, "claude-code");
+    });
+
+    await act(async () => {
+      await claude.current.closeSession(tabA!);
+    });
+
+    expect(useAssistantStore.getState().findAssistantsForParent(tabA!)).toHaveLength(0);
+    expect(useAssistantStore.getState().findAssistantsForParent(tabB!)).toHaveLength(1);
   });
 });

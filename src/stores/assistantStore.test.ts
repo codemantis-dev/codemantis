@@ -224,6 +224,24 @@ describe("assistantStore", () => {
     expect(store.getAllSessionIds("/other")).toEqual([]);
   });
 
+  it("findAssistantsForParent matches by parent across projects", () => {
+    const store = useAssistantStore.getState();
+    store.addAssistant("/a", makeInstance({ id: "s1", projectPath: "/a", parentSessionId: "main-1" }));
+    store.addAssistant("/a", makeInstance({ id: "s2", projectPath: "/a", parentSessionId: "main-1", sortOrder: 2 }));
+    store.addAssistant("/a", makeInstance({ id: "s3", projectPath: "/a", parentSessionId: "main-2", sortOrder: 3 }));
+    store.addAssistant("/b", makeInstance({ id: "s4", projectPath: "/b", parentSessionId: "main-1" }));
+
+    const forMain1 = store.findAssistantsForParent("main-1");
+    expect(forMain1.map((a) => a.id).sort()).toEqual(["s1", "s2", "s4"]);
+    expect(store.findAssistantsForParent("main-2")).toHaveLength(1);
+  });
+
+  it("findAssistantsForParent returns empty when none match", () => {
+    const store = useAssistantStore.getState();
+    store.addAssistant("/a", makeInstance({ id: "s1", parentSessionId: "main-1" }));
+    expect(store.findAssistantsForParent("main-999")).toEqual([]);
+  });
+
   it("provider and model are stored on instance", () => {
     const store = useAssistantStore.getState();
     store.addAssistant("/tmp", makeInstance({

@@ -50,6 +50,7 @@ interface AssistantState {
   setActiveAssistant: (parentSessionId: string, sessionId: string | null) => void;
   renameAssistant: (projectPath: string, sessionId: string, newName: string) => void;
   getAssistants: (projectPath: string) => AssistantInstance[];
+  findAssistantsForParent: (parentSessionId: string) => AssistantInstance[];
   getActiveAssistantId: (parentSessionId: string) => string | null;
   getAllSessionIds: (projectPath: string) => string[];
   clearProject: (projectPath: string) => void;
@@ -170,6 +171,11 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 
   getAssistants: (projectPath) =>
     get().projectAssistants.get(projectPath) ?? [],
+
+  findAssistantsForParent: (parentSessionId) =>
+    [...get().projectAssistants.values()]
+      .flat()
+      .filter((a) => a.parentSessionId === parentSessionId),
 
   getActiveAssistantId: (parentSessionId) =>
     get().activeAssistantId.get(parentSessionId) ?? null,

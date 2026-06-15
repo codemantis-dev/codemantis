@@ -211,10 +211,13 @@ describe("Control Protocol: capabilities_discovered", () => {
   });
 });
 
-describe("Control Protocol: clearSessionData cleans up capabilities", () => {
+describe("Control Protocol: clearSessionData retains capabilities", () => {
   beforeEach(resetStores);
 
-  it("clearSessionData removes capabilities", () => {
+  it("clearSessionData keeps capabilities (the respawned CLI is unchanged)", () => {
+    // `/clear` respawns the SAME CLI process via pause+resume and does not
+    // re-run the initialize handshake, so the live model list / effort levels
+    // must survive — otherwise the pickers degrade to their reduced fallbacks.
     handleChatEvent(SESSION_ID, {
       type: "capabilities_discovered",
       session_id: SESSION_ID,
@@ -227,6 +230,8 @@ describe("Control Protocol: clearSessionData cleans up capabilities", () => {
     expect(useSessionStore.getState().sessionCapabilities.get(SESSION_ID)).toBeDefined();
 
     useSessionStore.getState().clearSessionData(SESSION_ID);
-    expect(useSessionStore.getState().sessionCapabilities.get(SESSION_ID)).toBeUndefined();
+    expect(
+      useSessionStore.getState().sessionCapabilities.get(SESSION_ID)?.models[0].value,
+    ).toBe("sonnet");
   });
 });

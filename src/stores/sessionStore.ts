@@ -671,15 +671,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       busySince.delete(sessionId);
       const rateLimitUtilization = new Map(state.rateLimitUtilization);
       rateLimitUtilization.delete(sessionId);
-      const sessionCapabilities = new Map(state.sessionCapabilities);
-      sessionCapabilities.delete(sessionId);
+      // Intentionally do NOT clear sessionCapabilities here. `/clear` (the
+      // only caller) clears the *conversation* and respawns the SAME CLI
+      // process (same agent/account/version) via pause+resume, which does
+      // not re-run the initialize handshake — so the live model list and
+      // effort levels are unchanged and must survive. Dropping them here
+      // made ModelSelector fall back to its reduced hardcoded list and hid
+      // EffortSelector entirely after every `/clear`. Real teardown still
+      // clears caps in removeSession.
       const activeSubAgents = new Map(state.activeSubAgents);
       activeSubAgents.delete(sessionId);
       const sessionThinking = new Map(state.sessionThinking);
       sessionThinking.delete(sessionId);
       const sessionReviewContent = new Map(state.sessionReviewContent);
       sessionReviewContent.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, codexRecoverAttempted, busySince, rateLimitUtilization, sessionCapabilities, activeSubAgents, sessionThinking, sessionReviewContent };
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, codexRecoverAttempted, busySince, rateLimitUtilization, activeSubAgents, sessionThinking, sessionReviewContent };
     }),
 
   setRetryState: (sessionId, retryState) =>
