@@ -80,39 +80,148 @@ pub struct CodexProcessHandle {
     /// on-request) per spec §2.3 ("Auto" preset). Updated by
     /// `set_codex_policy` and applied on the next `turn/start`.
     current_policy: Mutex<CodexSessionPolicy>,
-    /// CodeMantis-native "plan mode". When `true`, the next `turn/start`
-    /// forces a read-only sandbox and prepends a planning preamble to the
-    /// user input so Codex plans (over the full prior thread context)
-    /// without editing. Toggled by `set_codex_plan_mode`. Codex 0.139.0
-    /// exposes no settable `collaborationMode`, so this is an approximation.
+    /// CodeMantis "plan mode". When `true`, the next `turn/start` forces a
+    /// read-only sandbox (the hard backstop) and — when the native lever is
+    /// unavailable — prepends a planning preamble. Toggled by
+    /// `set_codex_plan_mode`.
     plan_mode: Mutex<bool>,
+    /// Whether the native experimental `collaborationMode: plan` lever is
+    /// currently active on this thread (set by a successful
+    /// `thread/settings/update`). When `true`, Codex's own plan template
+    /// drives planning, so `apply_plan_mode` skips the hand-rolled preamble.
+    /// When `false` (lever unavailable / errored / pre-thread), we fall back
+    /// to the preamble. Either way the read-only sandbox is enforced.
+    native_plan_active: Mutex<bool>,
+    /// The server's default model wire id (from `model/list` `isDefault`),
+    /// captured at handshake. Native plan mode's `settings.model` must be a
+    /// concrete string; this is the fallback when no explicit model is set.
+    default_model: Mutex<Option<String>>,
     app_handle: AppHandle,
 }
 
-/// Preamble prepended to the turn input when plan mode is on. Worded to use
-/// the ENTIRE prior conversation in this thread (which `turn/start` preserves
-/// by reusing the same `threadId`), and to plan only — no file edits.
+/// Preamble prepended to the turn input when plan mode is on AND the native
+/// `collaborationMode` lever is unavailable (fallback path). Worded to use the
+/// ENTIRE prior conversation in this thread (which `turn/start` preserves by
+/// reusing the same `threadId`), and to plan only — no file edits.
 pub(crate) const CODEX_PLAN_MODE_PREAMBLE: &str = "\
 [Plan mode] You are in planning mode. Take the ENTIRE preceding conversation \
 in this thread into account. Investigate as needed (read-only), then produce a \
 clear, step-by-step implementation plan. Do NOT edit files, create/delete files, \
 or run mutating commands — the sandbox is read-only. Present the plan for review.\n\n";
 
-/// Apply native plan-mode overrides to a turn's `(policy, input_text)`. When
-/// plan mode is on: force a read-only sandbox (real enforcement), disable
-/// network access, and prepend the planning preamble. Pure — unit-testable
-/// without a live handle. Off → returns the policy and text unchanged.
+/// `developer_instructions` carried on the native `collaborationMode: plan`
+/// settings (replaces the preamble on the native path). Reinforces Codex's
+/// built-in plan template with our specifics: full thread context, read-only
+/// investigation, present a step-by-step plan for review.
+pub(crate) const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS: &str = "\
+Take the entire preceding conversation in this thread into account. Investigate \
+read-only as needed, then produce a clear, step-by-step implementation plan and \
+present it for review. Do not edit files or run mutating commands.";
+
+/// Build the `collaborationMode` object for `thread/settings/update`.
+/// `settings.model` MUST be a concrete non-null string (Codex 0.139 rejects
+/// null); `reasoning_effort` and `developer_instructions` are optional. Pure —
+/// unit-testable without a live handle.
+pub(crate) fn build_collaboration_mode_value(
+    mode: &str,
+    model: &str,
+    effort: Option<&str>,
+    developer_instructions: Option<&str>,
+) -> Value {
+    let mut settings = serde_json::Map::new();
+    settings.insert("model".into(), Value::String(model.to_string()));
+    if let Some(e) = effort {
+        settings.insert("reasoning_effort".into(), Value::String(e.to_string()));
+    }
+    if let Some(di) = developer_instructions {
+        settings.insert(
+            "developer_instructions".into(),
+            Value::String(di.to_string()),
+        );
+    }
+    json!({ "mode": mode, "settings": Value::Object(settings) })
+}
+
+/// Apply plan-mode overrides to a turn's `(policy, input_text)`. When plan mode
+/// is on: force a read-only sandbox (the hard backstop) and disable network. The
+/// preamble is prepended ONLY when the native `collaborationMode` lever is not
+/// active (`native_active == false`); on the native path Codex's own plan
+/// template drives planning, so the input is left untouched. Pure. Off → policy
+/// and text unchanged.
 pub(crate) fn apply_plan_mode(
     mut policy: CodexSessionPolicy,
     plan_mode: bool,
+    native_active: bool,
     text: &str,
 ) -> (CodexSessionPolicy, String) {
     if plan_mode {
         policy.sandbox = CodexSandbox::ReadOnly;
         policy.network_access = false;
-        (policy, format!("{CODEX_PLAN_MODE_PREAMBLE}{text}"))
+        let input = if native_active {
+            text.to_string()
+        } else {
+            format!("{CODEX_PLAN_MODE_PREAMBLE}{text}")
+        };
+        (policy, input)
     } else {
         (policy, text.to_string())
+    }
+}
+
+impl CodexProcessHandle {
+    /// Resolve a concrete model id for native plan-mode settings: the explicit
+    /// per-session model if set, else the server default captured at handshake.
+    async fn resolve_settings_model(&self) -> Option<String> {
+        if let Some(m) = self.current_model.lock().await.clone() {
+            if !m.is_empty() {
+                return Some(m);
+            }
+        }
+        self.default_model.lock().await.clone()
+    }
+
+    /// Attempt the native `collaborationMode` lever via `thread/settings/update`.
+    /// Returns `true` only if the server accepted it. Best-effort: returns
+    /// `false` (→ preamble fallback) when there's no thread yet, no concrete
+    /// model, or the experimental call errors.
+    async fn try_set_native_collaboration_mode(&self, enabled: bool) -> bool {
+        let Some(thread_id) = self.state.thread_id.lock().await.clone() else {
+            return false;
+        };
+        let Some(model) = self.resolve_settings_model().await else {
+            log::info!(
+                "[codex {}] plan mode: no concrete model available; using preamble fallback",
+                self.session_id
+            );
+            return false;
+        };
+        let effort = self.current_effort.lock().await.clone();
+        let (mode, dev) = if enabled {
+            ("plan", Some(CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS))
+        } else {
+            ("default", None)
+        };
+        let collaboration_mode =
+            build_collaboration_mode_value(mode, &model, effort.as_deref(), dev);
+        let params = json!({
+            "threadId": thread_id,
+            "collaborationMode": collaboration_mode,
+        });
+        match self
+            .client
+            .send_request("thread/settings/update", params)
+            .await
+        {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!(
+                    "[codex {}] native collaborationMode update failed ({e}); \
+                     falling back to preamble plan-mode approximation",
+                    self.session_id
+                );
+                false
+            }
+        }
     }
 }
 
@@ -150,7 +259,8 @@ impl AgentProcessHandle for CodexProcessHandle {
         // blocks mutations).
         let base_policy = *self.current_policy.lock().await;
         let plan_mode = *self.plan_mode.lock().await;
-        let (policy, input_text) = apply_plan_mode(base_policy, plan_mode, text);
+        let native_active = *self.native_plan_active.lock().await;
+        let (policy, input_text) = apply_plan_mode(base_policy, plan_mode, native_active, text);
         // turn/start uses `sandboxPolicy` (an OBJECT, camelCase type tag),
         // NOT `sandbox` (the SandboxMode string thread/start takes). Sending
         // `sandbox` here is silently ignored by Codex 0.137, so per-turn
@@ -260,7 +370,13 @@ impl AgentProcessHandle for CodexProcessHandle {
                 // caps forever — the EffortSelector would stay hidden
                 // even after the binary was upgraded. Now the frontend
                 // can call `initialize_session` to refresh on demand.
-                discover_capabilities(&self.client, &self.app_handle, &self.session_id).await;
+                // Refresh the cached default model too, in case a binary
+                // upgrade changed it (used by native plan mode).
+                if let Some(dm) =
+                    discover_capabilities(&self.client, &self.app_handle, &self.session_id).await
+                {
+                    *self.default_model.lock().await = Some(dm);
+                }
                 Ok(format!("codex-init-{}", uuid::Uuid::new_v4().simple()))
             }
             ControlRequestPayload::SetPermissionMode { .. } => {
@@ -340,9 +456,20 @@ impl AgentProcessHandle for CodexProcessHandle {
 
     async fn set_codex_plan_mode(&self, enabled: bool) -> Result<(), AgentError> {
         *self.plan_mode.lock().await = enabled;
+
+        // Try the native experimental lever first (collaborationMode via
+        // thread/settings/update — needs experimentalApi, set at handshake).
+        // On success Codex's own plan template drives planning; on any failure
+        // / missing prerequisite we fall back to the preamble (apply_plan_mode).
+        // Either way the read-only sandbox enforces no-writes.
+        let native_ok = self.try_set_native_collaboration_mode(enabled).await;
+        *self.native_plan_active.lock().await = enabled && native_ok;
+
         // Echo back so the frontend confirms the toggle (mirrors the
         // ModelChanged / EffortChanged pattern — Codex never echoes these
-        // itself). chat.ts flips SessionMode::Plan on / off from this.
+        // itself). chat.ts flips SessionMode::Plan on / off from this. A
+        // successful native update ALSO yields a `thread/settings/updated`
+        // notification → CodexPlanModeChanged; the duplicate is idempotent.
         emit_event_for(
             &self.app_handle,
             &NormalizedEvent::CodexPlanModeChanged {
@@ -405,6 +532,13 @@ impl AgentProcessHandle for CodexProcessHandle {
         // send_user_message targets the fresh thread.
         self.state.set_thread_id(new_id.clone()).await;
         self.state.set_current_turn(None).await;
+
+        // The fresh thread carries no collaborationMode. If plan mode is still
+        // on, re-apply the native lever to the new thread (falls back to the
+        // preamble if it can't); otherwise mark native inactive.
+        let plan_on = *self.plan_mode.lock().await;
+        let native_ok = plan_on && self.try_set_native_collaboration_mode(true).await;
+        *self.native_plan_active.lock().await = native_ok;
 
         // Persist + cache the new id (so crash recovery resumes the FRESH
         // thread, not the broken one) and emit CliSessionId so the frontend
@@ -697,7 +831,16 @@ pub async fn spawn_codex_session(
                     "version": env!("CARGO_PKG_VERSION"),
                 },
                 "capabilities": {
-                    "experimentalApi": false,
+                    // Opt into the experimental API surface. Required for the
+                    // native plan-mode lever (`thread/settings/update` with
+                    // `collaborationMode`), which the server rejects with
+                    // `-32600 "requires experimentalApi capability"` otherwise
+                    // (verified live, codex 0.139.0). Experimental notifications/
+                    // fields are additive and tolerated by the WARN-on-additive
+                    // drift policy in `codex_schema_drift`; unknown notifications
+                    // are ignored by `translation`. If native plan mode is ever
+                    // dropped, this can revert to `false`.
+                    "experimentalApi": true,
                     "optOutNotificationMethods": [],
                 },
             }),
@@ -727,7 +870,7 @@ pub async fn spawn_codex_session(
     // it on a live session — necessary for refreshing caps without
     // close+reopen when (e.g.) the user wants the EffortSelector to
     // re-appear after a binary upgrade that added new fields.
-    discover_capabilities(&client, &app_handle, &config.session_id).await;
+    let default_model = discover_capabilities(&client, &app_handle, &config.session_id).await;
 
     // 7. thread/start or thread/resume — uses the "Auto" preset from
     // spec §2.3 (workspace-write × on-request). Phase 2 §6.1's Policy
@@ -813,6 +956,8 @@ pub async fn spawn_codex_session(
         current_effort: Mutex::new(config.effort_override),
         current_policy: Mutex::new(initial_policy),
         plan_mode: Mutex::new(false),
+        native_plan_active: Mutex::new(false),
+        default_model: Mutex::new(default_model),
         app_handle,
     }))
 }
@@ -1312,7 +1457,7 @@ async fn discover_capabilities(
     client: &super::client::CodexClient,
     app_handle: &AppHandle,
     session_id: &str,
-) {
+) -> Option<String> {
     match client.send_request("model/list", json!({})).await {
         Ok(list) => {
             let models_array = list
@@ -1320,6 +1465,21 @@ async fn discover_capabilities(
                 .and_then(|d| d.as_array())
                 .cloned()
                 .unwrap_or_default();
+            // Capture the server's default model wire id. Native plan mode's
+            // `collaborationMode.settings.model` MUST be a concrete string
+            // (Codex 0.139 rejects null), so we fall back to this when the
+            // session has no explicit model override.
+            let default_model = models_array.iter().find_map(|m| {
+                if m.get("isDefault").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    m.get("model")
+                        .or_else(|| m.get("id"))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            });
             let transformed: Vec<Value> = models_array
                 .iter()
                 .filter(|m| !m.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false))
@@ -1393,11 +1553,13 @@ async fn discover_capabilities(
                     output_styles: Value::Null,
                 },
             );
+            default_model
         }
         Err(e) => {
             log::warn!(
                 "[codex {session_id}] model/list failed ({e}); selector will fall back to static manifest"
             );
+            None
         }
     }
 }
@@ -1511,16 +1673,20 @@ mod tests {
 
     #[test]
     fn apply_plan_mode_off_is_passthrough() {
-        let (policy, text) = apply_plan_mode(auto_policy(), false, "hello");
-        assert_eq!(policy.sandbox, CodexSandbox::WorkspaceWrite);
-        assert!(policy.network_access);
-        assert_eq!(text, "hello");
+        // native_active is irrelevant when plan mode is off.
+        for native in [false, true] {
+            let (policy, text) = apply_plan_mode(auto_policy(), false, native, "hello");
+            assert_eq!(policy.sandbox, CodexSandbox::WorkspaceWrite);
+            assert!(policy.network_access);
+            assert_eq!(text, "hello");
+        }
     }
 
     #[test]
-    fn apply_plan_mode_on_forces_readonly_and_prepends_preamble() {
-        let (policy, text) = apply_plan_mode(auto_policy(), true, "build a feature");
-        // Read-only sandbox is the real enforcement; network disabled.
+    fn apply_plan_mode_fallback_forces_readonly_and_prepends_preamble() {
+        // native_active = false → preamble fallback path.
+        let (policy, text) = apply_plan_mode(auto_policy(), true, false, "build a feature");
+        // Read-only sandbox is the hard backstop; network disabled.
         assert_eq!(policy.sandbox, CodexSandbox::ReadOnly);
         assert!(!policy.network_access);
         // Approval policy is untouched.
@@ -1531,11 +1697,53 @@ mod tests {
     }
 
     #[test]
+    fn apply_plan_mode_native_skips_preamble_but_keeps_readonly() {
+        // native_active = true → Codex's own plan template drives planning, so
+        // we must NOT prepend the preamble; the read-only sandbox still applies.
+        let (policy, text) = apply_plan_mode(auto_policy(), true, true, "build a feature");
+        assert_eq!(policy.sandbox, CodexSandbox::ReadOnly);
+        assert!(!policy.network_access);
+        assert_eq!(policy.approval, CodexApproval::OnRequest);
+        // Input is passed through untouched — no preamble.
+        assert_eq!(text, "build a feature");
+        assert!(!text.contains(CODEX_PLAN_MODE_PREAMBLE));
+    }
+
+    #[test]
     fn plan_mode_preamble_instructs_full_context_and_no_edits() {
         // R1: the preamble must steer Codex to use the whole prior thread.
         assert!(CODEX_PLAN_MODE_PREAMBLE.contains("ENTIRE preceding conversation"));
         // And it must forbid edits (read-only intent reinforced in text).
         assert!(CODEX_PLAN_MODE_PREAMBLE.contains("Do NOT edit files"));
+    }
+
+    #[test]
+    fn build_collaboration_mode_plan_has_required_string_model_and_dev_instructions() {
+        // Codex 0.139 rejects a null settings.model, so it must be a string.
+        let v = build_collaboration_mode_value(
+            "plan",
+            "gpt-5.5",
+            Some("medium"),
+            Some(CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS),
+        );
+        assert_eq!(v["mode"], "plan");
+        assert_eq!(v["settings"]["model"], "gpt-5.5");
+        assert!(v["settings"]["model"].is_string());
+        assert_eq!(v["settings"]["reasoning_effort"], "medium");
+        assert_eq!(
+            v["settings"]["developer_instructions"],
+            CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+        );
+    }
+
+    #[test]
+    fn build_collaboration_mode_default_omits_optional_fields() {
+        // Disabling plan mode: mode=default, model still required, no effort/dev.
+        let v = build_collaboration_mode_value("default", "gpt-5.5", None, None);
+        assert_eq!(v["mode"], "default");
+        assert_eq!(v["settings"]["model"], "gpt-5.5");
+        assert!(v["settings"].get("reasoning_effort").is_none());
+        assert!(v["settings"].get("developer_instructions").is_none());
     }
 
     #[test]
