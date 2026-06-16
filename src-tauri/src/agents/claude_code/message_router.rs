@@ -137,6 +137,18 @@ struct RouterState {
 
 // ── Emit helper to reduce boilerplate ──
 
+/// The CLI's interactive "UI tools": they always appear in
+/// `result.permission_denials` regardless of the host decision and are handled
+/// by their own modals (PlanCompleteModal / QuestionModal), not the approval
+/// modal — so their absence from the approval server's shown-record must NOT
+/// be mistaken for a silent CLI denial. See the protocol report §"Special tools".
+fn is_special_ui_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "ExitPlanMode" | "EnterPlanMode" | "AskUserQuestion"
+    )
+}
+
 fn emit_or_warn(app_handle: &AppHandle, channel: &str, event: &FrontendEvent, label: &str) {
     if let Err(e) = app_handle.emit(channel, event) {
         warn!("[message-router] Failed to emit {}: {}", label, e);
@@ -439,24 +451,71 @@ async fn handle_result(
         maybe_emit_cli_session_id(app_handle, session_id, chat_event, sid, state).await;
     }
 
-    // Surface CLI-internal protected-path denials (e.g. `.claude/` writes that
-    // are blocked even with `--dangerously-skip-permissions` per CLI 2.1.78+).
-    // The CLI reports these only here, with no inbound `control_request` to
-    // ask the host first — so the user sees the agent stall and complain
-    // about "permissions" without a UI prompt. This emits a frontend event
-    // the chat layer turns into an explanatory toast.
+    // Surface CLI-reported tool denials from `result.permission_denials`.
+    //
+    // `permission_denials` is a multi-purpose channel (see
+    // docs/internal/cli-2.1.126-protocol-report.md): it carries genuine host
+    // denials, the special UI tools (ExitPlanMode/EnterPlanMode/AskUserQuestion,
+    // handled by their own modals), protected-path blocks, AND silent CLI-side
+    // denials such as the native MCP-tool gate (§S14). We partition by whether
+    // the approval server actually *showed the user a prompt* for the tool:
+    //   * NOT shown + not a special UI tool → a silent CLI/environment denial.
+    //     The CLI relays a generic reasonless denial to the model, so the user
+    //     would otherwise be wrongly told they declined → `CliDeniedNoPrompt`.
+    //   * everything else → existing `ProtectedPathDeny` path (chat.ts buckets
+    //     the wording by tool_name).
     if let Some(denials) = permission_denials {
         if !denials.is_empty() {
-            info!(
-                "[message_router] CLI denied {} tool call(s) via protected-path guardrail (session: {})",
-                denials.len(),
-                session_id
-            );
-            let fe = FrontendEvent::ProtectedPathDeny {
-                session_id: session_id.to_string(),
-                denials,
-            };
-            emit_or_warn(app_handle, chat_event, &fe, "protected-path-deny");
+            let mut silent: Vec<crate::agents::claude_code::event_types::PermissionDenial> = Vec::new();
+            let mut rest: Vec<crate::agents::claude_code::event_types::PermissionDenial> = Vec::new();
+
+            let approval_state = app_handle
+                .try_state::<AppState>()
+                .map(|s| s.approval_state.clone());
+
+            for d in denials {
+                let is_ui_tool = is_special_ui_tool(&d.tool_name);
+                let was_shown = match (&approval_state, is_ui_tool) {
+                    // Special UI tools are never "shown" via the approval modal
+                    // (their own modals handle them) — don't treat their
+                    // absence from the shown-record as a silent denial.
+                    (_, true) => true,
+                    (Some(st), false) => st.was_shown(session_id, &d.tool_name).await,
+                    (None, false) => true, // can't check → be conservative, don't flag
+                };
+                if !was_shown && !is_ui_tool {
+                    silent.push(d);
+                } else {
+                    rest.push(d);
+                }
+            }
+
+            if !silent.is_empty() {
+                warn!(
+                    "[message_router] CLI denied {} tool call(s) with NO CodeMantis prompt shown — environment/MCP denial, not a user decision (session: {}, tools: {:?})",
+                    silent.len(),
+                    session_id,
+                    silent.iter().map(|d| d.tool_name.as_str()).collect::<Vec<_>>()
+                );
+                let fe = FrontendEvent::CliDeniedNoPrompt {
+                    session_id: session_id.to_string(),
+                    denials: silent,
+                };
+                emit_or_warn(app_handle, chat_event, &fe, "cli-denied-no-prompt");
+            }
+
+            if !rest.is_empty() {
+                info!(
+                    "[message_router] {} tool denial(s) reported by CLI (session: {})",
+                    rest.len(),
+                    session_id
+                );
+                let fe = FrontendEvent::ProtectedPathDeny {
+                    session_id: session_id.to_string(),
+                    denials: rest,
+                };
+                emit_or_warn(app_handle, chat_event, &fe, "protected-path-deny");
+            }
         }
     }
 
@@ -1027,6 +1086,43 @@ mod tests {
         ContentBlock, RateLimitInfo, RawStreamEvent, StreamDelta,
     };
     use crate::agents::claude_code::session::SessionMode;
+
+    // ── is_special_ui_tool ──
+
+    #[test]
+    fn special_ui_tools_recognized() {
+        assert!(is_special_ui_tool("ExitPlanMode"));
+        assert!(is_special_ui_tool("EnterPlanMode"));
+        assert!(is_special_ui_tool("AskUserQuestion"));
+    }
+
+    #[test]
+    fn regular_and_mcp_tools_are_not_special_ui() {
+        // Regular + MCP tools must NOT be treated as UI tools — otherwise a
+        // silent MCP denial would be misrouted to ProtectedPathDeny instead of
+        // CliDeniedNoPrompt and the "blocked by CLI, not you" signal is lost.
+        assert!(!is_special_ui_tool("Bash"));
+        assert!(!is_special_ui_tool("Write"));
+        assert!(!is_special_ui_tool("mcp__shared-browser-mcp__browser_navigate"));
+        assert!(!is_special_ui_tool("mcp__teststub__echo"));
+    }
+
+    #[test]
+    fn cli_denied_no_prompt_serializes_with_tagged_type() {
+        use crate::agents::claude_code::event_types::PermissionDenial;
+        let fe = FrontendEvent::CliDeniedNoPrompt {
+            session_id: "s1".into(),
+            denials: vec![PermissionDenial {
+                tool_name: "mcp__shared-browser-mcp__browser_navigate".into(),
+                tool_use_id: "toolu_1".into(),
+                tool_input: serde_json::json!({"url": "http://x"}),
+            }],
+        };
+        let v = serde_json::to_value(&fe).unwrap();
+        assert_eq!(v["type"], "cli_denied_no_prompt");
+        assert_eq!(v["session_id"], "s1");
+        assert_eq!(v["denials"][0]["tool_name"], "mcp__shared-browser-mcp__browser_navigate");
+    }
 
     // ── classify_permission_mode ──
 

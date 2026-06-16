@@ -131,6 +131,55 @@ All of these return `"Unsupported control request subtype: <name>"` (S02 sweep):
 - The bash approval-hook script's curl call fails. The script's fallback fires, returning `permissionDecision: "deny"` with `permissionDecisionReason: "CodeMantis approval server unavailable"`.
 - CLI honours the deny: `tool_result(is_error=true, content="CodeMantis approval server unavailable")`, entry in `permission_denials`. Defensive behaviour is already correct.
 
+### S14 — MCP tool under hook + `--dangerously-skip-permissions` ★ added 2026-06-16, CLI **2.1.178** ★
+
+> **Version note:** S14 was captured against CLI **2.1.178**, not the 2.1.126 baseline of the rest
+> of this report. Per CLAUDE.md, trust the capture. Everything below is a 2.1.178 observation.
+
+**Motivation.** Field incident: `mcp__shared-browser-mcp__browser_navigate` was denied with the
+CLI's *generic, reasonless* default (`"The user doesn't want to proceed with this tool use…"`) and the
+user **never saw a CodeMantis approval prompt**. No CodeMantis hook path emits a reasonless deny, and
+S07/S11/S12b prove the CLI relays hook reasons verbatim — so that deny did **not** originate in
+CodeMantis's approval pipeline. S14 probes where it comes from with a hermetic stdio MCP stub
+(`teststub`, one tool `echo` → `mcp__teststub__echo`) loaded via `--mcp-config --strict-mcp-config`.
+The hook policy **allows** the MCP tool in both sub-runs, so any block must come from the CLI.
+
+> **CORRECTION (clean re-run, same day):** an initial S14 run concluded there was a "native
+> MCP-tool permission gate" because S14a (no allow-list) produced no tool call. That was an
+> **artefact of rate-limiting** — that run had 6× `system/api_retry` and a `rate_limit_event` with
+> `overageStatus: "rejected"`, `overageDisabledReason: "out_of_credits"`; the model never generated.
+> A clean re-run (no retries) overturns it. The conclusions below are from the clean run.
+
+**S14a — no `--allowedTools` (DECISIVE, clean run):**
+- `system/init`: `permissionMode: "bypassPermissions"`, `mcp_servers: [{name:"teststub", status:"connected"}]`, `mcp__teststub__echo` present in `tools[]`.
+- Model called `ToolSearch` then `mcp__teststub__echo`. **The PreToolUse hook FIRED for the MCP tool** (`hook_in`/`hook_out` = 2/2 — one per tool) and our stub returned `allow`.
+- Real `tool_result` returned (`"echo: hello from S14"`), `result.subtype: success`, **`permission_denials: []`**.
+- **Conclusion:** under `--dangerously-skip-permissions`, an MCP tool **already routes through the
+  PreToolUse hook and runs WITHOUT any `--allowedTools` allow-list**. There is **no** separate native
+  MCP gate blocking un-allow-listed MCP tools (at least for a stdio server via `--mcp-config`). In the
+  real app, the hook forwards to the approval server, which would surface the modal for a non-auto-
+  approved MCP tool — so MCP tools are approvable by default.
+
+**S14b / S14c — `--allowedTools mcp__teststub__echo` (exact-tool) and `mcp__teststub` (whole-server):**
+- Both: hook fired (1/1), tool ran, `result: success`, `permission_denials: []`. `--allowedTools` does
+  **not** skip the hook, and the whole-server form `mcp__<server>` works the same as the exact form.
+  But per S14a this allow-listing is **not required** for the tool to run.
+
+**Implication for the field incident — root cause RE-OPENED.** Since un-allow-listed MCP tools route
+through the hook fine in this hermetic stdio setup, the original symptom (an MCP tool denied with the
+CLI's generic reasonless message, no modal) is **not** explained by an MCP permission gate, and the
+speculative `--allowedTools` "fix" was **reverted** (it was unnecessary and its non-restricting
+semantics were unverified). Leading remaining hypotheses, none yet reproduced:
+- The user's server is **HTTP transport** (`shared-browser-mcp` at `127.0.0.1:8931`), not stdio —
+  HTTP/SSE MCP permissioning may differ. (S14 only tested stdio.)
+- The MCP server was **unhealthy/disconnected** at that moment (browser MCP servers drop).
+- A **frontend modal-render miss** — but that would time out with reason `"Approval timed out"`, not
+  the generic reasonless default, so this is unlikely on its own.
+
+The diagnostics added in the same change (hook-script logging, the approval-server shown-prompt record,
+and the `cli_denied_no_prompt` cross-check + "blocked by the CLI, not by you" toast) are the mechanism
+to capture the real cause on the next occurrence — they stand regardless of this correction.
+
 ---
 
 ## Actionable bugs in CodeMantis (proven by the captures)

@@ -397,6 +397,28 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       break;
     }
 
+    case "cli_denied_no_prompt": {
+      // A tool was denied by the CLI/environment WITHOUT any approval prompt
+      // ever being shown (the approval server never prompted for it). The CLI
+      // relays its own generic "The user doesn't want to proceed…" message to
+      // the model, which makes the agent blame the user. Tell the user plainly
+      // that THEY didn't decline — and, for MCP tools, that the tool likely
+      // needs allow-listing. See docs/internal/cli-2.1.126-protocol-report.md §S14.
+      const names = event.denials.map((d) => d.tool_name);
+      const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` (+${names.length - 3} more)` : "");
+      const hasMcp = names.some((n) => n.startsWith("mcp__"));
+      const subject = names.length === 1 ? "A tool call was" : `${names.length} tool calls were`;
+      const hint = hasMcp
+        ? " The MCP tool likely needs to be allow-listed."
+        : "";
+      showToast(
+        `${subject} blocked by the Claude CLI, not by you and not by CodeMantis: ${shown}.${hint}`,
+        "error",
+        14000,
+      );
+      break;
+    }
+
     case "compacting_status": {
       store.touchLastEvent(sessionId);
       store.setSessionCompacting(sessionId, event.is_compacting);

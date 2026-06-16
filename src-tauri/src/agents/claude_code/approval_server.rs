@@ -1,7 +1,7 @@
 use axum::{extract::State as AxumState, http::{HeaderMap, HeaderValue, StatusCode}, routing::{options, post}, Json, Router};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
@@ -117,10 +117,24 @@ pub struct ApprovalDecision {
     pub reason: Option<String>,
 }
 
+/// Max tool names retained in the per-session "shown" record. Bounds memory;
+/// the record is only used as a recent-history diagnostic join key.
+const SHOWN_HISTORY_CAP: usize = 50;
+
 /// Shared state for the approval HTTP server.
 pub struct ApprovalServerState {
     pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,
     app_handle: Mutex<Option<AppHandle>>,
+    /// Per-session record of tool names for which we actually displayed an
+    /// approval prompt to the user (reached the emit/await path). Used by the
+    /// stream-side cross-check to tell a genuine user-deny (tool was shown)
+    /// apart from a silent CLI-side denial (tool was NEVER shown — e.g. the
+    /// MCP-tool native gate, see docs/internal/cli-2.1.126-protocol-report.md
+    /// §S14). Keyed by forge_session_id. NOTE: the CLI hook input carries no
+    /// `tool_use_id`, so correlation is by tool_name + session, not a precise
+    /// id join — a recent same-named user-prompt can mask a later CLI deny
+    /// (acceptable false-negative for a diagnostic).
+    shown: Mutex<HashMap<String, VecDeque<String>>>,
 }
 
 impl ApprovalServerState {
@@ -128,6 +142,7 @@ impl ApprovalServerState {
         Self {
             pending: Mutex::new(HashMap::new()),
             app_handle: Mutex::new(None),
+            shown: Mutex::new(HashMap::new()),
         }
     }
 
@@ -150,6 +165,34 @@ impl ApprovalServerState {
             warn!("No pending approval for request_id: {}", request_id);
             false
         }
+    }
+
+    /// Record that an approval prompt was actually shown to the user for
+    /// `tool_name` in `session_id`. Bounded to the last `SHOWN_HISTORY_CAP`
+    /// tools per session.
+    pub async fn record_shown(&self, session_id: &str, tool_name: &str) {
+        let mut shown = self.shown.lock().await;
+        let q = shown.entry(session_id.to_string()).or_default();
+        q.push_back(tool_name.to_string());
+        while q.len() > SHOWN_HISTORY_CAP {
+            q.pop_front();
+        }
+    }
+
+    /// True if we recently displayed an approval prompt for `tool_name` in
+    /// `session_id`. Used to distinguish a real user-deny from a silent
+    /// CLI-side denial (which never reaches this server).
+    pub async fn was_shown(&self, session_id: &str, tool_name: &str) -> bool {
+        let shown = self.shown.lock().await;
+        shown
+            .get(session_id)
+            .map(|q| q.iter().any(|t| t == tool_name))
+            .unwrap_or(false)
+    }
+
+    /// Drop a session's shown-history (called on session teardown / clear).
+    pub async fn clear_shown(&self, session_id: &str) {
+        self.shown.lock().await.remove(session_id);
     }
 
     /// Deny all pending approvals (used on shutdown).
@@ -454,6 +497,11 @@ async fn handle_tool_approval(
         let mut pending = state.pending.lock().await;
         pending.insert(request_id.clone(), tx);
     }
+
+    // Record that we are about to actually show the user a prompt for this
+    // tool. This is the join key the stream-side cross-check uses to tell a
+    // genuine user-deny from a silent CLI-side denial (see §S14).
+    state.record_shown(&forge_session_id, tool_name).await;
 
     // Emit event to frontend
     let event = ToolApprovalRequest {
@@ -965,6 +1013,45 @@ mod tests {
     async fn app_handle_is_none_by_default() {
         let state = ApprovalServerState::new();
         assert!(state.app_handle().await.is_none());
+    }
+
+    // ── shown-prompt record (silent-deny cross-check join key) ──
+
+    #[tokio::test]
+    async fn was_shown_false_until_recorded() {
+        let state = ApprovalServerState::new();
+        assert!(!state.was_shown("s1", "mcp__x__y").await);
+        state.record_shown("s1", "mcp__x__y").await;
+        assert!(state.was_shown("s1", "mcp__x__y").await);
+    }
+
+    #[tokio::test]
+    async fn was_shown_is_session_scoped() {
+        let state = ApprovalServerState::new();
+        state.record_shown("s1", "Bash").await;
+        // Same tool, different session → not shown.
+        assert!(!state.was_shown("s2", "Bash").await);
+        assert!(state.was_shown("s1", "Bash").await);
+    }
+
+    #[tokio::test]
+    async fn clear_shown_removes_session_history() {
+        let state = ApprovalServerState::new();
+        state.record_shown("s1", "Bash").await;
+        state.clear_shown("s1").await;
+        assert!(!state.was_shown("s1", "Bash").await);
+    }
+
+    #[tokio::test]
+    async fn shown_history_is_bounded() {
+        let state = ApprovalServerState::new();
+        // Push more than the cap; the earliest entry must be evicted.
+        state.record_shown("s1", "first").await;
+        for i in 0..SHOWN_HISTORY_CAP {
+            state.record_shown("s1", &format!("t{i}")).await;
+        }
+        assert!(!state.was_shown("s1", "first").await, "oldest entry should be evicted past the cap");
+        assert!(state.was_shown("s1", &format!("t{}", SHOWN_HISTORY_CAP - 1)).await);
     }
 
     // ── Preview callback CORS regression tests ──

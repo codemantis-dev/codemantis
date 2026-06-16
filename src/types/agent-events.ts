@@ -20,6 +20,7 @@ export type FrontendEvent =
   | ProcessExitedEvent
   | SessionNoticeEvent
   | ProtectedPathDenyEvent
+  | CliDeniedNoPromptEvent
   | CliSessionIdEvent
   | CompactingStatusEvent
   | CompactCompleteEvent
@@ -147,6 +148,21 @@ export interface ProtectedPathDenial {
   tool_name: string;
   tool_use_id: string;
   tool_input: Record<string, unknown>;
+}
+
+/** One or more tool calls the CLI/environment denied WITHOUT any CodeMantis
+ * approval prompt ever being shown (the approval server has no record of
+ * prompting for them). Canonical trigger: the CLI's native MCP-tool permission
+ * gate, which `--dangerously-skip-permissions` does not satisfy and does not
+ * delegate to the PreToolUse hook (see the protocol report §S14). The CLI
+ * relays its own generic reasonless denial to the model, so the user would
+ * otherwise be wrongly told they declined. Reuses the `ProtectedPathDenial`
+ * shape for each entry. */
+export interface CliDeniedNoPromptEvent {
+  type: "cli_denied_no_prompt";
+  agent_id?: AgentId;
+  session_id: string;
+  denials: ProtectedPathDenial[];
 }
 
 export interface CliSessionIdEvent {

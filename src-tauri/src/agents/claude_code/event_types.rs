@@ -339,6 +339,22 @@ pub enum FrontendEvent {
         denials: Vec<PermissionDenial>,
     },
 
+    /// One or more tool calls were denied by the CLI/environment WITHOUT any
+    /// CodeMantis approval prompt ever being shown — the approval server has no
+    /// record of prompting for them. The canonical trigger is the CLI's native
+    /// MCP-tool permission gate, which `--dangerously-skip-permissions` does not
+    /// satisfy and does not delegate to the PreToolUse hook (see
+    /// docs/internal/cli-2.1.126-protocol-report.md §S14). The CLI relays its
+    /// own generic reasonless denial to the model ("The user doesn't want to
+    /// proceed…"), so without this signal the user is wrongly told *they*
+    /// declined. The chat layer turns this into a "blocked by the CLI, not by
+    /// you" toast, distinct from a genuine user-deny or a protected-path block.
+    #[serde(rename = "cli_denied_no_prompt")]
+    CliDeniedNoPrompt {
+        session_id: String,
+        denials: Vec<PermissionDenial>,
+    },
+
     #[serde(rename = "compacting_status")]
     CompactingStatus {
         session_id: String,

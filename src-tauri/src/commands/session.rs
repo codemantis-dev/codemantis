@@ -877,6 +877,10 @@ pub async fn close_session(
         cli_ids.remove(&session_id);
     }
 
+    // Drop the approval server's "shown-prompt" history for this session
+    // (the silent-deny cross-check join key — see approval_server.rs).
+    state.approval_state.clear_shown(&session_id).await;
+
     // Clean up any pending control requests for this session
     {
         let mut pending = state.pending_control_requests.lock().await;

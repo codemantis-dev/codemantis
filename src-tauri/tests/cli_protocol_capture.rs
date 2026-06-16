@@ -353,6 +353,56 @@ fn settings_json(hook_path: &Path) -> String {
 }
 
 // =====================================================================
+// MCP STUB — a minimal stdio JSON-RPC MCP server (one `echo` tool) the
+// CLI can load via --mcp-config. Lets S14 observe how MCP tools
+// (`mcp__teststub__echo`) flow through the PreToolUse hook under the
+// production --dangerously-skip-permissions config, deterministically and
+// without depending on the user's real MCP stack.
+// =====================================================================
+
+fn write_mcp_stub(dir: &Path) -> PathBuf {
+    let path = dir.join("mcp-stub.js");
+    // Newline-delimited JSON-RPC 2.0 over stdio (MCP stdio transport).
+    let script = r#"const rl = require('readline').createInterface({ input: process.stdin });
+function send(msg){ process.stdout.write(JSON.stringify(msg) + "\n"); }
+rl.on('line', (line) => {
+  let m; try { m = JSON.parse(line); } catch (e) { return; }
+  if (m.method === 'initialize') {
+    send({ jsonrpc:"2.0", id:m.id, result:{ protocolVersion:"2024-11-05",
+      capabilities:{ tools:{} }, serverInfo:{ name:"teststub", version:"0.0.1" } } });
+  } else if (m.method === 'tools/list') {
+    send({ jsonrpc:"2.0", id:m.id, result:{ tools:[{ name:"echo",
+      description:"Echo back the provided text.",
+      inputSchema:{ type:"object", properties:{ text:{ type:"string" } }, required:["text"] } }] } });
+  } else if (m.method === 'tools/call') {
+    const text = (m.params && m.params.arguments && m.params.arguments.text) || "";
+    send({ jsonrpc:"2.0", id:m.id, result:{ content:[{ type:"text", text:"echo: " + text }] } });
+  } else if (m.id !== undefined && m.id !== null) {
+    send({ jsonrpc:"2.0", id:m.id, result:{} });
+  }
+});
+"#;
+    std::fs::write(&path, script).unwrap();
+    path
+}
+
+/// Write an `.mcp.json`-shaped config registering the stub under server
+/// name `teststub` (so its tool surfaces as `mcp__teststub__echo`).
+fn write_mcp_config(dir: &Path, stub_path: &Path) -> PathBuf {
+    let path = dir.join("mcp-config.json");
+    let cfg = json!({
+        "mcpServers": {
+            "teststub": {
+                "command": "node",
+                "args": [ stub_path.display().to_string() ]
+            }
+        }
+    });
+    std::fs::write(&path, cfg.to_string()).unwrap();
+    path
+}
+
+// =====================================================================
 // SPAWN — launch claude with the production flag set + extras.
 // =====================================================================
 
@@ -369,6 +419,24 @@ async fn spawn_cli(
     cwd: &Path,
     initial_prompt: Option<&str>,
 ) -> Spawned {
+    spawn_cli_with_extra(
+        capture, hook_port, hook_path, permission_mode, cwd, initial_prompt, &[],
+    )
+    .await
+}
+
+/// Like `spawn_cli` but layers `extra_args` after the `--settings` block.
+/// Used by S14 to add `--mcp-config` / `--allowedTools` without churning
+/// every other scenario's call site.
+async fn spawn_cli_with_extra(
+    capture: &CaptureWriter,
+    hook_port: u16,
+    hook_path: &Path,
+    permission_mode: Option<&str>,
+    cwd: &Path,
+    initial_prompt: Option<&str>,
+    extra_args: &[String],
+) -> Spawned {
     let mut cmd = Command::new("claude");
 
     for a in production_cli_args() {
@@ -378,6 +446,10 @@ async fn spawn_cli(
         cmd.arg(a);
     }
     cmd.args(["--settings", &settings_json(hook_path)]);
+
+    for a in extra_args {
+        cmd.arg(a);
+    }
 
     if let Some(mode) = permission_mode {
         cmd.args(["--permission-mode", mode]);
@@ -937,6 +1009,72 @@ async fn s12b_hook_500() {
     cleanup(&mut spawned, &ctx).await;
 }
 
+/// S14 — MCP tool under the production hook + `--dangerously-skip-permissions`.
+///
+/// The motivating incident: `mcp__shared-browser-mcp__browser_navigate` was
+/// denied with the CLI's *generic, no-reason* default ("The user doesn't want
+/// to proceed…") and the user never saw a CodeMantis approval prompt. No
+/// CodeMantis hook path emits a reasonless deny, and captures S07/S11/S12b
+/// prove the CLI relays hook reasons verbatim — so the deny did NOT come from
+/// CodeMantis's approval pipeline. This scenario pins WHERE it comes from.
+///
+/// Runs two sub-captures, both with a hook policy that ALLOWS the MCP tool:
+///   * `S14a-mcp-no-allowlist` — production flags only. If the CLI denies the
+///     MCP tool despite the hook returning allow, MCP gating is *separate*
+///     from the PreToolUse hook (the root cause).
+///   * `S14b-mcp-allowlist` — adds `--allowedTools mcp__teststub__echo`. If the
+///     tool now runs (hook consulted, real tool_result), allow-listing is the
+///     fix for Phase 4.
+///
+/// Inspect each capture for: a `hook_in_raw`/`hook_out` pair for the MCP tool
+/// (did the hook fire?), any `permission_denials` entry in the `result` event,
+/// and the synthetic `tool_result.content` (empty CLI default vs a reason).
+/// `allow_list`: the value to pass to `--allowedTools`, or None to omit it.
+/// Used to compare no-allowlist vs the exact-tool form vs the whole-server form
+/// (the form CodeMantis production uses — see `mcp_allowed_tools_arg`).
+async fn run_mcp_scenario(scenario: &str, allow_list: Option<&str>) {
+    let ctx = setup(scenario, allow_all()).await;
+
+    let stub = write_mcp_stub(&ctx.cwd);
+    let mcp_config = write_mcp_config(&ctx.cwd, &stub);
+
+    let mut extra: Vec<String> = vec![
+        "--mcp-config".into(),
+        mcp_config.display().to_string(),
+        // Ignore the user's real MCP servers so the capture is hermetic.
+        "--strict-mcp-config".into(),
+    ];
+    if let Some(allowed) = allow_list {
+        extra.push("--allowedTools".into());
+        extra.push(allowed.into());
+    }
+
+    let mut spawned = spawn_cli_with_extra(
+        &ctx.capture, ctx.hook_port, &ctx.hook_path,
+        None, &ctx.cwd, None, &extra,
+    ).await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Call the echo tool (its name is mcp__teststub__echo) with text \"hello from S14\". \
+         It is in your tool set — call it directly, do not call ToolSearch. After it returns, \
+         tell me in plain text exactly what it returned.").await;
+
+    let _ = wait_for_result(&ctx.capture_path, Duration::from_secs(90)).await;
+    cleanup(&mut spawned, &ctx).await;
+}
+
+async fn s14_mcp_tool() {
+    eprintln!("[harness] S14a — MCP tool, no allowlist");
+    run_mcp_scenario("S14a-mcp-no-allowlist", None).await;
+    eprintln!("[harness] S14b — MCP tool, exact-tool allowlist");
+    run_mcp_scenario("S14b-mcp-allowlist", Some("mcp__teststub__echo")).await;
+    // S14c uses the WHOLE-SERVER form `mcp__<server>` — the form CodeMantis
+    // production emits (mcp_allowed_tools_arg in process.rs), since tool names
+    // aren't known at spawn. Confirms it also routes the tool through the hook.
+    eprintln!("[harness] S14c — MCP tool, whole-server allowlist");
+    run_mcp_scenario("S14c-mcp-server-allowlist", Some("mcp__teststub")).await;
+}
+
 // =====================================================================
 // MAIN — runs the whole battery sequentially.
 // =====================================================================
@@ -983,6 +1121,8 @@ async fn capture_full_battery() {
     s12a_hook_slow().await;
     eprintln!("[harness] === S12b hook 500 ===");
     s12b_hook_500().await;
+    eprintln!("[harness] === S14 MCP tool under hook + skip-permissions ===");
+    s14_mcp_tool().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1120,6 +1260,7 @@ async fn capture_single() {
         "S12a" => s12a_hook_slow().await,
         "S12b" => s12b_hook_500().await,
         "S13" => s13_spawn_time_effort().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S13 (got '{other}')"),
+        "S14" => s14_mcp_tool().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S14 (got '{other}')"),
     }
 }

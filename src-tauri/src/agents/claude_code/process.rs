@@ -49,13 +49,33 @@ pub fn ensure_hook_script() -> Result<std::path::PathBuf, AppError> {
     })?;
 
     let script_path = dir.join("approval-hook.sh");
+    // hook-script v2 (2026-06-16): adds best-effort diagnostic logging to
+    // ~/.codemantis/approval-hook.log. Regenerated on every call (std::fs::write
+    // below is unconditional), so bumping this body takes effect next spawn.
+    // The log is the primary way to tell, after a silent-deny incident, whether
+    // the hook fired for a given tool and what it returned — without it, a
+    // CLI-side MCP denial leaves no host-side trace at all. See
+    // docs/internal/cli-2.1.126-protocol-report.md §S14.
     let script = r#"#!/bin/bash
-# CodeMantis tool approval hook — DO NOT EDIT (auto-generated)
+# CodeMantis tool approval hook — DO NOT EDIT (auto-generated, v2)
 # Reads PreToolUse JSON from stdin, forwards to CodeMantis's HTTP server,
 # and outputs the decision. Auto-approves read-only tools locally.
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+# Best-effort diagnostic log. Never fails the hook (all errors swallowed).
+# One compact line per invocation; rotated once past ~2MB.
+CM_HOOK_LOG="${HOME}/.codemantis/approval-hook.log"
+log_hook() {
+    {
+        sz=$(wc -c < "$CM_HOOK_LOG" 2>/dev/null || echo 0)
+        if [ "${sz:-0}" -gt 2000000 ]; then mv -f "$CM_HOOK_LOG" "${CM_HOOK_LOG}.1" 2>/dev/null; fi
+        printf '%s tool=%s session=%s branch=%s %s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" \
+            "${TOOL_NAME:-?}" "${CODEMANTIS_SESSION_ID:-?}" "$1" "$2" >> "$CM_HOOK_LOG"
+    } 2>/dev/null || true
+}
 
 # Inject CodeMantis session ID into the JSON payload so the approval
 # server can route to the correct session (session IDs are UUIDs: [a-f0-9-])
@@ -70,6 +90,7 @@ fi
 # Auto-approve read-only tools without network roundtrip
 case "$TOOL_NAME" in
   Read|Glob|Grep|ListDirectory|LS|TodoRead|Monitor)
+    log_hook local-allow ""
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
     exit 0
     ;;
@@ -80,10 +101,13 @@ RESPONSE=$(echo "$INPUT" | curl -s --max-time 300 -X POST \
   -H "Content-Type: application/json" \
   -d @- \
   "http://127.0.0.1:${CODEMANTIS_APPROVAL_PORT}/tool-approval" 2>/dev/null)
+CURL_RC=$?
 
-if [ $? -eq 0 ] && [ -n "$RESPONSE" ]; then
+if [ $CURL_RC -eq 0 ] && [ -n "$RESPONSE" ]; then
+    log_hook forward "curl_exit=$CURL_RC resp=$(printf '%s' "$RESPONSE" | tr -d '\n' | cut -c1-200)"
     echo "$RESPONSE"
 else
+    log_hook curl-fail "curl_exit=$CURL_RC"
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"CodeMantis approval server unavailable"}}'
 fi
 "#;
@@ -376,6 +400,13 @@ impl ClaudeProcess {
             build_session_settings_json(None)
         };
         cmd.args(["--settings", &settings_json]);
+
+        // NOTE: an earlier revision passed `--allowedTools mcp__<server>` here
+        // to "route MCP tools through the hook." A clean capture (S14a, CLI
+        // 2.1.178) disproved the premise — MCP tools already route through the
+        // PreToolUse hook and run under --dangerously-skip-permissions WITHOUT
+        // any allow-list. The earlier "native MCP gate" finding was an artefact
+        // of a rate-limited capture run. See docs/internal/cli-2.1.126-protocol-report.md §S14.
 
         // Thinking-effort override uses the documented `--effort` CLI flag
         // (values per `claude --help`: low, medium, high, xhigh, max). This
@@ -957,6 +988,19 @@ mod tests {
         assert!(content.contains("#!/bin/bash"));
         assert!(content.contains("CODEMANTIS_SESSION_ID"));
         assert!(content.contains("tool-approval"));
+
+        // v2 diagnostic logging: the log helper + a marker on every branch
+        // (local read-only allow, server forward, curl-failure fallback) so a
+        // silent-deny incident leaves a host-side trace. Regression for the
+        // S14 MCP-denial diagnosis.
+        assert!(content.contains("approval-hook.log"), "must log to approval-hook.log");
+        assert!(content.contains("branch=%s"), "must emit a branch= field");
+        assert!(content.contains("log_hook local-allow"), "read-only branch must be logged");
+        assert!(content.contains("log_hook forward"), "server-forward branch must be logged");
+        assert!(content.contains("log_hook curl-fail"), "curl-failure branch must be logged");
+        // The curl exit code must be captured into a var BEFORE other commands
+        // clobber $? — otherwise the logged exit code is meaningless.
+        assert!(content.contains("CURL_RC=$?"), "curl exit code must be captured immediately");
 
         // Verify executable permissions
         #[cfg(unix)]

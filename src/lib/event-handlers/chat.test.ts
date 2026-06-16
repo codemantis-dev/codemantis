@@ -949,6 +949,72 @@ describe("chat event handler — protected_path_deny", () => {
   });
 });
 
+describe("chat event handler — cli_denied_no_prompt", () => {
+  beforeEach(() => {
+    resetStore();
+    setupSession();
+    vi.mocked(showToast).mockClear();
+  });
+
+  it("tells the user an MCP tool was blocked by the CLI, not by them, and hints at allow-listing", () => {
+    // Regression for the field incident: mcp__shared-browser-mcp__browser_navigate
+    // denied by the CLI's native MCP gate with no prompt ever shown. The user
+    // must NOT be told they declined.
+    const event: FrontendEvent = {
+      type: "cli_denied_no_prompt",
+      session_id: "s1",
+      denials: [
+        {
+          tool_name: "mcp__shared-browser-mcp__browser_navigate",
+          tool_use_id: "toolu_mcp1",
+          tool_input: { url: "http://host.docker.internal:8080/" },
+        },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg, level] = vi.mocked(showToast).mock.calls[0];
+    expect(level).toBe("error");
+    expect(msg).toContain("blocked by the Claude CLI");
+    expect(msg).toContain("not by you");
+    expect(msg).toContain("mcp__shared-browser-mcp__browser_navigate");
+    expect(msg).toContain("allow-listed");
+  });
+
+  it("omits the MCP allow-list hint for non-MCP tools and pluralizes", () => {
+    const event: FrontendEvent = {
+      type: "cli_denied_no_prompt",
+      session_id: "s1",
+      denials: [
+        { tool_name: "SomeTool", tool_use_id: "t1", tool_input: {} },
+        { tool_name: "OtherTool", tool_use_id: "t2", tool_input: {} },
+      ],
+    };
+    handleChatEvent("s1", event);
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("2 tool calls were");
+    expect(msg).not.toContain("allow-listed");
+  });
+
+  it("truncates long denial lists", () => {
+    const event: FrontendEvent = {
+      type: "cli_denied_no_prompt",
+      session_id: "s1",
+      denials: [
+        { tool_name: "mcp__a__one", tool_use_id: "t1", tool_input: {} },
+        { tool_name: "mcp__a__two", tool_use_id: "t2", tool_input: {} },
+        { tool_name: "mcp__a__three", tool_use_id: "t3", tool_input: {} },
+        { tool_name: "mcp__a__four", tool_use_id: "t4", tool_input: {} },
+      ],
+    };
+    handleChatEvent("s1", event);
+    const [msg] = vi.mocked(showToast).mock.calls[0];
+    expect(msg).toContain("(+1 more)");
+    expect(msg).not.toContain("mcp__a__four");
+  });
+});
+
 describe("chat event handler — session_notice", () => {
   beforeEach(() => {
     resetStore();
