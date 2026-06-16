@@ -180,6 +180,49 @@ The diagnostics added in the same change (hook-script logging, the approval-serv
 and the `cli_denied_no_prompt` cross-check + "blocked by the CLI, not by you" toast) are the mechanism
 to capture the real cause on the next occurrence — they stand regardless of this correction.
 
+### S15 — MCP tool over HTTP (Streamable HTTP) transport ★ CLI 2.1.178 ★
+
+Tests the leading hypothesis from S14: does HTTP-transport MCP (the real `shared-browser-mcp`) behave
+differently from stdio? Minimal Node Streamable-HTTP MCP stub (`type: "http"`), production flags, **no
+`--allowedTools`**.
+
+- `system/init`: `mcp_servers: [{name:"httpstub", status:"connected"}]`, `mcp__httpstub__echo` in tools.
+- Model called `mcp__httpstub__echo`; **hook fired (1/1)**; tool **ran** (`echo: hello from S15`);
+  `permission_denials: []`, `result: success`. (`api_retries: 0` — clean.)
+- **Conclusion:** HTTP transport behaves identically to stdio — MCP tools route through the hook and run
+  without an allow-list. **HTTP is NOT the differentiator.** The field incident remains unreproduced.
+
+### S16 — PreToolUse hook EXCEEDS the CLI `timeout` (fail-open discovery) ★ CLI 2.1.178 ★
+
+Hook stub responds in 5s; CLI PreToolUse `timeout` set to 2s. Observe what the CLI does when it gives
+up on a hook.
+
+- Hook stub received the request (`hook_in=1`) but the CLI killed it at 2s before it replied (`out=0`).
+- **The Write SUCCEEDED** (`tool_result: "File created successfully…"`, `permission_denials: []`,
+  `result: success`). The CLI emitted a `hook_response` system event and **ran the tool anyway**.
+- **Conclusion:** under `bypassPermissions`, the CLI **FAILS OPEN** on a PreToolUse hook timeout — it
+  runs the tool, it does NOT inject a reasonless deny. So the timeout race does **not** explain the
+  field incident's reasonless deny either — **but it exposes a real safety gap.**
+
+**Safety gap + fix (shipped).** Production had three equal `300s` timers: the approval server's internal
+decision timeout, the hook script's `curl --max-time`, and the CLI PreToolUse `timeout`. A never-answered
+approval races all three at ≈300s; if the CLI hook timeout wins, the CLI fail-opens and **runs the tool
+unapproved** instead of returning CodeMantis's intended deny. Fixed by strict ordering — server `300` <
+curl `320` < CLI hook `360` — so the server's reasoned `deny("Approval timed out")` always reaches the
+CLI before its fail-open deadline. `approval_server::DECISION_TIMEOUT_SECS` is now the single source of
+truth; `process.rs` derives `HOOK_CURL_MAX_TIME_SECS` / `CLI_HOOK_TIMEOUT_SECS` from it and a test
+(`hook_timeout_ordering_prevents_fail_open`) guards the invariant.
+
+### Field incident: status after S14/S15/S16
+
+Three structural hypotheses are now **ruled out** by clean captures: native MCP gate (S14a), HTTP
+transport (S15), hook-timeout→reasonless-deny (S16, fails open). The exact trigger of the original
+`mcp__shared-browser-mcp__browser_navigate` reasonless deny is **still unreproduced** and likely depends
+on runtime state not recoverable from the screenshot (a non-`bypassPermissions` permission mode, MCP
+server health, sub-agent context, or a host-side modal miss). The shipped diagnostics are the path to
+catching it with full context next time. Untested next step: hook timeout under a NON-bypass permission
+mode (`plan`/`default`) — the CLI may fail *closed* there.
+
 ---
 
 ## Actionable bugs in CodeMantis (proven by the captures)

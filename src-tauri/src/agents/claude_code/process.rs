@@ -38,6 +38,31 @@ pub(crate) const CLAUDE_CONST_ARGS: &[&str] = &[
     "summarized",
 ];
 
+/// Approval-flow timeout ordering (seconds), innermost → outermost:
+///   approval server decision (DECISION_TIMEOUT_SECS, approval_server.rs)
+///     < hook script `curl --max-time` (HOOK_CURL_MAX_TIME_SECS)
+///       < CLI PreToolUse hook `timeout` (CLI_HOOK_TIMEOUT_SECS)
+/// The server decides at the innermost timeout; curl must outlast it to receive
+/// that reasoned decision; the CLI hook timeout must outlast curl so the CLI
+/// never kills the hook — and FAIL-OPENs, running the tool UNAPPROVED — before
+/// the decision arrives. Capture S16 proved the CLI fails open (runs the tool)
+/// when a PreToolUse hook exceeds its timeout under bypassPermissions. With all
+/// three previously equal at 300s, a never-answered approval could race into
+/// that fail-open. Enforced by test `hook_timeout_ordering_prevents_fail_open`.
+const HOOK_CURL_MAX_TIME_SECS: u64 =
+    crate::agents::claude_code::approval_server::DECISION_TIMEOUT_SECS + 20;
+const CLI_HOOK_TIMEOUT_SECS: u64 = HOOK_CURL_MAX_TIME_SECS + 40;
+
+/// Compile-time guarantee of the fail-open-prevention ordering (S16): server
+/// decision < curl < CLI hook timeout. If anyone breaks it, the BUILD fails.
+const _: () = {
+    assert!(
+        HOOK_CURL_MAX_TIME_SECS
+            > crate::agents::claude_code::approval_server::DECISION_TIMEOUT_SECS
+    );
+    assert!(CLI_HOOK_TIMEOUT_SECS > HOOK_CURL_MAX_TIME_SECS);
+};
+
 /// Ensure the hook script exists at ~/.codemantis/approval-hook.sh
 pub fn ensure_hook_script() -> Result<std::path::PathBuf, AppError> {
     let home = dirs::home_dir().ok_or_else(|| {
@@ -96,8 +121,10 @@ case "$TOOL_NAME" in
     ;;
 esac
 
-# Forward to CodeMantis approval server
-RESPONSE=$(echo "$INPUT" | curl -s --max-time 300 -X POST \
+# Forward to CodeMantis approval server. --max-time is intentionally LONGER than
+# the server's internal decision timeout and SHORTER than the CLI hook timeout
+# (see HOOK_CURL_MAX_TIME_SECS / the timeout-ordering invariant in process.rs).
+RESPONSE=$(echo "$INPUT" | curl -s --max-time __CURL_MAX_TIME__ -X POST \
   -H "Content-Type: application/json" \
   -d @- \
   "http://127.0.0.1:${CODEMANTIS_APPROVAL_PORT}/tool-approval" 2>/dev/null)
@@ -111,8 +138,11 @@ else
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"CodeMantis approval server unavailable"}}'
 fi
 "#;
+    // Inject the curl timeout from the single-source-of-truth constant so the
+    // script literal can't drift from the ordering invariant.
+    let script = script.replace("__CURL_MAX_TIME__", &HOOK_CURL_MAX_TIME_SECS.to_string());
 
-    std::fs::write(&script_path, script).map_err(|e| {
+    std::fs::write(&script_path, &script).map_err(|e| {
         AppError::ClaudeCliError(format!("Failed to write hook script: {}", e))
     })?;
 
@@ -255,7 +285,11 @@ fn build_session_settings_json(
                         {
                             "type": "command",
                             "command": hook_command,
-                            "timeout": 300
+                            // Strictly > the hook's curl --max-time, which is
+                            // strictly > the approval server's decision timeout,
+                            // so a slow/unanswered approval returns CodeMantis's
+                            // reasoned deny before the CLI fail-opens (S16).
+                            "timeout": CLI_HOOK_TIMEOUT_SECS
                         }
                     ]
                 }
@@ -873,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn build_session_settings_json_sets_timeout_300() {
+    fn build_session_settings_json_sets_pretooluse_timeout_from_const() {
         let result = build_session_settings_json(Some(("/any/path.sh", "/any/title.sh")));
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
@@ -881,7 +915,9 @@ mod tests {
             .pointer("/hooks/PreToolUse/0/hooks/0/timeout")
             .and_then(|v| v.as_u64())
             .expect("should have timeout field");
-        assert_eq!(timeout, 300);
+        // Wired from CLI_HOOK_TIMEOUT_SECS (must outlast curl + server timeouts
+        // so a slow approval denies rather than fail-opening — S16).
+        assert_eq!(timeout, CLI_HOOK_TIMEOUT_SECS);
     }
 
     #[test]
@@ -1002,6 +1038,15 @@ mod tests {
         // clobber $? — otherwise the logged exit code is meaningless.
         assert!(content.contains("CURL_RC=$?"), "curl exit code must be captured immediately");
 
+        // The curl --max-time must be wired from HOOK_CURL_MAX_TIME_SECS (the
+        // placeholder must be substituted), so it can't drift from the ordering
+        // invariant. See hook_timeout_ordering_prevents_fail_open.
+        assert!(
+            content.contains(&format!("--max-time {}", HOOK_CURL_MAX_TIME_SECS)),
+            "curl --max-time must equal HOOK_CURL_MAX_TIME_SECS"
+        );
+        assert!(!content.contains("__CURL_MAX_TIME__"), "placeholder must be substituted");
+
         // Verify executable permissions
         #[cfg(unix)]
         {
@@ -1009,6 +1054,20 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o755, 0o755);
         }
+    }
+
+    #[test]
+    fn hook_timeout_ordering_wires_into_settings() {
+        // The strict ordering (server decision < curl < CLI hook timeout) that
+        // prevents the CLI fail-open (S16) is guaranteed at COMPILE TIME by the
+        // `const _: ()` assertion above. This test confirms the generated
+        // settings actually carry the CLI hook timeout constant (so the wiring
+        // can't silently drift from the value the invariant protects).
+        let settings = build_session_settings_json(Some(("/h.sh", "/t.sh")));
+        assert!(
+            settings.contains(&format!("\"timeout\":{CLI_HOOK_TIMEOUT_SECS}")),
+            "settings must carry CLI_HOOK_TIMEOUT_SECS; got: {settings}"
+        );
     }
 
     #[test]

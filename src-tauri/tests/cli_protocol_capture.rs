@@ -335,6 +335,14 @@ fi
 }
 
 fn settings_json(hook_path: &Path) -> String {
+    settings_json_with_timeout(hook_path, 300)
+}
+
+/// Like `settings_json` but with a configurable PreToolUse hook `timeout`
+/// (seconds). S16 uses a SHORT timeout to observe what the CLI injects when the
+/// hook process exceeds its deadline — the production hook script's
+/// `curl --max-time 300` and this `timeout` are both 300 today, a latent race.
+fn settings_json_with_timeout(hook_path: &Path, hook_timeout_secs: u64) -> String {
     let cmd = format!("bash \"{}\"", hook_path.display());
     json!({
         "alwaysThinkingEnabled": true,
@@ -345,7 +353,7 @@ fn settings_json(hook_path: &Path) -> String {
                 "hooks": [{
                     "type": "command",
                     "command": cmd,
-                    "timeout": 300
+                    "timeout": hook_timeout_secs
                 }]
             }]
         }
@@ -402,6 +410,67 @@ fn write_mcp_config(dir: &Path, stub_path: &Path) -> PathBuf {
     path
 }
 
+/// A minimal **Streamable HTTP** MCP server (one `echo` tool) — the transport
+/// the real `shared-browser-mcp` uses (`http://127.0.0.1:8931/mcp`). S14 only
+/// exercised stdio; S15 uses this to test whether HTTP-transport MCP tools are
+/// permissioned differently (the leading un-reproduced hypothesis for the
+/// field incident). Reads its port from `MCP_HTTP_PORT`. Responds to each
+/// JSON-RPC POST with a single `application/json` body (the spec lets the
+/// server choose JSON over an SSE stream), 202 for notifications, 405 for GET
+/// (no server→client SSE — explicitly allowed).
+fn write_http_mcp_stub(dir: &Path) -> PathBuf {
+    let path = dir.join("mcp-http-stub.js");
+    let script = r#"const http = require('http');
+const PORT = parseInt(process.env.MCP_HTTP_PORT || '0', 10);
+function rpc(id, result){ return JSON.stringify({ jsonrpc:"2.0", id, result }); }
+const server = http.createServer((req, res) => {
+  if (req.method === 'POST') {
+    let body=''; req.on('data', c => body+=c);
+    req.on('end', () => {
+      let m; try { m = JSON.parse(body); } catch (e) { res.writeHead(400).end(); return; }
+      if (m.id === undefined || m.id === null) { res.writeHead(202).end(); return; }
+      if (m.method === 'initialize') {
+        res.writeHead(200, { 'Content-Type':'application/json', 'Mcp-Session-Id':'stub-session-1' });
+        res.end(rpc(m.id, { protocolVersion:"2024-11-05", capabilities:{ tools:{} },
+          serverInfo:{ name:"httpstub", version:"0.0.1" } })); return;
+      }
+      let result = {};
+      if (m.method === 'tools/list') {
+        result = { tools:[{ name:"echo", description:"Echo back the provided text.",
+          inputSchema:{ type:"object", properties:{ text:{ type:"string" } }, required:["text"] } }] };
+      } else if (m.method === 'tools/call') {
+        const text = (m.params && m.params.arguments && m.params.arguments.text) || "";
+        result = { content:[{ type:"text", text:"echo: " + text }] };
+      }
+      res.writeHead(200, { 'Content-Type':'application/json' });
+      res.end(rpc(m.id, result));
+    });
+  } else if (req.method === 'DELETE') {
+    res.writeHead(200).end();
+  } else {
+    res.writeHead(405).end();
+  }
+});
+server.listen(PORT, '127.0.0.1', () => { process.stdout.write('LISTENING\n'); });
+"#;
+    std::fs::write(&path, script).unwrap();
+    path
+}
+
+/// Config registering the HTTP stub under server name `httpstub` (tool surfaces
+/// as `mcp__httpstub__echo`). Uses `type: "http"` (Streamable HTTP) to match
+/// the real shared-browser-mcp.
+fn write_http_mcp_config(dir: &Path, port: u16) -> PathBuf {
+    let path = dir.join("mcp-http-config.json");
+    let cfg = json!({
+        "mcpServers": {
+            "httpstub": { "type": "http", "url": format!("http://127.0.0.1:{port}/mcp") }
+        }
+    });
+    std::fs::write(&path, cfg.to_string()).unwrap();
+    path
+}
+
 // =====================================================================
 // SPAWN — launch claude with the production flag set + extras.
 // =====================================================================
@@ -420,14 +489,16 @@ async fn spawn_cli(
     initial_prompt: Option<&str>,
 ) -> Spawned {
     spawn_cli_with_extra(
-        capture, hook_port, hook_path, permission_mode, cwd, initial_prompt, &[],
+        capture, hook_port, hook_path, permission_mode, cwd, initial_prompt, &[], 300,
     )
     .await
 }
 
-/// Like `spawn_cli` but layers `extra_args` after the `--settings` block.
-/// Used by S14 to add `--mcp-config` / `--allowedTools` without churning
-/// every other scenario's call site.
+/// Like `spawn_cli` but layers `extra_args` after the `--settings` block and
+/// takes a configurable PreToolUse hook `timeout` (seconds). Used by S14/S15
+/// to add `--mcp-config` / `--allowedTools` and by S16 to set a short hook
+/// timeout — without churning every other scenario's call site.
+#[allow(clippy::too_many_arguments)]
 async fn spawn_cli_with_extra(
     capture: &CaptureWriter,
     hook_port: u16,
@@ -436,6 +507,7 @@ async fn spawn_cli_with_extra(
     cwd: &Path,
     initial_prompt: Option<&str>,
     extra_args: &[String],
+    hook_timeout_secs: u64,
 ) -> Spawned {
     let mut cmd = Command::new("claude");
 
@@ -445,7 +517,7 @@ async fn spawn_cli_with_extra(
     for a in diagnostic_cli_args() {
         cmd.arg(a);
     }
-    cmd.args(["--settings", &settings_json(hook_path)]);
+    cmd.args(["--settings", &settings_json_with_timeout(hook_path, hook_timeout_secs)]);
 
     for a in extra_args {
         cmd.arg(a);
@@ -1051,7 +1123,7 @@ async fn run_mcp_scenario(scenario: &str, allow_list: Option<&str>) {
 
     let mut spawned = spawn_cli_with_extra(
         &ctx.capture, ctx.hook_port, &ctx.hook_path,
-        None, &ctx.cwd, None, &extra,
+        None, &ctx.cwd, None, &extra, 300,
     ).await;
 
     send_user(&mut spawned, &ctx.capture,
@@ -1073,6 +1145,111 @@ async fn s14_mcp_tool() {
     // aren't known at spawn. Confirms it also routes the tool through the hook.
     eprintln!("[harness] S14c — MCP tool, whole-server allowlist");
     run_mcp_scenario("S14c-mcp-server-allowlist", Some("mcp__teststub")).await;
+}
+
+/// S15 — MCP tool over **HTTP (Streamable HTTP)** transport, no allow-list,
+/// production flags. The field incident server (`shared-browser-mcp`) is HTTP;
+/// S14 only tested stdio and showed MCP tools route through the hook fine, so
+/// HTTP transport is the leading un-reproduced hypothesis for the silent deny.
+///
+/// Inspect the capture for: `mcp_servers` status in `system/init` (did the CLI
+/// connect to the HTTP server?), a `hook_in_raw`/`hook_out` pair for
+/// `mcp__httpstub__echo` (did the hook fire — i.e. route through CodeMantis?),
+/// the synthetic `tool_result` (real echo vs CLI's reasonless deny), and any
+/// `permission_denials` entry. ALSO check for `rate_limit_event` / `api_retry`
+/// before concluding — a throttled run proves nothing (the S14a lesson).
+async fn s15_http_mcp_tool() {
+    let ctx = setup("S15-mcp-http", allow_all()).await;
+
+    // Pick a free port, then start the Node HTTP MCP stub on it.
+    let port = {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        p
+    };
+    let stub_js = write_http_mcp_stub(&ctx.cwd);
+    let mut stub = Command::new("node")
+        .arg(&stub_js)
+        .env("MCP_HTTP_PORT", port.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn node http mcp stub");
+
+    // Wait until the stub accepts TCP connections (server is up).
+    let mut reachable = false;
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+            reachable = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    ctx.capture
+        .log_event("http_mcp_stub", json!({ "port": port, "reachable": reachable }))
+        .await;
+
+    let mcp_config = write_http_mcp_config(&ctx.cwd, port);
+    // NO --allowedTools — match production exactly.
+    let extra = vec![
+        "--mcp-config".to_string(),
+        mcp_config.display().to_string(),
+        "--strict-mcp-config".to_string(),
+    ];
+
+    let mut spawned = spawn_cli_with_extra(
+        &ctx.capture, ctx.hook_port, &ctx.hook_path, None, &ctx.cwd, None, &extra, 300,
+    )
+    .await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Call the echo tool (its name is mcp__httpstub__echo) with text \"hello from S15\". \
+         It is in your tool set — call it directly, do not call ToolSearch. After it returns, \
+         tell me in plain text exactly what it returned.").await;
+
+    let _ = wait_for_result(&ctx.capture_path, Duration::from_secs(90)).await;
+    cleanup(&mut spawned, &ctx).await;
+
+    // Reap the Node stub so it doesn't outlive the scenario.
+    let _ = stub.start_kill();
+    let _ = stub.wait().await;
+}
+
+/// S16 — hook response time EXCEEDS the CLI PreToolUse `timeout`. The hook
+/// stub takes 5s; the CLI hook `timeout` is set to 2s. Observe what the CLI
+/// injects when it gives up on the hook: does it produce its OWN generic
+/// reasonless deny ("The user doesn't want to proceed…" — the field-incident
+/// symptom) and a `permission_denials` entry, or does it fail open?
+///
+/// Why it matters: in production the hook script's `curl --max-time 300`, the
+/// approval server's internal oneshot timeout (300s), and the CLI hook
+/// `timeout` (300s) are ALL 300s — a latent race. A never-acted-on modal can
+/// trip the CLI timeout FIRST, so the model sees the CLI's reasonless default
+/// instead of CodeMantis's reasoned "Approval timed out". This scenario tells
+/// us whether de-racing those timers (curl < CLI-timeout, both > server-timeout)
+/// is the right resilience fix. (Check for `rate_limit_event`/`api_retry`
+/// before concluding — a throttled run proves nothing.)
+async fn s16_hook_exceeds_cli_timeout() {
+    let policy: HookPolicy = Arc::new(|input| {
+        let tool = input.tool_name.as_deref().unwrap_or("");
+        if tool == "Write" {
+            HookOutcome::SlowAllow(Duration::from_secs(5))
+        } else {
+            HookOutcome::Respond(HookResponse::allow())
+        }
+    });
+    let ctx = setup("S16-hook-exceeds-cli-timeout", policy).await;
+    // hook_timeout_secs = 2 → the CLI kills the (5s) hook at 2s.
+    let mut spawned = spawn_cli_with_extra(
+        &ctx.capture, ctx.hook_port, &ctx.hook_path, None, &ctx.cwd, None, &[], 2,
+    )
+    .await;
+    send_user(&mut spawned, &ctx.capture,
+        "Use the Write tool to create /tmp/cm-harness-S16.txt with contents 'timeout-test'. \
+         Just one Write call.").await;
+    let _ = wait_for_result(&ctx.capture_path, Duration::from_secs(60)).await;
+    cleanup(&mut spawned, &ctx).await;
 }
 
 // =====================================================================
@@ -1123,6 +1300,10 @@ async fn capture_full_battery() {
     s12b_hook_500().await;
     eprintln!("[harness] === S14 MCP tool under hook + skip-permissions ===");
     s14_mcp_tool().await;
+    eprintln!("[harness] === S15 MCP tool over HTTP transport ===");
+    s15_http_mcp_tool().await;
+    eprintln!("[harness] === S16 hook exceeds CLI timeout ===");
+    s16_hook_exceeds_cli_timeout().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1261,6 +1442,8 @@ async fn capture_single() {
         "S12b" => s12b_hook_500().await,
         "S13" => s13_spawn_time_effort().await,
         "S14" => s14_mcp_tool().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S14 (got '{other}')"),
+        "S15" => s15_http_mcp_tool().await,
+        "S16" => s16_hook_exceeds_cli_timeout().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S16 (got '{other}')"),
     }
 }

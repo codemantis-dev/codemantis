@@ -121,6 +121,17 @@ pub struct ApprovalDecision {
 /// the record is only used as a recent-history diagnostic join key.
 const SHOWN_HISTORY_CAP: usize = 50;
 
+/// How long the approval server waits for the user's decision before returning
+/// a reasoned `deny("Approval timed out")`. This is the INNERMOST of three
+/// nested timers — the hook script's `curl --max-time` and the CLI's PreToolUse
+/// hook `timeout` (both in process.rs) MUST be strictly larger, in that order,
+/// so the server's reasoned decision always reaches the CLI before the CLI's
+/// fail-open hook timeout fires. If the CLI timeout were ≤ this, a never-answered
+/// approval could FAIL OPEN and run the tool unapproved (verified: the CLI runs
+/// the tool when a PreToolUse hook exceeds its timeout — capture S16). Keep this
+/// in sync with the ordering test in process.rs.
+pub const DECISION_TIMEOUT_SECS: u64 = 300;
+
 /// Shared state for the approval HTTP server.
 pub struct ApprovalServerState {
     pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,
@@ -524,7 +535,8 @@ async fn handle_tool_approval(
     }
 
     // Wait for the user's decision with a timeout (5 minutes)
-    let decision = tokio::time::timeout(std::time::Duration::from_secs(300), rx).await;
+    let decision =
+        tokio::time::timeout(std::time::Duration::from_secs(DECISION_TIMEOUT_SECS), rx).await;
 
     // Clean up if still pending (timeout or channel dropped)
     {
