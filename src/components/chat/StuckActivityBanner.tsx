@@ -3,11 +3,6 @@ import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
-import {
-  interruptSession,
-  pauseSessionProcess,
-  resumeSessionProcess,
-} from "../../lib/tauri-commands";
 
 interface StuckActivityBannerProps {
   sessionId: string;
@@ -25,7 +20,6 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
   const setShowApprovalModal = useUiStore((s) => s.setShowApprovalModal);
   const { freshThreadCodexSession } = useClaudeSession();
-  const [stoppingState, setStoppingState] = useState<"idle" | "stopping">("idle");
   const [freshState, setFreshState] = useState<"idle" | "starting">("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
 
@@ -98,45 +92,11 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
           {freshState === "starting" ? "Starting..." : "Start fresh thread"}
         </button>
       )}
-      <button
-        type="button"
-        disabled={stoppingState === "stopping"}
-        onClick={async () => {
-          setStoppingState("stopping");
-          try {
-            if (agentId === "codex") {
-              // A wedged Codex app-server won't honour a graceful
-              // turn/interrupt (that's exactly why this banner appeared),
-              // so kill the process and respawn it resuming the same
-              // thread — the only thing that reliably revives the session.
-              // The conversation is preserved (resume); only the runaway
-              // turn is dropped.
-              await pauseSessionProcess(sessionId);
-              await resumeSessionProcess(sessionId);
-            } else {
-              // Claude's interrupt writes to stdin and returns immediately,
-              // so the graceful path is reliable — keep it.
-              await interruptSession(sessionId);
-            }
-            // Return the input to its normal state: finalize any dangling
-            // streaming bubble and clear busy (which also drops the stuck
-            // flag, hiding this banner).
-            const store = useSessionStore.getState();
-            if (store.sessionStreaming.get(sessionId)?.isStreaming) {
-              store.finalizeStreaming(sessionId);
-            }
-            store.setSessionBusy(sessionId, false);
-          } catch (e) {
-            // Surface but don't crash the banner — the user can retry.
-            console.error("Stop session failed:", e);
-          } finally {
-            setStoppingState("idle");
-          }
-        }}
-        className="px-2 py-0.5 rounded border border-red/40 text-red hover:bg-red/20 disabled:opacity-50"
-      >
-        {stoppingState === "stopping" ? "Stopping..." : "Stop session"}
-      </button>
+      {/* No generic "Stop session" button here anymore: stopping a busy session
+          (including a wedged one) is handled by the input-area Stop button / Esc,
+          which escalates a graceful interrupt to a forceful kill+respawn via
+          useStopSession. This banner keeps only the two specialised recoveries
+          above — reopening a lost approval and starting a fresh Codex thread. */}
     </div>
   );
 }

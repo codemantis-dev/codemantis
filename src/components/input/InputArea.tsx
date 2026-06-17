@@ -4,7 +4,8 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useUiStore } from "../../stores/uiStore";
-import { saveClipboardImage, getFileInfo, interruptSession } from "../../lib/tauri-commands";
+import { saveClipboardImage, getFileInfo } from "../../lib/tauri-commands";
+import { useStopSession, STOPPING_LABEL, FORCE_STOPPING_LABEL } from "../../hooks/useStopSession";
 import { open } from "@tauri-apps/plugin-dialog";
 import AttachmentBar from "./AttachmentBar";
 import ModeSelector from "./ModeSelector";
@@ -45,6 +46,14 @@ export default function InputArea() {
   const session = useSessionStore((s) => s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null);
   const isStreaming = useSessionStore((s) => s.activeSessionId ? s.sessionStreaming.get(s.activeSessionId)?.isStreaming ?? false : false);
   const isBusy = useSessionStore((s) => s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false);
+  // While a stop is escalating, the session activity carries the phase label
+  // (Stopping… → Force-stopping…); reflect it on the Stop button.
+  const stopProgressLabel = useSessionStore((s) => {
+    if (!s.activeSessionId) return null;
+    const label = s.sessionActivity.get(s.activeSessionId)?.label;
+    return label === STOPPING_LABEL || label === FORCE_STOPPING_LABEL ? label : null;
+  });
+  const { stopSession } = useStopSession();
   const sendShortcut = useSettingsStore((s) => s.settings.sendShortcut);
 
   const sessionMessages = useSessionStore((s) =>
@@ -140,13 +149,11 @@ export default function InputArea() {
 
       if (!activeSessionId || !isBusy) return;
       e.preventDefault();
-      interruptSession(activeSessionId).catch((e) =>
-        console.error("Failed to interrupt session:", e)
-      );
+      stopSession(activeSessionId);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeSessionId, isBusy]);
+  }, [activeSessionId, isBusy, stopSession]);
 
   // Listen for Cmd+/ to open command palette
   useEffect(() => {
@@ -191,11 +198,9 @@ export default function InputArea() {
   }, [input, activeSessionId, isStreaming, sendMessage, attachments, clearAttachments]);
 
   const handleStop = useCallback(() => {
-    if (!activeSessionId || !isBusy) return;
-    interruptSession(activeSessionId).catch((e) =>
-      console.error("Failed to interrupt session:", e)
-    );
-  }, [activeSessionId, isBusy]);
+    if (!activeSessionId) return;
+    stopSession(activeSessionId);
+  }, [activeSessionId, stopSession]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -527,7 +532,7 @@ export default function InputArea() {
                   style={{ background: "color-mix(in srgb, var(--red) 15%, transparent)" }}
                 >
                   <Square size={12} />
-                  <span>Stop</span>
+                  <span>{stopProgressLabel ?? "Stop"}</span>
                   <span className="text-label opacity-60">Esc</span>
                 </button>
               ) : (

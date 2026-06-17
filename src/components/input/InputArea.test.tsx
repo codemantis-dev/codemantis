@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import InputArea from "./InputArea";
 import { useSessionStore } from "../../stores/sessionStore";
+import { mockInvoke } from "../../test/helpers/tauri-mock-factory";
+import { FORCE_STOP_TIMEOUT_MS } from "../../hooks/useStopSession";
 import type { Session } from "../../types/session";
 
 const SESSION: Session = {
@@ -138,5 +140,53 @@ describe("InputArea", () => {
     // Component should still be functional — send button should be enabled
     const sendButton = screen.getByText("Send").closest("button")!;
     expect(sendButton).not.toBeDisabled();
+  });
+
+  // The Stop button / Esc route through useStopSession: a graceful interrupt
+  // that auto-escalates to a force-stop if the CLI never acknowledges. These
+  // verify the wiring (the escalation logic itself is covered in
+  // useStopSession.test.tsx).
+  describe("Stop escalation wiring", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      setSessionState(SESSION, true);
+      // setSessionState doesn't touch sessionActivity; clear any "Stopping..."
+      // label left by a prior test so the button starts as plain "Stop".
+      useSessionStore.setState({ sessionActivity: new Map() });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("Stop click sends a graceful interrupt and shows 'Stopping...'", () => {
+      const calls: string[] = [];
+      mockInvoke({ interrupt_session: () => { calls.push("interrupt"); return undefined; } });
+      render(<InputArea />);
+
+      act(() => { fireEvent.click(screen.getByText("Stop").closest("button")!); });
+
+      expect(calls).toEqual(["interrupt"]);
+      expect(screen.getByText("Stopping...")).toBeInTheDocument();
+      expect(useSessionStore.getState().sessionBusy.get(SESSION.id)).toBe(true);
+    });
+
+    it("auto-force-stops when the CLI stays silent past the timeout", async () => {
+      mockInvoke({ interrupt_session: () => undefined });
+      render(<InputArea />);
+
+      act(() => { fireEvent.click(screen.getByText("Stop").closest("button")!); });
+      await act(async () => { vi.advanceTimersByTime(FORCE_STOP_TIMEOUT_MS); });
+
+      // Busy cleared locally → input returns to Send even though no turn_complete came.
+      expect(useSessionStore.getState().sessionBusy.get(SESSION.id)).toBe(false);
+    });
+
+    it("Esc triggers the same stop path", () => {
+      const calls: string[] = [];
+      mockInvoke({ interrupt_session: () => { calls.push("interrupt"); return undefined; } });
+      render(<InputArea />);
+
+      act(() => { fireEvent.keyDown(window, { key: "Escape" }); });
+
+      expect(calls).toEqual(["interrupt"]);
+    });
   });
 });

@@ -47,7 +47,10 @@ describe("StuckActivityBanner", () => {
     expect(screen.getByRole("button", { name: /Reopen approval/i })).toBeInTheDocument();
   });
 
-  it("renders only Stop session for no-progress (no Reopen button)", () => {
+  // The generic "Stop session" button was removed: stopping a (possibly wedged)
+  // session is now handled by the input-area Stop / Esc via useStopSession. A
+  // plain no-progress banner is purely informational — message, no buttons.
+  it("renders an informational no-progress banner with no action buttons", () => {
     seedSession("claude_code");
     useSessionStore.getState().setSessionStuck(SID, {
       since: Date.now() - 35_000,
@@ -56,7 +59,8 @@ describe("StuckActivityBanner", () => {
     render(<StuckActivityBanner sessionId={SID} />);
     expect(screen.getByText(/hasn't responded for/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Reopen approval/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Stop session/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop session/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start fresh thread/i })).not.toBeInTheDocument();
   });
 
   // Regression: stuck banner used to hardcode "Codex" for every agent, so a
@@ -131,67 +135,9 @@ describe("StuckActivityBanner", () => {
     expect(useUiStore.getState().showApprovalModal).toBe(true);
   });
 
-  it("Stop session button calls interrupt_session for a Claude Code session", async () => {
-    seedSession("claude_code");
-    let called = false;
-    mockInvoke({
-      interrupt_session: (args: unknown) => {
-        const { sessionId } = args as { sessionId: string };
-        if (sessionId === SID) called = true;
-        return undefined;
-      },
-    });
-    useSessionStore.getState().setSessionStuck(SID, {
-      since: Date.now() - 35_000,
-      reason: "no-progress",
-    });
-    render(<StuckActivityBanner sessionId={SID} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Stop session/i }));
-    });
-
-    expect(called).toBe(true);
-  });
-
-  // A wedged Codex won't honour a graceful interrupt, so the banner must
-  // hard-restart: kill the process (pause) then respawn resuming the same
-  // thread (resume). Regression for "Stop session doesn't work in Codex".
-  it("Stop session hard-restarts a Codex session (pause + resume) and clears stuck", async () => {
-    seedSession("codex");
-    const calls: string[] = [];
-    mockInvoke({
-      pause_session_process: (args: unknown) => {
-        calls.push("pause:" + (args as { sessionId: string }).sessionId);
-        return undefined;
-      },
-      resume_session_process: (args: unknown) => {
-        calls.push("resume:" + (args as { sessionId: string }).sessionId);
-        return undefined;
-      },
-      interrupt_session: () => {
-        calls.push("interrupt");
-        return undefined;
-      },
-    });
-    useSessionStore.getState().setSessionBusy(SID, true);
-    useSessionStore.getState().setSessionStuck(SID, {
-      since: Date.now() - 35_000,
-      reason: "no-progress",
-    });
-    render(<StuckActivityBanner sessionId={SID} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Stop session/i }));
-    });
-
-    // Hard restart, in order, and NOT the graceful interrupt.
-    expect(calls).toEqual([`pause:${SID}`, `resume:${SID}`]);
-    expect(calls).not.toContain("interrupt");
-    // Busy + stuck cleared so the input returns to normal and the banner hides.
-    expect(useSessionStore.getState().sessionBusy.get(SID)).toBe(false);
-    expect(useSessionStore.getState().sessionStuck.get(SID)).toBeUndefined();
-  });
+  // (The "Stop session" button and its Claude-interrupt / Codex pause+resume
+  // behaviour moved to useStopSession — see useStopSession.test.tsx. The banner
+  // no longer owns a generic stop action.)
 
   // A Codex session stuck WHILE COMPACTING is the upstream-compaction hang.
   // "Stop session" (revive) would re-load the doomed context and re-hang, so
