@@ -1,5 +1,31 @@
 # CodeMantis Releases
 
+## 1.9.0 — Native Codex plan-mode lever, session resilience, approval hardening
+
+A feature release that makes Codex sessions resilient under context compaction, hardens Claude's approval path, and upgrades Codex plan mode to the real native lever. Rolls up everything since 1.8.3.
+
+### Codex
+
+- **Native plan mode via the real `collaborationMode` lever.** The Plan toggle now drives Codex's experimental `collaborationMode: plan` path where the running CLI exposes it — with a read-only sandbox as the hard backstop and the planning preamble as the fallback when the lever is unavailable. This upgrades the 1.8.0 hand-rolled approximation.
+- **Session resilience under compaction.** Recover wedged or compaction-deadlocked Codex sessions in place: a **non-destructive revive** (pause-resume the same thread) is tried first, with a **fresh-thread reset** — continuity primed by an LLM/local recap — as the escalation, offered straight from the stuck-compaction banner. Adds stall detection so a hung turn is noticed and surfaced.
+- **Protocol diagnostics.** Opt-in **wire logging** (the `codexDebugLoggingEnabled` setting or `CM_CODEX_WIRE_LOG=1`) writes per-session JSON-RPC traffic to `app_data_dir()/codex-wire-logs/` for debugging, plus compaction diagnostics and upstream-issue notes. Off by default.
+
+### Claude — approval-path hardening
+
+- **Approval fail-open race fixed.** Closes a race in the PreToolUse approval path where a tool call could slip through before the decision landed. Adds S15/S16 MCP capture scenarios.
+- **Silent tool denials surfaced.** MCP tool denials that previously failed silently are now captured and shown to the user (S14 capture scenario).
+
+### Sessions & stability
+
+- **Escalating Stop.** A new `useStopSession` hook: a graceful interrupt auto-escalates to a force-stop after 4s, wired through Stop/Esc in the input area (and the duplicate Stop button is removed from the stuck-activity banner).
+- **Crash-recovery auto-resume.** Restored sessions auto-resume the active tab and send into paused tabs.
+- **Child-process reaping on shutdown** to avoid a SIGABRT on exit.
+- **Model/effort pickers** stay populated and correct after `/clear` and resume.
+
+### Docs
+
+- User guide, Super-Bro knowledge, and README synced for the real Codex plan-mode lever and the session-resilience features.
+
 ## 1.8.3 — Codex compaction: retry-first with auto-retry
 
 A hotfix continuing the Codex recovery hardening from 1.8.1–1.8.2.
