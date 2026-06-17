@@ -54,7 +54,8 @@ CodeMantis runs every session on either **Claude Code** *or* **OpenAI Codex** �
 
 - **Per-task subscription routing** (**1.5.0**) — route Main chat, SpecWriter, Self-Drive, and Help to a specific agent in **Settings → Agents**, with a 7-day Usage Split showing where each kind of work is drawing from. Keep interactive work on Claude and push headless work to your ChatGPT subscription (or vice versa) to spread load across two billing pools.
 - **Codex Policy pill** — Codex's sandbox (`read-only` / `workspace-write` / `danger-full-access`) and approval policy (`never` / `on-request` / `untrusted`) surface as one toolbar popover, the Codex analog of Claude's mode selector.
-- **Native Codex plan mode** (**1.8.0**) — a **Plan toggle pill** flips the next Codex turn to a read-only sandbox + planning preamble, so Codex proposes a plan over the full conversation before touching files — no need to drop into the Codex TUI.
+- **Native Codex plan mode** (**1.8.0**, upgraded **1.9.0**) — a **Plan toggle pill** puts Codex into plan mode in-app. As of 1.9.0 it drives Codex's real `collaborationMode: plan` lever where available — with a read-only sandbox as the hard backstop and a planning preamble as fallback — so Codex proposes a plan over the full conversation before touching files, no need to drop into the Codex TUI.
+- **Codex session resilience** (**1.9.0**) — recover wedged or compaction-deadlocked Codex sessions in place: a non-destructive revive is tried first, with a fresh-thread reset (continuity primed by a recap) as the escalation. Includes stall detection and an opt-in wire-logging mode for protocol diagnostics.
 - **Codex Management Panel** (**1.6.0**) — view and reload Codex config, MCP servers, and account from inside the app (via `/config` or `/mcp`), plus the interactive TUI commands (`/plan`, `/model`, `/approvals`, …) reachable through a real `codex resume` overlay.
 
 ### SpecWriter — Write the Spec, Not the Code
