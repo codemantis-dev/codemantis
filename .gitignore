@@ -28,3 +28,6 @@ _guidance
 .tauri/
 *.tauri/
 .env.local
+
+# SpecWriter debugging artifact (screenshot + error report), not a curated example
+_examples/SpecWriterError/
