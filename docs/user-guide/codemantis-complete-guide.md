@@ -3527,6 +3527,8 @@ When the toggle is on, an additional section appears:
 
 Below the dropdown: "Session logs older than this are automatically cleaned up on app launch. Set to 'Forever' to keep all logs indefinitely."
 
+**Codex debug logging** -- A separate toggle (shown for all users, independent of the session-logging toggle) with the subtitle "Capture the raw Codex protocol (both directions) to a per-session file under the app data folder (codex-wire-logs). Helps troubleshoot compaction stalls. Safe to leave on." This records the raw Codex app-server JSON-RPC wire for troubleshooting protocol issues such as "Compacting…" stalls; it has no effect on Claude Code sessions.
+
 ### How to Open / Access
 
 | Method | Action |
@@ -3540,6 +3542,9 @@ Click the toggle switch. When disabled, session conversations are not saved when
 
 **Change retention period**
 Select a value from the dropdown. Logs older than the selected duration are automatically deleted the next time CodeMantis launches.
+
+**Toggle Codex debug logging**
+Click the **Codex debug logging** switch. When on (default), every Codex session writes its raw JSON-RPC wire to a `codex-wire-logs` file in the app data folder; hand these to support (or attach them when filing an issue) when diagnosing Codex compaction or protocol problems.
 
 ### States
 
@@ -4552,6 +4557,7 @@ Complete reference of every configurable setting in CodeMantis.
 | Recall commit vault to git | Recall | settings.json | Off | `recall.commitVaultToGit` -- when off, `.recall/` stays local-only. |
 | Save session conversations | Session Logs | Toggle | On | Store all messages when a session closes |
 | Retention period | Session Logs | Choice | 30 days | How long to keep session logs: 7d, 14d, 30d, 90d, 1y, Forever |
+| Codex debug logging | Session Logs | Toggle | On | `codexDebugLoggingEnabled` -- capture the raw Codex JSON-RPC wire (both directions) to a per-session `codex-wire-logs` file under the app data folder, for troubleshooting compaction stalls and other protocol issues. No effect on Claude Code sessions. |
 | OpenRouter API key | AI Providers | Password | Empty | API key for OpenRouter |
 | OpenAI API key | AI Providers | Password | Empty | API key for OpenAI |
 | Google Gemini API key | AI Providers | Password | Empty | API key for Google Gemini |

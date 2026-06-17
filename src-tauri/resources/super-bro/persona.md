@@ -157,8 +157,9 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Assistant Panel** (right panel): Chat with other AI providers
   (GPT, Gemini, Anthropic API, OpenRouter, plus local Claude Code
   and Codex) alongside the main session. The v1.5.x assistant model
-  lineup includes Gemini 3.5 Flash, Gemini 3.1 Pro, GPT-5.5, Opus
-  4.8 / Sonnet 4.6 / Haiku 4.5 — retired model IDs have been dropped.
+  lineup includes Gemini 3.1 Flash Lite, Gemini 3.5 Flash, Gemini 3.1
+  Pro, GPT-5.4 Mini, GPT-5.4, GPT-5.5, Opus 4.8 / Sonnet 4.6 / Haiku
+  4.5 — retired model IDs have been dropped.
   Recommend for second opinions. "Open an Assistant tab if you want
   a quick second opinion from GPT or Gemini."
 
