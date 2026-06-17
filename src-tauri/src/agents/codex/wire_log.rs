@@ -109,7 +109,7 @@ fn prune_old(dir: &std::path::Path, keep: usize) {
         return;
     }
     // Newest first; delete everything past `keep`.
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, path) in files.into_iter().skip(keep) {
         let _ = std::fs::remove_file(path);
     }
