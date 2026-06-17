@@ -635,4 +635,96 @@ describe("useClaudeSession", () => {
     expect(returned).toBeNull();
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
+
+  it("sendMessage to a paused-recovered tab auto-resumes first, then routes to the new live session", async () => {
+    // The post-restart UX fix: typing into a paused tab must transparently
+    // resume it (claude --resume / Codex resume) and deliver the message to
+    // the freshly-spawned live session — never send into a dead process.
+    mockLoadSessionMessages.mockResolvedValue([]);
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.restorePausedSession({
+        session_id: "paused-1",
+        name: "Paused Tab",
+        project_path: PROJECT_PATH,
+        model: null,
+        closed_at: "2026-01-01T00:00:00Z",
+        cli_session_id: "cli-old",
+        icon_index: 0,
+        recent_headlines: [],
+        has_stored_messages: false,
+        agent_id: "claude_code",
+      });
+    });
+
+    // The resume spawns a brand-new live session id via createSession.
+    mockCreateSession.mockResolvedValueOnce(makeSession("live-new", { id: "live-new" }));
+
+    await act(async () => {
+      await result.current.sendMessage("paused-1", "Resume and answer this");
+    });
+
+    // Resume happened (CLI re-spawned with the stored token + originating agent).
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      "Paused Tab",
+      "cli-old",
+      "claude_code",
+    );
+    // The paused placeholder is swapped out for the live session.
+    expect(useSessionStore.getState().sessions.has("paused-1")).toBe(false);
+    // The user message and busy state land on the NEW live id, not the dead one.
+    const newMessages = useSessionStore.getState().sessionMessages.get("live-new") ?? [];
+    expect(newMessages).toHaveLength(1);
+    expect(newMessages[0].content).toBe("Resume and answer this");
+    expect(useSessionStore.getState().sessionBusy.get("live-new")).toBe(true);
+    // The backend send is addressed to the live id.
+    expect(mockSendMessage).toHaveBeenCalledWith("live-new", "Resume and answer this");
+  });
+
+  it("sendMessage bails without busy/limbo when resume fails (no CLI session id)", async () => {
+    // Regression for the busy-forever limbo: if the paused tab can't be
+    // resumed (e.g. missing cli_session_id), sendMessage must NOT mark the
+    // session busy or hit the backend — otherwise the watchdog fires and the
+    // tab is stuck "Thinking…" forever with no live process behind it.
+    mockLoadSessionMessages.mockResolvedValue([]);
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.restorePausedSession({
+        session_id: "paused-2",
+        name: "No Token",
+        project_path: PROJECT_PATH,
+        model: null,
+        closed_at: "2026-01-01T00:00:00Z",
+        cli_session_id: "", // falsy → resumeRecoveredSession returns null
+        icon_index: 0,
+        recent_headlines: [],
+        has_stored_messages: false,
+        agent_id: "claude_code",
+      });
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("paused-2", "this should not strand the tab");
+    });
+
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessionBusy.get("paused-2")).not.toBe(true);
+  });
+
+  it("sendMessage to a normal connected session is unchanged (no resume)", async () => {
+    useSessionStore.getState().addSession(makeSession("s1"));
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.sendMessage("s1", "hi");
+    });
+
+    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalledWith("s1", "hi");
+    expect(useSessionStore.getState().sessionBusy.get("s1")).toBe(true);
+  });
 });

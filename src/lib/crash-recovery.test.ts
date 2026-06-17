@@ -328,3 +328,127 @@ describe("wake-recovery branch", () => {
     expect(setActiveSession).toHaveBeenCalledWith("b");
   });
 });
+
+describe("crash-recovery auto-resume active tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consumeWakeRecoveryFlag.mockResolvedValue(false);
+    listLiveSessions.mockResolvedValue([]);
+    acknowledgeCrashedSessions.mockResolvedValue(undefined);
+    readWorkspaceSnapshot.mockReturnValue(null);
+  });
+
+  it("auto-resumes ONLY the snapshot's active tab, not the idle ones", async () => {
+    // The focused chat should come back live without a click; idle tabs stay
+    // paused (lazy) to avoid one CLI spawn per tab on launch.
+    listCrashedSessions.mockResolvedValue([makeEntry("a"), makeEntry("b"), makeEntry("c")]);
+    readWorkspaceSnapshot.mockReturnValue({
+      version: 1,
+      savedAt: 0,
+      tabOrder: ["a", "b", "c"],
+      projectOrder: ["/proj"],
+      activeSessionId: "b",
+      activeProjectPath: "/proj",
+      projectActiveSession: [],
+    } as unknown as ReturnType<typeof readWorkspaceSnapshot>);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const resumeRecoveredSession = vi.fn(() => Promise.resolve("b-live"));
+
+    await hydratePersistedOpenSessions(
+      restorePausedSession,
+      undefined,
+      resumeRecoveredSession,
+    );
+
+    expect(resumeRecoveredSession).toHaveBeenCalledTimes(1);
+    expect(resumeRecoveredSession).toHaveBeenCalledWith("b");
+  });
+
+  it("falls back to the first restored tab when no snapshot active selection exists", async () => {
+    listCrashedSessions.mockResolvedValue([makeEntry("a"), makeEntry("b")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const resumeRecoveredSession = vi.fn(() => Promise.resolve("a-live"));
+
+    await hydratePersistedOpenSessions(
+      restorePausedSession,
+      undefined,
+      resumeRecoveredSession,
+    );
+
+    expect(resumeRecoveredSession).toHaveBeenCalledTimes(1);
+    expect(resumeRecoveredSession).toHaveBeenCalledWith("a");
+  });
+
+  it("falls back to the first restored tab when the snapshot's active tab failed to restore", async () => {
+    listCrashedSessions.mockResolvedValue([makeEntry("a"), makeEntry("b")]);
+    readWorkspaceSnapshot.mockReturnValue({
+      version: 1,
+      savedAt: 0,
+      tabOrder: ["a", "b"],
+      projectOrder: ["/proj"],
+      activeSessionId: "b",
+      activeProjectPath: "/proj",
+      projectActiveSession: [],
+    } as unknown as ReturnType<typeof readWorkspaceSnapshot>);
+    // "b" throws during restore → it never lands in restoredIds, so the active
+    // selection must fall through to the first session that DID restore.
+    const restorePausedSession = vi.fn(async (entry: SessionHistoryEntry) => {
+      if (entry.session_id === "b") throw new Error("boom");
+    });
+    const resumeRecoveredSession = vi.fn(() => Promise.resolve("a-live"));
+
+    await hydratePersistedOpenSessions(
+      restorePausedSession,
+      undefined,
+      resumeRecoveredSession,
+    );
+
+    expect(resumeRecoveredSession).toHaveBeenCalledTimes(1);
+    expect(resumeRecoveredSession).toHaveBeenCalledWith("a");
+  });
+
+  it("does NOT auto-resume when nothing restored", async () => {
+    listCrashedSessions.mockResolvedValue([makeEntry("a")]);
+    const restorePausedSession = vi.fn(() => Promise.reject(new Error("boom")));
+    const resumeRecoveredSession = vi.fn(() => Promise.resolve("x"));
+
+    await hydratePersistedOpenSessions(
+      restorePausedSession,
+      undefined,
+      resumeRecoveredSession,
+    );
+
+    expect(resumeRecoveredSession).not.toHaveBeenCalled();
+  });
+
+  it("treats a resume failure as non-fatal — recovery toast still fires, no throw", async () => {
+    // If the auto-resume spawn fails, the tab simply stays paused with its
+    // Resume banner. Recovery must not be derailed.
+    listCrashedSessions.mockResolvedValue([makeEntry("a")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+    const resumeRecoveredSession = vi.fn(() => Promise.reject(new Error("spawn failed")));
+
+    await expect(
+      hydratePersistedOpenSessions(restorePausedSession, undefined, resumeRecoveredSession),
+    ).resolves.toBeUndefined();
+
+    expect(showToast).toHaveBeenCalledWith(
+      "Recovered 1 session from an unexpected shutdown",
+      "info",
+    );
+  });
+
+  it("is a no-op when no resumeRecoveredSession callback is supplied (backward compatible)", async () => {
+    listCrashedSessions.mockResolvedValue([makeEntry("a")]);
+    const restorePausedSession = vi.fn(() => Promise.resolve());
+
+    await expect(
+      hydratePersistedOpenSessions(restorePausedSession),
+    ).resolves.toBeUndefined();
+
+    expect(showToast).toHaveBeenCalledWith(
+      "Recovered 1 session from an unexpected shutdown",
+      "info",
+    );
+  });
+});

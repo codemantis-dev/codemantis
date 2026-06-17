@@ -252,8 +252,24 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     const session = sessionStore.getState().sessions.get(sessionId);
     if (!session) return;
 
+    // A `paused-recovered` tab has no live CLI process (the previous app
+    // instance died). Sending straight through would set the session busy and
+    // then fail in Rust with ProcessNotRunning, stranding the tab in a
+    // busy-forever limbo. Instead, transparently resume it first
+    // (claude --resume / Codex thread resume) and route the message to the new
+    // live session id. resumeFromHistory carries the prior transcript into the
+    // new session, so the user message simply appends. On failure
+    // resumeRecoveredSession returns null (toast already shown) — bail before
+    // touching busy state so nothing is left stranded.
+    let targetId = sessionId;
+    if (session.status === "paused-recovered") {
+      const newId = await resumeRecoveredSession(sessionId);
+      if (!newId) return;
+      targetId = newId;
+    }
+
     const msgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    sessionStore.getState().addMessage(sessionId, {
+    sessionStore.getState().addMessage(targetId, {
       id: msgId,
       role: "user",
       content: prompt,
@@ -263,25 +279,25 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     });
     // Eagerly persist the transcript so the user prompt survives a crash
     // before the next 60s snapshot tick. Debounced ~500ms inside the helper.
-    scheduleFlushTranscript(sessionId);
-    sessionStore.getState().setSessionBusy(sessionId, true);
+    scheduleFlushTranscript(targetId);
+    sessionStore.getState().setSessionBusy(targetId, true);
 
     // After a Codex "Recover session" reset the fresh thread has no context.
     // Prepend the stored recap (once) to the CLI payload so continuity is
     // restored — the displayed user message stays unprefixed.
-    const recapPrefix = sessionStore.getState().pendingRecapPrefix.get(sessionId);
+    const recapPrefix = sessionStore.getState().pendingRecapPrefix.get(targetId);
     let cliPrompt = prompt;
     if (recapPrefix) {
       cliPrompt = `${recapPrefix}\n\n---\n\n${prompt}`;
-      sessionStore.getState().clearRecapPrefix(sessionId);
+      sessionStore.getState().clearRecapPrefix(targetId);
     }
 
     try {
-      await sendMessageCmd(sessionId, cliPrompt);
+      await sendMessageCmd(targetId, cliPrompt);
     } catch (e) {
       handleError("Failed to send message", e);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionStore is a stable Zustand store reference; resumeRecoveredSession is a stable useCallback referenced lazily in the body
   }, []);
 
   const closeSessionFn = useCallback(async (sessionId: string) => {

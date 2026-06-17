@@ -87,7 +87,7 @@ export default function App() {
   const hasSessions = useSessionStore((s) => s.tabOrder.length > 0);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const openSettingsToTab = useUiStore((s) => s.openSettingsToTab);
-  const { startSession, resumeFromHistory, restorePausedSession, reattachLiveSession } = useClaudeSession();
+  const { startSession, resumeFromHistory, restorePausedSession, reattachLiveSession, resumeRecoveredSession } = useClaudeSession();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const onboardingCompleted = useSettingsStore((s) => s.settings.onboardingCompleted);
@@ -161,7 +161,7 @@ export default function App() {
     // by the wake observer reloading a hung WebContent process rather
     // than by a real crash — live CLI processes get re-attached in place
     // (no --resume spawn) so the workspace comes back as it was.
-    void hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession);
+    void hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession, resumeRecoveredSession);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restorePausedSession is a stable callback
   }, [loadSettings]);
 

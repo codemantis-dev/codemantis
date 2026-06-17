@@ -34,6 +34,7 @@ import type { Session, SessionHistoryEntry } from "../types/session";
 export async function hydratePersistedOpenSessions(
   restorePausedSession: (entry: SessionHistoryEntry) => Promise<void>,
   reattachLiveSession?: (info: Session) => Promise<void>,
+  resumeRecoveredSession?: (sessionId: string) => Promise<string | null>,
 ): Promise<void> {
   try {
     // Wake-recovery branch: if the previous frontend was reloaded by the
@@ -137,6 +138,26 @@ export async function hydratePersistedOpenSessions(
         `Recovered ${restored} ${noun(restored)} from an unexpected shutdown`,
         "info",
       );
+    }
+
+    // Auto-resume ONLY the active tab so the focused chat returns live without
+    // a click. Idle tabs stay paused (lazy) to avoid spawning one CLI process
+    // per tab on every launch. resumeRecoveredSession is a safe no-op if the
+    // target isn't paused-recovered (its own guard returns null).
+    if (resumeRecoveredSession && restoredIds.length > 0) {
+      const activeId =
+        snapshot?.activeSessionId && restoredIds.includes(snapshot.activeSessionId)
+          ? snapshot.activeSessionId
+          : restoredIds[0];
+      try {
+        await resumeRecoveredSession(activeId);
+      } catch (e) {
+        // Non-fatal: the tab stays paused with its Resume banner as the fallback.
+        console.error(
+          `[crash-recovery] Auto-resume of active session ${activeId} failed:`,
+          e,
+        );
+      }
     }
   } catch (e) {
     console.error("[crash-recovery] Hydration failed:", e);

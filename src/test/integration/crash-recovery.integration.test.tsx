@@ -265,6 +265,57 @@ describe("crash-recovery hydration", () => {
     expect(useSessionStore.getState().sessionMessages.get("b") ?? []).toHaveLength(0);
   });
 
+  it("auto-resumes the active tab on startup while idle tabs stay paused", async () => {
+    // The post-restart UX fix end-to-end: the focused chat reconnects on its
+    // own (banner gone, live process) without a click, while background tabs
+    // remain paused (lazy) so we don't spawn one CLI per tab on every launch.
+    listCrashedSessionsMock.mockResolvedValue([entry("a", "Active"), entry("b", "Idle")]);
+    window.localStorage.setItem(
+      SNAPSHOT_KEY,
+      JSON.stringify({
+        version: 1,
+        savedAt: 0,
+        tabOrder: ["a", "b"],
+        projectOrder: ["/p"],
+        activeSessionId: "a",
+        activeProjectPath: "/p",
+        projectActiveSession: [["/p", "a"]],
+      }),
+    );
+    // Resuming the active tab spawns a live session via createSession.
+    createSessionMock.mockResolvedValue({
+      id: "a-live",
+      name: "Active",
+      project_path: "/p",
+      status: "connected",
+      created_at: "2026-01-01T00:00:00Z",
+      model: null,
+      icon_index: 0,
+      cli_session_id: "cli-a",
+    } as unknown as Session);
+
+    const { result } = renderHook(() => useClaudeSession());
+    await act(async () => {
+      await hydratePersistedOpenSessions(
+        result.current.restorePausedSession,
+        result.current.reattachLiveSession,
+        result.current.resumeRecoveredSession,
+      );
+    });
+
+    const sessions = useSessionStore.getState().sessions;
+    // Active tab is now a live session — the paused placeholder is swapped out.
+    expect(sessions.has("a")).toBe(false);
+    expect(sessions.get("a-live")!.status).not.toBe("paused-recovered");
+    // The idle tab stays paused (no CLI spawned for it).
+    expect(sessions.get("b")!.status).toBe("paused-recovered");
+    // Exactly one --resume spawn happened, for the active tab.
+    expect(createSessionMock).toHaveBeenCalledTimes(1);
+    expect(createSessionMock).toHaveBeenCalledWith("/p", "Active", "cli-a", "claude_code");
+    // Tab order preserves the active tab's slot.
+    expect(useSessionStore.getState().tabOrder).toEqual(["a-live", "b"]);
+  });
+
   it("hydration failure does not throw (fails silently)", async () => {
     listCrashedSessionsMock.mockRejectedValue(new Error("DB unreachable"));
 
