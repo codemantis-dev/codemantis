@@ -25,9 +25,11 @@ import {
   getGitDiff,
   listenChatEvents,
   listenActivityEvents,
+  listenDuoSnapshot,
   duoStartRun,
   duoRecordEvent,
   duoCompleteRun,
+  duoAnalyze,
 } from "../lib/tauri-commands";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
@@ -58,6 +60,7 @@ import type {
   DuoEventKind,
   DuoEventActor,
   DuoDiffStats,
+  DuoAnalystSnapshot,
 } from "../types/duo";
 
 // ── Pure helpers (exported for testing) ──────────────────────────────────────
@@ -152,6 +155,7 @@ function detachListeners(): void {
   listeners.clear();
   currentTurnOps = [];
   driftNudgedThisTurn = false;
+  analysisInFlight = false;
 }
 
 let idCounter = 0;
@@ -176,6 +180,8 @@ export interface DuoState {
   decisionLog: DuoDecision[];
   latestVerdict: DuoVerdict | null;
   metrics: DuoMetrics;
+  /** Latest API-LLM analyst snapshot (qualitative report + numeric series). */
+  analystSnapshot: DuoAnalystSnapshot | null;
   blocker: DuoBlocker | null;
   error: string | null;
 
@@ -215,6 +221,7 @@ const INITIAL = {
   decisionLog: [] as DuoDecision[],
   latestVerdict: null,
   metrics: emptyDuoMetrics(),
+  analystSnapshot: null,
   blocker: null,
   error: null,
   repairAttempts: 0,
@@ -283,6 +290,20 @@ export const useDuoStore = create<DuoState>((set, get) => ({
       listeners.set(
         `${primarySession.id}:activity`,
         await listenActivityEvents(primarySession.id, onPrimaryActivity),
+      );
+      // Real-time analyst snapshots (backend-produced) for the dashboard.
+      listeners.set(
+        "duo:snapshot",
+        await listenDuoSnapshot((payload) => {
+          if (payload.runId !== useDuoStore.getState().runId) return;
+          useDuoStore.setState({
+            analystSnapshot: {
+              narrative: payload.narrative,
+              report: payload.report,
+              series: payload.series,
+            },
+          });
+        }),
       );
 
       // Kick off the primary with the task.
@@ -411,6 +432,25 @@ function recordEvent(
       diffStats ? JSON.stringify(diffStats) : undefined,
     ).catch(() => {});
   }
+}
+
+/**
+ * Kick the backend analyst for the current run. Fire-and-forget: the fresh
+ * snapshot arrives via the `duo:snapshot` listener. Debounced so a burst of
+ * events triggers at most one in-flight analysis at a time.
+ */
+let analysisInFlight = false;
+function triggerAnalysis(): void {
+  const s = useDuoStore.getState();
+  if (!s.runId || !s.config?.analystEnabled || analysisInFlight) return;
+  analysisInFlight = true;
+  void duoAnalyze(s.runId)
+    .catch(() => {
+      // Non-fatal: the dashboard simply keeps the previous snapshot.
+    })
+    .finally(() => {
+      analysisInFlight = false;
+    });
 }
 
 function bumpMetrics(patch: Partial<DuoMetrics>): void {
@@ -587,6 +627,7 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
   if (!s.primarySessionId || !s.config) return;
   useDuoStore.setState({ latestVerdict: verdict });
   bumpMetrics({ reviews: s.metrics.reviews + 1 });
+  triggerAnalysis(); // refresh the dashboard analysis after each review
 
   if (verdict.stance === "agree") {
     // Convergence — concern resolved (primary fixed it, or mentor conceded).

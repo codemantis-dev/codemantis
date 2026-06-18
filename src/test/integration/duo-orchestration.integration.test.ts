@@ -24,6 +24,7 @@ import type { FrontendEvent } from "../../types/agent-events";
 const {
   chatCallbacks,
   activityCallbacks,
+  snapshotCallbacks,
   mockCreateSession,
   mockSendMessage,
   mockSetSessionMode,
@@ -31,6 +32,7 @@ const {
   mockGetGitDiff,
   mockDuoStartRun,
   mockDuoRecordEvent,
+  mockDuoAnalyze,
 } = vi.hoisted(() => ({
   chatCallbacks: new Map<string, (e: FrontendEvent) => void>(),
   activityCallbacks: new Map<string, (e: FrontendEvent) => void>(),
@@ -43,6 +45,8 @@ const {
   ),
   mockDuoStartRun: vi.fn(() => Promise.resolve()),
   mockDuoRecordEvent: vi.fn(() => Promise.resolve()),
+  mockDuoAnalyze: vi.fn<(runId: string) => Promise<unknown>>(() => Promise.resolve({})),
+  snapshotCallbacks: [] as Array<(e: unknown) => void>,
 }));
 
 vi.mock("../../lib/tauri-commands", () => ({
@@ -63,6 +67,14 @@ vi.mock("../../lib/tauri-commands", () => ({
   duoStartRun: mockDuoStartRun,
   duoRecordEvent: mockDuoRecordEvent,
   duoCompleteRun: vi.fn(() => Promise.resolve()),
+  duoAnalyze: mockDuoAnalyze,
+  listenDuoSnapshot: vi.fn(async (cb: (e: unknown) => void) => {
+    snapshotCallbacks.push(cb);
+    return () => {
+      const i = snapshotCallbacks.indexOf(cb);
+      if (i >= 0) snapshotCallbacks.splice(i, 1);
+    };
+  }),
 }));
 
 // Imported AFTER the mock so the store binds to the mocked commands.
@@ -162,8 +174,10 @@ describe("Duo-Coding orchestration", () => {
     resetAllStores();
     chatCallbacks.clear();
     activityCallbacks.clear();
+    snapshotCallbacks.length = 0;
     msgSeq = 0;
     vi.clearAllMocks();
+    mockDuoAnalyze.mockResolvedValue({});
   });
 
   it("spawns both sessions, locks the mentor read-only, and pins them", async () => {
@@ -370,5 +384,42 @@ describe("Duo-Coding orchestration", () => {
     await flush();
     expect(useDuoStore.getState().metrics.driftIncidents).toBe(0);
     expect(mockSendMessage.mock.calls.length).toBe(0);
+  });
+
+  it("triggers the analyst after a review and ingests its snapshot", async () => {
+    await startRun();
+    await primaryTurn("Implemented.");
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "ok", rationale: "fine",
+      confidence: 0.9, ranBuild: true, ranTests: true,
+    });
+    // The store kicked the backend analyst for the active run.
+    expect(mockDuoAnalyze).toHaveBeenCalledWith(useDuoStore.getState().runId);
+
+    // A backend snapshot for this run flows into the store.
+    const report = {
+      schemaVersion: 1, headline: "h", narrative: "good progress",
+      phaseAssessment: { currentFocus: "x", momentum: "steady", momentumRationale: "" },
+      collaborationHealth: { score: 80, trend: "improving", summary: "", frictionPoints: [] },
+      qualityAssessment: { score: 70, trajectory: "improving", strengths: [], risks: [] },
+      repairAnalysis: { summary: "", rootCausePatterns: [], mentorEffectiveness: "high", mentorEffectivenessRationale: "" },
+      improvementAnalysis: { summary: "", delivered: [], preventedIssues: [] },
+      decisions: [], recommendations: [], watchItems: [], confidence: 60,
+    };
+    snapshotCallbacks.forEach((cb) =>
+      cb({ runId: useDuoStore.getState().runId, ts: 1, narrative: "good progress", report, series: [] }),
+    );
+    const snap = useDuoStore.getState().analystSnapshot;
+    expect(snap?.narrative).toBe("good progress");
+    expect(snap?.report.collaborationHealth.score).toBe(80);
+  });
+
+  it("ignores analyst snapshots for a different run", async () => {
+    await startRun();
+    const report = { schemaVersion: 1, headline: "", narrative: "stale" } as unknown;
+    snapshotCallbacks.forEach((cb) =>
+      cb({ runId: "some-other-run", ts: 1, narrative: "stale", report, series: [] }),
+    );
+    expect(useDuoStore.getState().analystSnapshot).toBeNull();
   });
 });

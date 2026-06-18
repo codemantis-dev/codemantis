@@ -7,12 +7,18 @@
 //! never depends on the frontend clock. See `project_duo_coding` plan.
 
 use crate::agents::claude_code::session::AppState;
+use crate::commands::settings;
+use crate::duo::analyst::{self, AnalystContext, DuoAnalystReport};
+use crate::duo::events::{self, SeriesPoint};
 use crate::storage::database::{DuoEventRow, DuoRunRow, DuoSnapshotRow};
 use tauri::State;
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
+
+/// Max event lines fed to the analyst prompt — recent-tail capped to bound cost.
+const MAX_TIMELINE_EVENTS: usize = 80;
 
 #[tauri::command]
 pub async fn duo_start_run(
@@ -133,9 +139,259 @@ pub async fn duo_latest_snapshot(
         .map_err(|e| format!("Failed to get latest duo snapshot: {}", e))
 }
 
+// ── Analyst (LLM observability) ───────────────────────────────────────────
+
+fn payload_summary(payload_json: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(payload_json)
+        .ok()
+        .and_then(|v| v.get("summary").and_then(|s| s.as_str()).map(String::from))
+        .unwrap_or_default()
+}
+
+/// Deterministic counts the dashboard already owns — handed to the analyst so it
+/// reasons about them but never recomputes them. Returned as compact JSON.
+pub fn compute_aggregates(events: &[DuoEventRow]) -> serde_json::Value {
+    let mut counts: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+    for e in events {
+        *counts.entry(e.kind.as_str()).or_insert(0) += 1;
+    }
+    let get = |k: &str| *counts.get(k).unwrap_or(&0);
+    serde_json::json!({
+        "turns": get("turn"),
+        "agreements": get("agreement"),
+        "disagreements": get("disagreement"),
+        "concerns": get("concern"),
+        "repairs": get("repair"),
+        "dialogueExchanges": get("dialogue"),
+        "driftIncidents": get("drift"),
+        "escalations": get("escalation"),
+    })
+}
+
+/// Per-turn diff series from `turn` events that carry diff stats.
+pub fn compute_series(events: &[DuoEventRow]) -> Vec<SeriesPoint> {
+    let mut series = Vec::new();
+    let mut turn = 0u32;
+    for e in events {
+        if e.kind != "turn" {
+            continue;
+        }
+        turn += 1;
+        let (added, removed) = e
+            .diff_stats_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+            .map(|v| {
+                (
+                    v.get("added").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
+                    v.get("removed").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
+                )
+            })
+            .unwrap_or((0, 0));
+        series.push(SeriesPoint {
+            turn,
+            ts: e.ts,
+            added,
+            removed,
+            stance: None,
+            cost_usd: 0.0,
+        });
+    }
+    series
+}
+
+/// Compact chronological "<kind>/<actor>: <summary>" lines (recent-tail capped).
+pub fn build_timeline(events: &[DuoEventRow]) -> String {
+    let start = events.len().saturating_sub(MAX_TIMELINE_EVENTS);
+    events[start..]
+        .iter()
+        .map(|e| {
+            let s = payload_summary(&e.payload_json);
+            if s.is_empty() {
+                format!("{}/{}", e.kind, e.actor)
+            } else {
+                format!("{}/{}: {}", e.kind, e.actor, s)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Pull a human label "agentId/model" for a side out of the run's config JSON.
+fn agent_label(config: &serde_json::Value, side: &str) -> String {
+    let s = &config[side];
+    let agent = s["agentId"].as_str().unwrap_or("unknown");
+    match s["model"].as_str() {
+        Some(m) if !m.is_empty() => format!("{}/{}", agent, m),
+        _ => agent.to_string(),
+    }
+}
+
+/// Run the analyst over a Duo run: load events, call the LLM, persist a snapshot,
+/// log the API cost, and emit a real-time `duo:snapshot` event. Returns the
+/// sanitized report. No-op error if the analyst is disabled or unconfigured.
+#[tauri::command]
+pub async fn duo_analyze(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<DuoAnalystReport, String> {
+    let app_settings = settings::get_settings()?;
+    let cfg = &app_settings.duo;
+    if !cfg.analyst_enabled {
+        return Err("Duo analyst is disabled".to_string());
+    }
+
+    let run = state
+        .database
+        .get_duo_run(&run_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Duo run not found: {}", run_id))?;
+    let events = state.database.list_duo_events(&run_id).map_err(|e| e.to_string())?;
+
+    let run_config: serde_json::Value =
+        serde_json::from_str(&run.config_json).unwrap_or(serde_json::Value::Null);
+    let task = run_config["task"].as_str().unwrap_or("(task unavailable)").to_string();
+    let tie_break_policy = run_config["tieBreakPolicy"]
+        .as_str()
+        .unwrap_or("pause")
+        .to_string();
+
+    let series = compute_series(&events);
+    let ctx = AnalystContext {
+        task,
+        primary_label: agent_label(&run_config, "primary"),
+        duo_label: agent_label(&run_config, "duo"),
+        tie_break_policy,
+        aggregates_json: compute_aggregates(&events).to_string(),
+        event_timeline: build_timeline(&events),
+    };
+
+    let provider = &cfg.analyst_provider;
+    let model = &cfg.analyst_model;
+    let api_key = app_settings.api_keys.get(provider).cloned().unwrap_or_default();
+    if api_key.is_empty() {
+        return Err(format!("No API key configured for {}", provider));
+    }
+
+    let result = analyst::analyze(provider, &api_key, model, &ctx).await;
+
+    // Log the API call regardless of outcome (mirrors the changelog pattern).
+    let (input_tokens, output_tokens, success, error_msg) = match &result {
+        Ok((_, i, o)) => (*i, *o, true, None),
+        Err(e) => (0, 0, false, Some(e.clone())),
+    };
+    let cost = app_settings
+        .model_pricing
+        .get(model)
+        .map(|p| {
+            (input_tokens as f64 / 1_000_000.0 * p.input)
+                + (output_tokens as f64 / 1_000_000.0 * p.output)
+        })
+        .unwrap_or(0.0);
+    let _ = state.database.insert_api_log(
+        &uuid::Uuid::new_v4().to_string(),
+        &chrono::Utc::now().to_rfc3339(),
+        provider,
+        model,
+        &run_id,
+        input_tokens,
+        output_tokens,
+        cost,
+        success,
+        error_msg.as_deref(),
+    );
+
+    let (report, _, _) = result?;
+
+    let ts = now_ms();
+    state
+        .database
+        .insert_duo_snapshot(
+            &uuid::Uuid::new_v4().to_string(),
+            &run_id,
+            ts,
+            &report.narrative,
+            &serde_json::to_string(&report).map_err(|e| e.to_string())?,
+            &serde_json::to_string(&series).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+
+    events::emit_snapshot(&app, &run_id, ts, &report, &series);
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{build_timeline, compute_aggregates, compute_series, MAX_TIMELINE_EVENTS};
+    use crate::storage::database::DuoEventRow;
     use crate::test_helpers::test_db;
+
+    fn evt(kind: &str, actor: &str, summary: &str, diff: Option<&str>) -> DuoEventRow {
+        DuoEventRow {
+            id: format!("e-{}-{}", kind, summary),
+            run_id: "r1".into(),
+            ts: 0,
+            kind: kind.into(),
+            actor: actor.into(),
+            payload_json: serde_json::json!({ "summary": summary }).to_string(),
+            diff_stats_json: diff.map(String::from),
+        }
+    }
+
+    #[test]
+    fn aggregates_count_by_kind() {
+        let events = vec![
+            evt("turn", "primary", "t1", None),
+            evt("turn", "primary", "t2", None),
+            evt("agreement", "duo", "ok", None),
+            evt("disagreement", "duo", "no", None),
+            evt("drift", "duo", "rm -rf", None),
+        ];
+        let agg = compute_aggregates(&events);
+        assert_eq!(agg["turns"], 2);
+        assert_eq!(agg["agreements"], 1);
+        assert_eq!(agg["disagreements"], 1);
+        assert_eq!(agg["driftIncidents"], 1);
+        assert_eq!(agg["repairs"], 0);
+    }
+
+    #[test]
+    fn series_extracts_diff_stats_from_turn_events() {
+        let events = vec![
+            evt("turn", "primary", "t1", Some("{\"added\":10,\"removed\":2,\"files\":1}")),
+            evt("agreement", "duo", "ok", None),
+            evt("turn", "primary", "t2", Some("{\"added\":3,\"removed\":0,\"files\":1}")),
+        ];
+        let series = compute_series(&events);
+        assert_eq!(series.len(), 2);
+        assert_eq!(series[0].turn, 1);
+        assert_eq!(series[0].added, 10);
+        assert_eq!(series[1].turn, 2);
+        assert_eq!(series[1].added, 3);
+    }
+
+    #[test]
+    fn timeline_formats_and_caps_events() {
+        let events = vec![
+            evt("turn", "primary", "did work", None),
+            evt("verdict", "duo", "", None),
+        ];
+        let tl = build_timeline(&events);
+        assert!(tl.contains("turn/primary: did work"));
+        assert!(tl.contains("verdict/duo"));
+    }
+
+    #[test]
+    fn timeline_keeps_only_the_recent_tail() {
+        let events: Vec<DuoEventRow> = (0..200)
+            .map(|i| evt("turn", "primary", &format!("turn {i}"), None))
+            .collect();
+        let tl = build_timeline(&events);
+        assert_eq!(tl.lines().count(), MAX_TIMELINE_EVENTS);
+        assert!(tl.contains("turn 199")); // newest retained
+        assert!(!tl.contains("turn 0")); // oldest dropped
+    }
 
     // The `#[tauri::command]` wrappers are thin pass-throughs over these db
     // accessors (the project convention — see commands/super_bro.rs tests).

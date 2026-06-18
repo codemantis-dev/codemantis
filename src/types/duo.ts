@@ -157,9 +157,72 @@ export interface DuoSeriesPoint {
   costUsd: number;
 }
 
+/**
+ * The analyst LLM's structured report — the dashboard's stable contract.
+ * Mirrors the Rust `DuoAnalystReport` (`src-tauri/src/duo/analyst.rs`), which
+ * sanitizes every field (controlled vocabularies, clamped scores/lengths) so
+ * these shapes are guaranteed even on a malformed model reply.
+ */
+export type DuoMomentum = "accelerating" | "steady" | "stalling" | "blocked" | "unknown";
+export type DuoTrend = "improving" | "stable" | "declining" | "unknown";
+export type DuoTrajectory = "improving" | "flat" | "regressing" | "unknown";
+export type DuoRiskSeverity = "high" | "medium" | "low";
+export type DuoEffectiveness = "high" | "moderate" | "low" | "unknown";
+export type DuoDecisionOutcome = "primary" | "mentor" | "converged" | "pending" | "unknown";
+export type DuoPriority = "high" | "medium" | "low";
+export type DuoAudience = "primary" | "mentor" | "user";
+
+export interface DuoAnalystReport {
+  schemaVersion: number;
+  headline: string;
+  narrative: string;
+  phaseAssessment: {
+    currentFocus: string;
+    momentum: DuoMomentum;
+    momentumRationale: string;
+  };
+  collaborationHealth: {
+    score: number;
+    trend: DuoTrend;
+    summary: string;
+    frictionPoints: string[];
+  };
+  qualityAssessment: {
+    score: number;
+    trajectory: DuoTrajectory;
+    strengths: string[];
+    risks: { severity: DuoRiskSeverity; description: string; evidence: string }[];
+  };
+  repairAnalysis: {
+    summary: string;
+    rootCausePatterns: string[];
+    mentorEffectiveness: DuoEffectiveness;
+    mentorEffectivenessRationale: string;
+  };
+  improvementAnalysis: {
+    summary: string;
+    delivered: string[];
+    preventedIssues: string[];
+  };
+  decisions: { title: string; outcome: DuoDecisionOutcome; summary: string }[];
+  recommendations: { priority: DuoPriority; action: string; audience: DuoAudience }[];
+  watchItems: string[];
+  confidence: number;
+}
+
+/** A persisted/streamed analyst snapshot: the qualitative report + numeric series. */
 export interface DuoAnalystSnapshot {
   narrative: string;
-  metrics: DuoMetrics;
+  report: DuoAnalystReport;
+  series: DuoSeriesPoint[];
+}
+
+/** Payload of the real-time `duo:snapshot` event. */
+export interface DuoSnapshotEvent {
+  runId: string;
+  ts: number;
+  narrative: string;
+  report: DuoAnalystReport;
   series: DuoSeriesPoint[];
 }
 

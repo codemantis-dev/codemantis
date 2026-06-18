@@ -9,7 +9,13 @@ import type { GitStatusInfo, GitCommit, GitDiffResult } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
-import type { DuoRunRow, DuoEventRow, DuoSnapshotRow } from "../types/duo";
+import type {
+  DuoRunRow,
+  DuoEventRow,
+  DuoSnapshotRow,
+  DuoAnalystReport,
+  DuoSnapshotEvent,
+} from "../types/duo";
 import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult, ProjectAnalysis } from "../types/project-templates";
 import type {
   CapabilityStatus,
@@ -1424,6 +1430,19 @@ export async function duoLatestSnapshot(
   runId: string,
 ): Promise<DuoSnapshotRow | null> {
   return invoke<DuoSnapshotRow | null>("duo_latest_snapshot", { runId });
+}
+
+export async function duoAnalyze(runId: string): Promise<DuoAnalystReport> {
+  return invoke<DuoAnalystReport>("duo_analyze", { runId });
+}
+
+/** Subscribe to backend-produced analyst snapshots (`duo:snapshot`). */
+export async function listenDuoSnapshot(
+  callback: (event: DuoSnapshotEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<DuoSnapshotEvent>("duo:snapshot", ({ payload }) =>
+    callback(payload),
+  );
 }
 
 export async function readSuperBroModule(

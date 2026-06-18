@@ -129,6 +129,32 @@ pub async fn summarize_turn(
     Ok(resp)
 }
 
+/// Generic provider dispatch for a raw system + user prompt. Reused by the
+/// Duo-Coding analyst (and any future structured-output caller) so outbound
+/// LLM plumbing lives in ONE place. Returns `(response_text, input_tokens,
+/// output_tokens)`. Honors extended thinking where the provider supports it
+/// (`"off" | "low" | "medium" | "high"`); OpenRouter ignores `thinking`.
+/// Never sends `temperature` — Opus 4.x and GPT-5/o-series reject it.
+pub async fn call_provider(
+    provider: &str,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    thinking: &str,
+) -> Result<(String, u32, u32), String> {
+    let client = reqwest::Client::new();
+    match provider {
+        "gemini" => call_gemini(&client, api_key, model, system_prompt, user_prompt, thinking).await,
+        "openai" => call_openai(&client, api_key, model, system_prompt, user_prompt, thinking).await,
+        "anthropic" => {
+            call_anthropic(&client, api_key, model, system_prompt, user_prompt, thinking).await
+        }
+        "openrouter" => call_openrouter(&client, api_key, model, system_prompt, user_prompt).await,
+        _ => Err(format!("Unknown provider: {}", provider)),
+    }
+}
+
 /// Result of [`summarize_conversation`] — a plain-text recap plus token
 /// counts so the command layer can log the API call.
 #[derive(Debug, Clone)]

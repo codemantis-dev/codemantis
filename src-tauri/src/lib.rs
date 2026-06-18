@@ -10,6 +10,7 @@ pub mod testing_exports {
 }
 mod changelog;
 pub mod commands;
+pub mod duo;
 pub mod errors;
 pub mod lifecycle;
 mod preflight;
@@ -520,6 +521,7 @@ pub fn run() {
             commands::duo::duo_list_events,
             commands::duo::duo_record_snapshot,
             commands::duo::duo_latest_snapshot,
+            commands::duo::duo_analyze,
             commands::menu::enable_update_menu_item,
             commands::menu::disable_update_menu_item,
             commands::lifecycle::wake_pong,
