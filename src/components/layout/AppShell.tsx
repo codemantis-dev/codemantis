@@ -29,6 +29,8 @@ import { usePreflightStore } from "../../stores/preflightStore";
 import PreflightTray from "../preflight/PreflightTray";
 import MissionControl from "../preflight/MissionControl";
 import MissionControlEmpty from "../preflight/MissionControlEmpty";
+import DuoDashboard from "../duo/DuoDashboard";
+import DuoSetupModal from "../duo/DuoSetupModal";
 import MidRunPauseModal from "../preflight/MidRunPauseModal";
 import {
   useSelfDriveStore,
@@ -120,6 +122,10 @@ export default function AppShell() {
   const preflightStatus = usePreflightStore((s) => s.status);
   const showMissionControl = useUiStore((s) => s.showMissionControl);
   const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
+  const showDuoDashboard = useUiStore((s) => s.showDuoDashboard);
+  const setShowDuoDashboard = useUiStore((s) => s.setShowDuoDashboard);
+  const showDuoSetup = useUiStore((s) => s.showDuoSetup);
+  const setShowDuoSetup = useUiStore((s) => s.setShowDuoSetup);
   const toggleSpecWriter = useSpecWriterStore((s) => s.toggleSlideOver);
   const pausedCapability = useSelfDriveStore(selectPausedCapability);
   const pausedSessionContext = useSelfDriveStore(selectPausedSessionContext);
@@ -341,6 +347,44 @@ export default function AppShell() {
             </div>
           </div>
         </div>
+      )}
+
+      {showDuoDashboard && activeProjectPath && (
+        <div
+          className="fixed inset-0 z-40"
+          style={{ background: "var(--bg-primary)" }}
+        >
+          <div className="h-full flex flex-col">
+            <div
+              className="flex items-center justify-between px-4 py-2 border-b"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <span className="text-ui font-semibold text-text-primary">
+                Duo-Coding
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDuoDashboard(false)}
+                className="text-detail text-text-secondary hover:text-text-primary"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <AppErrorBoundary>
+                <DuoDashboard onConfigure={() => setShowDuoSetup(true)} />
+              </AppErrorBoundary>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDuoSetup && activeProjectPath && (
+        <DuoSetupModal
+          open={showDuoSetup}
+          projectPath={activeProjectPath}
+          onClose={() => setShowDuoSetup(false)}
+        />
       )}
 
       {/* Mid-run pause notice — Self-Drive paused on a missing capability.

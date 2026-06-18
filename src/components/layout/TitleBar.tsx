@@ -1,4 +1,4 @@
-import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera, HelpCircle, Rocket } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera, HelpCircle, Rocket, Users } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
@@ -28,6 +28,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
+  const setShowDuoDashboard = useUiStore((s) => s.setShowDuoDashboard);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
   const helpPanelOpen = useUiStore((s) => s.helpPanelOpen);
   const toggleHelpPanel = useUiStore((s) => s.toggleHelpPanel);
@@ -208,6 +209,16 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
         className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-ghost disabled:hover:bg-transparent"
       >
         <Rocket size={14} />
+      </button>
+
+      {/* Duo-Coding dashboard button */}
+      <button
+        onClick={() => activeProjectPath && setShowDuoDashboard(true)}
+        disabled={!activeProjectPath}
+        title="Duo-Coding (Cmd+Shift+D)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-ghost disabled:hover:bg-transparent"
+      >
+        <Users size={14} />
       </button>
 
       {/* Run Application (Preview) button */}

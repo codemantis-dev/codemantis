@@ -68,6 +68,7 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
       showSettingsModal: false,
       showProjectPicker: false,
       showMissionControl: false,
+      showDuoDashboard: false,
     });
   });
 
@@ -172,6 +173,25 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
       useUiStore.getState().setShowMissionControl(true);
     }
     expect(useUiStore.getState().showMissionControl).toBe(false);
+  });
+
+  it("Cmd+Shift+D toggles the Duo dashboard when a project is active", () => {
+    // Mirror the handler: only toggles when activeProjectPath is set.
+    useSessionStore.setState({ activeProjectPath: "/a" });
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+    if (useSessionStore.getState().activeProjectPath) {
+      useUiStore.getState().toggleDuoDashboard();
+    }
+    expect(useUiStore.getState().showDuoDashboard).toBe(true);
+  });
+
+  it("Cmd+Shift+D does nothing with no active project", () => {
+    useSessionStore.setState({ activeProjectPath: null });
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+    if (useSessionStore.getState().activeProjectPath) {
+      useUiStore.getState().toggleDuoDashboard();
+    }
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
   });
 
   it("Cmd+Shift+O toggles the Activity Overview lay-over", () => {

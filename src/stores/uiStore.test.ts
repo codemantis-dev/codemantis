@@ -132,6 +132,19 @@ describe("uiStore", () => {
     expect(useUiStore.getState().showMissionControl).toBe(false);
   });
 
+  it("Duo dashboard + setup flags default to false and toggle/set", () => {
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+    expect(useUiStore.getState().showDuoSetup).toBe(false);
+
+    useUiStore.getState().setShowDuoDashboard(true);
+    expect(useUiStore.getState().showDuoDashboard).toBe(true);
+    useUiStore.getState().toggleDuoDashboard();
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+
+    useUiStore.getState().setShowDuoSetup(true);
+    expect(useUiStore.getState().showDuoSetup).toBe(true);
+  });
+
   it("showActivityOverview defaults to false", () => {
     expect(useUiStore.getState().showActivityOverview).toBe(false);
   });

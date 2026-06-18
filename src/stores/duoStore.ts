@@ -158,6 +158,36 @@ function detachListeners(): void {
   analysisInFlight = false;
 }
 
+/** Wire turn/activity/snapshot listeners for a (primary, duo) session pair. */
+async function attachListeners(primaryId: string, duoId: string): Promise<void> {
+  detachListeners();
+  listeners.set(
+    primaryId,
+    await listenChatEvents(primaryId, (e) => onSessionEvent("primary", e)),
+  );
+  listeners.set(
+    duoId,
+    await listenChatEvents(duoId, (e) => onSessionEvent("duo", e)),
+  );
+  listeners.set(
+    `${primaryId}:activity`,
+    await listenActivityEvents(primaryId, onPrimaryActivity),
+  );
+  listeners.set(
+    "duo:snapshot",
+    await listenDuoSnapshot((payload) => {
+      if (payload.runId !== useDuoStore.getState().runId) return;
+      useDuoStore.setState({
+        analystSnapshot: {
+          narrative: payload.narrative,
+          report: payload.report,
+          series: payload.series,
+        },
+      });
+    }),
+  );
+}
+
 let idCounter = 0;
 function genId(prefix: string): string {
   idCounter += 1;
@@ -172,6 +202,7 @@ export interface DuoState {
   runId: string | null;
   projectPath: string | null;
   task: string | null;
+  startedAt: number | null;
   primarySessionId: string | null;
   duoSessionId: string | null;
   config: DuoConfig | null;
@@ -204,6 +235,11 @@ export interface DuoState {
   }) => Promise<void>;
   /** Apply a tie-break choice when status is paused on a deadlock. */
   resolveTieBreak: (choice: "mentorWins" | "primaryWins") => Promise<void>;
+  /** User-initiated suspend: stops observing turns; sessions keep their state. */
+  pause: () => void;
+  /** Resume a user-paused run (not valid while a tie-break blocker is open). */
+  resume: () => Promise<void>;
+  /** Terminate the run and tear down both spawned sessions. */
   stop: (outcome?: string) => Promise<void>;
   reset: () => void;
 }
@@ -214,6 +250,7 @@ const INITIAL = {
   runId: null,
   projectPath: null,
   task: null,
+  startedAt: null,
   primarySessionId: null,
   duoSessionId: null,
   config: null,
@@ -270,41 +307,13 @@ export const useDuoStore = create<DuoState>((set, get) => ({
         runId,
         projectPath,
         task,
+        startedAt: Date.now(),
         primarySessionId: primarySession.id,
         duoSessionId: duoSession.id,
         config,
       });
 
-      detachListeners();
-      listeners.set(
-        primarySession.id,
-        await listenChatEvents(primarySession.id, (e) =>
-          onSessionEvent("primary", e),
-        ),
-      );
-      listeners.set(
-        duoSession.id,
-        await listenChatEvents(duoSession.id, (e) => onSessionEvent("duo", e)),
-      );
-      // Drift watcher: observe the primary's tool stream mid-turn.
-      listeners.set(
-        `${primarySession.id}:activity`,
-        await listenActivityEvents(primarySession.id, onPrimaryActivity),
-      );
-      // Real-time analyst snapshots (backend-produced) for the dashboard.
-      listeners.set(
-        "duo:snapshot",
-        await listenDuoSnapshot((payload) => {
-          if (payload.runId !== useDuoStore.getState().runId) return;
-          useDuoStore.setState({
-            analystSnapshot: {
-              narrative: payload.narrative,
-              report: payload.report,
-              series: payload.series,
-            },
-          });
-        }),
-      );
+      await attachListeners(primarySession.id, duoSession.id);
 
       // Kick off the primary with the task.
       await injectTo(primarySession.id, task, "primary");
@@ -343,6 +352,25 @@ export const useDuoStore = create<DuoState>((set, get) => ({
         tieBreakApplied: false,
       });
     }
+  },
+
+  pause: () => {
+    const s = get();
+    if (s.status !== "running") return;
+    detachListeners();
+    recordEvent("decision", "system", "Run paused by user");
+    useDuoStore.setState({ status: "paused" });
+  },
+
+  resume: async () => {
+    const s = get();
+    // A tie-break blocker must be resolved via resolveTieBreak, not resume.
+    if (s.status !== "paused" || s.blocker || !s.primarySessionId || !s.duoSessionId) {
+      return;
+    }
+    await attachListeners(s.primarySessionId, s.duoSessionId);
+    recordEvent("decision", "system", "Run resumed by user");
+    useDuoStore.setState({ status: "running" });
   },
 
   stop: async (outcome = "stopped") => {

@@ -253,6 +253,15 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+Shift+D — toggle the Duo-Coding dashboard for the active project
+      if (key === "d" && shift) {
+        e.preventDefault();
+        if (useSessionStore.getState().activeProjectPath) {
+          useUiStore.getState().toggleDuoDashboard();
+        }
+        return;
+      }
+
       // Cmd+Shift+O — toggle the Activity Overview lay-over
       if (key === "o" && shift) {
         e.preventDefault();

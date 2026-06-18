@@ -29,6 +29,12 @@ interface UiState {
    *  TitleBar button and the Cmd+Shift+G keyboard shortcut can open it
    *  without depending on AppShell-local state or a loaded manifest. */
   showMissionControl: boolean;
+  /** Duo-Coding dashboard overlay — the rich mentor/primary monitoring view.
+   *  Lifted here (like showMissionControl) so the TitleBar button and the
+   *  Cmd+Shift+D shortcut can open it independent of AppShell-local state. */
+  showDuoDashboard: boolean;
+  /** Duo-Coding run-setup modal (configure primary + mentor, then start). */
+  showDuoSetup: boolean;
   /** Activity Overview lay-over — the top-left dropdown listing every
    *  project/session with active or attention-needing work. */
   showActivityOverview: boolean;
@@ -122,6 +128,9 @@ interface UiState {
   setShowMcpModal: (show: boolean) => void;
   setShowMissionControl: (show: boolean) => void;
   toggleMissionControl: () => void;
+  setShowDuoDashboard: (show: boolean) => void;
+  toggleDuoDashboard: () => void;
+  setShowDuoSetup: (show: boolean) => void;
   setShowActivityOverview: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setSelectedAgentId: (id: import("../types/agent-events").AgentId) => void;
@@ -181,6 +190,8 @@ export const useUiStore = create<UiState>((set) => ({
   showSettingsModal: false,
   showMcpModal: false,
   showMissionControl: false,
+  showDuoDashboard: false,
+  showDuoSetup: false,
   showActivityOverview: false,
   showProjectPicker: false,
   selectedAgentId: "claude_code",
@@ -260,6 +271,9 @@ export const useUiStore = create<UiState>((set) => ({
   setShowMcpModal: (show) => set({ showMcpModal: show }),
   setShowMissionControl: (show) => set({ showMissionControl: show }),
   toggleMissionControl: () => set((s) => ({ showMissionControl: !s.showMissionControl })),
+  setShowDuoDashboard: (show) => set({ showDuoDashboard: show }),
+  toggleDuoDashboard: () => set((s) => ({ showDuoDashboard: !s.showDuoDashboard })),
+  setShowDuoSetup: (show) => set({ showDuoSetup: show }),
   setShowActivityOverview: (show) => set({ showActivityOverview: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
