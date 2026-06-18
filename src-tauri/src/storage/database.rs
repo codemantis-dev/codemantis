@@ -101,6 +101,43 @@ pub struct ObservationRow {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DuoRunRow {
+    pub id: String,
+    pub primary_session_id: String,
+    pub duo_session_id: String,
+    pub project_path: String,
+    pub status: String,
+    pub config_json: String,
+    pub outcome: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuoEventRow {
+    pub id: String,
+    pub run_id: String,
+    pub ts: i64,
+    pub kind: String,
+    pub actor: String,
+    pub payload_json: String,
+    pub diff_stats_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuoSnapshotRow {
+    pub id: String,
+    pub run_id: String,
+    pub ts: i64,
+    pub narrative: String,
+    pub metrics_json: String,
+    pub series_json: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionMessageSearchResult {
     pub session_id: String,
     pub session_name: String,
@@ -206,6 +243,9 @@ impl Database {
 
         // Preflight System — cached capability verification state per project.
         let _ = conn.execute_batch(migrations::MIGRATE_PREFLIGHT_CAPABILITIES);
+
+        // Duo-Coding tables (runs, events, analyst snapshots).
+        let _ = conn.execute_batch(migrations::MIGRATE_DUO_CODING);
 
         // Recall — memory layer (RECALL-SPEC §8). Tables prefixed `recall_`,
         // including an FTS5 virtual table over note title+body.
@@ -1393,6 +1433,172 @@ impl Database {
             rusqlite::params![id],
         ).map_err(|e| AppError::DatabaseError(format!("Delete observation failed: {}", e)))?;
         Ok(())
+    }
+
+    // ── Duo-Coding runs / events / analyst snapshots ─────────────────────
+
+    /// Insert (or replace, on restart-resume) a Duo run. `created_at` is a
+    /// millisecond epoch; `completed_at`/`outcome` are filled by `complete_duo_run`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_duo_run(
+        &self,
+        id: &str,
+        primary_session_id: &str,
+        duo_session_id: &str,
+        project_path: &str,
+        status: &str,
+        config_json: &str,
+        created_at: i64,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO duo_runs (id, primary_session_id, duo_session_id, project_path, status, config_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![id, primary_session_id, duo_session_id, project_path, status, config_json, created_at],
+        ).map_err(|e| AppError::DatabaseError(format!("Insert duo_run failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Update a run's status, and optionally stamp its terminal outcome + completion time.
+    pub fn update_duo_run_status(
+        &self,
+        id: &str,
+        status: &str,
+        outcome: Option<&str>,
+        completed_at: Option<i64>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "UPDATE duo_runs SET status = ?2, outcome = COALESCE(?3, outcome), completed_at = COALESCE(?4, completed_at) WHERE id = ?1",
+            rusqlite::params![id, status, outcome, completed_at],
+        ).map_err(|e| AppError::DatabaseError(format!("Update duo_run failed: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn get_duo_run(&self, id: &str) -> Result<Option<DuoRunRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let result = conn.query_row(
+            "SELECT id, primary_session_id, duo_session_id, project_path, status, config_json, outcome, created_at, completed_at FROM duo_runs WHERE id = ?1",
+            rusqlite::params![id],
+            Self::map_duo_run_row,
+        );
+        match result {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!("Get duo_run failed: {}", e))),
+        }
+    }
+
+    /// All runs for a project, newest first.
+    pub fn list_duo_runs(&self, project_path: &str) -> Result<Vec<DuoRunRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, primary_session_id, duo_session_id, project_path, status, config_json, outcome, created_at, completed_at FROM duo_runs WHERE project_path = ?1 ORDER BY created_at DESC",
+        ).map_err(|e| AppError::DatabaseError(format!("Prepare list duo_runs failed: {}", e)))?;
+        let rows = stmt.query_map(rusqlite::params![project_path], Self::map_duo_run_row)
+            .map_err(|e| AppError::DatabaseError(format!("Query list duo_runs failed: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| AppError::DatabaseError(format!("Row iterate failed: {}", e)))?);
+        }
+        Ok(out)
+    }
+
+    fn map_duo_run_row(row: &rusqlite::Row) -> rusqlite::Result<DuoRunRow> {
+        Ok(DuoRunRow {
+            id: row.get(0)?,
+            primary_session_id: row.get(1)?,
+            duo_session_id: row.get(2)?,
+            project_path: row.get(3)?,
+            status: row.get(4)?,
+            config_json: row.get(5)?,
+            outcome: row.get(6)?,
+            created_at: row.get(7)?,
+            completed_at: row.get(8)?,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_duo_event(
+        &self,
+        id: &str,
+        run_id: &str,
+        ts: i64,
+        kind: &str,
+        actor: &str,
+        payload_json: &str,
+        diff_stats_json: Option<&str>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO duo_events (id, run_id, ts, kind, actor, payload_json, diff_stats_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![id, run_id, ts, kind, actor, payload_json, diff_stats_json],
+        ).map_err(|e| AppError::DatabaseError(format!("Insert duo_event failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// Events for a run in chronological order.
+    pub fn list_duo_events(&self, run_id: &str) -> Result<Vec<DuoEventRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, ts, kind, actor, payload_json, diff_stats_json FROM duo_events WHERE run_id = ?1 ORDER BY ts ASC, id ASC",
+        ).map_err(|e| AppError::DatabaseError(format!("Prepare list duo_events failed: {}", e)))?;
+        let rows = stmt.query_map(rusqlite::params![run_id], |row| {
+            Ok(DuoEventRow {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                ts: row.get(2)?,
+                kind: row.get(3)?,
+                actor: row.get(4)?,
+                payload_json: row.get(5)?,
+                diff_stats_json: row.get(6)?,
+            })
+        }).map_err(|e| AppError::DatabaseError(format!("Query list duo_events failed: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| AppError::DatabaseError(format!("Row iterate failed: {}", e)))?);
+        }
+        Ok(out)
+    }
+
+    pub fn insert_duo_snapshot(
+        &self,
+        id: &str,
+        run_id: &str,
+        ts: i64,
+        narrative: &str,
+        metrics_json: &str,
+        series_json: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO duo_analyst_snapshots (id, run_id, ts, narrative, metrics_json, series_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![id, run_id, ts, narrative, metrics_json, series_json],
+        ).map_err(|e| AppError::DatabaseError(format!("Insert duo_snapshot failed: {}", e)))?;
+        Ok(())
+    }
+
+    /// The most recent analyst snapshot for a run, if any.
+    pub fn latest_duo_snapshot(&self, run_id: &str) -> Result<Option<DuoSnapshotRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let result = conn.query_row(
+            "SELECT id, run_id, ts, narrative, metrics_json, series_json FROM duo_analyst_snapshots WHERE run_id = ?1 ORDER BY ts DESC, id DESC LIMIT 1",
+            rusqlite::params![run_id],
+            |row| {
+                Ok(DuoSnapshotRow {
+                    id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    ts: row.get(2)?,
+                    narrative: row.get(3)?,
+                    metrics_json: row.get(4)?,
+                    series_json: row.get(5)?,
+                })
+            },
+        );
+        match result {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::DatabaseError(format!("Latest duo_snapshot failed: {}", e))),
+        }
     }
 
     // ── Recall audit-log accessors ──────────────────────────────────────
@@ -3064,5 +3270,89 @@ mod tests {
     fn test_archive_nonexistent_task_plan_succeeds() {
         let db = Database::new(":memory:").unwrap();
         db.archive_task_plan("nonexistent").unwrap();
+    }
+
+    // ── Duo-Coding ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_insert_and_get_duo_run() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("run-1", "sess-primary", "sess-duo", "/project/a", "running", "{\"maxDialogueRounds\":3}", 1000)
+            .unwrap();
+        let row = db.get_duo_run("run-1").unwrap().expect("run exists");
+        assert_eq!(row.primary_session_id, "sess-primary");
+        assert_eq!(row.duo_session_id, "sess-duo");
+        assert_eq!(row.status, "running");
+        assert_eq!(row.created_at, 1000);
+        assert!(row.outcome.is_none());
+        assert!(row.completed_at.is_none());
+    }
+
+    #[test]
+    fn test_get_duo_run_missing_returns_none() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.get_duo_run("nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_update_duo_run_status_and_outcome() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("run-1", "p", "d", "/proj", "running", "{}", 1).unwrap();
+        db.update_duo_run_status("run-1", "completed", Some("agreed"), Some(2000)).unwrap();
+        let row = db.get_duo_run("run-1").unwrap().unwrap();
+        assert_eq!(row.status, "completed");
+        assert_eq!(row.outcome.as_deref(), Some("agreed"));
+        assert_eq!(row.completed_at, Some(2000));
+    }
+
+    #[test]
+    fn test_list_duo_runs_orders_newest_first_and_scopes_by_project() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("r1", "p", "d", "/proj/a", "running", "{}", 100).unwrap();
+        db.insert_duo_run("r2", "p", "d", "/proj/a", "running", "{}", 300).unwrap();
+        db.insert_duo_run("r3", "p", "d", "/proj/b", "running", "{}", 200).unwrap();
+        let runs = db.list_duo_runs("/proj/a").unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].id, "r2"); // newest first
+        assert_eq!(runs[1].id, "r1");
+    }
+
+    #[test]
+    fn test_insert_and_list_duo_events_chronological() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("run-1", "p", "d", "/proj", "running", "{}", 1).unwrap();
+        db.insert_duo_event("e2", "run-1", 200, "agreement", "duo", "{\"summary\":\"ok\"}", None).unwrap();
+        db.insert_duo_event("e1", "run-1", 100, "turn", "primary", "{}", Some("{\"added\":5}")).unwrap();
+        let events = db.list_duo_events("run-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].id, "e1"); // ordered by ts ASC
+        assert_eq!(events[0].diff_stats_json.as_deref(), Some("{\"added\":5}"));
+        assert_eq!(events[1].kind, "agreement");
+    }
+
+    #[test]
+    fn test_duo_events_cascade_delete_with_run() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("run-1", "p", "d", "/proj", "running", "{}", 1).unwrap();
+        db.insert_duo_event("e1", "run-1", 100, "turn", "primary", "{}", None).unwrap();
+        db.conn().lock().unwrap().execute("DELETE FROM duo_runs WHERE id = ?1", rusqlite::params!["run-1"]).unwrap();
+        assert!(db.list_duo_events("run-1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_insert_and_latest_duo_snapshot() {
+        let db = Database::new(":memory:").unwrap();
+        db.insert_duo_run("run-1", "p", "d", "/proj", "running", "{}", 1).unwrap();
+        db.insert_duo_snapshot("s1", "run-1", 100, "first", "{\"agreementRate\":0.5}", "[]").unwrap();
+        db.insert_duo_snapshot("s2", "run-1", 200, "second", "{\"agreementRate\":0.9}", "[]").unwrap();
+        let snap = db.latest_duo_snapshot("run-1").unwrap().expect("snapshot exists");
+        assert_eq!(snap.id, "s2");
+        assert_eq!(snap.narrative, "second");
+    }
+
+    #[test]
+    fn test_latest_duo_snapshot_missing_returns_none() {
+        let db = Database::new(":memory:").unwrap();
+        assert!(db.latest_duo_snapshot("run-x").unwrap().is_none());
     }
 }

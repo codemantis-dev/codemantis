@@ -22,6 +22,7 @@ import { useAttachmentStore } from "../../stores/attachmentStore";
 import { useChatSearchStore } from "../../stores/chatSearchStore";
 import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
 import { useRecallStore } from "../../stores/recallStore";
+import { useDuoStore } from "../../stores/duoStore";
 
 export function resetAllStores(): void {
   useSessionStore.setState({
@@ -253,4 +254,7 @@ export function resetAllStores(): void {
     loadingByProject: new Map(),
     notesForPaths: new Map(),
   });
+
+  // Duo-Coding run state.
+  useDuoStore.getState().reset();
 }

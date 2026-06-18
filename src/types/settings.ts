@@ -183,7 +183,44 @@ export interface AppSettings {
    * `import type { RecallConfig } from "./recall"`.
    */
   recall?: import("./recall").RecallConfig;
+
+  /**
+   * Duo-Coding defaults & policy (mentor/primary collaborative mode).
+   * Optional for backward compat; absent means "use defaults" (`enabled:
+   * false`, so Duo-Coding is dormant until opt-in). Mirrors the Rust
+   * `DuoCodingConfig` (`src-tauri/src/commands/settings.rs`). The per-run
+   * agent pairing lives in `DuoConfig` (`src/types/duo.ts`), not here.
+   */
+  duo?: DuoCodingSettings;
 }
+
+export interface DuoCodingSettings {
+  enabled: boolean;
+  /** "pause" (default) | "mentorWins" | "primaryWins". */
+  tieBreakPolicy: "pause" | "mentorWins" | "primaryWins";
+  maxDialogueRounds: number;
+  severeDriftNudgeEnabled: boolean;
+  severeDriftSensitivity: "conservative" | "balanced" | "aggressive";
+  analystEnabled: boolean;
+  analystProvider: string;
+  analystModel: string;
+  budgetUsdCap: number | null;
+  budgetTokenCap: number | null;
+}
+
+/** The opt-out baseline, matching Rust `DuoCodingConfig::default()`. */
+export const DEFAULT_DUO_SETTINGS: DuoCodingSettings = {
+  enabled: false,
+  tieBreakPolicy: "pause",
+  maxDialogueRounds: 3,
+  severeDriftNudgeEnabled: true,
+  severeDriftSensitivity: "conservative",
+  analystEnabled: true,
+  analystProvider: "gemini",
+  analystModel: "gemini-2.5-flash-lite",
+  budgetUsdCap: null,
+  budgetTokenCap: null,
+};
 
 export { getDefaultModelPricing };
 

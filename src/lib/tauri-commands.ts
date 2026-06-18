@@ -9,6 +9,7 @@ import type { GitStatusInfo, GitCommit } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
+import type { DuoRunRow, DuoEventRow, DuoSnapshotRow } from "../types/duo";
 import type { TemplateEntry, ScaffoldResult, ScaffoldProgressEvent, VerifyResult, PrerequisiteCheck, PrerequisiteResult, InstallPrerequisiteResult, ProjectAnalysis } from "../types/project-templates";
 import type {
   CapabilityStatus,
@@ -1341,6 +1342,84 @@ export async function loadObservations(
 
 export async function deleteObservation(id: string): Promise<void> {
   return invoke("delete_observation", { id });
+}
+
+// --- Duo-Coding ---
+
+export async function duoStartRun(
+  id: string,
+  primarySessionId: string,
+  duoSessionId: string,
+  projectPath: string,
+  configJson: string,
+): Promise<void> {
+  return invoke("duo_start_run", {
+    id,
+    primarySessionId,
+    duoSessionId,
+    projectPath,
+    configJson,
+  });
+}
+
+export async function duoCompleteRun(
+  id: string,
+  status: string,
+  outcome?: string,
+): Promise<void> {
+  return invoke("duo_complete_run", { id, status, outcome });
+}
+
+export async function duoGetRun(id: string): Promise<DuoRunRow | null> {
+  return invoke<DuoRunRow | null>("duo_get_run", { id });
+}
+
+export async function duoListRuns(projectPath: string): Promise<DuoRunRow[]> {
+  return invoke<DuoRunRow[]>("duo_list_runs", { projectPath });
+}
+
+export async function duoRecordEvent(
+  id: string,
+  runId: string,
+  kind: string,
+  actor: string,
+  payloadJson: string,
+  diffStatsJson?: string,
+): Promise<void> {
+  return invoke("duo_record_event", {
+    id,
+    runId,
+    kind,
+    actor,
+    payloadJson,
+    diffStatsJson,
+  });
+}
+
+export async function duoListEvents(runId: string): Promise<DuoEventRow[]> {
+  return invoke<DuoEventRow[]>("duo_list_events", { runId });
+}
+
+export async function duoRecordSnapshot(
+  id: string,
+  runId: string,
+  narrative: string,
+  metricsJson: string,
+  seriesJson: string,
+): Promise<void> {
+  return invoke("duo_record_snapshot", {
+    id,
+    runId,
+    narrative,
+    metricsJson,
+    seriesJson,
+  });
+}
+
+export async function duoLatestSnapshot(
+  runId: string,
+): Promise<DuoSnapshotRow | null> {
+  return invoke<DuoSnapshotRow | null>("duo_latest_snapshot", { runId });
 }
 
 export async function readSuperBroModule(

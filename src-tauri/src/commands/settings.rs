@@ -165,6 +165,74 @@ pub struct AppSettings {
     /// `recall::enricher::enrich_if_enabled` from `send_message`.
     #[serde(default)]
     pub recall: crate::recall::config::RecallConfig,
+
+    // --- Duo-Coding (mentor/primary collaborative mode) ---
+    /// Config for Duo-Coding runs. Master `enabled` defaults to false; the
+    /// rest carry sensible defaults that apply once the user opts in. The
+    /// orchestration lives in the frontend `duoStore`; this struct supplies
+    /// the tie-break policy, dialogue/drift guards, analyst provider, and
+    /// per-run budget caps. See `project_duo_coding` plan.
+    #[serde(default)]
+    pub duo: DuoCodingConfig,
+}
+
+/// Persisted configuration for Duo-Coding. `Default` is the opt-out baseline;
+/// per-field serde defaults let partial JSON from older installs merge cleanly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuoCodingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// "pause" (default) | "mentorWins" | "primaryWins".
+    #[serde(default = "default_duo_tie_break")]
+    pub tie_break_policy: String,
+    #[serde(default = "default_duo_max_rounds")]
+    pub max_dialogue_rounds: u32,
+    #[serde(default = "default_true")]
+    pub severe_drift_nudge_enabled: bool,
+    /// Sensitivity of the mid-turn severe-drift watcher:
+    /// "conservative" (default) | "balanced" | "aggressive".
+    #[serde(default = "default_duo_drift_sensitivity")]
+    pub severe_drift_sensitivity: String,
+    #[serde(default = "default_true")]
+    pub analyst_enabled: bool,
+    #[serde(default = "default_changelog_provider")]
+    pub analyst_provider: String,
+    #[serde(default = "default_changelog_model")]
+    pub analyst_model: String,
+    /// Hard per-run USD cap; the run pauses when exceeded. None = no cap.
+    #[serde(default)]
+    pub budget_usd_cap: Option<f64>,
+    /// Hard per-run output-token cap; the run pauses when exceeded. None = no cap.
+    #[serde(default)]
+    pub budget_token_cap: Option<u64>,
+}
+
+impl Default for DuoCodingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tie_break_policy: default_duo_tie_break(),
+            max_dialogue_rounds: default_duo_max_rounds(),
+            severe_drift_nudge_enabled: true,
+            severe_drift_sensitivity: default_duo_drift_sensitivity(),
+            analyst_enabled: true,
+            analyst_provider: default_changelog_provider(),
+            analyst_model: default_changelog_model(),
+            budget_usd_cap: None,
+            budget_token_cap: None,
+        }
+    }
+}
+
+fn default_duo_tie_break() -> String {
+    "pause".to_string()
+}
+fn default_duo_max_rounds() -> u32 {
+    3
+}
+fn default_duo_drift_sensitivity() -> String {
+    "conservative".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +387,7 @@ impl Default for AppSettings {
             default_agent_by_task: HashMap::new(),
             second_opinion_privacy_acknowledged: false,
             recall: crate::recall::config::RecallConfig::default(),
+            duo: DuoCodingConfig::default(),
         }
     }
 }
@@ -542,6 +611,39 @@ mod tests {
         assert_eq!(settings.theme, "sand");
         assert_eq!(settings.font_size, 13);
         assert_eq!(settings.send_shortcut, "cmd+enter");
+    }
+
+    #[test]
+    fn duo_config_default_is_opt_out_with_safe_defaults() {
+        let duo = AppSettings::default().duo;
+        assert!(!duo.enabled);
+        assert_eq!(duo.tie_break_policy, "pause");
+        assert_eq!(duo.max_dialogue_rounds, 3);
+        assert!(duo.severe_drift_nudge_enabled);
+        assert_eq!(duo.severe_drift_sensitivity, "conservative");
+        assert!(duo.analyst_enabled);
+        assert!(duo.budget_usd_cap.is_none());
+        assert!(duo.budget_token_cap.is_none());
+    }
+
+    #[test]
+    fn duo_config_absent_json_falls_back_to_default() {
+        // Legacy installs with no `duo` key must deserialize to the opt-out baseline.
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.duo.enabled);
+        assert_eq!(settings.duo.tie_break_policy, "pause");
+    }
+
+    #[test]
+    fn duo_config_partial_json_merges_per_field_defaults() {
+        let json = r#"{"duo":{"enabled":true,"tieBreakPolicy":"mentorWins","budgetUsdCap":2.5}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.duo.enabled);
+        assert_eq!(settings.duo.tie_break_policy, "mentorWins");
+        assert_eq!(settings.duo.budget_usd_cap, Some(2.5));
+        // Untouched fields keep their defaults.
+        assert_eq!(settings.duo.max_dialogue_rounds, 3);
+        assert!(settings.duo.severe_drift_nudge_enabled);
     }
 
     #[test]

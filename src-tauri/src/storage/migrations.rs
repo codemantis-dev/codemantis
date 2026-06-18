@@ -211,6 +211,52 @@ CREATE TABLE IF NOT EXISTS preflight_capabilities (
 CREATE INDEX IF NOT EXISTS idx_preflight_capabilities_project ON preflight_capabilities(project_id);
 "#;
 
+// Duo-Coding — collaborative mentor/primary agent runs.
+//
+// `duo_runs`: one row per Duo run, linking the primary (sole writer) and the
+// read-only Duo/mentor CLI sessions. `config_json` snapshots the DuoConfig used.
+// `duo_events`: the chronological event log (turn/verdict/agreement/disagreement/
+// dialogue/repair/drift/escalation/decision/nudge) — powers the dashboard and the
+// session-history record. FK→duo_runs ON DELETE CASCADE.
+// `duo_analyst_snapshots`: the API-LLM analyst's periodic narrative+metrics+series,
+// latest replayed on reopen.
+pub const MIGRATE_DUO_CODING: &str = r#"
+CREATE TABLE IF NOT EXISTS duo_runs (
+    id TEXT PRIMARY KEY,
+    primary_session_id TEXT NOT NULL,
+    duo_session_id TEXT NOT NULL,
+    project_path TEXT NOT NULL,
+    status TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    outcome TEXT,
+    created_at INTEGER NOT NULL,
+    completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_duo_runs_project ON duo_runs(project_path);
+CREATE INDEX IF NOT EXISTS idx_duo_runs_created ON duo_runs(created_at);
+
+CREATE TABLE IF NOT EXISTS duo_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES duo_runs(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    diff_stats_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_duo_events_run ON duo_events(run_id, ts);
+
+CREATE TABLE IF NOT EXISTS duo_analyst_snapshots (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES duo_runs(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    narrative TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    series_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_duo_snapshots_run ON duo_analyst_snapshots(run_id, ts);
+"#;
+
 // Recall — project-and-cross-project memory layer (see RECALL-SPEC §8).
 //
 // Deviation from spec: the spec's `project_id INTEGER REFERENCES projects(id)`
