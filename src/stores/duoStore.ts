@@ -24,6 +24,7 @@ import {
   setCodexPolicy,
   getGitDiff,
   listenChatEvents,
+  listenActivityEvents,
   duoStartRun,
   duoRecordEvent,
   duoCompleteRun,
@@ -42,7 +43,10 @@ import {
   buildReviewPrompt,
   buildRepairPrompt,
   buildReAskPrompt,
+  buildDialogueToPrimaryPrompt,
+  buildDialogueToDuoPrompt,
 } from "../lib/duo-prompts";
+import { classifyDrift, normalizeConcern, type ToolOp } from "../lib/duo-drift";
 import type {
   DuoStatus,
   DuoPhase,
@@ -138,9 +142,16 @@ interface DuoDecision {
 
 const listeners = new Map<string, UnlistenFn>();
 
+/** Tool ops the primary has run in the CURRENT turn (for the drift watcher). */
+let currentTurnOps: ToolOp[] = [];
+/** Guard so a severe-drift nudge fires at most once per primary turn. */
+let driftNudgedThisTurn = false;
+
 function detachListeners(): void {
   for (const un of listeners.values()) un();
   listeners.clear();
+  currentTurnOps = [];
+  driftNudgedThisTurn = false;
 }
 
 let idCounter = 0;
@@ -169,7 +180,10 @@ export interface DuoState {
   error: string | null;
 
   // Internal markers / counters.
+  /** Dialogue/repair rounds used in the current unresolved exchange. */
   repairAttempts: number;
+  /** Normalized mentor concerns raised this exchange — for ping-pong detection. */
+  priorConcerns: string[];
   awaitingReAsk: boolean;
   tieBreakApplied: boolean;
   lastPrimaryPromptId: string | null;
@@ -204,6 +218,7 @@ const INITIAL = {
   blocker: null,
   error: null,
   repairAttempts: 0,
+  priorConcerns: [] as string[],
   awaitingReAsk: false,
   tieBreakApplied: false,
   lastPrimaryPromptId: null,
@@ -263,6 +278,11 @@ export const useDuoStore = create<DuoState>((set, get) => ({
       listeners.set(
         duoSession.id,
         await listenChatEvents(duoSession.id, (e) => onSessionEvent("duo", e)),
+      );
+      // Drift watcher: observe the primary's tool stream mid-turn.
+      listeners.set(
+        `${primarySession.id}:activity`,
+        await listenActivityEvents(primarySession.id, onPrimaryActivity),
       );
 
       // Kick off the primary with the task.
@@ -355,8 +375,14 @@ async function injectTo(
     isSelfDrive: true, // injected, not human-typed — hide from "user activity" scans
   };
   useSessionStore.getState().addMessage(sessionId, msg);
-  if (role === "primary") useDuoStore.setState({ lastPrimaryPromptId: msgId });
-  else useDuoStore.setState({ lastDuoPromptId: msgId });
+  if (role === "primary") {
+    useDuoStore.setState({ lastPrimaryPromptId: msgId });
+    // A fresh primary turn starts — reset the drift accumulator.
+    currentTurnOps = [];
+    driftNudgedThisTurn = false;
+  } else {
+    useDuoStore.setState({ lastDuoPromptId: msgId });
+  }
   useSessionStore.getState().setSessionBusy(sessionId, true);
   await sendMessage(sessionId, prompt);
 }
@@ -399,13 +425,88 @@ function bumpMetrics(patch: Partial<DuoMetrics>): void {
 
 function onSessionEvent(role: "primary" | "duo", event: FrontendEvent): void {
   if (event.type !== "turn_complete") return;
+  // Both sessions' turns count toward the run's cost/token budget.
+  const cost = typeof event.cost_usd === "number" ? event.cost_usd : 0;
+  const out =
+    event.usage && typeof event.usage.output_tokens === "number"
+      ? event.usage.output_tokens
+      : 0;
+  if (cost || out) {
+    bumpMetrics({
+      costUsd: useDuoStore.getState().metrics.costUsd + cost,
+      outputTokens: useDuoStore.getState().metrics.outputTokens + out,
+    });
+  }
   const s = useDuoStore.getState();
   if (s.status !== "running") return;
   if (role === "primary") void handlePrimaryTurnComplete();
   else void handleDuoTurnComplete();
 }
 
+/** Mid-turn drift watcher: accumulate the primary's tool ops and nudge on severe drift. */
+function onPrimaryActivity(event: FrontendEvent): void {
+  if (event.type !== "tool_use_start") return;
+  const s = useDuoStore.getState();
+  if (s.status !== "running" || !s.config || !s.primarySessionId) return;
+
+  currentTurnOps.push({ toolName: event.tool_name, input: event.tool_input });
+  if (driftNudgedThisTurn) return;
+
+  const signal = classifyDrift(currentTurnOps, s.config.severeDriftSensitivity);
+  if (!signal.severe) return;
+
+  driftNudgedThisTurn = true;
+  bumpMetrics({ driftIncidents: useDuoStore.getState().metrics.driftIncidents + 1 });
+  recordEvent("drift", "duo", signal.reason ?? "Severe drift detected");
+  if (s.config.severeDriftNudgeEnabled) {
+    void injectTo(
+      s.primarySessionId,
+      `Heads up from your Duo mentor: this looks like it's going off-track — ${signal.reason}. Pause and reconsider before continuing.`,
+      "primary",
+    );
+  }
+}
+
+/** Whether the run has exceeded either configured budget cap. */
+export function isOverBudget(
+  metrics: DuoMetrics,
+  config: DuoConfig | null,
+): boolean {
+  if (!config) return false;
+  if (config.budgetUsdCap !== null && metrics.costUsd >= config.budgetUsdCap) {
+    return true;
+  }
+  if (
+    config.budgetTokenCap !== null &&
+    metrics.outputTokens >= config.budgetTokenCap
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Pause the run on a budget blocker if a cap is exceeded. Returns true if it paused. */
+function pauseIfOverBudget(): boolean {
+  const s = useDuoStore.getState();
+  if (!isOverBudget(s.metrics, s.config)) return false;
+  detachListeners();
+  recordEvent("escalation", "system", "Budget cap reached — run paused");
+  useDuoStore.setState({
+    status: "paused",
+    phase: "escalated",
+    blocker: {
+      kind: "duo-deadlock",
+      summary: `Budget cap reached ($${s.metrics.costUsd.toFixed(2)}, ${s.metrics.outputTokens} tokens)`,
+      primaryPosition: "Run halted to respect the configured budget.",
+      duoPosition: "Raise or clear the budget cap to continue.",
+      repairTask: null,
+    },
+  });
+  return true;
+}
+
 async function handlePrimaryTurnComplete(): Promise<void> {
+  if (pauseIfOverBudget()) return;
   const s = useDuoStore.getState();
   if (!s.primarySessionId || !s.duoSessionId || !s.config || !s.task) return;
 
@@ -413,7 +514,25 @@ async function handlePrimaryTurnComplete(): Promise<void> {
     useSessionStore.getState().sessionMessages.get(s.primarySessionId) ?? [];
   const primaryResponse = collectResponseSince(messages, s.lastPrimaryPromptId);
 
-  // Diff-anchored review packet.
+  // In an open dialogue, the primary's turn is its RESPONSE to the mentor's
+  // concern — hand it back to the mentor to re-judge, no fresh diff review.
+  if (s.phase === "dialoguing") {
+    appendDialogue("primary", "defend", primaryResponse.slice(0, 2000));
+    recordEvent("dialogue", "primary", "Primary responded to the mentor");
+    useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
+    await injectTo(
+      s.duoSessionId,
+      buildDialogueToDuoPrompt({
+        primaryResponse,
+        round: s.repairAttempts,
+        agentId: s.config.duo.agentId,
+      }),
+      "duo",
+    );
+    return;
+  }
+
+  // Fresh build (or post-repair) turn → diff-anchored review.
   let diffText = "";
   let diffStats: DuoDiffStats | undefined;
   try {
@@ -427,14 +546,17 @@ async function handlePrimaryTurnComplete(): Promise<void> {
   recordEvent("turn", "primary", "Primary completed a turn", {}, diffStats);
   useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
 
-  const reviewPrompt = buildReviewPrompt({
-    task: s.task,
-    primaryResponse,
-    diff: diffText,
-    toolsUsed: [],
-    agentId: s.config.duo.agentId,
-  });
-  await injectTo(s.duoSessionId, reviewPrompt, "duo");
+  await injectTo(
+    s.duoSessionId,
+    buildReviewPrompt({
+      task: s.task,
+      primaryResponse,
+      diff: diffText,
+      toolsUsed: [],
+      agentId: s.config.duo.agentId,
+    }),
+    "duo",
+  );
 }
 
 async function handleDuoTurnComplete(): Promise<void> {
@@ -467,9 +589,15 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
   bumpMetrics({ reviews: s.metrics.reviews + 1 });
 
   if (verdict.stance === "agree") {
+    // Convergence — concern resolved (primary fixed it, or mentor conceded).
     recordEvent("agreement", "duo", verdict.summary, { confidence: verdict.confidence });
     bumpMetrics({ agreements: useDuoStore.getState().metrics.agreements + 1 });
-    useDuoStore.setState({ phase: "building", repairAttempts: 0, tieBreakApplied: false });
+    useDuoStore.setState({
+      phase: "building",
+      repairAttempts: 0,
+      priorConcerns: [],
+      tieBreakApplied: false,
+    });
     return;
   }
 
@@ -480,39 +608,52 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
     return;
   }
 
-  // Blocking concern / disagreement.
+  // Blocking concern / disagreement — open or continue the dialogue.
   recordEvent("disagreement", "duo", verdict.summary, { severity: verdict.severity });
-  bumpMetrics({ disagreements: useDuoStore.getState().metrics.disagreements + 1 });
-  appendDialogue("duo", "propose", verdict.repairTask ?? verdict.rationale);
+  bumpMetrics({
+    disagreements: useDuoStore.getState().metrics.disagreements + 1,
+    dialogueRounds: useDuoStore.getState().metrics.dialogueRounds + 1,
+  });
+  appendDialogue("duo", "concern", verdict.repairTask ?? verdict.rationale);
 
-  const attempts = s.repairAttempts;
-  if (attempts >= s.config.maxDialogueRounds && !s.tieBreakApplied) {
-    await applyTieBreak(verdict);
+  // Ping-pong: the mentor re-raised a concern it already raised this exchange.
+  const norm = normalizeConcern(verdict.summary);
+  const isRepeat = s.priorConcerns.includes(norm);
+  useDuoStore.setState({ priorConcerns: [...s.priorConcerns, norm] });
+
+  const round = s.repairAttempts;
+  if (
+    !s.tieBreakApplied &&
+    (isRepeat || round >= s.config.maxDialogueRounds)
+  ) {
+    await applyTieBreak(verdict, isRepeat ? "ping-pong" : "rounds-exhausted");
     return;
   }
 
-  // Mentor directs; primary fixes.
-  recordEvent("repair", "system", "Injecting mentor repair into primary", {
-    attempt: attempts + 1,
-  });
+  // Mentor directs; primary responds (defends or fixes). Single writer.
+  recordEvent("repair", "system", "Mentor directing the primary", { round: round + 1 });
   bumpMetrics({ repairs: useDuoStore.getState().metrics.repairs + 1 });
-  useDuoStore.setState({ phase: "repairing", repairAttempts: attempts + 1 });
+  useDuoStore.setState({ phase: "dialoguing", repairAttempts: round + 1 });
   await injectTo(
     s.primarySessionId,
-    buildRepairPrompt({
-      repairTask: verdict.repairTask ?? verdict.summary,
+    buildDialogueToPrimaryPrompt({
+      concern: verdict.repairTask ?? verdict.summary,
       rationale: verdict.rationale,
+      round: round + 1,
       agentId: s.config.primary.agentId,
     }),
     "primary",
   );
 }
 
-async function applyTieBreak(verdict: DuoVerdict): Promise<void> {
+async function applyTieBreak(
+  verdict: DuoVerdict,
+  reason: "ping-pong" | "rounds-exhausted",
+): Promise<void> {
   const s = useDuoStore.getState();
   if (!s.config) return;
   const policy = s.config.tieBreakPolicy;
-  recordEvent("escalation", "system", `Non-convergence — tie-break: ${policy}`);
+  recordEvent("escalation", "system", `Non-convergence (${reason}) — tie-break: ${policy}`);
 
   const blocker: DuoBlocker = {
     kind: "duo-deadlock",
@@ -529,7 +670,8 @@ async function applyTieBreak(verdict: DuoVerdict): Promise<void> {
   }
 
   // Non-pause policies resolve immediately (one-shot; a further failure pauses).
-  useDuoStore.setState({ blocker });
+  // Park in "paused" so resolveTieBreak's guard accepts the programmatic call.
+  useDuoStore.setState({ status: "paused", phase: "escalated", blocker });
   await useDuoStore
     .getState()
     .resolveTieBreak(policy === "mentorWins" ? "mentorWins" : "primaryWins");

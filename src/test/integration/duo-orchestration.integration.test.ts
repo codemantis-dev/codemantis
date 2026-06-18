@@ -23,6 +23,7 @@ import type { FrontendEvent } from "../../types/agent-events";
 
 const {
   chatCallbacks,
+  activityCallbacks,
   mockCreateSession,
   mockSendMessage,
   mockSetSessionMode,
@@ -32,6 +33,7 @@ const {
   mockDuoRecordEvent,
 } = vi.hoisted(() => ({
   chatCallbacks: new Map<string, (e: FrontendEvent) => void>(),
+  activityCallbacks: new Map<string, (e: FrontendEvent) => void>(),
   mockCreateSession: vi.fn(),
   mockSendMessage: vi.fn<(sessionId: string, prompt: string) => Promise<void>>(() => Promise.resolve()),
   mockSetSessionMode: vi.fn(() => Promise.resolve()),
@@ -53,6 +55,10 @@ vi.mock("../../lib/tauri-commands", () => ({
   listenChatEvents: vi.fn(async (sessionId: string, cb: (e: FrontendEvent) => void) => {
     chatCallbacks.set(sessionId, cb);
     return () => chatCallbacks.delete(sessionId);
+  }),
+  listenActivityEvents: vi.fn(async (sessionId: string, cb: (e: FrontendEvent) => void) => {
+    activityCallbacks.set(sessionId, cb);
+    return () => activityCallbacks.delete(sessionId);
   }),
   duoStartRun: mockDuoStartRun,
   duoRecordEvent: mockDuoRecordEvent,
@@ -89,10 +95,25 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-async function primaryTurn(text: string): Promise<void> {
+async function primaryTurn(text: string, costUsd = 0): Promise<void> {
   useSessionStore.getState().addMessage(PRIMARY, assistantMsg(text));
-  chatCallbacks.get(PRIMARY)?.({ type: "turn_complete", session_id: PRIMARY } as unknown as FrontendEvent);
+  chatCallbacks.get(PRIMARY)?.({
+    type: "turn_complete",
+    session_id: PRIMARY,
+    cost_usd: costUsd,
+    usage: null,
+  } as unknown as FrontendEvent);
   await flush();
+}
+
+function primaryToolOp(toolName: string, input: Record<string, unknown>): void {
+  activityCallbacks.get(PRIMARY)?.({
+    type: "tool_use_start",
+    session_id: PRIMARY,
+    tool_use_id: `t-${msgSeq}`,
+    tool_name: toolName,
+    tool_input: input,
+  } as unknown as FrontendEvent);
 }
 
 async function mentorTurn(obj: Record<string, unknown>): Promise<void> {
@@ -101,11 +122,27 @@ async function mentorTurn(obj: Record<string, unknown>): Promise<void> {
   await flush();
 }
 
-async function startRun(maxRounds = 3): Promise<void> {
+interface StartOpts {
+  maxRounds?: number;
+  tieBreakPolicy?: "pause" | "mentorWins" | "primaryWins";
+  budgetUsdCap?: number | null;
+  severeDriftSensitivity?: "conservative" | "balanced" | "aggressive";
+  severeDriftNudgeEnabled?: boolean;
+}
+
+async function startRun(opts: StartOpts = {}): Promise<void> {
   useSettingsStore.setState((s) => ({
     settings: {
       ...s.settings,
-      duo: { ...DEFAULT_DUO_SETTINGS, enabled: true, maxDialogueRounds: maxRounds, tieBreakPolicy: "pause" },
+      duo: {
+        ...DEFAULT_DUO_SETTINGS,
+        enabled: true,
+        maxDialogueRounds: opts.maxRounds ?? 3,
+        tieBreakPolicy: opts.tieBreakPolicy ?? "pause",
+        budgetUsdCap: opts.budgetUsdCap ?? null,
+        severeDriftSensitivity: opts.severeDriftSensitivity ?? "conservative",
+        severeDriftNudgeEnabled: opts.severeDriftNudgeEnabled ?? true,
+      },
     },
   }));
   mockCreateSession.mockImplementation(async (_path: string, name?: string) => {
@@ -124,6 +161,7 @@ describe("Duo-Coding orchestration", () => {
   beforeEach(() => {
     resetAllStores();
     chatCallbacks.clear();
+    activityCallbacks.clear();
     msgSeq = 0;
     vi.clearAllMocks();
   });
@@ -178,16 +216,16 @@ describe("Duo-Coding orchestration", () => {
     expect(s.metrics.disagreements).toBe(1);
     expect(s.metrics.repairs).toBe(1);
     expect(s.repairAttempts).toBe(1);
-    expect(s.phase).toBe("repairing");
+    expect(s.phase).toBe("dialoguing");
     expect(s.decisionLog.some((d) => d.kind === "disagreement")).toBe(true);
-    // The repair was injected into the PRIMARY (sole writer), carrying the task.
+    // The concern was injected into the PRIMARY (sole writer), carrying the task.
     const primaryInjections = mockSendMessage.mock.calls.filter(([id]) => id === PRIMARY);
     expect(primaryInjections.length).toBe(1);
     expect(String(primaryInjections[0][1])).toContain("Wrap the handler in try/catch");
   });
 
   it("pauses on a duo-deadlock when the mentor stays blocking past maxDialogueRounds", async () => {
-    await startRun(1); // one repair attempt allowed
+    await startRun({ maxRounds: 1 }); // one dialogue round allowed
     const blocking = {
       stance: "disagree", severity: "blocking", summary: "Still broken",
       rationale: "the fix is wrong", repairTask: "Do it properly",
@@ -231,5 +269,106 @@ describe("Duo-Coding orchestration", () => {
     expect(s.metrics.reviews).toBe(1);
     expect(s.decisionLog.some((d) => d.kind === "concern")).toBe(true);
     expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
+  });
+
+  it("converges through a dialogue: concern → primary defends → mentor agrees", async () => {
+    await startRun();
+    await primaryTurn("Implemented the feature.");
+    await mentorTurn({
+      stance: "concern", severity: "blocking", summary: "No tests",
+      rationale: "the new path is uncovered", repairTask: "Add a unit test",
+      confidence: 0.8, ranBuild: true, ranTests: true,
+    });
+    expect(useDuoStore.getState().phase).toBe("dialoguing");
+
+    // Primary responds in-dialogue → routed back to the mentor (no fresh review).
+    await primaryTurn("Added a unit test for the new path.");
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+
+    // Mentor now agrees → convergence.
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "Coverage added", rationale: "tests present",
+      confidence: 0.9, ranBuild: true, ranTests: true,
+    });
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("running");
+    expect(s.phase).toBe("building");
+    expect(s.metrics.agreements).toBe(1);
+    expect(s.repairAttempts).toBe(0); // reset on convergence
+    // The dialogue captured both sides.
+    expect(s.dialogue.some((t) => t.author === "duo")).toBe(true);
+    expect(s.dialogue.some((t) => t.author === "primary" && t.stance === "defend")).toBe(true);
+  });
+
+  it("tie-break mentorWins forces a repair instead of pausing", async () => {
+    await startRun({ maxRounds: 1, tieBreakPolicy: "mentorWins" });
+    const blocking = {
+      stance: "disagree", severity: "blocking", summary: "Wrong approach",
+      rationale: "use a map", repairTask: "Switch to a Map", confidence: 0.9, ranBuild: true, ranTests: true,
+    } as const;
+    await primaryTurn("v1");
+    await mentorTurn({ ...blocking }); // round 0 → dialogue
+    await primaryTurn("defending v1"); // dialogue response
+    mockSendMessage.mockClear();
+    await mentorTurn({ ...blocking }); // repeat → tie-break (mentorWins)
+
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("running");
+    expect(s.phase).toBe("repairing");
+    expect(s.decisionLog.some((d) => d.summary.includes("mentor wins"))).toBe(true);
+    expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(true);
+  });
+
+  it("tie-break primaryWins lets the primary proceed and logs dissent", async () => {
+    await startRun({ maxRounds: 1, tieBreakPolicy: "primaryWins" });
+    const blocking = {
+      stance: "disagree", severity: "blocking", summary: "Disagree on style",
+      rationale: "prefer X", repairTask: "Do X", confidence: 0.9, ranBuild: true, ranTests: true,
+    } as const;
+    await primaryTurn("v1");
+    await mentorTurn({ ...blocking });
+    await primaryTurn("defending v1");
+    await mentorTurn({ ...blocking }); // repeat → tie-break (primaryWins)
+
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("running");
+    expect(s.phase).toBe("building");
+    expect(s.repairAttempts).toBe(0);
+    expect(s.decisionLog.some((d) => d.summary.includes("primary proceeds"))).toBe(true);
+  });
+
+  it("pauses on a budget cap once the run cost exceeds it", async () => {
+    await startRun({ budgetUsdCap: 0.01 });
+    await primaryTurn("expensive turn", 0.05); // cost accrues, then budget guard pauses
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("paused");
+    expect(s.blocker?.summary).toContain("Budget");
+    // No review was injected to the mentor — the run halted first.
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(false);
+  });
+
+  it("nudges the primary on severe mid-turn drift (destructive command)", async () => {
+    await startRun(); // conservative sensitivity, nudge enabled
+    mockSendMessage.mockClear();
+    primaryToolOp("Bash", { command: "rm -rf src" });
+    await flush();
+
+    const s = useDuoStore.getState();
+    expect(s.metrics.driftIncidents).toBe(1);
+    expect(s.decisionLog.some((d) => d.kind === "drift")).toBe(true);
+    const nudge = mockSendMessage.mock.calls.find(
+      ([id, text]) => id === PRIMARY && /off-track/.test(String(text)),
+    );
+    expect(nudge).toBeDefined();
+  });
+
+  it("does not nudge on benign tool activity", async () => {
+    await startRun();
+    mockSendMessage.mockClear();
+    primaryToolOp("Bash", { command: "pnpm test" });
+    primaryToolOp("Edit", { file_path: "src/a.ts" });
+    await flush();
+    expect(useDuoStore.getState().metrics.driftIncidents).toBe(0);
+    expect(mockSendMessage.mock.calls.length).toBe(0);
   });
 });
