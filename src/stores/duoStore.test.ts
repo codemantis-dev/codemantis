@@ -4,17 +4,19 @@ import {
   buildDuoConfig,
   resolveDuoSettings,
   emptyDuoMetrics,
+  collectResponseSince,
 } from "./duoStore";
 import { useSettingsStore } from "./settingsStore";
 import { DEFAULT_DUO_SETTINGS } from "../types/settings";
 import { resetAllStores } from "../test/helpers/store-reset";
-import type { DuoAgentConfig, DuoConfig, DuoDialogueTurn, DuoVerdict } from "../types/duo";
+import type { DuoAgentConfig } from "../types/duo";
+import type { Message } from "../types/session";
 
 const PRIMARY: DuoAgentConfig = { agentId: "codex", model: "gpt-5.5", effort: "high" };
 const MENTOR: DuoAgentConfig = { agentId: "claude_code", model: "claude-opus-4-8", effort: "high" };
 
-function sampleConfig(): DuoConfig {
-  return buildDuoConfig(PRIMARY, MENTOR);
+function msg(id: string, role: "user" | "assistant", content: string): Message {
+  return { id, role, content, timestamp: "", activityIds: [], isStreaming: false };
 }
 
 describe("duoStore helpers", () => {
@@ -55,6 +57,32 @@ describe("duoStore helpers", () => {
   });
 });
 
+describe("collectResponseSince", () => {
+  it("returns the last assistant message when no marker is given", () => {
+    const messages = [msg("a", "assistant", "first"), msg("b", "assistant", "second")];
+    expect(collectResponseSince(messages, null)).toBe("second");
+  });
+
+  it("joins all assistant messages after the marker", () => {
+    const messages = [
+      msg("u1", "user", "do it"),
+      msg("a1", "assistant", "one"),
+      msg("a2", "assistant", "two"),
+    ];
+    expect(collectResponseSince(messages, "u1")).toBe("one\n\ntwo");
+  });
+
+  it("skips empty assistant messages", () => {
+    const messages = [msg("u1", "user", "go"), msg("a1", "assistant", "  "), msg("a2", "assistant", "real")];
+    expect(collectResponseSince(messages, "u1")).toBe("real");
+  });
+
+  it("falls back to last assistant when the marker is not found", () => {
+    const messages = [msg("a1", "assistant", "only")];
+    expect(collectResponseSince(messages, "missing")).toBe("only");
+  });
+});
+
 describe("duoStore lifecycle", () => {
   beforeEach(() => resetAllStores());
 
@@ -64,78 +92,20 @@ describe("duoStore lifecycle", () => {
     expect(s.phase).toBeNull();
     expect(s.runId).toBeNull();
     expect(s.dialogue).toEqual([]);
-  });
-
-  it("configure pins both sessions and moves to running/preparing", () => {
-    useDuoStore.getState().configure({
-      runId: "run-1",
-      projectPath: "/proj",
-      primarySessionId: "sess-primary",
-      duoSessionId: "sess-duo",
-      config: sampleConfig(),
-    });
-    const s = useDuoStore.getState();
-    expect(s.runId).toBe("run-1");
-    expect(s.primarySessionId).toBe("sess-primary");
-    expect(s.duoSessionId).toBe("sess-duo");
-    expect(s.status).toBe("running");
-    expect(s.phase).toBe("preparing");
-  });
-
-  it("setStatus and setPhase update independently", () => {
-    const { setStatus, setPhase } = useDuoStore.getState();
-    setStatus("paused");
-    setPhase("reviewing");
-    expect(useDuoStore.getState().status).toBe("paused");
-    expect(useDuoStore.getState().phase).toBe("reviewing");
-  });
-
-  it("appendDialogueTurn accumulates in order", () => {
-    const t1: DuoDialogueTurn = {
-      id: "t1", round: 1, author: "duo", stance: "concern", text: "missing error handling", ts: 1,
-    };
-    const t2: DuoDialogueTurn = {
-      id: "t2", round: 1, author: "primary", stance: "defend", text: "it's handled upstream", ts: 2,
-    };
-    useDuoStore.getState().appendDialogueTurn(t1);
-    useDuoStore.getState().appendDialogueTurn(t2);
-    const d = useDuoStore.getState().dialogue;
-    expect(d.map((t) => t.id)).toEqual(["t1", "t2"]);
-  });
-
-  it("setLatestVerdict and setMetrics store their values", () => {
-    const verdict: DuoVerdict = {
-      stance: "concern", severity: "blocking", summary: "needs tests", rationale: "no coverage",
-      confidence: 0.8, ranBuild: true, ranTests: true, citedFiles: ["src/x.ts"],
-    };
-    useDuoStore.getState().setLatestVerdict(verdict);
-    expect(useDuoStore.getState().latestVerdict).toEqual(verdict);
-
-    const metrics = { ...emptyDuoMetrics(), reviews: 3, agreements: 2, agreementRate: 2 / 3 };
-    useDuoStore.getState().setMetrics(metrics);
-    expect(useDuoStore.getState().metrics.reviews).toBe(3);
-  });
-
-  it("setError sets and clears", () => {
-    useDuoStore.getState().setError("boom");
-    expect(useDuoStore.getState().error).toBe("boom");
-    useDuoStore.getState().setError(null);
-    expect(useDuoStore.getState().error).toBeNull();
+    expect(s.decisionLog).toEqual([]);
   });
 
   it("reset returns the store to its initial idle state", () => {
-    useDuoStore.getState().configure({
-      runId: "run-1", projectPath: "/proj", primarySessionId: "p", duoSessionId: "d", config: sampleConfig(),
-    });
-    useDuoStore.getState().appendDialogueTurn({
-      id: "t", round: 1, author: "duo", stance: "concern", text: "x", ts: 1,
+    useDuoStore.setState({
+      status: "running",
+      runId: "r1",
+      dialogue: [{ id: "t", round: 1, author: "duo", stance: "concern", text: "x", ts: 1 }],
     });
     useDuoStore.getState().reset();
     const s = useDuoStore.getState();
     expect(s.status).toBe("idle");
     expect(s.runId).toBeNull();
     expect(s.dialogue).toEqual([]);
-    expect(s.config).toBeNull();
     expect(s.metrics).toEqual(emptyDuoMetrics());
   });
 });

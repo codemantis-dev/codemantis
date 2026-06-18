@@ -5,7 +5,7 @@ import type { FileNode } from "../types/file-tree";
 import type { AgentId, FrontendEvent, ToolApprovalRequestEvent } from "../types/agent-events";
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
-import type { GitStatusInfo, GitCommit } from "../types/git";
+import type { GitStatusInfo, GitCommit, GitDiffResult } from "../types/git";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
@@ -743,6 +743,10 @@ export async function getGitStatus(projectPath: string): Promise<GitStatusInfo> 
 
 export async function getGitLog(projectPath: string, maxCommits: number): Promise<GitCommit[]> {
   return invoke<GitCommit[]>("get_git_log", { projectPath, maxCommits });
+}
+
+export async function getGitDiff(projectPath: string): Promise<GitDiffResult> {
+  return invoke<GitDiffResult>("get_git_diff", { projectPath });
 }
 
 // --- Slash Commands ---

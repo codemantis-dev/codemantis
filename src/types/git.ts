@@ -12,3 +12,13 @@ export interface GitCommit {
   author: string;
   timestamp: string;
 }
+
+/** Working-tree diff vs HEAD + numstat counts (camelCase from the Rust `GitDiffResult`). */
+export interface GitDiffResult {
+  isGitRepo: boolean;
+  diff: string;
+  added: number;
+  removed: number;
+  files: number;
+  truncated: boolean;
+}

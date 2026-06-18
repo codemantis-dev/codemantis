@@ -1,0 +1,235 @@
+/**
+ * Integration test: Duo-Coding two-session orchestration (Phase 1)
+ *
+ * Drives the REAL duoStore + sessionStore + settingsStore with a mocked Tauri
+ * boundary. Covers the end-to-end turn-boundary loop:
+ *   1. start() spawns a primary + a READ-ONLY mentor and pins both sessions.
+ *   2. A primary turn → mentor review → AGREEMENT is logged, no repair injected.
+ *   3. A blocking mentor verdict → a mentor-directed REPAIR is injected into the
+ *      PRIMARY's chat (single-writer model — the mentor never edits).
+ *   4. Non-convergence after maxDialogueRounds → tie-break PAUSE (default) with a
+ *      `duo-deadlock` blocker; listeners are torn down.
+ *   5. The mentor session is locked read-only at start.
+ *
+ * Turns are simulated by pushing an assistant message into the real sessionStore
+ * and firing the captured `turn_complete` callback.
+ */
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { resetAllStores } from "../helpers/store-reset";
+import type { Session, Message } from "../../types/session";
+import type { FrontendEvent } from "../../types/agent-events";
+
+// ── Hoisted mocks ────────────────────────────────────────────────────────
+
+const {
+  chatCallbacks,
+  mockCreateSession,
+  mockSendMessage,
+  mockSetSessionMode,
+  mockSetCodexPolicy,
+  mockGetGitDiff,
+  mockDuoStartRun,
+  mockDuoRecordEvent,
+} = vi.hoisted(() => ({
+  chatCallbacks: new Map<string, (e: FrontendEvent) => void>(),
+  mockCreateSession: vi.fn(),
+  mockSendMessage: vi.fn<(sessionId: string, prompt: string) => Promise<void>>(() => Promise.resolve()),
+  mockSetSessionMode: vi.fn(() => Promise.resolve()),
+  mockSetCodexPolicy: vi.fn(() => Promise.resolve()),
+  mockGetGitDiff: vi.fn(() =>
+    Promise.resolve({ isGitRepo: true, diff: "+ changed line", added: 1, removed: 0, files: 1, truncated: false }),
+  ),
+  mockDuoStartRun: vi.fn(() => Promise.resolve()),
+  mockDuoRecordEvent: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("../../lib/tauri-commands", () => ({
+  createSession: mockCreateSession,
+  sendMessage: mockSendMessage,
+  closeSession: vi.fn(() => Promise.resolve()),
+  setSessionMode: mockSetSessionMode,
+  setCodexPolicy: mockSetCodexPolicy,
+  getGitDiff: mockGetGitDiff,
+  listenChatEvents: vi.fn(async (sessionId: string, cb: (e: FrontendEvent) => void) => {
+    chatCallbacks.set(sessionId, cb);
+    return () => chatCallbacks.delete(sessionId);
+  }),
+  duoStartRun: mockDuoStartRun,
+  duoRecordEvent: mockDuoRecordEvent,
+  duoCompleteRun: vi.fn(() => Promise.resolve()),
+}));
+
+// Imported AFTER the mock so the store binds to the mocked commands.
+import { useDuoStore } from "../../stores/duoStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { DEFAULT_DUO_SETTINGS } from "../../types/settings";
+
+const PRIMARY = "primary-sess";
+const DUO = "duo-sess";
+
+let msgSeq = 0;
+function assistantMsg(content: string): Message {
+  msgSeq += 1;
+  return {
+    id: `a-${msgSeq}`,
+    role: "assistant",
+    content,
+    timestamp: "",
+    activityIds: [],
+    isStreaming: false,
+  };
+}
+
+function verdictBlock(obj: Record<string, unknown>): string {
+  return "Reviewed.\n\n```duo-verdict\n" + JSON.stringify(obj) + "\n```";
+}
+
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+async function primaryTurn(text: string): Promise<void> {
+  useSessionStore.getState().addMessage(PRIMARY, assistantMsg(text));
+  chatCallbacks.get(PRIMARY)?.({ type: "turn_complete", session_id: PRIMARY } as unknown as FrontendEvent);
+  await flush();
+}
+
+async function mentorTurn(obj: Record<string, unknown>): Promise<void> {
+  useSessionStore.getState().addMessage(DUO, assistantMsg(verdictBlock(obj)));
+  chatCallbacks.get(DUO)?.({ type: "turn_complete", session_id: DUO } as unknown as FrontendEvent);
+  await flush();
+}
+
+async function startRun(maxRounds = 3): Promise<void> {
+  useSettingsStore.setState((s) => ({
+    settings: {
+      ...s.settings,
+      duo: { ...DEFAULT_DUO_SETTINGS, enabled: true, maxDialogueRounds: maxRounds, tieBreakPolicy: "pause" },
+    },
+  }));
+  mockCreateSession.mockImplementation(async (_path: string, name?: string) => {
+    return { id: name === "Duo · Mentor" ? DUO : PRIMARY } as unknown as Session;
+  });
+  await useDuoStore.getState().start({
+    task: "Add a logout button",
+    projectPath: "/proj",
+    primary: { agentId: "codex" },
+    duo: { agentId: "claude_code" },
+  });
+  await flush();
+}
+
+describe("Duo-Coding orchestration", () => {
+  beforeEach(() => {
+    resetAllStores();
+    chatCallbacks.clear();
+    msgSeq = 0;
+    vi.clearAllMocks();
+  });
+
+  it("spawns both sessions, locks the mentor read-only, and pins them", async () => {
+    await startRun();
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("running");
+    expect(s.primarySessionId).toBe(PRIMARY);
+    expect(s.duoSessionId).toBe(DUO);
+    expect(mockCreateSession).toHaveBeenCalledTimes(2);
+    // claude_code mentor → plan mode (read-only).
+    expect(mockSetSessionMode).toHaveBeenCalledWith(DUO, "plan");
+    // The primary received the task as its first prompt.
+    expect(mockSendMessage).toHaveBeenCalledWith(PRIMARY, "Add a logout button");
+  });
+
+  it("logs an agreement and injects no repair when the mentor agrees", async () => {
+    await startRun();
+    mockSendMessage.mockClear();
+    await primaryTurn("I added the logout button and tests pass.");
+    // Review prompt went to the mentor.
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+    mockSendMessage.mockClear();
+
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "Looks correct", rationale: "tests pass",
+      confidence: 0.9, ranBuild: true, ranTests: true, citedFiles: ["src/TitleBar.tsx"],
+    });
+
+    const s = useDuoStore.getState();
+    expect(s.metrics.agreements).toBe(1);
+    expect(s.metrics.reviews).toBe(1);
+    expect(s.decisionLog.some((d) => d.kind === "agreement")).toBe(true);
+    expect(s.status).toBe("running");
+    // No repair injected back into the primary.
+    expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
+  });
+
+  it("injects a mentor-directed repair into the PRIMARY on a blocking verdict", async () => {
+    await startRun();
+    await primaryTurn("Done, though I skipped error handling.");
+    mockSendMessage.mockClear();
+
+    await mentorTurn({
+      stance: "concern", severity: "blocking", summary: "Missing error handling",
+      rationale: "the click handler can throw", repairTask: "Wrap the handler in try/catch",
+      confidence: 0.8, ranBuild: true, ranTests: false,
+    });
+
+    const s = useDuoStore.getState();
+    expect(s.metrics.disagreements).toBe(1);
+    expect(s.metrics.repairs).toBe(1);
+    expect(s.repairAttempts).toBe(1);
+    expect(s.phase).toBe("repairing");
+    expect(s.decisionLog.some((d) => d.kind === "disagreement")).toBe(true);
+    // The repair was injected into the PRIMARY (sole writer), carrying the task.
+    const primaryInjections = mockSendMessage.mock.calls.filter(([id]) => id === PRIMARY);
+    expect(primaryInjections.length).toBe(1);
+    expect(String(primaryInjections[0][1])).toContain("Wrap the handler in try/catch");
+  });
+
+  it("pauses on a duo-deadlock when the mentor stays blocking past maxDialogueRounds", async () => {
+    await startRun(1); // one repair attempt allowed
+    const blocking = {
+      stance: "disagree", severity: "blocking", summary: "Still broken",
+      rationale: "the fix is wrong", repairTask: "Do it properly",
+      confidence: 0.9, ranBuild: true, ranTests: true,
+    } as const;
+
+    await primaryTurn("First attempt.");
+    await mentorTurn({ ...blocking }); // attempt 0 < 1 → repair injected, attempts=1
+    expect(useDuoStore.getState().repairAttempts).toBe(1);
+
+    await primaryTurn("Second attempt."); // primary's repair turn → re-review
+    await mentorTurn({ ...blocking }); // attempts 1 >= 1 → tie-break
+
+    const s = useDuoStore.getState();
+    expect(s.status).toBe("paused");
+    expect(s.phase).toBe("escalated");
+    expect(s.blocker?.kind).toBe("duo-deadlock");
+    expect(s.decisionLog.some((d) => d.kind === "escalation")).toBe(true);
+    // Listeners torn down on pause — a stray event must not advance the run.
+    expect(chatCallbacks.size).toBe(0);
+  });
+
+  it("re-asks once when the mentor's verdict can't be parsed, then degrades", async () => {
+    await startRun();
+    await primaryTurn("Implemented.");
+    mockSendMessage.mockClear();
+
+    // First mentor turn has no verdict block → one re-ask to the mentor.
+    useSessionStore.getState().addMessage(DUO, assistantMsg("I think it's fine, no block here."));
+    chatCallbacks.get(DUO)?.({ type: "turn_complete", session_id: DUO } as unknown as FrontendEvent);
+    await flush();
+    expect(useDuoStore.getState().awaitingReAsk).toBe(true);
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+
+    // Still unparseable → degrade to a logged advisory concern (no repair).
+    mockSendMessage.mockClear();
+    useSessionStore.getState().addMessage(DUO, assistantMsg("still no block"));
+    chatCallbacks.get(DUO)?.({ type: "turn_complete", session_id: DUO } as unknown as FrontendEvent);
+    await flush();
+    const s = useDuoStore.getState();
+    expect(s.metrics.reviews).toBe(1);
+    expect(s.decisionLog.some((d) => d.kind === "concern")).toBe(true);
+    expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
+  });
+});

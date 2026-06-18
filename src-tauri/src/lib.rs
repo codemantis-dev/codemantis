@@ -428,6 +428,7 @@ pub fn run() {
             commands::changelog::get_project_changelog_entries,
             commands::git::get_git_status,
             commands::git::get_git_log,
+            commands::git::get_git_diff,
             commands::mcp::get_mcp_servers,
             commands::mcp::save_mcp_server,
             commands::mcp::delete_mcp_server,

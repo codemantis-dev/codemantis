@@ -107,6 +107,95 @@ pub fn get_git_log(project_path: String, max_commits: u32) -> Vec<GitCommit> {
         .collect()
 }
 
+/// Max diff payload returned to the frontend, in bytes. The Duo mentor reasons
+/// over changed code; a multi-megabyte diff would blow the prompt budget, so we
+/// truncate and flag it. The numstat counts are always whole-tree.
+const MAX_DIFF_BYTES: usize = 60_000;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffResult {
+    pub is_git_repo: bool,
+    /// `git diff HEAD` content (tracked working-tree changes vs HEAD), possibly truncated.
+    pub diff: String,
+    pub added: u32,
+    pub removed: u32,
+    pub files: u32,
+    pub truncated: bool,
+}
+
+/// Run git capturing stdout even when it is empty (an empty diff is a valid,
+/// meaningful result — unlike `run_git`, which collapses empty to `None`).
+fn run_git_capture(cwd: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        None
+    }
+}
+
+/// Working-tree diff vs HEAD plus numstat-derived counts. Used by Duo-Coding to
+/// give the read-only mentor exactly what the primary changed.
+#[tauri::command]
+pub fn get_git_diff(project_path: String) -> GitDiffResult {
+    let is_git = run_git(&project_path, &["rev-parse", "--is-inside-work-tree"])
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    if !is_git {
+        return GitDiffResult {
+            is_git_repo: false,
+            diff: String::new(),
+            added: 0,
+            removed: 0,
+            files: 0,
+            truncated: false,
+        };
+    }
+
+    let raw_diff = run_git_capture(&project_path, &["diff", "HEAD"]).unwrap_or_default();
+    let truncated = raw_diff.len() > MAX_DIFF_BYTES;
+    let diff = if truncated {
+        // Truncate on a char boundary to keep valid UTF-8.
+        let mut end = MAX_DIFF_BYTES;
+        while end > 0 && !raw_diff.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n…[diff truncated]…", &raw_diff[..end])
+    } else {
+        raw_diff
+    };
+
+    // numstat: one line per file = "<added>\t<removed>\t<path>" ("-" for binary).
+    let numstat = run_git_capture(&project_path, &["diff", "HEAD", "--numstat"]).unwrap_or_default();
+    let mut added = 0u32;
+    let mut removed = 0u32;
+    let mut files = 0u32;
+    for line in numstat.lines().filter(|l| !l.trim().is_empty()) {
+        files += 1;
+        let mut cols = line.split('\t');
+        if let Some(a) = cols.next() {
+            added += a.trim().parse::<u32>().unwrap_or(0);
+        }
+        if let Some(r) = cols.next() {
+            removed += r.trim().parse::<u32>().unwrap_or(0);
+        }
+    }
+
+    GitDiffResult {
+        is_git_repo: true,
+        diff,
+        added,
+        removed,
+        files,
+        truncated,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +346,41 @@ mod tests {
         // Not a git repo, so rev-parse should fail
         let result = run_git(dir.path().to_str().unwrap(), &["rev-parse", "HEAD"]);
         assert!(result.is_none());
+    }
+
+    // ── get_git_diff ──
+
+    #[test]
+    fn git_diff_non_repo_reports_not_a_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let res = get_git_diff(dir.path().to_str().unwrap().to_string());
+        assert!(!res.is_git_repo);
+        assert_eq!(res.files, 0);
+        assert!(res.diff.is_empty());
+    }
+
+    #[test]
+    fn git_diff_clean_tree_is_empty() {
+        let dir = temp_git_repo(1);
+        let res = get_git_diff(dir.path().to_str().unwrap().to_string());
+        assert!(res.is_git_repo);
+        assert_eq!(res.files, 0);
+        assert_eq!(res.added, 0);
+        assert_eq!(res.removed, 0);
+        assert!(!res.truncated);
+    }
+
+    #[test]
+    fn git_diff_reports_modified_tracked_file() {
+        let dir = temp_git_repo(1);
+        let p = dir.path().to_str().unwrap();
+        // Modify the committed file: replace "content 1" with two new lines.
+        fs::write(dir.path().join("file1.txt"), "line a\nline b\n").unwrap();
+        let res = get_git_diff(p.to_string());
+        assert!(res.is_git_repo);
+        assert_eq!(res.files, 1);
+        assert!(res.added >= 2, "expected added lines, got {}", res.added);
+        assert!(res.diff.contains("file1.txt"));
+        assert!(res.diff.contains("line a"));
     }
 }
