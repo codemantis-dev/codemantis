@@ -154,6 +154,17 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
     expect(useUiStore.getState().showMcpModal).toBe(true);
   });
 
+  it("Cmd+Shift+O toggles the Activity Overview lay-over", () => {
+    // Mirror the handler: read current state, flip it.
+    expect(useUiStore.getState().showActivityOverview).toBe(false);
+    const ui = useUiStore.getState();
+    ui.setShowActivityOverview(!ui.showActivityOverview);
+    expect(useUiStore.getState().showActivityOverview).toBe(true);
+    const ui2 = useUiStore.getState();
+    ui2.setShowActivityOverview(!ui2.showActivityOverview);
+    expect(useUiStore.getState().showActivityOverview).toBe(false);
+  });
+
   it("Cmd+Shift+P triggers togglePreview (store-level check)", () => {
     // The keyboard shortcut handler calls togglePreview from usePreviewWindow.
     // Since we test store effects here, we verify the mock is wired correctly

@@ -24,6 +24,9 @@ interface UiState {
   showQuestionModal: boolean;
   showSettingsModal: boolean;
   showMcpModal: boolean;
+  /** Activity Overview lay-over — the top-left dropdown listing every
+   *  project/session with active or attention-needing work. */
+  showActivityOverview: boolean;
   showProjectPicker: boolean;
   projectPickerTab: ProjectPickerTab;
   /**
@@ -112,6 +115,7 @@ interface UiState {
   setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
   setShowMcpModal: (show: boolean) => void;
+  setShowActivityOverview: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setSelectedAgentId: (id: import("../types/agent-events").AgentId) => void;
   setAgentInstall: (state: { claude_code: boolean; codex: boolean }) => void;
@@ -169,6 +173,7 @@ export const useUiStore = create<UiState>((set) => ({
   showQuestionModal: false,
   showSettingsModal: false,
   showMcpModal: false,
+  showActivityOverview: false,
   showProjectPicker: false,
   selectedAgentId: "claude_code",
   agentInstall: { claude_code: true, codex: true },
@@ -245,6 +250,7 @@ export const useUiStore = create<UiState>((set) => ({
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowMcpModal: (show) => set({ showMcpModal: show }),
+  setShowActivityOverview: (show) => set({ showActivityOverview: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
   setAgentInstall: (state) => set({ agentInstall: state }),

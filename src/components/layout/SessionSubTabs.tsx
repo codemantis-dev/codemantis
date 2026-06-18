@@ -127,7 +127,8 @@ interface SessionSubTabProps {
   name: string;
   model: string | null;
   isActive: boolean;
-  isStreaming: boolean;
+  isBusy: boolean;
+  isStuck: boolean;
   onSelect: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
@@ -137,7 +138,8 @@ const SessionSubTab = React.memo(function SessionSubTab({
   name,
   model,
   isActive,
-  isStreaming,
+  isBusy,
+  isStuck,
   onSelect,
   onClose,
   onRename,
@@ -194,10 +196,11 @@ const SessionSubTab = React.memo(function SessionSubTab({
         }
       `}
     >
-      {/* Status dot */}
+      {/* Status dot — green pulse while the session is running a job,
+          yellow when the watchdog flags it as stuck, static green when idle. */}
       <StatusDot
-        color={isStreaming ? "yellow" : "green"}
-        pulse={isStreaming}
+        color={isStuck ? "yellow" : "green"}
+        pulse={isBusy}
         size={4}
       />
 
@@ -255,7 +258,8 @@ export default function SessionSubTabs({
   const sessions = useSessionStore((s) => s.sessions);
   const tabOrder = useSessionStore((s) => s.tabOrder);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const sessionStreaming = useSessionStore((s) => s.sessionStreaming);
+  const sessionBusy = useSessionStore((s) => s.sessionBusy);
+  const sessionStuck = useSessionStore((s) => s.sessionStuck);
   const setActiveSessionInProject = useSessionStore((s) => s.setActiveSessionInProject);
   const showProjectLog = useUiStore((s) => s.showProjectLog);
   const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
@@ -279,7 +283,6 @@ export default function SessionSubTabs({
       {projectSessionIds.map((sessionId) => {
         const session = sessions.get(sessionId);
         if (!session) return null;
-        const streaming = sessionStreaming.get(sessionId);
         return (
           <SessionSubTab
             key={sessionId}
@@ -287,7 +290,8 @@ export default function SessionSubTabs({
             name={session.name}
             model={session.model}
             isActive={sessionId === activeSessionId && !showProjectLog && !showClaudeHistory}
-            isStreaming={streaming?.isStreaming ?? false}
+            isBusy={sessionBusy.get(sessionId) ?? false}
+            isStuck={!!sessionStuck.get(sessionId)}
             onSelect={() => {
               setShowProjectLog(false);
               setShowClaudeHistory(false);

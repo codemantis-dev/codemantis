@@ -244,6 +244,14 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+Shift+O — toggle the Activity Overview lay-over
+      if (key === "o" && shift) {
+        e.preventDefault();
+        const ui = useUiStore.getState();
+        ui.setShowActivityOverview(!ui.showActivityOverview);
+        return;
+      }
+
       // Cmd+? (Cmd+Shift+/) — toggle help panel
       if (key === "?" || (key === "/" && shift)) {
         e.preventDefault();

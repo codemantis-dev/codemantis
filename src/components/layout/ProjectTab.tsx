@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { X } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useActivityStore } from "../../stores/activityStore";
 
 interface ProjectTabProps {
   projectPath: string;
@@ -11,21 +12,56 @@ interface ProjectTabProps {
   onClose: () => void;
 }
 
-/** Returns "busy" | "stale" | "idle" for a project's sessions. */
-function useProjectBusyStatus(projectPath: string): "busy" | "stale" | "idle" {
-  return useSessionStore((s) => {
-    let anyBusy = false;
-    let anyStale = false;
+interface ProjectBusyStatus {
+  /** Number of sessions in the project currently running a job. */
+  busyCount: number;
+  /** A busy session has made no progress for >30s. */
+  stale: boolean;
+  /** A session is stuck or awaiting a tool approval — needs the user. */
+  attention: boolean;
+}
+
+/** Aggregates the live work state of a project's sessions for the tab
+ *  indicator: how many are busy, whether any are stalled, and whether any
+ *  need attention (stuck / awaiting approval). Selectors return primitives
+ *  to avoid Zustand snapshot churn. */
+function useProjectBusyStatus(projectPath: string): ProjectBusyStatus {
+  const busyCount = useSessionStore((s) => {
+    let n = 0;
     for (const id of s.tabOrder) {
       const session = s.sessions.get(id);
-      if (!session || session.project_path !== projectPath) continue;
-      if (s.sessionBusy.get(id)) {
-        anyBusy = true;
-        if (Date.now() - (s.lastEventTimestamp.get(id) ?? 0) > 30_000) anyStale = true;
+      if (session && session.project_path === projectPath && s.sessionBusy.get(id)) n++;
+    }
+    return n;
+  });
+  const stale = useSessionStore((s) => {
+    for (const id of s.tabOrder) {
+      const session = s.sessions.get(id);
+      if (
+        session &&
+        session.project_path === projectPath &&
+        s.sessionBusy.get(id) &&
+        Date.now() - (s.lastEventTimestamp.get(id) ?? 0) > 30_000
+      ) {
+        return true;
       }
     }
-    return anyStale ? "stale" : anyBusy ? "busy" : "idle";
+    return false;
   });
+  const stuck = useSessionStore((s) => {
+    for (const id of s.tabOrder) {
+      const session = s.sessions.get(id);
+      if (session && session.project_path === projectPath && s.sessionStuck.get(id)) return true;
+    }
+    return false;
+  });
+  const awaitingApproval = useActivityStore((s) =>
+    s.approvalQueue.some((a) => {
+      const session = useSessionStore.getState().sessions.get(a.sessionId);
+      return session?.project_path === projectPath;
+    }),
+  );
+  return { busyCount, stale, attention: stuck || awaitingApproval };
 }
 
 export default React.memo(function ProjectTab({
@@ -37,7 +73,8 @@ export default React.memo(function ProjectTab({
   onClose,
 }: ProjectTabProps) {
   const [hovered, setHovered] = useState(false);
-  const busyStatus = useProjectBusyStatus(projectPath);
+  const { busyCount, stale, attention } = useProjectBusyStatus(projectPath);
+  const busy = busyCount > 0;
 
   const handleCloseClick = useCallback(
     (e: React.MouseEvent) => {
@@ -64,19 +101,18 @@ export default React.memo(function ProjectTab({
         }
       `}
     >
-      {/* Status dot */}
-      {busyStatus !== "idle" && (
+      {/* Status dot — green pulse when working, yellow when stalled or a
+          session needs attention (stuck / awaiting approval). */}
+      {busy && (
         <span
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            busyStatus === "busy"
-              ? "bg-green-400 animate-pulse"
-              : "bg-yellow-400"
+            attention || stale ? "bg-yellow-400" : "bg-green-400 animate-pulse"
           }`}
         />
       )}
 
       {/* Folder icon */}
-      {busyStatus === "idle" && (
+      {!busy && (
         <svg
           width="14"
           height="14"
@@ -97,11 +133,25 @@ export default React.memo(function ProjectTab({
         </span>
       </div>
 
-      {/* Session count badge */}
-      {sessionCount > 1 && (
-        <span className="text-label text-text-ghost bg-bg-subtle rounded px-1 shrink-0">
-          {sessionCount}
+      {/* Badge — when working, show how many sessions are active (colored);
+          otherwise fall back to the total session count. */}
+      {busy ? (
+        <span
+          className="text-label font-medium rounded px-1 shrink-0"
+          style={{
+            color: attention || stale ? "var(--yellow)" : "var(--green)",
+            background: "var(--bg-subtle)",
+          }}
+          title={`${busyCount} session${busyCount === 1 ? "" : "s"} working`}
+        >
+          {busyCount}
         </span>
+      ) : (
+        sessionCount > 1 && (
+          <span className="text-label text-text-ghost bg-bg-subtle rounded px-1 shrink-0">
+            {sessionCount}
+          </span>
+        )
       )}
 
       {/* Close button */}

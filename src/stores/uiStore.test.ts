@@ -113,6 +113,17 @@ describe("uiStore", () => {
     expect(useUiStore.getState().showMcpModal).toBe(false);
   });
 
+  it("showActivityOverview defaults to false", () => {
+    expect(useUiStore.getState().showActivityOverview).toBe(false);
+  });
+
+  it("setShowActivityOverview toggles the Activity Overview lay-over", () => {
+    useUiStore.getState().setShowActivityOverview(true);
+    expect(useUiStore.getState().showActivityOverview).toBe(true);
+    useUiStore.getState().setShowActivityOverview(false);
+    expect(useUiStore.getState().showActivityOverview).toBe(false);
+  });
+
   it("projectPickerTab defaults to templates", () => {
     expect(useUiStore.getState().projectPickerTab).toBe("templates");
   });

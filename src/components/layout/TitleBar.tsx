@@ -10,6 +10,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { showToast } from "../../stores/toastStore";
 import { handleError } from "../../lib/error-handler";
 import ProjectTab from "./ProjectTab";
+import ActivityOverview from "./ActivityOverview";
 import ApiKeyBanner from "./ApiKeyBanner";
 import SpecWriterBadge from "../specwriter/SpecWriterBadge";
 import type { Attachment } from "../../types/attachment";
@@ -130,6 +131,9 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
     >
       {/* Traffic light spacer */}
       <div className="w-[78px] shrink-0" data-tauri-drag-region />
+
+      {/* Activity Overview — at-a-glance "which projects are working" */}
+      <ActivityOverview />
 
       {/* Project tabs */}
       <div className="flex items-center h-full flex-1 overflow-x-auto overflow-y-hidden" data-tauri-drag-region>

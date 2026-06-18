@@ -6,7 +6,9 @@ import { useUiStore } from "../../stores/uiStore";
 
 vi.mock("../../lib/tauri-commands", () => ({}));
 vi.mock("../shared/StatusDot", () => ({
-  default: () => <span data-testid="status-dot" />,
+  default: ({ color, pulse }: { color: string; pulse?: boolean }) => (
+    <span data-testid="status-dot" data-color={color} data-pulse={pulse ? "true" : "false"} />
+  ),
 }));
 
 describe("SessionSubTabs", () => {
@@ -125,6 +127,43 @@ describe("SessionSubTabs", () => {
       // Menu closes after a pick.
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
+  });
+
+  it("pulses the dot green while a session is busy (even without text streaming)", () => {
+    useSessionStore.setState({
+      activeProjectPath: "/project",
+      sessions: new Map([
+        ["s1", { id: "s1", name: "Session 1", project_path: "/project", model: null } as never],
+      ]),
+      tabOrder: ["s1"],
+      activeSessionId: "s1",
+      sessionStreaming: new Map(), // not streaming text…
+      sessionBusy: new Map([["s1", true]]), // …but running a tool
+      sessionStuck: new Map(),
+      setActiveSessionInProject: vi.fn(),
+    });
+    render(<SessionSubTabs {...defaultProps} />);
+    const dot = screen.getAllByTestId("status-dot")[0];
+    expect(dot).toHaveAttribute("data-color", "green");
+    expect(dot).toHaveAttribute("data-pulse", "true");
+  });
+
+  it("turns the dot yellow when a session is flagged stuck", () => {
+    useSessionStore.setState({
+      activeProjectPath: "/project",
+      sessions: new Map([
+        ["s1", { id: "s1", name: "Session 1", project_path: "/project", model: null } as never],
+      ]),
+      tabOrder: ["s1"],
+      activeSessionId: "s1",
+      sessionStreaming: new Map(),
+      sessionBusy: new Map([["s1", true]]),
+      sessionStuck: new Map([["s1", { since: Date.now(), reason: "no-progress" }]]),
+      setActiveSessionInProject: vi.fn(),
+    });
+    render(<SessionSubTabs {...defaultProps} />);
+    const dot = screen.getAllByTestId("status-dot")[0];
+    expect(dot).toHaveAttribute("data-color", "yellow");
   });
 
   it("renders Project Log and History buttons", () => {

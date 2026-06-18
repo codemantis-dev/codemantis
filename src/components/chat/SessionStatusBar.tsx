@@ -1,32 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, Map } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
-import type { SessionActivityInfo } from "../../stores/sessionStore";
 import { formatTokens, formatCost, formatDuration, formatModelName } from "../../lib/format-utils";
+import { formatActivityDetail } from "../../lib/activity-summary";
 import type { SubAgentInfo } from "../../types/activity";
-
-/** Compose a compact activity string for the status bar.
- *  e.g., "Editing settings.ts", "Reading App.tsx", "Running command..." */
-function formatActivityDetail(
-  activity: SessionActivityInfo | undefined,
-  subAgentCount: number,
-): string | null {
-  if (!activity?.toolName) return null;
-
-  // Agent-aware: show agent count or description
-  if (activity.toolName === "Agent") {
-    if (subAgentCount > 1) return `${subAgentCount} agents`;
-    // Single agent: use the label which already has "Agent: description"
-    return activity.label;
-  }
-
-  if (activity.filePath) {
-    const fileName = activity.filePath.split("/").pop() ?? activity.filePath;
-    const verb = activity.label.split(/\s/)[0];
-    return `${verb} ${fileName}`;
-  }
-  return activity.label;
-}
 
 interface SessionStatusBarProps {
   sessionId: string;
