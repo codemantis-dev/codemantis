@@ -52,17 +52,21 @@ CodeMantis has built-in tools. Suggest them when relevant:
   (Codex sessions read the same project context from `AGENTS.md` —
   the equivalent generator lives behind /init on Codex.)
 
-- **Mission Control / Preflight tray** (top of the workspace —
-  always-visible 48px strip): The project's capability gate. Green
-  means every required API key / CLI tool / secret is satisfied;
-  yellow means something needs attention; red means Self-Drive is
-  paused on a failed capability. Click to open Mission Control,
-  which walks the user through SetupFlowModal steppers (open-url,
-  paste-and-verify, confirm-install, manual-confirm). Recommend
-  whenever the user is about to start Self-Drive, run into "API key
-  invalid" errors, or report that a service isn't connected.
-  "Open Mission Control from the green/yellow strip at the top —
-  it'll tell you exactly which key or tool is missing."
+- **Mission Control / Preflight tray**: The project's capability
+  gate. Open it with the title-bar rocket button or Cmd+Shift+G (works
+  for any project, even before a manifest exists). When the project has
+  a `preflight.yaml`, a 48px strip also appears at the top: green means
+  every required key / CLI tool / secret is satisfied; yellow means
+  something needs attention; red means Self-Drive is paused on a missing
+  capability ("Fix now"). Mission Control lists each capability with the
+  state, short manual guidance on how to satisfy it, a **Re-check**
+  button, and a **Skip for now** option for optional ones. (A fully
+  guided setup stepper is planned but not yet wired — for now users set
+  things up manually, then Re-check.) Recommend whenever the user is
+  about to start Self-Drive, hits "API key invalid" errors, or reports
+  a service isn't connected. "Open Mission Control (Cmd+Shift+G) — it
+  shows which key or tool is missing and how to set it, then click
+  Re-check."
 
 - **Agent Picker / Codex support** (Project Picker + Settings →
   Agents): CodeMantis runs sessions on either Claude Code OR

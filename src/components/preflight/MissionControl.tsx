@@ -4,14 +4,16 @@
 // understands roughly how long it'll take, and clicks through each item
 // without ever staring at a stack trace.
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { Rocket, AlertTriangle, Check } from "lucide-react";
 import type {
   Capability,
   CapabilityStatus,
   Manifest,
   PreflightStatus,
+  Verification,
 } from "../../types/preflight";
+import { usePreflightStore } from "../../stores/preflightStore";
 import CapabilityCard from "./CapabilityCard";
 
 interface MissionControlProps {
@@ -19,8 +21,8 @@ interface MissionControlProps {
   manifest: Manifest;
   /** Aggregated status — drives the summary band and per-row pills. */
   status: PreflightStatus | null;
-  /** Click handler for a specific capability's primary action. */
-  onSetUp: (capability: Capability) => void;
+  /** Active project path — used to re-check / skip capabilities via the store. */
+  projectPath: string;
   /** Click handler for "Start Building" — only fires when allSatisfied. */
   onStartBuilding: () => void;
   /** Catalog metadata helpers (lookup by catalogRef → display info). */
@@ -38,16 +40,54 @@ export interface CatalogResolution {
 export default function MissionControl({
   manifest,
   status,
-  onSetUp,
+  projectPath,
   onStartBuilding,
   resolveCatalog,
   onMount,
 }: MissionControlProps) {
+  const verifyOne = usePreflightStore((s) => s.verifyOne);
+  const acknowledgeSkip = usePreflightStore((s) => s.acknowledgeSkip);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
   useEffect(() => {
     onMount?.();
     // We deliberately fire-once on mount; the parent supplies a stable callback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const runWhileBusy = async (capId: string, op: () => Promise<void>): Promise<void> => {
+    setBusyId(capId);
+    try {
+      await op();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const renderCard = (cap: Capability): React.ReactNode => {
+    const capStatus = status?.capabilities.find((s) => s.capabilityId === cap.id);
+    const cat = resolveCatalog(cap.catalogRef);
+    // Skippable = anything that isn't a hard (required AND blocking) gate.
+    const skippable = !(cap.required && cap.blocksSelfDrive);
+    return (
+      <CapabilityCard
+        key={cap.id}
+        capability={cap}
+        status={capStatus ?? null}
+        serviceName={cat?.serviceName ?? cap.name}
+        serviceCategory={cat?.serviceCategory}
+        estimatedMinutes={cat?.estimatedMinutes}
+        guidance={verificationGuidance(cap.verification)}
+        busy={busyId === cap.id}
+        onRecheck={() => runWhileBusy(cap.id, () => verifyOne(projectPath, cap.id))}
+        onSkip={
+          skippable
+            ? () => runWhileBusy(cap.id, () => acknowledgeSkip(projectPath, cap.id))
+            : undefined
+        }
+      />
+    );
+  };
 
   // Group capabilities for display.
   const groups = useMemo(() => bucket(manifest.capabilities), [manifest]);
@@ -134,30 +174,22 @@ export default function MissionControl({
         {/* Grouped capability list */}
         {groups.satisfied.length > 0 && (
           <Section title="Already on your system">
-            {groups.satisfied.map((cap) =>
-              renderCard(cap, status, resolveCatalog, onSetUp),
-            )}
+            {groups.satisfied.map(renderCard)}
           </Section>
         )}
         {groups.autoResolvable.length > 0 && (
           <Section title="Quick installs">
-            {groups.autoResolvable.map((cap) =>
-              renderCard(cap, status, resolveCatalog, onSetUp),
-            )}
+            {groups.autoResolvable.map(renderCard)}
           </Section>
         )}
         {groups.guidedHuman.length > 0 && (
           <Section title="Accounts & keys">
-            {groups.guidedHuman.map((cap) =>
-              renderCard(cap, status, resolveCatalog, onSetUp),
-            )}
+            {groups.guidedHuman.map(renderCard)}
           </Section>
         )}
         {groups.optional.length > 0 && (
           <Section title="Optional">
-            {groups.optional.map((cap) =>
-              renderCard(cap, status, resolveCatalog, onSetUp),
-            )}
+            {groups.optional.map(renderCard)}
           </Section>
         )}
 
@@ -193,34 +225,24 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function renderCard(
-  cap: Capability,
-  status: PreflightStatus | null,
-  resolveCatalog: (ref: string) => CatalogResolution | null,
-  onSetUp: (cap: Capability) => void,
-) {
-  const capStatus = status?.capabilities.find((s) => s.capabilityId === cap.id);
-  const cat = resolveCatalog(cap.catalogRef);
-  const ready = capStatus?.state === "satisfied";
-  const label = ready ? "Update" : capActionLabel(cap);
-  return (
-    <CapabilityCard
-      key={cap.id}
-      capability={cap}
-      status={capStatus ?? null}
-      serviceName={cat?.serviceName ?? cap.name}
-      serviceCategory={cat?.serviceCategory}
-      estimatedMinutes={cat?.estimatedMinutes}
-      actionLabel={label}
-      onAction={() => onSetUp(cap)}
-    />
-  );
-}
-
-function capActionLabel(cap: Capability): string {
-  if (cap.category === "auto_resolvable") return "Install";
-  if (cap.category === "pre_existing_detection") return "Check";
-  return "Set up";
+/**
+ * Honest, manual setup guidance derived from a capability's verification rule.
+ * Tier 2 has no catalog-driven step recipes, so we tell the user what the
+ * check actually looks for — enough to satisfy it by hand, then "Re-check".
+ */
+function verificationGuidance(verification: Verification): string | null {
+  switch (verification.kind) {
+    case "shell_command":
+      return `Satisfied when this succeeds: ${verification.command}`;
+    case "env_var_present":
+      return `Set the ${verification.varName} environment variable.`;
+    case "secret_present":
+      return `Provide the "${verification.key}" secret (add it to your environment or Settings → AI Providers).`;
+    case "api_probe":
+      return `Reachable when ${verification.method} ${verification.url} succeeds.`;
+    default:
+      return null;
+  }
 }
 
 function bucket(caps: Capability[]): {

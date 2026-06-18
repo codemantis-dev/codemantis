@@ -1,4 +1,4 @@
-import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera, HelpCircle } from "lucide-react";
+import { Plus, FolderOpen, Blocks, Settings, PenTool, Globe, Camera, HelpCircle, Rocket } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
@@ -27,6 +27,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const setActiveProject = useSessionStore((s) => s.setActiveProject);
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
+  const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
   const helpPanelOpen = useUiStore((s) => s.helpPanelOpen);
   const toggleHelpPanel = useUiStore((s) => s.toggleHelpPanel);
@@ -197,6 +198,16 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       >
         <PenTool size={14} />
         {activeProjectPath && <SpecWriterBadge projectPath={activeProjectPath} />}
+      </button>
+
+      {/* Mission Control (Preflight) button — manifest-independent entry point */}
+      <button
+        onClick={() => activeProjectPath && setShowMissionControl(true)}
+        disabled={!activeProjectPath}
+        title="Mission Control (Cmd+Shift+G)"
+        className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-ghost disabled:hover:bg-transparent"
+      >
+        <Rocket size={14} />
       </button>
 
       {/* Run Application (Preview) button */}

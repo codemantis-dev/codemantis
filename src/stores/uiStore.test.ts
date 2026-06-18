@@ -113,6 +113,25 @@ describe("uiStore", () => {
     expect(useUiStore.getState().showMcpModal).toBe(false);
   });
 
+  it("showMissionControl defaults to false", () => {
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+  });
+
+  it("setShowMissionControl sets the Mission Control overlay flag", () => {
+    useUiStore.getState().setShowMissionControl(true);
+    expect(useUiStore.getState().showMissionControl).toBe(true);
+    useUiStore.getState().setShowMissionControl(false);
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+  });
+
+  it("toggleMissionControl flips the Mission Control overlay flag", () => {
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+    useUiStore.getState().toggleMissionControl();
+    expect(useUiStore.getState().showMissionControl).toBe(true);
+    useUiStore.getState().toggleMissionControl();
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+  });
+
   it("showActivityOverview defaults to false", () => {
     expect(useUiStore.getState().showActivityOverview).toBe(false);
   });

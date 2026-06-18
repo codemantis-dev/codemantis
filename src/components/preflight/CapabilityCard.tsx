@@ -1,9 +1,10 @@
-// One-line summary card for a capability in Mission Control or other lists.
-// Surfaces: icon, name, purpose, status pill, primary action.
-// The action is intentionally a single button per row — non-tech users get
-// confused by multiple options. If they need more, they enter the SetupFlow.
+// One-line summary card for a capability in Mission Control.
+// Surfaces: icon, name, purpose, manual setup guidance, status pill, and
+// actions. Tier 2 ships honest actions only — "Re-check" (re-runs the real
+// verification) and "Skip for now" (persists an acknowledged-skip). The
+// catalog-driven guided SetupFlow is deferred to Tier 3.
 
-import { Check, AlertCircle, Loader2, Clock } from "lucide-react";
+import { Check, AlertCircle, Loader2, Clock, Terminal } from "lucide-react";
 import type { Capability } from "../../types/preflight";
 import type { CapabilityStatus } from "../../types/preflight";
 import CapabilityIcon from "./icons/CapabilityIcon";
@@ -16,10 +17,13 @@ interface CapabilityCardProps {
   serviceCategory?: string;
   /** Estimated minutes from the catalog entry's remediation. */
   estimatedMinutes?: number;
-  /** Primary button label (e.g. "Set up", "Verify", "Update"). */
-  actionLabel: string;
-  onAction: () => void;
-  /** Whether the action is currently busy (shows spinner + disables click). */
+  /** Human guidance on how to satisfy this capability (from its verification). */
+  guidance?: string | null;
+  /** Re-run this capability's verification. */
+  onRecheck: () => void;
+  /** Mark the capability as user-acknowledged-skip. Omitted when not skippable. */
+  onSkip?: () => void;
+  /** Whether a verify/skip op is currently in-flight (spinner + disables clicks). */
   busy?: boolean;
 }
 
@@ -29,13 +33,18 @@ export default function CapabilityCard({
   serviceName,
   serviceCategory,
   estimatedMinutes,
-  actionLabel,
-  onAction,
+  guidance,
+  onRecheck,
+  onSkip,
   busy,
 }: CapabilityCardProps) {
   const display = serviceName ?? capability.name;
   const state = status?.state ?? "unknown";
   const isOptional = !capability.required;
+  const skipped = status?.userAcknowledgedOptionalSkip ?? false;
+  const satisfied = state === "satisfied";
+  const showGuidance = !!guidance && !satisfied && !skipped;
+  const showSkip = !!onSkip && !satisfied && !skipped;
 
   return (
     <div
@@ -64,13 +73,30 @@ export default function CapabilityCard({
               Optional
             </span>
           )}
+          {skipped && (
+            <span
+              className="text-detail px-1.5 py-0.5 rounded"
+              style={{ background: "var(--bg-subtle)", color: "var(--text-dim)" }}
+            >
+              Skipped
+            </span>
+          )}
         </div>
         {capability.purpose && (
           <p className="text-label text-text-dim leading-snug truncate">
             {capability.purpose}
           </p>
         )}
-        {estimatedMinutes && state !== "satisfied" && (
+        {showGuidance && (
+          <p
+            className="text-detail text-text-secondary mt-1 flex items-start gap-1"
+            data-testid="capability-guidance"
+          >
+            <Terminal size={11} className="mt-0.5 shrink-0" />
+            <span className="break-words">{guidance}</span>
+          </p>
+        )}
+        {estimatedMinutes && !satisfied && (
           <p className="text-detail text-text-ghost mt-1 flex items-center gap-1">
             <Clock size={11} />
             About {estimatedMinutes} {estimatedMinutes === 1 ? "minute" : "minutes"}
@@ -78,18 +104,30 @@ export default function CapabilityCard({
         )}
       </div>
       <StatusPill state={state} />
-      <button
-        type="button"
-        onClick={onAction}
-        disabled={busy}
-        className="px-3 py-1.5 rounded-md text-ui font-medium transition-colors shrink-0 disabled:opacity-50"
-        style={{
-          background: state === "satisfied" ? "var(--bg-subtle)" : "var(--accent)",
-          color: state === "satisfied" ? "var(--text-secondary)" : "white",
-        }}
-      >
-        {busy ? <Loader2 size={14} className="animate-spin inline" /> : actionLabel}
-      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        {showSkip && (
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={busy}
+            className="text-detail text-text-dim hover:text-text-secondary disabled:opacity-50"
+          >
+            Skip for now
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onRecheck}
+          disabled={busy}
+          className="px-3 py-1.5 rounded-md text-ui font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: satisfied ? "var(--bg-subtle)" : "var(--accent)",
+            color: satisfied ? "var(--text-secondary)" : "white",
+          }}
+        >
+          {busy ? <Loader2 size={14} className="animate-spin inline" /> : "Re-check"}
+        </button>
+      </div>
     </div>
   );
 }

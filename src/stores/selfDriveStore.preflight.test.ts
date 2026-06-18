@@ -49,12 +49,16 @@ vi.mock("./toastStore", () => ({
   showToast: mocks.showToast,
 }));
 
-import { useSelfDriveStore } from "./selfDriveStore";
+import {
+  useSelfDriveStore,
+  selectPausedCapability,
+  selectPausedSessionContext,
+} from "./selfDriveStore";
 import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
 
-function aGuide(): ImplementationGuide {
+function aGuide(requires?: string[]): ImplementationGuide {
   return {
     id: "g-1",
     projectPath: "/p",
@@ -68,6 +72,7 @@ function aGuide(): ImplementationGuide {
         files: [],
         prompt: "Build it",
         verifyChecks: [],
+        ...(requires ? { requires } : {}),
         status: "active",
       },
     ],
@@ -166,5 +171,176 @@ describe("Self-Drive pre-run preflight gate", () => {
 
     // Legacy project — preflight gate didn't fire its abort toast.
     expect(preflightToasts()).toHaveLength(0);
+  });
+});
+
+describe("Self-Drive per-session requires gate", () => {
+  beforeEach(() => {
+    // The per-session gate runs AFTER the API-key check, so the provider must
+    // resolve to a configured key for the run to reach it.
+    useSettingsStore.setState({
+      settings: {
+        apiKeys: { anthropic: "sk-ant-test" },
+        selfDriveProvider: "anthropic",
+      } as never,
+    });
+  });
+
+  it("pauses on a session's missing requires even when the project is allSatisfied", async () => {
+    // Regression: the whole-project gate reports allSatisfied (the missing cap
+    // is non-blocking project-wide), so ONLY a per-session check catches it.
+    useGuideStore.setState({ guide: aGuide(["stripe"]) } as never);
+    mocks.preflightStatus.mockResolvedValue({
+      projectId: "/p",
+      allSatisfied: true,
+      blockingCount: 0,
+      optionalCount: 0,
+      capabilities: [
+        {
+          projectId: "/p",
+          capabilityId: "stripe",
+          state: "missing",
+          lastChecked: 0,
+          userAcknowledgedOptionalSkip: false,
+        },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    const s = useSelfDriveStore.getState();
+    expect(s.status).toBe("paused");
+    expect(s.activeBlocker?.kind).toBe("capability-missing");
+    expect(s.activeBlocker?.capabilityId).toBe("stripe");
+    // The build prompt was NOT dispatched.
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when the session's required capability is satisfied", async () => {
+    useGuideStore.setState({ guide: aGuide(["stripe"]) } as never);
+    mocks.preflightStatus.mockResolvedValue({
+      projectId: "/p",
+      allSatisfied: true,
+      blockingCount: 0,
+      optionalCount: 0,
+      capabilities: [
+        {
+          projectId: "/p",
+          capabilityId: "stripe",
+          state: "satisfied",
+          lastChecked: 0,
+          userAcknowledgedOptionalSkip: false,
+        },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    const s = useSelfDriveStore.getState();
+    expect(s.status).toBe("running");
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a user-acknowledged-skip capability as satisfied", async () => {
+    useGuideStore.setState({ guide: aGuide(["analytics"]) } as never);
+    mocks.preflightStatus.mockResolvedValue({
+      projectId: "/p",
+      allSatisfied: true,
+      blockingCount: 0,
+      optionalCount: 0,
+      capabilities: [
+        {
+          projectId: "/p",
+          capabilityId: "analytics",
+          state: "missing",
+          lastChecked: 0,
+          userAcknowledgedOptionalSkip: true,
+        },
+      ],
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().status).toBe("running");
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes through when the session declares no requires", async () => {
+    useGuideStore.setState({ guide: aGuide() } as never);
+    mocks.preflightStatus.mockResolvedValue({
+      projectId: "/p",
+      allSatisfied: true,
+      blockingCount: 0,
+      optionalCount: 0,
+      capabilities: [],
+    });
+
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().status).toBe("running");
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes through when the project has no manifest (preflightStatus throws)", async () => {
+    useGuideStore.setState({ guide: aGuide(["stripe"]) } as never);
+    mocks.preflightStatus.mockRejectedValue(new Error("No preflight.yaml"));
+
+    await useSelfDriveStore.getState().start();
+
+    expect(useSelfDriveStore.getState().status).toBe("running");
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Self-Drive paused-capability selectors", () => {
+  it("selectPausedCapability returns the name only when paused on capability-missing", () => {
+    expect(
+      selectPausedCapability({ status: "running", activeBlocker: null } as never),
+    ).toBeNull();
+
+    expect(
+      selectPausedCapability({
+        status: "paused",
+        activeBlocker: { kind: "credentials" },
+      } as never),
+    ).toBeNull();
+
+    expect(
+      selectPausedCapability({
+        status: "paused",
+        activeBlocker: { kind: "capability-missing", capabilityName: "Stripe" },
+      } as never),
+    ).toEqual({ capabilityName: "Stripe" });
+  });
+
+  it("selectPausedCapability falls back to the id, then a generic label", () => {
+    expect(
+      selectPausedCapability({
+        status: "paused",
+        activeBlocker: { kind: "capability-missing", capabilityId: "stripe" },
+      } as never),
+    ).toEqual({ capabilityName: "stripe" });
+
+    expect(
+      selectPausedCapability({
+        status: "paused",
+        activeBlocker: { kind: "capability-missing" },
+      } as never),
+    ).toEqual({ capabilityName: "a required capability" });
+  });
+
+  it("selectPausedSessionContext resolves the session name from the guide", () => {
+    expect(
+      selectPausedSessionContext({
+        status: "paused",
+        currentSessionIndex: 1,
+        activeBlocker: { kind: "capability-missing", sessionIndex: 1 },
+        guide: { sessions: [{ index: 1, name: "First" }] },
+      } as never),
+    ).toEqual({ sessionName: "First", sessionIndex: 1 });
+
+    expect(
+      selectPausedSessionContext({ status: "running", activeBlocker: null } as never),
+    ).toBeNull();
   });
 });

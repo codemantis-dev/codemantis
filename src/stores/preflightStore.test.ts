@@ -16,6 +16,7 @@ const { mockInvokes } = vi.hoisted(() => ({
     storeSecret: vi.fn(),
     runAutoInstall: vi.fn(),
     detectExisting: vi.fn(),
+    acknowledgeSkip: vi.fn(),
   },
 }));
 
@@ -27,6 +28,7 @@ vi.mock("../lib/tauri-commands", () => ({
   preflightStoreSecret: mockInvokes.storeSecret,
   preflightRunAutoInstall: mockInvokes.runAutoInstall,
   preflightDetectExisting: mockInvokes.detectExisting,
+  preflightAcknowledgeSkip: mockInvokes.acknowledgeSkip,
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -209,6 +211,30 @@ describe("preflightStore actions", () => {
     expect(
       usePreflightStore.getState().installerLogs["C-blocking"],
     ).toBeDefined();
+  });
+
+  it("acknowledgeSkip forwards to the command and refreshes status", async () => {
+    mockInvokes.acknowledgeSkip.mockResolvedValue(
+      aCapStatus("C-optional", "missing", true),
+    );
+    mockInvokes.status.mockResolvedValue(
+      aStatus([aCapStatus("C-optional", "missing", true)]),
+    );
+    await usePreflightStore.getState().acknowledgeSkip("/p", "C-optional");
+    expect(mockInvokes.acknowledgeSkip).toHaveBeenCalledWith("/p", "C-optional");
+    // Refreshed → store reflects the persisted skip.
+    expect(mockInvokes.status).toHaveBeenCalledWith("/p");
+    expect(
+      usePreflightStore.getState().status?.capabilities[0]
+        .userAcknowledgedOptionalSkip,
+    ).toBe(true);
+  });
+
+  it("acknowledgeSkip propagates command errors", async () => {
+    mockInvokes.acknowledgeSkip.mockRejectedValue(new Error("not in manifest"));
+    await expect(
+      usePreflightStore.getState().acknowledgeSkip("/p", "nope"),
+    ).rejects.toThrow(/not in manifest/);
   });
 
   it("reset clears all state", () => {

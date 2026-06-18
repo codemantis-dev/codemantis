@@ -15,6 +15,7 @@ import type {
   Blocker,
   BlockerKind,
   ImplementationGuide,
+  GuideSession,
   CrossSystemAction,
 } from "../types/implementation-guide";
 import type { TurnCompleteEvent, ProcessExitedEvent } from "../types/agent-events";
@@ -23,6 +24,7 @@ import { useSessionStore } from "./sessionStore";
 import { useGuideStore } from "./guideStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSpecWriterStore } from "./specWriterStore";
+import { usePreflightStore } from "./preflightStore";
 import type { ProbedCapability } from "../types/spec-writer";
 import { showToast } from "./toastStore";
 import {
@@ -511,6 +513,23 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
     // Persist the initial run row so a restart can recover us.
     persistRunState();
 
+    // Per-session preflight gate for the first session — finer-grained than
+    // the whole-project gate above (catches a capability THIS session requires
+    // even when the project as a whole reports allSatisfied). Pauses cleanly:
+    // the run is already set up, so handlePause flips running→paused and the
+    // MidRunPauseModal surfaces.
+    const firstGate = await checkSessionRequires(firstActive, projectPath);
+    if (!firstGate.ok) {
+      pauseForMissingCapability(
+        firstActive.index,
+        firstGate.capabilityId,
+        firstGate.capabilityName,
+        firstGate.reason,
+      );
+      persistRunState();
+      return;
+    }
+
     // Send first build prompt
     set({ currentPhase: "building" });
     addLogEntry(firstActive.index, "building", `Starting ${formatSessionLabel(firstActive.index, firstActive.name)}`, undefined, firstActive.prompt);
@@ -680,15 +699,13 @@ export const useSelfDriveStore = create<SelfDriveState>((set, get) => ({
       // Already completed — advance to next session
       await startNextSession();
     } else if (!session.promptSent) {
-      // Creation prompt never sent — send it now
+      // Creation prompt never sent — send it now (through the per-session
+      // preflight gate, which re-pauses on a missing capability).
       set({ currentPhase: "building", fixAttempt: 0, previousFixPrompts: [] });
       addLogEntry(session.index, "building",
         `Resuming: sending creation prompt for Session ${session.index}`,
         undefined, session.prompt);
-      await sendMessageToSession(
-        wrapWithPreambleTracking("build", session.index, session.prompt),
-      );
-      markPromptSentForSession(session.index);
+      if (!(await dispatchSessionBuildPrompt(session))) return;
     } else if (!session.verifyRequested) {
       // Build was attempted but verification hasn't started — re-check build
       await handleBuildCheck({ action: "build_check", summary: "Re-checking build after resume", confidence: "high" });
@@ -2648,6 +2665,135 @@ async function handleCommit(): Promise<void> {
   await startNextSession();
 }
 
+// ── Per-session preflight gate (Mission Control × Self-Drive) ───────────
+//
+// The start() whole-project gate checks `status.allSatisfied`. That is too
+// coarse: a session can `requires:` a capability that does NOT block the
+// project as a whole (blocksSelfDrive:false) yet is genuinely needed for THIS
+// session. This finer gate runs right before each session's build prompt is
+// dispatched and pauses on a structured `capability-missing` blocker, which
+// drives the MidRunPauseModal + the red PreflightTray "Fix now" state.
+
+type SessionRequiresGate =
+  | { ok: true }
+  | { ok: false; capabilityId: string; capabilityName: string; reason: string };
+
+async function checkSessionRequires(
+  session: GuideSession,
+  projectPath: string,
+): Promise<SessionRequiresGate> {
+  const requires = session.requires ?? [];
+  if (requires.length === 0) return { ok: true };
+
+  let status;
+  try {
+    status = await preflightStatus(projectPath);
+  } catch {
+    // No preflight.yaml at this project — legacy behaviour, proceed.
+    return { ok: true };
+  }
+
+  const byId = new Map(status.capabilities.map((c) => [c.capabilityId, c] as const));
+  const manifest = usePreflightStore.getState().manifest;
+
+  for (const id of requires) {
+    const cap = byId.get(id);
+    const satisfied =
+      cap?.state === "satisfied" || cap?.userAcknowledgedOptionalSkip === true;
+    if (!satisfied) {
+      const name = manifest?.capabilities.find((c) => c.id === id)?.name ?? id;
+      const reason =
+        cap == null
+          ? `Required capability "${name}" is not tracked in this project's preflight manifest.`
+          : `Required capability "${name}" is not ready (${cap.state}).`;
+      return { ok: false, capabilityId: id, capabilityName: name, reason };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Pause the run on a structured `capability-missing` blocker. Reuses the
+ * existing handlePause/buildBlockerFromDecision plumbing (history, recovery
+ * routing, card injection, persistence) and then stamps the offending
+ * capability's identity onto the freshly-built blocker so the UI can name it.
+ */
+function pauseForMissingCapability(
+  sessionIndex: number,
+  capabilityId: string,
+  capabilityName: string,
+  reason: string,
+): void {
+  const decision: OrchestratorDecision = {
+    action: "pause",
+    summary: reason,
+    confidence: "high",
+    pauseReason: reason,
+    blocker: {
+      kind: "capability-missing",
+      summary: `Capability not ready: ${capabilityName}`,
+      optionsOffered: [],
+      resolutionCriteria: `Set up "${capabilityName}" in Mission Control, then click Resume.`,
+    },
+  };
+  handlePause(reason, decision);
+  const blk = useSelfDriveStore.getState().activeBlocker;
+  if (blk) {
+    useSelfDriveStore.setState({
+      activeBlocker: { ...blk, sessionIndex, capabilityId, capabilityName },
+    });
+  }
+}
+
+/**
+ * Gate + send a session's build prompt (resume / advance path). Returns false
+ * (after pausing on a capability-missing blocker) when the session's
+ * `requires` gate fails; otherwise sends the build prompt, marks it sent, and
+ * returns true.
+ */
+async function dispatchSessionBuildPrompt(session: GuideSession): Promise<boolean> {
+  const projectPath = useSelfDriveStore.getState().projectPath;
+  if (projectPath) {
+    const gate = await checkSessionRequires(session, projectPath);
+    if (!gate.ok) {
+      pauseForMissingCapability(session.index, gate.capabilityId, gate.capabilityName, gate.reason);
+      return false;
+    }
+  }
+  await sendMessageToSession(
+    wrapWithPreambleTracking("build", session.index, session.prompt),
+  );
+  markPromptSentForSession(session.index);
+  return true;
+}
+
+/**
+ * Selector — non-null only when Self-Drive is paused on a `capability-missing`
+ * blocker. Feeds both the PreflightTray `pausedReason` and the MidRunPauseModal.
+ */
+export function selectPausedCapability(
+  state: SelfDriveState,
+): { capabilityName: string } | null {
+  if (state.status !== "paused") return null;
+  const blk = state.activeBlocker;
+  if (!blk || blk.kind !== "capability-missing") return null;
+  return {
+    capabilityName: blk.capabilityName ?? blk.capabilityId ?? "a required capability",
+  };
+}
+
+/** Selector — the session context for the MidRunPauseModal header. */
+export function selectPausedSessionContext(
+  state: SelfDriveState,
+): { sessionName: string; sessionIndex: number } | null {
+  if (state.status !== "paused") return null;
+  const blk = state.activeBlocker;
+  if (!blk || blk.kind !== "capability-missing") return null;
+  const idx = state.currentSessionIndex ?? blk.sessionIndex;
+  const session = state.guide?.sessions.find((s) => s.index === idx);
+  return { sessionName: session?.name ?? `Session ${idx}`, sessionIndex: idx };
+}
+
 async function startNextSession(): Promise<void> {
   // Read from the pinned guide — any UI navigation is irrelevant here.
   const guide = useSelfDriveStore.getState().guide;
@@ -2684,10 +2830,10 @@ async function startNextSession(): Promise<void> {
   });
 
   addLogEntry(nextSession.index, "building", `Starting ${formatSessionLabel(nextSession.index, nextSession.name)}`, undefined, nextSession.prompt);
-  await sendMessageToSession(
-    wrapWithPreambleTracking("build", nextSession.index, nextSession.prompt),
-  );
-  markPromptSentForSession(nextSession.index);
+  // Per-session preflight gate — pauses on a capability-missing blocker
+  // instead of dispatching the build prompt when a required capability isn't
+  // ready. Returning here leaves the run paused for the user to fix + resume.
+  if (!(await dispatchSessionBuildPrompt(nextSession))) return;
 }
 
 // ── Pause / Abort / Crash handlers ──────────────────────────────────

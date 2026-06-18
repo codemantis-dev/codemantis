@@ -182,6 +182,56 @@ pub async fn preflight_verify_one(
     Ok(cap_status)
 }
 
+/// Persist `user_acknowledged_optional_skip = true` for a capability. Testable
+/// core of `preflight_acknowledge_skip` (no AppHandle / event emission). Errors
+/// if the capability id isn't declared in the manifest.
+fn apply_acknowledge_skip(
+    db: &crate::storage::Database,
+    manifest: &Manifest,
+    project_path: &str,
+    capability_id: &str,
+) -> Result<CapabilityStatus, String> {
+    let Some(cap) = manifest.capabilities.iter().find(|c| c.id == capability_id) else {
+        return Err(format!("Capability {} not in manifest", capability_id));
+    };
+
+    // Update the existing row, or synthesize one if the capability was never
+    // probed yet (skip-before-verify is valid — the user is opting out).
+    let mut row = status::get(db, project_path, capability_id)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| CapabilityStatus {
+            project_id: project_path.to_string(),
+            capability_id: capability_id.to_string(),
+            catalog_ref: Some(cap.catalog_ref.clone()),
+            state: CapabilityState::Missing,
+            last_checked: now_ms(),
+            message: None,
+            error: None,
+            detection_source: None,
+            user_acknowledged_optional_skip: false,
+        });
+    row.user_acknowledged_optional_skip = true;
+    status::upsert(db, &row).map_err(|e| e.to_string())?;
+    Ok(row)
+}
+
+/// Mark a capability as user-acknowledged-skip so it stops blocking Self-Drive.
+/// Persists `user_acknowledged_optional_skip = true` for the capability and
+/// emits a status-change event so Mission Control + the tray update. Errors if
+/// the project has no manifest or the capability id isn't declared in it.
+#[tauri::command]
+pub async fn preflight_acknowledge_skip(
+    project_path: String,
+    capability_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CapabilityStatus, String> {
+    let manifest = load_manifest_from_project(&project_path)?;
+    let row = apply_acknowledge_skip(&state.database, &manifest, &project_path, &capability_id)?;
+    events::emit_verification_complete(&app, &row);
+    Ok(row)
+}
+
 #[tauri::command]
 pub async fn preflight_verify_all(
     project_path: String,
@@ -332,4 +382,87 @@ pub async fn preflight_generate_manifest(
     );
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::Database;
+    use tempfile::tempdir;
+
+    fn fresh_db() -> (Database, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = Database::new(db_path.to_str().unwrap()).unwrap();
+        (db, dir)
+    }
+
+    fn manifest_with(cap_id: &str) -> Manifest {
+        let json = format!(
+            r#"{{
+                "schema_version": "1.0",
+                "project": "p",
+                "capabilities": [{{
+                    "id": "{cap_id}",
+                    "catalog_ref": "x.ref",
+                    "name": "X",
+                    "category": "guided_human",
+                    "sessions_requiring": [],
+                    "verification": {{ "kind": "secret_present", "key": "{cap_id}" }},
+                    "required": false,
+                    "blocks_self_drive": false
+                }}]
+            }}"#
+        );
+        Manifest::from_yaml(&json).unwrap()
+    }
+
+    #[test]
+    fn apply_acknowledge_skip_persists_flag() {
+        let (db, _dir) = fresh_db();
+        let manifest = manifest_with("analytics");
+
+        let row = apply_acknowledge_skip(&db, &manifest, "/p", "analytics").unwrap();
+        assert!(row.user_acknowledged_optional_skip);
+
+        // Round-trips through SQLite.
+        let stored = status::get(&db, "/p", "analytics").unwrap().unwrap();
+        assert!(stored.user_acknowledged_optional_skip);
+    }
+
+    #[test]
+    fn apply_acknowledge_skip_errors_for_unknown_capability() {
+        let (db, _dir) = fresh_db();
+        let manifest = manifest_with("analytics");
+
+        let err = apply_acknowledge_skip(&db, &manifest, "/p", "nope").unwrap_err();
+        assert!(err.contains("not in manifest"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn apply_acknowledge_skip_preserves_existing_state() {
+        let (db, _dir) = fresh_db();
+        let manifest = manifest_with("analytics");
+
+        // Pre-existing "missing" row — skip must flip the flag, not the state.
+        status::upsert(
+            &db,
+            &CapabilityStatus {
+                project_id: "/p".into(),
+                capability_id: "analytics".into(),
+                catalog_ref: Some("x.ref".into()),
+                state: CapabilityState::Missing,
+                last_checked: 1,
+                message: None,
+                error: None,
+                detection_source: None,
+                user_acknowledged_optional_skip: false,
+            },
+        )
+        .unwrap();
+
+        let row = apply_acknowledge_skip(&db, &manifest, "/p", "analytics").unwrap();
+        assert!(row.user_acknowledged_optional_skip);
+        assert_eq!(row.state, CapabilityState::Missing);
+    }
 }

@@ -24,6 +24,11 @@ interface UiState {
   showQuestionModal: boolean;
   showSettingsModal: boolean;
   showMcpModal: boolean;
+  /** Mission Control (Preflight) full-screen overlay — the per-project
+   *  capability gate. Lifted into the UI store (like showMcpModal) so the
+   *  TitleBar button and the Cmd+Shift+G keyboard shortcut can open it
+   *  without depending on AppShell-local state or a loaded manifest. */
+  showMissionControl: boolean;
   /** Activity Overview lay-over — the top-left dropdown listing every
    *  project/session with active or attention-needing work. */
   showActivityOverview: boolean;
@@ -115,6 +120,8 @@ interface UiState {
   setShowQuestionModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
   setShowMcpModal: (show: boolean) => void;
+  setShowMissionControl: (show: boolean) => void;
+  toggleMissionControl: () => void;
   setShowActivityOverview: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
   setSelectedAgentId: (id: import("../types/agent-events").AgentId) => void;
@@ -173,6 +180,7 @@ export const useUiStore = create<UiState>((set) => ({
   showQuestionModal: false,
   showSettingsModal: false,
   showMcpModal: false,
+  showMissionControl: false,
   showActivityOverview: false,
   showProjectPicker: false,
   selectedAgentId: "claude_code",
@@ -250,6 +258,8 @@ export const useUiStore = create<UiState>((set) => ({
   setShowQuestionModal: (show) => set({ showQuestionModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
   setShowMcpModal: (show) => set({ showMcpModal: show }),
+  setShowMissionControl: (show) => set({ showMissionControl: show }),
+  toggleMissionControl: () => set((s) => ({ showMissionControl: !s.showMissionControl })),
   setShowActivityOverview: (show) => set({ showActivityOverview: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),

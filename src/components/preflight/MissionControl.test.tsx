@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import MissionControl, { type CatalogResolution } from "./MissionControl";
+import { usePreflightStore } from "../../stores/preflightStore";
 import type {
   Capability,
   CapabilityStatus,
@@ -48,12 +49,20 @@ function aStatus(caps: CapabilityStatus[]): PreflightStatus {
 const noopResolver = (_: string): CatalogResolution | null => null;
 
 describe("MissionControl", () => {
+  beforeEach(() => {
+    // Inject no-op store actions so card buttons don't reach Tauri invoke.
+    usePreflightStore.setState({
+      verifyOne: vi.fn(() => Promise.resolve()),
+      acknowledgeSkip: vi.fn(() => Promise.resolve()),
+    });
+  });
+
   it("renders the project name in the header", () => {
     render(
       <MissionControl
         manifest={aManifest([aCap("C", "guided_human")])}
         status={null}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
       />,
@@ -74,7 +83,7 @@ describe("MissionControl", () => {
             userAcknowledgedOptionalSkip: false,
           },
         ])}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
       />,
@@ -103,7 +112,7 @@ describe("MissionControl", () => {
             },
           ],
         }}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={onStart}
         resolveCatalog={noopResolver}
       />,
@@ -124,7 +133,7 @@ describe("MissionControl", () => {
           aCap("Opt", "guided_human", { required: false }),
         ])}
         status={null}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
       />,
@@ -169,7 +178,7 @@ describe("MissionControl", () => {
             userAcknowledgedOptionalSkip: false,
           },
         ])}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
       />,
@@ -179,20 +188,61 @@ describe("MissionControl", () => {
     expect(band.textContent).toMatch(/2 to set up/);
   });
 
-  it("calls onSetUp when a card's action is clicked", () => {
-    const onSetUp = vi.fn();
+  it("re-checks a capability via the store when Re-check is clicked", () => {
+    const verifyOne = vi.fn(() => Promise.resolve());
+    usePreflightStore.setState({ verifyOne });
     render(
       <MissionControl
         manifest={aManifest([aCap("C", "guided_human")])}
         status={null}
-        onSetUp={onSetUp}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Set up/ }));
-    expect(onSetUp).toHaveBeenCalledOnce();
-    expect(onSetUp.mock.calls[0][0].id).toBe("C");
+    fireEvent.click(screen.getByRole("button", { name: /Re-check/ }));
+    expect(verifyOne).toHaveBeenCalledWith("/p", "C");
+  });
+
+  it("skips an optional capability via the store when Skip is clicked", () => {
+    const acknowledgeSkip = vi.fn(() => Promise.resolve());
+    usePreflightStore.setState({ acknowledgeSkip });
+    render(
+      <MissionControl
+        manifest={aManifest([aCap("Opt", "guided_human", { required: false })])}
+        status={aStatus([
+          {
+            projectId: "p",
+            capabilityId: "Opt",
+            state: "missing",
+            lastChecked: 0,
+            userAcknowledgedOptionalSkip: false,
+          },
+        ])}
+        projectPath="/p"
+        onStartBuilding={() => {}}
+        resolveCatalog={noopResolver}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/ }));
+    expect(acknowledgeSkip).toHaveBeenCalledWith("/p", "Opt");
+  });
+
+  it("shows manual guidance derived from the capability's verification", () => {
+    render(
+      <MissionControl
+        manifest={aManifest([
+          aCap("C", "guided_human", {
+            verification: { kind: "env_var_present", varName: "STRIPE_KEY" },
+          }),
+        ])}
+        status={null}
+        projectPath="/p"
+        onStartBuilding={() => {}}
+        resolveCatalog={noopResolver}
+      />,
+    );
+    expect(screen.getByTestId("capability-guidance")).toHaveTextContent(/STRIPE_KEY/);
   });
 
   it("uses catalog resolution to render service-friendly names", () => {
@@ -204,7 +254,7 @@ describe("MissionControl", () => {
       <MissionControl
         manifest={aManifest([aCap("C", "guided_human")])}
         status={null}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={resolver}
       />,
@@ -219,7 +269,7 @@ describe("MissionControl", () => {
       <MissionControl
         manifest={aManifest([aCap("C", "guided_human")])}
         status={null}
-        onSetUp={() => {}}
+        projectPath="/p"
         onStartBuilding={() => {}}
         resolveCatalog={noopResolver}
         onMount={onMount}

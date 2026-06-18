@@ -4,6 +4,7 @@ import AppShell from "./AppShell";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
+import { usePreflightStore } from "../../stores/preflightStore";
 import { showToast } from "../../stores/toastStore";
 import { listen } from "@tauri-apps/api/event";
 
@@ -125,6 +126,19 @@ describe("AppShell", () => {
       render(<AppShell />);
     });
     expect(screen.getByText("Send")).toBeInTheDocument();
+  });
+
+  it("opens Mission Control with the empty state when there is no manifest", async () => {
+    await act(async () => {
+      render(<AppShell />);
+    });
+    // No preflight.yaml → null manifest. The overlay must still open (the
+    // entry point is decoupled from the manifest) and show the empty state.
+    await act(async () => {
+      usePreflightStore.setState({ manifest: null, status: null });
+      useUiStore.getState().setShowMissionControl(true);
+    });
+    expect(screen.getByTestId("mission-control-empty")).toBeInTheDocument();
   });
 });
 

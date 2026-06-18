@@ -244,6 +244,15 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+Shift+G — open Mission Control (Preflight) for the active project
+      if (key === "g" && shift) {
+        e.preventDefault();
+        if (useSessionStore.getState().activeProjectPath) {
+          useUiStore.getState().setShowMissionControl(true);
+        }
+        return;
+      }
+
       // Cmd+Shift+O — toggle the Activity Overview lay-over
       if (key === "o" && shift) {
         e.preventDefault();

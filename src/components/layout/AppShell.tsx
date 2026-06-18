@@ -28,6 +28,14 @@ import { useProjectPreflight } from "../../hooks/useProjectPreflight";
 import { usePreflightStore } from "../../stores/preflightStore";
 import PreflightTray from "../preflight/PreflightTray";
 import MissionControl from "../preflight/MissionControl";
+import MissionControlEmpty from "../preflight/MissionControlEmpty";
+import MidRunPauseModal from "../preflight/MidRunPauseModal";
+import {
+  useSelfDriveStore,
+  selectPausedCapability,
+  selectPausedSessionContext,
+} from "../../stores/selfDriveStore";
+import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { logBreadcrumb } from "../../lib/wake-debug";
 import AppErrorBoundary from "../shared/AppErrorBoundary";
 
@@ -110,8 +118,21 @@ export default function AppShell() {
   useProjectPreflight(activeProjectPath);
   const preflightManifest = usePreflightStore((s) => s.manifest);
   const preflightStatus = usePreflightStore((s) => s.status);
-  const [showMissionControl, setShowMissionControl] = useState(false);
+  const showMissionControl = useUiStore((s) => s.showMissionControl);
+  const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
+  const toggleSpecWriter = useSpecWriterStore((s) => s.toggleSlideOver);
+  const pausedCapability = useSelfDriveStore(selectPausedCapability);
+  const pausedSessionContext = useSelfDriveStore(selectPausedSessionContext);
+  const pausedBlockerId = useSelfDriveStore((s) => s.activeBlocker?.id ?? null);
+  const pausedBlockerReason = useSelfDriveStore((s) => s.activeBlocker?.detail ?? null);
+  const [pauseModalDismissed, setPauseModalDismissed] = useState(false);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+
+  // Re-open the mid-run pause modal whenever a NEW capability-missing blocker
+  // appears (keyed on blocker id) — even if the user dismissed a prior one.
+  useEffect(() => {
+    setPauseModalDismissed(false);
+  }, [pausedBlockerId]);
 
   // White-screen diagnostics: record state transitions that bracket the
   // wake/unlock window. Lines land in ~/Library/Logs/CodeMantis/appshell.log
@@ -258,6 +279,7 @@ export default function AppShell() {
       {preflightManifest && (
         <PreflightTray
           status={preflightStatus}
+          pausedReason={pausedCapability}
           onOpenMissionControl={() => setShowMissionControl(true)}
         />
       )}
@@ -267,7 +289,7 @@ export default function AppShell() {
         onRenameSession={renameSession}
       />
 
-      {showMissionControl && preflightManifest && activeProjectPath && (
+      {showMissionControl && activeProjectPath && (
         <div
           className="fixed inset-0 z-40"
           style={{ background: "var(--bg-primary)" }}
@@ -292,21 +314,50 @@ export default function AppShell() {
               {/* Wrapped in its own boundary so a render error inside Mission
                   Control surfaces the recovery card instead of leaving the
                   fixed-inset overlay as an empty white panel covering the
-                  whole window. */}
+                  whole window. The manifest is decoupled from the overlay so
+                  Mission Control is reachable for ANY project; when there's no
+                  manifest we show the empty state explaining how to get one. */}
               <AppErrorBoundary>
-                <MissionControl
-                  manifest={preflightManifest}
-                  status={preflightStatus}
-                  onSetUp={(cap) => {
-                    usePreflightStore.getState().startSetupFlow(cap.id);
-                  }}
-                  onStartBuilding={() => setShowMissionControl(false)}
-                  resolveCatalog={() => null /* Phase 5: hook into bundled catalog */}
-                />
+                {preflightManifest ? (
+                  <MissionControl
+                    manifest={preflightManifest}
+                    status={preflightStatus}
+                    projectPath={activeProjectPath}
+                    onStartBuilding={() => setShowMissionControl(false)}
+                    resolveCatalog={() => null /* Tier 3: hook into bundled catalog */}
+                  />
+                ) : (
+                  <MissionControlEmpty
+                    projectName={
+                      activeProjectPath.split("/").filter(Boolean).pop() ?? "this project"
+                    }
+                    onOpenSpecWriter={() => {
+                      setShowMissionControl(false);
+                      toggleSpecWriter(activeProjectPath);
+                    }}
+                  />
+                )}
               </AppErrorBoundary>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mid-run pause notice — Self-Drive paused on a missing capability.
+          "Fix now" opens Mission Control so the user can set it up and resume. */}
+      {pausedCapability && pausedSessionContext && (
+        <MidRunPauseModal
+          open={!pauseModalDismissed}
+          sessionName={pausedSessionContext.sessionName}
+          sessionIndex={pausedSessionContext.sessionIndex}
+          serviceName={pausedCapability.capabilityName}
+          reason={pausedBlockerReason}
+          onClose={() => setPauseModalDismissed(true)}
+          onFixNow={() => {
+            setPauseModalDismissed(true);
+            setShowMissionControl(true);
+          }}
+        />
       )}
 
       <div className="flex flex-1 overflow-hidden">

@@ -1391,6 +1391,16 @@ export async function preflightVerifyAll(
   return invoke<CapabilityStatus[]>("preflight_verify_all", { projectPath });
 }
 
+export async function preflightAcknowledgeSkip(
+  projectPath: string,
+  capabilityId: string,
+): Promise<CapabilityStatus> {
+  return invoke<CapabilityStatus>("preflight_acknowledge_skip", {
+    projectPath,
+    capabilityId,
+  });
+}
+
 export async function preflightStoreSecret(
   projectPath: string,
   capabilityId: string,

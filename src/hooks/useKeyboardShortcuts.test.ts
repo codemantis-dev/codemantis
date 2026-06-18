@@ -67,6 +67,7 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
       showApprovalModal: false,
       showSettingsModal: false,
       showProjectPicker: false,
+      showMissionControl: false,
     });
   });
 
@@ -152,6 +153,25 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
   it("Cmd+Shift+M opens MCP modal", () => {
     useUiStore.getState().setShowMcpModal(true);
     expect(useUiStore.getState().showMcpModal).toBe(true);
+  });
+
+  it("Cmd+Shift+G opens Mission Control when a project is active", () => {
+    // Mirror the handler: only opens when activeProjectPath is set.
+    useSessionStore.setState({ activeProjectPath: "/a" });
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+    if (useSessionStore.getState().activeProjectPath) {
+      useUiStore.getState().setShowMissionControl(true);
+    }
+    expect(useUiStore.getState().showMissionControl).toBe(true);
+  });
+
+  it("Cmd+Shift+G does nothing with no active project", () => {
+    useSessionStore.setState({ activeProjectPath: null });
+    expect(useUiStore.getState().showMissionControl).toBe(false);
+    if (useSessionStore.getState().activeProjectPath) {
+      useUiStore.getState().setShowMissionControl(true);
+    }
+    expect(useUiStore.getState().showMissionControl).toBe(false);
   });
 
   it("Cmd+Shift+O toggles the Activity Overview lay-over", () => {

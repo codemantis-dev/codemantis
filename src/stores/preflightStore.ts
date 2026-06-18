@@ -26,6 +26,7 @@ import {
   preflightStoreSecret,
   preflightVerifyAll,
   preflightVerifyOne,
+  preflightAcknowledgeSkip,
 } from "../lib/tauri-commands";
 
 // ── Module-level event listener handles ────────────────────────────────
@@ -55,6 +56,7 @@ interface PreflightState {
   refreshStatus: (projectPath: string) => Promise<void>;
   verifyAll: (projectPath: string) => Promise<void>;
   verifyOne: (projectPath: string, capabilityId: string) => Promise<void>;
+  acknowledgeSkip: (projectPath: string, capabilityId: string) => Promise<void>;
   storeSecret: (
     projectPath: string,
     capabilityId: string,
@@ -75,6 +77,7 @@ const initialState: Omit<
   | "refreshStatus"
   | "verifyAll"
   | "verifyOne"
+  | "acknowledgeSkip"
   | "storeSecret"
   | "runAutoInstall"
   | "detectExisting"
@@ -130,6 +133,14 @@ export const usePreflightStore = create<PreflightState>((set, get) => ({
   verifyOne: async (projectPath, capabilityId) => {
     await preflightVerifyOne(projectPath, capabilityId);
     // verification_complete event will update status; refresh defensively.
+    await get().refreshStatus(projectPath);
+  },
+
+  acknowledgeSkip: async (projectPath, capabilityId) => {
+    await preflightAcknowledgeSkip(projectPath, capabilityId);
+    // The Rust side emits verification_complete; refresh defensively so the
+    // aggregate allSatisfied/blockingCount recompute even if the listener
+    // isn't attached.
     await get().refreshStatus(projectPath);
   },
 

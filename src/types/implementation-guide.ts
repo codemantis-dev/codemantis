@@ -137,6 +137,15 @@ export interface Blocker {
    * Null if no messages existed, or the id can't be resolved.
    */
   prePauseLastMessageId?: string | null;
+  /**
+   * For `kind: "capability-missing"` pauses produced by the per-session
+   * `requires` gate: the offending capability's id (matching
+   * `preflight.yaml::capabilities[].id`) and human-readable name. Drive the
+   * MidRunPauseModal + the red PreflightTray "Fix now" state. Optional for
+   * backward compatibility with persisted runs and other blocker kinds.
+   */
+  capabilityId?: string;
+  capabilityName?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════

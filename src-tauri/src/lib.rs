@@ -501,6 +501,7 @@ pub fn run() {
             preflight::commands::preflight_load_manifest,
             preflight::commands::preflight_status,
             preflight::commands::preflight_verify_one,
+            preflight::commands::preflight_acknowledge_skip,
             preflight::commands::preflight_verify_all,
             preflight::commands::preflight_store_secret,
             preflight::commands::preflight_run_auto_install,

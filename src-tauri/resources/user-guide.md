@@ -2613,122 +2613,82 @@ Preflight is CodeMantis's per-project capability gate. Before you start coding -
 
 ### What You See
 
-**PreflightTray** -- a 48-px tall strip pinned to the top of the workspace, just below the title bar. Three states:
+**Mission Control** is reachable for any open project -- you don't need a `preflight.yaml` to open it:
+
+| Method | Action |
+|--------|--------|
+| **Title-bar Rocket button** | Click the rocket in the top-right toolbar (disabled until a project is open). |
+| **Keyboard** | `Cmd+Shift+G` opens Mission Control for the active project. |
+| **PreflightTray** | When the project *has* a `preflight.yaml`, a status strip appears at the top of the workspace; click **View Mission Control** (or **Fix now** when paused). |
+
+**PreflightTray** -- a 48-px strip pinned below the title bar, shown only when the project has a manifest. Three states:
 
 | State | Color | Summary | Click |
 |---|---|---|---|
 | **Ready** | Green | `X / X ready` | "View Mission Control" |
 | **Attention** | Yellow | `X / Y ready · N needs attention` | "View Mission Control" |
-| **Paused** | Red | `<service> needs attention -- Self-Drive paused` | "Fix now" |
+| **Paused** | Red | `<capability> needs attention -- Self-Drive paused` | "Fix now" |
 
-If the current project has no Preflight manifest (legacy projects without `preflight.yaml`), the tray is hidden entirely -- you are not pestered.
+If the project has no manifest, the tray is hidden and Mission Control shows an **empty state** explaining that a `preflight.yaml` is generated when you save a spec in SpecWriter.
 
-**Mission Control** -- a full-screen overlay you reach by clicking the tray. The layout:
+**Mission Control** -- a full-screen overlay. The layout:
 
-1. **Summary band** at the top -- Rocket icon, the project name, a one-line status (e.g. *"3 of 7 ready · ~12 minutes of setup remaining"*), and a green **"Start Building"** button that activates only once every required capability is satisfied.
+1. **Summary band** -- the project name, an `X / Y ready` count, and a **"Start Building"** button that enables once every required capability is satisfied. (In this release "Start Building" simply closes Mission Control so you can get to work; it does not itself launch Self-Drive.)
 
-2. **Grouped capability list** -- capabilities are bucketed into:
-   - **System** -- CLI tools and runtimes detected via `shell_command` (git, node, pnpm, docker, ...).
-   - **Services** -- API-key/secret-backed integrations (Anthropic, OpenAI, Gemini, OpenRouter, Stripe, Stripe webhook, Resend, Supabase, Google OAuth, and AI-fallback entries).
-   - **Project-specific** -- anything the project's own `preflight.yaml` declares beyond the catalog.
+2. **Grouped capability list** -- capabilities from the project's `preflight.yaml`, bucketed into *Already on your system*, *Quick installs*, *Accounts & keys*, and *Optional*. Each row is a **CapabilityCard** showing the name, a required/optional badge, the current state (Ready / Needed / Checking / …), short **manual guidance** derived from the capability's verification (e.g. "Set the `STRIPE_KEY` environment variable"), a **Re-check** button, and -- for optional or non-blocking capabilities -- a **Skip for now** link.
 
-   Each row is a **CapabilityCard** showing the capability name, a required/optional badge, an estimated setup-time pill (e.g. *"~3 min"*), the current state (satisfied / missing / probing / error), and a contextual primary action ("Set up", "Re-verify", "Edit", "Open setup flow").
+3. **Catalog** -- 13 capability recipes ship in the app bundle under `catalog/system/*` and `catalog/services/*`. They back the verification rules a generated manifest uses.
 
-3. **Catalog provenance** -- 13 capability recipes ship in the app bundle under `catalog/system/*` and `catalog/services/*`. Long-tail capabilities discovered in your project are resolved via an **AI fallback** (fixed prompt, schema-validated, regex must compile, `secret_present` verification forced for security-sensitive entries). Cached results live under `catalog-cache/<slug>.yaml`; bundled entries always take priority.
+### How to get a `preflight.yaml`
 
-### How to Open / Access
-
-| Method | Action |
-|--------|--------|
-| **PreflightTray** | Always visible at the top of the workspace; click "View Mission Control" or "Fix now" |
-| **Self-Drive pre-run gate** | Self-Drive refuses to start if any blocking capability is unsatisfied -- the MidRunPauseModal explains why and links to Mission Control |
-| **Spec finalization** | After SpecWriter writes a spec, `preflight.yaml` is auto-generated from the spec's capability requirements (Phase 4.5) |
+A manifest is generated automatically when **SpecWriter** saves a spec (Phase 4.5): the configured LLM extracts the capability requirements, resolves them against the catalog, and writes `preflight.yaml` to the project root. You can also hand-write or hand-edit the file; it is re-read when you switch to the project. There is no other in-app generator yet.
 
 ### User Actions
 
-**Run the setup wizard for a capability**
+**Re-check a capability** -- click **Re-check** on any row. The Rust verification engine re-runs that capability's probe and the row updates to its new state. Follow the row's guidance to satisfy it manually first (set the env var, add the secret to Settings → AI Providers or your environment, install the tool), then Re-check.
 
-Click **Set up** on any capability row. The **SetupFlowModal** opens as a stepper with up to four kinds of steps:
+**Skip a capability** -- for optional / non-blocking capabilities, click **Skip for now**. This is *persisted* (`user_acknowledged_optional_skip`) so the capability stops counting against the gate and Self-Drive will no longer pause on it. Hard required-and-blocking capabilities cannot be skipped -- you must actually satisfy them.
 
-| Step kind | Use |
-|---|---|
-| `open-url` | Opens a vendor URL (e.g. *"Generate an API key at stripe.com/apikeys"*) in your default browser. |
-| `paste-and-verify` | A masked input field with inline regex validation (e.g. checking `sk_test_...` or `sbp_...`). On submit the value is stored in the per-project encrypted **secret box**. |
-| `confirm-install` | A full transparent command preview (e.g. `brew install postgresql`) that you have to confirm before it runs. No silent installs. |
-| `manual-confirm` | A simple "I did this" checkbox for steps CodeMantis cannot verify automatically. |
-
-A **Skip for now** link is always available -- users are never trapped. The modal closes when the capability transitions to *satisfied*; the underlying verification engine reruns automatically.
-
-**Re-verify everything**
-
-Click the Rocket icon's "Re-verify all" affordance in the summary band. The Rust-side verification engine (`verify_all`) probes every capability in parallel and emits Tauri events; the rows animate from *probing* to their new state without a full page rebuild.
-
-**Add a custom capability (advanced)**
-
-Edit `preflight.yaml` in the project root. CodeMantis hot-reloads on save. If you reference a `catalogRef` that isn't in the bundled catalog, the AI fallback resolves it and caches the result.
-
-**Inspect the encrypted secret box**
-
-Project-scoped secrets live in `preflight_secrets.json` next to `preflight.yaml`, encrypted with **AES-GCM** via the `secret_box` module and per-user key material. Values are never written to logs and never sent over IPC in clear text once stored.
+> **Planned (not in this release):** a guided **SetupFlowModal** stepper (open-url / paste-and-verify a secret / confirm-install / manual-confirm), automatic shell-command installers, the encrypted per-project secret box UI, first-open environment **detection prompts**, a one-click **Re-verify all**, catalog-driven setup-time estimates, and AI-generated long-tail catalog recipes. The components exist but are not wired into this build; they are tracked for a later phase. Until then, set capabilities up manually and use **Re-check**.
 
 ### Verification engine
 
-Four built-in verification kinds:
+Four built-in verification kinds back the per-capability state:
 
 | Kind | Behaviour |
 |---|---|
 | `shell_command` | Runs a small probe (e.g. `git --version`); regex-matches stdout. |
-| `env_var_present` | Checks whether a named env var is set in your login shell (sourced from `~/.zshrc`, `~/.bashrc`, `~/.profile`, project `.env`). |
-| `secret_present` | Looks up a key in the project's encrypted secret box. |
+| `env_var_present` | Checks whether a named env var is set. |
+| `secret_present` | Looks up a key in the project's secret store / configured provider keys. |
 | `api_probe` | Calls the service's own auth endpoint with the stored secret to confirm it actually works. |
-
-All four run in parallel via `futures::join_all` and emit `preflight-status` / `preflight-capability-changed` events that the Tray and Mission Control subscribe to.
-
-### Detection prompt
-
-When you open a project for the first time, CodeMantis scans `~/.zshrc`, `~/.bashrc`, `~/.profile`, and the project `.env` for **hint variables** that match the catalog (e.g. `STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`). It scans for *presence only* -- values are never read into memory. If hints are found, a **DetectionPrompt** modal asks for explicit consent before pre-populating capability rows. You can decline; nothing is auto-imported without your click.
 
 ### Self-Drive integration
 
-Self-Drive consults Preflight before every run via the **PF-001..PF-004** audit rules:
+This is the load-bearing reason Preflight exists. Self-Drive applies **two** gates:
 
-- **PF-001** -- "Required capability missing." Pauses with a link to Mission Control.
-- **PF-002** -- "Capability secret invalid." The `api_probe` failed; secret needs to be replaced.
-- **PF-003** -- "Capability mid-run pause." A capability that was satisfied at start went red mid-run (e.g. quota exhausted).
-- **PF-004** -- "Optional capability degraded." Non-blocking; shown as a yellow note in the run log.
+- **Whole-project pre-run gate.** When you start Self-Drive, it refuses to begin if any *required + blocking* capability is unsatisfied, and shows a toast: *"N setup items need attention before Self-Drive can start. Open Mission Control to fix."*
+- **Per-session gate.** Each guide session can declare the capabilities it `requires`. Right before that session's build prompt is sent, Self-Drive verifies those capabilities. If one is missing, the run **pauses** on a `capability-missing` blocker instead of dispatching the prompt -- nothing is executed. The **PreflightTray** turns red ("Fix now") and a **MidRunPauseModal** explains which session and which capability stalled, with a button that jumps straight to Mission Control. Set the capability up (or Skip it, if it's skippable) and click **Resume** to continue from that session.
 
-When a run pauses for one of these, the **MidRunPauseModal** appears with a single accent button to open Mission Control directly.
-
-### AI-generated capabilities (long-tail)
-
-If your project references a capability outside the bundled catalog, CodeMantis attempts an AI fallback: a fixed-prompt LLM call (using your default provider) generates a `RawEntry` for the capability. The schema is strict:
-
-- `secret_present` verification is forced for any service flagged security-sensitive (so the model can't invent an `api_probe` that leaks the secret).
-- Any regex returned by the model has to compile, or the entry is rejected outright.
-- Cached on disk under `catalog-cache/<slug>.yaml`.
-- Bundled entries always shadow cache entries.
-
-When you scroll an AI-resolved card, a small **AiGeneratedBanner** above it tells you it didn't come from the curated catalog and offers a "Report bad recipe" link.
+A skipped capability (above) is treated as satisfied by both gates.
 
 ### States
 
-- **Loading manifest:** The tray is hidden; Mission Control shows a spinner with "Loading project manifest..."
-- **Ready (all satisfied):** Tray green; "Start Building" active.
-- **Attention (some missing):** Tray yellow; the failing rows are sorted to the top.
-- **Probing:** Per-row spinner; tray summary still reflects the last-known counts.
-- **Mid-run paused:** Tray red; MidRunPauseModal is open in front of the workspace. Click "Fix now" or the modal's primary button to jump to Mission Control.
-- **No manifest:** Tray hidden; Mission Control shows a "No preflight.yaml -- save a spec via SpecWriter to auto-generate one" empty state.
+- **Ready (all satisfied):** Tray green; "Start Building" enabled.
+- **Attention (some missing):** Tray yellow.
+- **Checking:** Per-row spinner while a Re-check probe runs.
+- **Mid-run paused:** Tray red; the MidRunPauseModal is open. Click "Fix now" (or the tray) to open Mission Control, then Resume.
+- **No manifest:** Tray hidden; Mission Control shows the empty state pointing you to SpecWriter.
 
 ### Configuration
 
-- **Auto-generation on spec save (Phase 4.5):** When SpecWriter saves a spec, it asks the configured LLM to extract capability requirements, resolves them against the catalog, and writes `preflight.yaml` automatically. `system.*` references become `AutoResolvable+EnvVar`; service references become `GuidedHuman+SecretBox`.
+- **Auto-generation on spec save (Phase 4.5):** When SpecWriter saves a spec, it extracts capability requirements, resolves them against the catalog, and writes `preflight.yaml`. `system.*` references become env/shell checks; service references become secret checks.
 - **Settings -> Self-Drive -> Confirm capabilities** (`selfDriveConfirmCapabilities`, default on): controls whether SpecWriter's Phase 0b live-fire handshake (Chapter 15) is required before a spec write. Independent of Preflight verification itself.
 
 ### Tips
 
-1. The PreflightTray is the single status indicator you should glance at before kicking off Self-Drive -- if it's green, Self-Drive has a clean runway. If it's yellow, expect a pre-run pause.
-2. `paste-and-verify` is the only step kind that touches your real secrets. Everything else is either informational (`open-url`, `manual-confirm`) or a transparent shell command (`confirm-install`). You can read the exact command before it runs.
-3. AI-resolved capabilities are best-effort -- if you spot a wrong recipe, click the "Report bad recipe" link so the bundled catalog can be expanded. Recipes shipping in the bundle always win over the AI cache.
+1. Open Mission Control any time with **`Cmd+Shift+G`** or the title-bar rocket -- even on a project that has no manifest yet (you'll get a pointer to SpecWriter).
+2. When the tray is green, Self-Drive has a clean runway. Yellow means expect a pre-run pause; red means a run is already paused on a missing capability.
+3. After you satisfy a capability outside CodeMantis (add a key, install a tool), come back and click **Re-check** rather than restarting -- the row updates in place.
 
 ---
 
@@ -3089,7 +3049,7 @@ If the orchestrator cannot resolve an issue after the configured number of fix a
 
 **Evidence-driven verification.** When verifying a session, the orchestrator parses the agent's reply against the checklist using a shared **evidence vocabulary** (tool calls, file paths, command outputs, quoted lines, etc.). Items that quote real evidence are marked verified; items that only paraphrase are flagged for a recheck round or a pause. A built-in **loop guard** detects when the orchestrator is about to repeat the same fix or verify prompt and short-circuits the cycle so the agent is not stuck re-doing the same step. **Capability gating** suppresses verify items whose required capability (e.g. BrowserMCP, a Supabase service-role key) was marked absent or unverified during the SpecWriter handshake — those items are reported as *gated* in the pause reason instead of being treated as failures. **Parity-recovery short-circuit:** after a parity-recovery turn (when the orchestrator just re-stated evidence to close a cross-system gap) the store re-runs the parity gate via `attemptMarkSessionComplete` instead of insisting on an `activeBlocker`, so the session can advance once the filesystem evidence matches.
 
-**Preflight integration.** Self-Drive consults Preflight (Chapter 19B) before every run. Required-but-missing capabilities pause the run with a **MidRunPauseModal** linking to Mission Control. Optional-degraded capabilities (PF-004) are logged as yellow notes rather than blockers.
+**Preflight integration.** Self-Drive consults Preflight (Chapter 19B) before every run *and* before each session whose plan declares `requires:` capabilities. A required capability that isn't satisfied pauses the run with a **MidRunPauseModal** linking to Mission Control; fix it (or Skip it, if it's optional) and Resume.
 
 **Agent support.** Self-Drive runs on either Claude Code or Codex sessions. The **build-mode preamble** auto-adapts to the active session's `agent_id`: Claude runs use the original evidence-vocab vocabulary, recheck rules, and parity-gate phrasing; Codex runs get an additional `CODEX_VOCAB_CLARIFIER` block (shipped in **v1.4.1 Phase B**) that translates Codex tool emissions (`commandExecution`, `fileChange`, `webSearch`, `imageView`, `imageGeneration`) into the Claude-equivalent names the parity gate expects, plus a note that Codex reasoning text is hidden by the protocol. Verify-pass precision is now comparable across both agents — the v1.3.0 "Codex Self-Drive is slightly sloppier" caveat is closed.
 
