@@ -1499,6 +1499,33 @@ pub async fn create_specwriter_session(
         .await
         .map_err(|e| e.to_string())?;
 
+    // SpecWriter is read-only: it investigates the project and writes the spec
+    // into the SpecWriter store, never into the project tree. For Claude the
+    // SessionMode::Plan entry below + the approval server enforce that. Codex
+    // ignores session_modes (it has an orthogonal sandbox), so without this its
+    // turns would spawn workspace-write and could mutate files. Flip the
+    // plan-mode lever (read-only sandbox) before the first turn. The flag is set
+    // synchronously inside set_codex_plan_mode BEFORE its native RPC, so even if
+    // the bounded wait below elapses the next turn/start still applies the
+    // read-only sandbox. Best-effort — never block SpecWriter creation on it.
+    if agent_id == AgentId::Codex {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            handle.set_codex_plan_mode(true),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!(
+                "SpecWriter: Codex read-only plan mode reported an error for {session_id}: {e}"
+            ),
+            Err(_) => warn!(
+                "SpecWriter: Codex read-only plan mode native ack timed out for {session_id}; \
+                 read-only sandbox still applies on the next turn"
+            ),
+        }
+    }
+
     // Store handle (for send_user_message, interrupt, cleanup on exit)
     {
         let mut processes = state.processes.lock().await;

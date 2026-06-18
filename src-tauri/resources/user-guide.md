@@ -3133,6 +3133,8 @@ Go to **Settings -> Self-Drive** (Rocket icon) to configure:
 
 Self-Drive requires an AI provider API key for the orchestrator. Configure API keys in **Settings -> AI Providers**. A warning appears if no keys are configured.
 
+> **The orchestrator provider is independent of your coding agent.** Self-Drive's orchestrator is a separate API-based model chosen here in **Settings -> Self-Drive** — it is *not* tied to the per-session coding agent (Claude Code / Codex) or to the SpecWriter agent picker. To run the orchestrator on **OpenAI** (e.g. `GPT-5.5`), select **OpenAI** as the Provider with an OpenAI API key configured in **Settings -> AI Providers**; the orchestrator then talks to OpenAI directly over the API while Claude Code (or Codex) keeps doing the actual implementation in your session.
+
 **Estimated cost:** $0.05 -- $0.50 per full guide run, depending on model and guide complexity.
 
 ### Keyboard Shortcuts

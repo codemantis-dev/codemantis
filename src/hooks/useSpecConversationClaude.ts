@@ -86,6 +86,16 @@ interface PerProjectStreamState {
   lastEventMs: number;
   watchdogTimer: ReturnType<typeof setInterval> | null;
   stalledNoticed: boolean;
+  /**
+   * True once the current turn has been finalized (spinner cleared, content
+   * committed). Guards `finalizeTurn` so a turn that finalizes on
+   * `text_complete` is NOT finalized again by a later `turn_complete`, and so a
+   * manual `cancelStream` makes any subsequent terminal event a no-op. Codex's
+   * long-lived app-server never emits a per-turn `process_exited`, so unlike
+   * Claude there is no second safety net — `text_complete` must be able to
+   * finalize on its own. Reset to false at the start of every turn.
+   */
+  finalized: boolean;
 }
 
 function makeStreamState(): PerProjectStreamState {
@@ -103,6 +113,7 @@ function makeStreamState(): PerProjectStreamState {
     lastEventMs: 0,
     watchdogTimer: null,
     stalledNoticed: false,
+    finalized: false,
   };
 }
 
@@ -453,6 +464,7 @@ export function useSpecConversationClaude(): {
       state.streamStartMs = Date.now();
       state.lastEventMs = 0;
       state.stalledNoticed = false;
+      state.finalized = false;
       if (state.watchdogTimer !== null) {
         clearInterval(state.watchdogTimer);
       }
@@ -607,7 +619,13 @@ export function useSpecConversationClaude(): {
           });
         }
 
-        if (event.type === "turn_complete") {
+        // Finalize the turn: clear the spinner, commit content, run audit/recheck.
+        // Idempotent via state.finalized so it can fire from EITHER text_complete
+        // (Codex's reliable terminal signal) or turn_complete (Claude + Codex),
+        // whichever the agent delivers first, without double-committing.
+        const finalizeTurn = (): void => {
+          if (state.finalized) return;
+          state.finalized = true;
           // Cancel pending RAF — completeTurn will write the final content
           if (state.flushScheduled !== null) {
             cancelAnimationFrame(state.flushScheduled);
@@ -867,6 +885,24 @@ export function useSpecConversationClaude(): {
             state.unlisten();
             state.unlisten = null;
           }
+        };
+
+        // text_complete is Codex's reliable end-of-message signal
+        // (item/completed). The long-lived Codex app-server may not follow it
+        // with a turn/completed that reaches this listener, and unlike Claude it
+        // never emits a per-turn process_exited safety net — so without this
+        // branch the "Thinking…" spinner hangs forever. Adopt the authoritative
+        // full_text (deltas may be empty if the agent message arrived only via
+        // item/completed) and finalize. Mirrors chat.ts:308.
+        if (event.type === "text_complete") {
+          if (event.full_text && event.full_text.length >= state.streamBuffer.length) {
+            state.streamBuffer = event.full_text;
+          }
+          finalizeTurn();
+        }
+
+        if (event.type === "turn_complete") {
+          finalizeTurn();
         }
 
         if (event.type === "process_exited") {
@@ -966,7 +1002,44 @@ export function useSpecConversationClaude(): {
   );
 
   const cancelStream = useCallback((projectPath: string) => {
-    const sessionId = useSpecWriterStore.getState().getCliSessionId(projectPath);
+    const store = useSpecWriterStore.getState();
+    const sessionId = store.getCliSessionId(projectPath);
+
+    // Optimistic stop: clear the spinner and tear down stream scaffolding
+    // immediately, BEFORE (and regardless of) the interrupt round-trip. Codex's
+    // long-lived app-server may not emit a terminal event we recognize when a
+    // turn is interrupted (e.g. there is no active turn to cancel), so waiting
+    // for one would leave "Thinking…" stuck — the reported "Stop does nothing"
+    // bug. Marking the stream finalized makes any late turn_complete /
+    // text_complete a no-op (finalizeTurn early-returns) so we never
+    // double-commit.
+    const state = getStreamState(projectPath);
+    state.finalized = true;
+    if (state.flushScheduled !== null) {
+      cancelAnimationFrame(state.flushScheduled);
+      state.flushScheduled = null;
+    }
+    if (state.watchdogTimer !== null) {
+      clearInterval(state.watchdogTimer);
+      state.watchdogTimer = null;
+    }
+    store.setStreamStats(projectPath, {
+      chunks: state.chunkCount,
+      bytes: state.streamBuffer.length,
+      durationMs: state.streamStartMs > 0 ? Date.now() - state.streamStartMs : 0,
+      startedAt: new Date(state.streamStartMs || Date.now()).toISOString(),
+      endedAt: new Date().toISOString(),
+      status: "cancelled",
+      note: "cancelled by user",
+    });
+    store.setAuditPending(projectPath, false);
+    store.setPlanningStreaming(projectPath, false);
+    store.persistState(projectPath);
+    if (state.unlisten) {
+      state.unlisten();
+      state.unlisten = null;
+    }
+
     if (sessionId) {
       interruptSession(sessionId).catch((e) => {
         console.warn("[useSpecConversationClaude] interrupt failed:", e);

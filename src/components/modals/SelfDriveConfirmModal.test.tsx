@@ -98,6 +98,26 @@ describe("SelfDriveConfirmModal", () => {
     expect(screen.getByText(/Anthropic/)).toBeInTheDocument();
   });
 
+  it("renders OpenAI orchestrator with canonical casing and model label", () => {
+    useGuideStore.setState({ guide: makeGuide() });
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        selfDriveProvider: "openai",
+        selfDriveModel: "gpt-5.5",
+        apiKeys: { openai: "sk-openai-key" },
+      },
+    });
+
+    render(
+      <SelfDriveConfirmModal open={true} onClose={onClose} onConfirm={onConfirm} />,
+    );
+    // "OpenAI" (not "Openai") and the friendly model label resolved via getModelLabel.
+    expect(screen.getByText(/OpenAI \/ GPT-5\.5/)).toBeInTheDocument();
+    // With a valid OpenAI key, no missing-key warning and Start is enabled.
+    expect(screen.queryByText(/No API key configured/)).toBeNull();
+  });
+
   it("confirm button calls onConfirm", () => {
     useGuideStore.setState({ guide: makeGuide() });
 

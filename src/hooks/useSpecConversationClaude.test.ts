@@ -484,6 +484,30 @@ describe("useSpecConversationClaude", () => {
 
       expect(mockInterruptSession).not.toHaveBeenCalled();
     });
+
+    it("clears planningStreaming synchronously (optimistic stop)", async () => {
+      // Regression: Stop was dead for Codex because cancelStream only fired
+      // interruptSession and waited for a terminal event that Codex may never
+      // emit. The spinner must clear immediately, regardless of the interrupt
+      // round-trip.
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "codex", "", "feature",
+      );
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Go");
+      });
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(true);
+
+      act(() => {
+        result.current.cancelStream(PROJECT);
+      });
+
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(false);
+      expect(mockInterruptSession).toHaveBeenCalledWith("cli-session-123");
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -759,6 +783,97 @@ describe("useSpecConversationClaude", () => {
       });
 
       expect(useSpecWriterStore.getState().compactionInfo.has(PROJECT)).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Codex finalization via text_complete
+  //
+  // Regression: the hook used to finalize ONLY on turn_complete /
+  // process_exited / process_error. Codex's long-lived app-server delivers its
+  // reliable end-of-message signal as text_complete and never emits a per-turn
+  // process_exited safety net, so a turn whose terminal turn_complete didn't
+  // reach the listener left "Thinking…" stuck forever.
+  // -----------------------------------------------------------------------
+  describe("Codex finalization (text_complete)", () => {
+    async function sendAndGetEventCallback(provider: "codex" | "claude-code" = "codex"): Promise<(e: unknown) => void> {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, provider, provider === "codex" ? "" : "claude-sonnet-4-6", "feature",
+      );
+      const { result } = renderHook(() => useSpecConversationClaude());
+      await act(async () => {
+        await result.current.sendMessage(PROJECT, "Design a feature");
+      });
+      const calls = mockListenChatEvents.mock.calls as unknown as Array<[string, (e: unknown) => void]>;
+      return calls[calls.length - 1][1];
+    }
+
+    it("clears planningStreaming and commits content on text_complete with NO turn_complete", async () => {
+      const onEvent = await sendAndGetEventCallback();
+
+      act(() => {
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: "Here is " });
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: "my answer." });
+        onEvent({ type: "text_complete", session_id: "cli-session-123", full_text: "Here is my answer." });
+      });
+
+      // Spinner cleared — the core fix.
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(false);
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const assistantMsg = [...conv!.messages].reverse().find((m) => m.role === "assistant");
+      expect(assistantMsg!.content).toBe("Here is my answer.");
+    });
+
+    it("adopts full_text as authoritative when deltas never arrived", async () => {
+      const onEvent = await sendAndGetEventCallback();
+
+      // Codex may deliver the agent message only via item/completed (no deltas).
+      act(() => {
+        onEvent({ type: "text_complete", session_id: "cli-session-123", full_text: "Full message body." });
+      });
+
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(false);
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const assistantMsg = [...conv!.messages].reverse().find((m) => m.role === "assistant");
+      expect(assistantMsg!.content).toBe("Full message body.");
+    });
+
+    it("finalizes exactly once when text_complete is followed by a late turn_complete", async () => {
+      const onEvent = await sendAndGetEventCallback();
+
+      // A spec document triggers the one-shot audit-offer side effect, which we
+      // count to prove finalizeTurn is idempotent (guarded by state.finalized).
+      const spec = "# My Feature — Specification\n\nBody.";
+
+      act(() => {
+        onEvent({ type: "text_complete", session_id: "cli-session-123", full_text: spec });
+      });
+      act(() => {
+        // Late turn_complete must be a no-op.
+        onEvent({ type: "turn_complete", session_id: "cli-session-123" });
+      });
+
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const auditOffers = conv!.messages.filter(
+        (m) => m.role === "system" && m.content.includes("Generate a Verification Audit"),
+      );
+      expect(auditOffers).toHaveLength(1);
+      expect(useSpecWriterStore.getState().currentSpecContent.get(PROJECT)).toBe(spec);
+    });
+
+    it("still finalizes on turn_complete alone (Claude path unchanged)", async () => {
+      const onEvent = await sendAndGetEventCallback("claude-code");
+
+      act(() => {
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: "Claude reply." });
+        onEvent({ type: "turn_complete", session_id: "cli-session-123" });
+      });
+
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(false);
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      const assistantMsg = [...conv!.messages].reverse().find((m) => m.role === "assistant");
+      expect(assistantMsg!.content).toBe("Claude reply.");
     });
   });
 });

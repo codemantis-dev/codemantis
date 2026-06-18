@@ -39,7 +39,16 @@ export default function SelfDriveConfirmModal({ open, onClose, onConfirm }: Prop
     }
   })();
 
-  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+  // Known providers get their canonical casing (e.g. "OpenAI", not "Openai");
+  // anything else falls back to simple capitalization.
+  const PROVIDER_LABELS: Record<string, string> = {
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+    gemini: "Google Gemini",
+    openrouter: "OpenRouter",
+  };
+  const providerLabel =
+    PROVIDER_LABELS[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1);
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
