@@ -62,15 +62,40 @@ export type DuoVerdictParse =
   | { ok: true; verdict: DuoVerdict }
   | { ok: false; reason: "no-block" | "invalid-json" | "schema-mismatch"; raw: string };
 
-// ── Dialogue ─────────────────────────────────────────────────────────────────
+// ── Conversation timeline ────────────────────────────────────────────────────
+//
+// The dashboard's "Conversation" is a single chronological timeline of every
+// meaningful step: primary turns, mentor reviews (with verdict result), and
+// centered system markers for outcomes/decisions. (Historically this was a
+// thin "dialogue" of disputes only; the shape is widened, backward-compatibly.)
 
-export type DuoDialogueAuthor = "primary" | "duo";
+/** `system` carries outcome/decision markers shown centered, not as a side. */
+export type DuoDialogueAuthor = "primary" | "duo" | "system";
 
 export type DuoDialogueStance =
-  | "concern" // duo raises an issue
-  | "defend" // primary argues its approach
+  // agent prose
+  | "work" // primary's turn — what it did
+  | "defend" // primary argues/responds in a dialogue
+  | "review" // mentor's verdict on a turn
+  | "concern" // mentor raises an issue (legacy; reviews now carry verdict)
   | "accept" // either side concedes
-  | "propose"; // duo proposes a concrete repair
+  | "propose" // mentor proposes a concrete repair
+  // system markers (author === "system")
+  | "resolve" // a discussion converged
+  | "repair" // mentor directed a repair
+  | "decision" // tie-break / lifecycle outcome
+  | "drift" // mid-turn drift nudge
+  | "budget"; // budget cap pause
+
+/** Verdict result attached to a mentor `review` entry (so the UI shows what was decided). */
+export interface DuoDialogueVerdict {
+  stance: DuoStance;
+  severity: DuoSeverity;
+  confidence: number;
+  ranBuild: boolean;
+  ranTests: boolean;
+  checkResults?: string;
+}
 
 export interface DuoDialogueTurn {
   id: string;
@@ -79,6 +104,8 @@ export interface DuoDialogueTurn {
   stance: DuoDialogueStance;
   text: string;
   ts: number;
+  /** Present on mentor `review` entries — the verdict's machine-readable result. */
+  verdict?: DuoDialogueVerdict;
 }
 
 // ── Tie-break (Settings-configurable; default "pause") ───────────────────────

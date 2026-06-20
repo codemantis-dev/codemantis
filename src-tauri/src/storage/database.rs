@@ -1503,6 +1503,22 @@ impl Database {
         Ok(out)
     }
 
+    /// Runs still marked `running` — i.e. left mid-flight when the app exited.
+    /// Used on boot to reconcile crash-interrupted Duo runs. Newest first.
+    pub fn list_running_duo_runs(&self) -> Result<Vec<DuoRunRow>, AppError> {
+        let conn = self.conn.lock().map_err(|e| AppError::DatabaseError(format!("Lock poisoned: {}", e)))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, primary_session_id, duo_session_id, project_path, status, config_json, outcome, created_at, completed_at FROM duo_runs WHERE status = 'running' ORDER BY created_at DESC",
+        ).map_err(|e| AppError::DatabaseError(format!("Prepare list running duo_runs failed: {}", e)))?;
+        let rows = stmt.query_map([], Self::map_duo_run_row)
+            .map_err(|e| AppError::DatabaseError(format!("Query running duo_runs failed: {}", e)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| AppError::DatabaseError(format!("Row iterate failed: {}", e)))?);
+        }
+        Ok(out)
+    }
+
     fn map_duo_run_row(row: &rusqlite::Row) -> rusqlite::Result<DuoRunRow> {
         Ok(DuoRunRow {
             id: row.get(0)?,

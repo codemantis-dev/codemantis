@@ -17,6 +17,7 @@ import ApiLogsTab from "./settings/ApiLogsTab";
 import SessionLogsTab from "./settings/SessionLogsTab";
 import SuperBroTab from "./settings/SuperBroTab";
 import SelfDriveTab from "./settings/SelfDriveTab";
+import DuoTab from "./settings/DuoTab";
 import RecallTab from "./settings/RecallTab";
 import { SectionTitle, FieldRow } from "./settings/SettingsShared";
 
@@ -232,6 +233,8 @@ export default function SettingsModal() {
                 onEnableRecheckLoopChange={state.setSelfDriveEnableRecheckLoop}
               />
             )}
+
+            {state.activeTab === "duo" && <DuoTab />}
 
             {state.activeTab === "shortcuts" && <ShortcutsTab />}
 

@@ -1,4 +1,4 @@
-import { Bug, Wrench, FileText, Settings, TestTube, Sparkles, Map } from "lucide-react";
+import { Bug, Wrench, FileText, Settings, TestTube, Sparkles, Map, Users } from "lucide-react";
 import type { ChangelogCategory } from "../types/changelog";
 
 export const CATEGORY_CONFIG: Record<ChangelogCategory, { icon: typeof Bug; color: string; label: string }> = {
@@ -9,4 +9,5 @@ export const CATEGORY_CONFIG: Record<ChangelogCategory, { icon: typeof Bug; colo
   config: { icon: Settings, color: "text-purple", label: "Config" },
   test: { icon: TestTube, color: "text-accent", label: "Test" },
   plan: { icon: Map, color: "text-blue", label: "Plan" },
+  "duo-coding": { icon: Users, color: "text-accent", label: "Duo-Coding" },
 };

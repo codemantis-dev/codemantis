@@ -1,11 +1,19 @@
 /**
  * DuoSetupModal — configure a Duo-Coding run: the primary (sole writer) and the
- * read-only mentor, plus the task. Tie-break + analyst come from Settings.
+ * read-only mentor, plus the task. Model + effort are live dropdowns sourced
+ * from the per-agent capability cache (never hardcoded). Tie-break + analyst
+ * come from Settings.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Users } from "lucide-react";
 import { useDuoStore, resolveDuoSettings } from "../../stores/duoStore";
-import type { AgentId } from "../../types/agent-events";
+import { useCliModelCacheStore } from "../../stores/cliModelCacheStore";
+import {
+  resolveAgentModels,
+  effortLevelsForModel,
+  findModel,
+} from "../../lib/agent-model-options";
+import type { AgentId, CliModelInfo } from "../../types/agent-events";
 
 interface Props {
   open: boolean;
@@ -18,12 +26,22 @@ const AGENTS: { id: AgentId; label: string }[] = [
   { id: "codex", label: "Codex" },
 ];
 
+const selectClass =
+  "w-full mt-1 rounded px-2 py-1.5 text-detail disabled:opacity-50 disabled:cursor-not-allowed";
+const selectStyle = {
+  background: "var(--bg-elevated)",
+  color: "var(--text-primary)",
+  border: "1px solid var(--border)",
+} as const;
+
+/** One agent's configuration column (primary or mentor). */
 function AgentColumn({
   title,
   subtitle,
   agentId,
   model,
   effort,
+  models,
   onAgent,
   onModel,
   onEffort,
@@ -33,10 +51,15 @@ function AgentColumn({
   agentId: AgentId;
   model: string;
   effort: string;
+  models: CliModelInfo[];
   onAgent: (a: AgentId) => void;
   onModel: (m: string) => void;
   onEffort: (e: string) => void;
 }): React.ReactElement {
+  // Effort levels come from the selected model (or the default entry).
+  const selected = findModel(models, model) ?? models.find((m) => m.isDefault) ?? models[0];
+  const effortLevels = effortLevelsForModel(selected);
+
   return (
     <div
       className="rounded-md border p-3 flex flex-col gap-2"
@@ -48,14 +71,15 @@ function AgentColumn({
       <div className="text-detail" style={{ color: "var(--text-dim)" }}>
         {subtitle}
       </div>
+
       <label className="text-detail" style={{ color: "var(--text-secondary)" }}>
         Agent
         <select
           aria-label={`${title} agent`}
           value={agentId}
           onChange={(e) => onAgent(e.target.value as AgentId)}
-          className="w-full mt-1 rounded px-2 py-1 text-detail"
-          style={{ background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+          className={selectClass}
+          style={selectStyle}
         >
           {AGENTS.map((a) => (
             <option key={a.id} value={a.id}>
@@ -64,27 +88,44 @@ function AgentColumn({
           ))}
         </select>
       </label>
+
       <label className="text-detail" style={{ color: "var(--text-secondary)" }}>
-        Model (optional)
-        <input
+        Model
+        <select
           aria-label={`${title} model`}
           value={model}
           onChange={(e) => onModel(e.target.value)}
-          placeholder="default"
-          className="w-full mt-1 rounded px-2 py-1 text-detail"
-          style={{ background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-        />
+          className={selectClass}
+          style={selectStyle}
+        >
+          <option value="">Default</option>
+          {models
+            .filter((m) => m.value !== "default" && m.value !== "")
+            .map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.displayName}
+              </option>
+            ))}
+        </select>
       </label>
+
       <label className="text-detail" style={{ color: "var(--text-secondary)" }}>
-        Effort (optional)
-        <input
+        Effort
+        <select
           aria-label={`${title} effort`}
           value={effort}
           onChange={(e) => onEffort(e.target.value)}
-          placeholder="default"
-          className="w-full mt-1 rounded px-2 py-1 text-detail"
-          style={{ background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-        />
+          disabled={effortLevels.length === 0}
+          className={selectClass}
+          style={selectStyle}
+        >
+          <option value="">{effortLevels.length === 0 ? "Not applicable" : "Default"}</option>
+          {effortLevels.map((lvl) => (
+            <option key={lvl} value={lvl}>
+              {lvl}
+            </option>
+          ))}
+        </select>
       </label>
     </div>
   );
@@ -99,8 +140,31 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
   const [duoEffort, setDuoEffort] = useState("");
   const [task, setTask] = useState("");
 
+  // Re-render when any session populates the per-agent model cache.
+  const cachedModelsByAgent = useCliModelCacheStore((s) => s.models);
+  const primaryModels = useMemo(
+    () => resolveAgentModels(primaryAgent, cachedModelsByAgent),
+    [primaryAgent, cachedModelsByAgent],
+  );
+  const duoModels = useMemo(
+    () => resolveAgentModels(duoAgent, cachedModelsByAgent),
+    [duoAgent, cachedModelsByAgent],
+  );
+
   if (!open) return null;
   const settings = resolveDuoSettings();
+
+  // Changing the agent invalidates the model/effort picks for that side.
+  const changePrimaryAgent = (a: AgentId): void => {
+    setPrimaryAgent(a);
+    setPrimaryModel("");
+    setPrimaryEffort("");
+  };
+  const changeDuoAgent = (a: AgentId): void => {
+    setDuoAgent(a);
+    setDuoModel("");
+    setDuoEffort("");
+  };
 
   const submit = (): void => {
     if (!task.trim()) return;
@@ -109,27 +173,27 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
       projectPath,
       primary: {
         agentId: primaryAgent,
-        model: primaryModel.trim() || undefined,
-        effort: primaryEffort.trim() || undefined,
+        model: primaryModel || undefined,
+        effort: primaryEffort || undefined,
       },
       duo: {
         agentId: duoAgent,
-        model: duoModel.trim() || undefined,
-        effort: duoEffort.trim() || undefined,
+        model: duoModel || undefined,
+        effort: duoEffort || undefined,
       },
     });
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="w-full max-w-2xl rounded-lg border shadow-xl"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)" }}
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg border shadow-xl"
+        style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
       >
         <div
-          className="flex items-center gap-2 px-4 py-3 border-b"
-          style={{ borderColor: "var(--border)" }}
+          className="flex items-center gap-2 px-4 py-3 border-b sticky top-0"
+          style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}
         >
           <Users size={16} style={{ color: "var(--accent)" }} />
           <span className="text-ui font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -145,7 +209,8 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
               agentId={primaryAgent}
               model={primaryModel}
               effort={primaryEffort}
-              onAgent={setPrimaryAgent}
+              models={primaryModels}
+              onAgent={changePrimaryAgent}
               onModel={setPrimaryModel}
               onEffort={setPrimaryEffort}
             />
@@ -155,7 +220,8 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
               agentId={duoAgent}
               model={duoModel}
               effort={duoEffort}
-              onAgent={setDuoAgent}
+              models={duoModels}
+              onAgent={changeDuoAgent}
               onModel={setDuoModel}
               onEffort={setDuoEffort}
             />
@@ -170,7 +236,7 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
               rows={4}
               placeholder="Describe what the pair should build…"
               className="w-full mt-1 rounded px-2 py-1.5 text-detail resize-none"
-              style={{ background: "var(--bg-primary)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
             />
           </label>
 
@@ -182,14 +248,14 @@ export default function DuoSetupModal({ open, projectPath, onClose }: Props): Re
         </div>
 
         <div
-          className="flex items-center justify-end gap-2 px-4 py-3 border-t"
-          style={{ borderColor: "var(--border)" }}
+          className="flex items-center justify-end gap-2 px-4 py-3 border-t sticky bottom-0"
+          style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}
         >
           <button
             type="button"
             onClick={onClose}
             className="px-3 py-1.5 rounded-md text-detail"
-            style={{ color: "var(--text-secondary)", background: "var(--bg-subtle)" }}
+            style={{ color: "var(--text-secondary)", background: "var(--bg-elevated)" }}
           >
             Cancel
           </button>

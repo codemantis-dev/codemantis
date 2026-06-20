@@ -1436,6 +1436,18 @@ export async function duoAnalyze(runId: string): Promise<DuoAnalystReport> {
   return invoke<DuoAnalystReport>("duo_analyze", { runId });
 }
 
+export async function duoLogCompletion(
+  runId: string,
+  outcome: string,
+): Promise<void> {
+  return invoke("duo_log_completion", { runId, outcome });
+}
+
+/** Reconcile Duo runs left running by a crash/restart; returns the interrupted runs. */
+export async function duoRecoverInterrupted(): Promise<DuoRunRow[]> {
+  return invoke<DuoRunRow[]>("duo_recover_interrupted");
+}
+
 /** Subscribe to backend-produced analyst snapshots (`duo:snapshot`). */
 export async function listenDuoSnapshot(
   callback: (event: DuoSnapshotEvent) => void,

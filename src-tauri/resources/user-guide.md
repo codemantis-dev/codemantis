@@ -3175,6 +3175,50 @@ When Recall is on, snippets of your code and notes are sent to the configured pr
 
 ---
 
+## Chapter 21D: Duo-Coding -- Mentor + Primary Pairing
+
+Duo-Coding pairs two coding agents on one task. A **Primary** agent (the sole writer) does the work; a read-only **Mentor** ("Duo") agent reviews every turn, independently runs the build and tests, and -- when it disagrees -- directs a repair into the Primary's chat rather than editing files itself. A separate **Analyst** (a cheap API LLM, not a coding agent) turns the run's event log into a live dashboard. The aim: get more done, with fewer errors, faster.
+
+### How to open / access
+
+- **Title bar:** the **Duo-Coding** button (two-people icon).
+- **Keyboard:** `Cmd+Shift+D` toggles the dashboard for the active project.
+- From the dashboard's idle state, **Configure a Duo run** opens the setup modal.
+
+### Starting a run
+
+In the setup modal, choose the **Primary** and **Mentor** agents (Claude Code or Codex), pick a model and effort for each from the live dropdowns, and describe the task. The Mentor is locked read-only automatically (Claude plan mode / Codex read-only sandbox). Click **Start run** -- the Primary begins, and the Mentor reviews after each of its turns.
+
+### What the dashboard shows
+
+- **Run controls** (always available while active): **Pause/Resume** and a prominent two-step **Stop**. Stopping tears down both agent sessions and writes a Duo-Coding entry to the project changelog.
+- **Analyst assessment:** a headline, narrative, momentum, and a confidence score.
+- **Gauges:** collaboration-health and code-quality scores (0--100, color-banded).
+- **Metrics:** reviews, agreements, disagreements, repairs, dialogue rounds, drift incidents, agreement rate, and live cost.
+- **Charts:** changes per turn (added/removed) and agreements vs disagreements.
+- **Risks, recommendations, repair analysis, improvements, watch items**, and the **live dialogue** between the two agents.
+
+### Disagreements & tie-breaks
+
+A blocking objection opens a bounded **dialogue**: the Mentor raises a concern, the Primary defends or fixes, the Mentor re-judges. If they can't converge within the configured rounds (or the same concern repeats), the **tie-break** policy applies -- by default the run **pauses for you to decide** (a modal shows both positions; you can let the Mentor win, let the Primary proceed, or stop). The policy is configurable in **Settings -> Duo-Coding** (pause / mentor wins / primary proceeds).
+
+### Drift & budget
+
+A mid-run watcher flags **severe drift** (e.g. `rm -rf`, deleting tests, mass edits at higher sensitivities) and nudges the Primary back on track. A per-run **budget cap** (USD or output tokens) pauses the run before it overspends. Both are configured in Settings -> Duo-Coding, along with the Analyst provider/model.
+
+### After a restart
+
+If the app exits mid-run, the Primary and Mentor sessions are gone, so the run can't resume live. On next launch it is reconciled and shown **read-only** -- its history, metrics, and last analyst assessment are preserved -- with a banner explaining it was interrupted. Start a new run to continue the work.
+
+### Tips
+
+1. Pair a cheaper Primary with a stronger Mentor to balance cost and quality.
+2. Keep the Analyst on a fast, cheap model -- it summarizes, it doesn't code.
+3. Use a budget cap on long or exploratory tasks; two agents plus the analyst cost more than one.
+4. If the run pauses on a tie-break, read both positions before choosing -- the Mentor runs the tests itself, so its verdict is evidence-based.
+
+---
+
 # Part V: Sidebar
 
 ---

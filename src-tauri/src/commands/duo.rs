@@ -139,6 +139,29 @@ pub async fn duo_latest_snapshot(
         .map_err(|e| format!("Failed to get latest duo snapshot: {}", e))
 }
 
+/// Reconcile Duo runs left `running` when the app exited (the two CLI sessions
+/// are gone). Marks each as paused with outcome `interrupted-by-restart` and
+/// returns them (newest first) so the UI can offer a read-only review. The
+/// frontend reuses `duo_latest_snapshot` / `duo_list_events` to rehydrate.
+#[tauri::command]
+pub async fn duo_recover_interrupted(
+    state: State<'_, AppState>,
+) -> Result<Vec<DuoRunRow>, String> {
+    let running = state
+        .database
+        .list_running_duo_runs()
+        .map_err(|e| e.to_string())?;
+    for run in &running {
+        let _ = state.database.update_duo_run_status(
+            &run.id,
+            "paused",
+            Some("interrupted-by-restart"),
+            Some(now_ms()),
+        );
+    }
+    Ok(running)
+}
+
 // ── Analyst (LLM observability) ───────────────────────────────────────────
 
 fn payload_summary(payload_json: &str) -> String {
@@ -215,6 +238,62 @@ pub fn build_timeline(events: &[DuoEventRow]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Write a deterministic project-progress (changelog) entry summarizing a
+/// finished Duo run. Linked to the primary session so it appears in both the
+/// session's and the project's changelog feeds, under the `duo-coding` category.
+#[tauri::command]
+pub async fn duo_log_completion(
+    state: State<'_, AppState>,
+    run_id: String,
+    outcome: String,
+) -> Result<(), String> {
+    let run = state
+        .database
+        .get_duo_run(&run_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Duo run not found: {}", run_id))?;
+    let events = state.database.list_duo_events(&run_id).map_err(|e| e.to_string())?;
+    let agg = compute_aggregates(&events);
+    let run_config: serde_json::Value =
+        serde_json::from_str(&run.config_json).unwrap_or(serde_json::Value::Null);
+    let task = run_config["task"].as_str().unwrap_or("Duo-Coding run");
+
+    let headline = {
+        let t: String = task.chars().take(72).collect();
+        format!("Duo run: {}", t)
+    };
+    let description = format!(
+        "Outcome: {}. {} turns · {} agreements · {} disagreements · {} repairs · {} drift.",
+        outcome,
+        agg["turns"],
+        agg["agreements"],
+        agg["disagreements"],
+        agg["repairs"],
+        agg["driftIncidents"],
+    );
+    let technical_details = format!(
+        "Primary {} · Mentor {}",
+        agent_label(&run_config, "primary"),
+        agent_label(&run_config, "duo"),
+    );
+
+    state
+        .database
+        .insert_changelog_entry(
+            &uuid::Uuid::new_v4().to_string(),
+            &run.primary_session_id,
+            &chrono::Utc::now().to_rfc3339(),
+            &headline,
+            &description,
+            "duo-coding",
+            "[]",
+            0,
+            &technical_details,
+            "",
+        )
+        .map_err(|e| e.to_string())
 }
 
 /// Pull a human label "agentId/model" for a side out of the run's config JSON.
@@ -380,6 +459,46 @@ mod tests {
         let tl = build_timeline(&events);
         assert!(tl.contains("turn/primary: did work"));
         assert!(tl.contains("verdict/duo"));
+    }
+
+    #[test]
+    fn recover_interrupted_marks_running_runs_paused() {
+        let db = test_db();
+        db.insert_duo_run("r-run", "p", "d", "/proj", "running", "{}", 2).unwrap();
+        db.insert_duo_run("r-done", "p", "d", "/proj", "completed", "{}", 1).unwrap();
+        // Mirror duo_recover_interrupted's reconciliation.
+        let running = db.list_running_duo_runs().unwrap();
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].id, "r-run");
+        for run in &running {
+            db.update_duo_run_status(&run.id, "paused", Some("interrupted-by-restart"), Some(99)).unwrap();
+        }
+        let row = db.get_duo_run("r-run").unwrap().unwrap();
+        assert_eq!(row.status, "paused");
+        assert_eq!(row.outcome.as_deref(), Some("interrupted-by-restart"));
+        // Already-finished runs are untouched.
+        assert_eq!(db.get_duo_run("r-done").unwrap().unwrap().status, "completed");
+        assert!(db.list_running_duo_runs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn completion_changelog_entry_is_written_under_duo_category() {
+        // Mirrors duo_log_completion's DB writes (the command is a thin wrapper).
+        let db = test_db();
+        // changelog_entries FKs to sessions — the primary session is real in prod.
+        db.insert_session("sess-p", "Primary", "/proj", "connected", "2026-01-01T00:00:00Z", None, 0, "codex").unwrap();
+        db.insert_duo_run("r1", "sess-p", "d", "/proj", "running", "{\"task\":\"Add logout\"}", 1).unwrap();
+        db.insert_duo_event("e1", "r1", 1, "turn", "primary", "{}", None).unwrap();
+        db.insert_duo_event("e2", "r1", 2, "agreement", "duo", "{}", None).unwrap();
+        db.insert_changelog_entry(
+            "cl1", "sess-p", "2026-01-01T00:00:00Z",
+            "Duo run: Add logout", "Outcome: agreed. 1 turns · 1 agreements.",
+            "duo-coding", "[]", 0, "Primary codex · Mentor claude_code", "",
+        ).unwrap();
+        let entries = db.list_changelog_entries("sess-p").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].category, "duo-coding");
+        assert!(entries[0].headline.contains("Add logout"));
     }
 
     #[test]

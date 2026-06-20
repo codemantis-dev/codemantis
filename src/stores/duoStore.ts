@@ -30,6 +30,7 @@ import {
   duoRecordEvent,
   duoCompleteRun,
   duoAnalyze,
+  duoLogCompletion,
 } from "../lib/tauri-commands";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
@@ -61,6 +62,9 @@ import type {
   DuoEventActor,
   DuoDiffStats,
   DuoAnalystSnapshot,
+  DuoRunRow,
+  DuoEventRow,
+  DuoSnapshotRow,
 } from "../types/duo";
 
 // ── Pure helpers (exported for testing) ──────────────────────────────────────
@@ -104,6 +108,118 @@ export function emptyDuoMetrics(): DuoMetrics {
   };
 }
 
+/** Reconstruct run metrics by counting a persisted event log (for recovery). */
+export function metricsFromEvents(events: DuoEventRow[]): DuoMetrics {
+  const m = emptyDuoMetrics();
+  for (const e of events) {
+    switch (e.kind) {
+      case "agreement":
+        m.agreements += 1;
+        m.reviews += 1;
+        break;
+      case "disagreement":
+        m.disagreements += 1;
+        m.reviews += 1;
+        m.dialogueRounds += 1;
+        break;
+      case "concern":
+        m.reviews += 1;
+        break;
+      case "repair":
+        m.repairs += 1;
+        break;
+      case "drift":
+        m.driftIncidents += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  m.agreementRate = m.reviews > 0 ? m.agreements / m.reviews : 0;
+  return m;
+}
+
+/**
+ * Rebuild the conversation timeline from a persisted event log, so a run
+ * reopened read-only after a restart still shows what was discussed and decided.
+ * Mentor verdict events carry their result metadata in the payload (see
+ * `verdictPayload`), so reviews reconstruct with their build/test result.
+ */
+export function timelineFromEvents(events: DuoEventRow[]): DuoDialogueTurn[] {
+  const out: DuoDialogueTurn[] = [];
+  let round = 1;
+  for (const e of events) {
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(e.payloadJson) as Record<string, unknown>;
+    } catch {
+      payload = {};
+    }
+    const summary = typeof payload.summary === "string" ? payload.summary : "";
+    const text = typeof payload.text === "string" ? payload.text : summary;
+    const base = { id: e.id, round, ts: e.ts };
+
+    const verdictFromPayload = (): DuoDialogueTurn["verdict"] | undefined => {
+      if (typeof payload.stance !== "string") return undefined;
+      return {
+        stance: payload.stance as DuoVerdict["stance"],
+        severity: (payload.severity as DuoVerdict["severity"]) ?? "advisory",
+        confidence: typeof payload.confidence === "number" ? payload.confidence : 0,
+        ranBuild: payload.ranBuild === true,
+        ranTests: payload.ranTests === true,
+        checkResults:
+          typeof payload.checkResults === "string" ? payload.checkResults : undefined,
+      };
+    };
+
+    switch (e.kind) {
+      case "turn":
+        out.push({ ...base, author: "primary", stance: "work", text: text || "(turn)" });
+        break;
+      case "dialogue":
+        out.push({ ...base, author: "primary", stance: "defend", text: text || "(response)" });
+        break;
+      case "agreement":
+      case "concern":
+      case "disagreement":
+        out.push({
+          ...base,
+          author: "duo",
+          stance: "review",
+          text: text || summary,
+          verdict: verdictFromPayload(),
+        });
+        break;
+      case "repair":
+        round = typeof payload.round === "number" ? payload.round : round + 1;
+        out.push({ ...base, round, author: "system", stance: "repair", text: summary });
+        break;
+      case "drift":
+        out.push({ ...base, author: "system", stance: "drift", text: `Drift flagged: ${summary}` });
+        break;
+      case "escalation":
+        out.push({
+          ...base,
+          author: "system",
+          stance: summary.startsWith("Budget") ? "budget" : "decision",
+          text: summary,
+        });
+        break;
+      case "decision":
+        out.push({
+          ...base,
+          author: "system",
+          stance: summary.includes("Agreement reached") ? "resolve" : "decision",
+          text: summary,
+        });
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
 /** Everything an agent said after the marker message — "this turn's response". */
 export function collectResponseSince(
   messages: Message[],
@@ -124,6 +240,9 @@ export function collectResponseSince(
     .map((m) => m.content)
     .join("\n\n");
 }
+
+/** Cap on prose stored per timeline entry / persisted event payload. */
+const TIMELINE_TEXT_CAP = 1500;
 
 // ── Tie-break blocker (drives DuoTieBreakModal) ──────────────────────────────
 
@@ -213,6 +332,8 @@ export interface DuoState {
   metrics: DuoMetrics;
   /** Latest API-LLM analyst snapshot (qualitative report + numeric series). */
   analystSnapshot: DuoAnalystSnapshot | null;
+  /** True for a run recovered read-only after a crash/restart (sessions gone). */
+  interrupted: boolean;
   blocker: DuoBlocker | null;
   error: string | null;
 
@@ -241,6 +362,12 @@ export interface DuoState {
   resume: () => Promise<void>;
   /** Terminate the run and tear down both spawned sessions. */
   stop: (outcome?: string) => Promise<void>;
+  /** Load a crash-interrupted run read-only (no live sessions to re-attach). */
+  hydrateInterrupted: (params: {
+    run: DuoRunRow;
+    snapshot: DuoSnapshotRow | null;
+    events: DuoEventRow[];
+  }) => void;
   reset: () => void;
 }
 
@@ -259,6 +386,7 @@ const INITIAL = {
   latestVerdict: null,
   metrics: emptyDuoMetrics(),
   analystSnapshot: null,
+  interrupted: false,
   blocker: null,
   error: null,
   repairAttempts: 0,
@@ -291,12 +419,14 @@ export const useDuoStore = create<DuoState>((set, get) => ({
       );
       await setReadOnly(duoSession.id, duo.agentId);
 
+      // Persist the task alongside the config so the backend analyst (which
+      // reads `config_json.task`) and restart-recovery can recover it.
       await duoStartRun(
         runId,
         primarySession.id,
         duoSession.id,
         projectPath,
-        JSON.stringify(config),
+        JSON.stringify({ ...config, task }),
       );
 
       set({
@@ -317,6 +447,7 @@ export const useDuoStore = create<DuoState>((set, get) => ({
 
       // Kick off the primary with the task.
       await injectTo(primarySession.id, task, "primary");
+      appendDialogue("system", "decision", `Run started — task: ${task}`);
       recordEvent("decision", "system", "Duo run started");
     } catch (err) {
       detachListeners();
@@ -328,6 +459,7 @@ export const useDuoStore = create<DuoState>((set, get) => ({
     const s = get();
     if (s.status !== "paused" || !s.blocker) return;
     if (choice === "mentorWins") {
+      appendDialogue("system", "decision", "Tie-break: mentor wins — primary must comply.");
       recordEvent("decision", "system", "Tie-break: mentor wins");
       set({ status: "running", phase: "repairing", blocker: null, tieBreakApplied: true });
       const repair = s.blocker.repairTask ?? s.blocker.duoPosition;
@@ -343,6 +475,7 @@ export const useDuoStore = create<DuoState>((set, get) => ({
         );
       }
     } else {
+      appendDialogue("system", "decision", "Tie-break: primary proceeds — mentor's dissent logged.");
       recordEvent("decision", "system", "Tie-break: primary proceeds");
       set({
         status: "running",
@@ -376,14 +509,58 @@ export const useDuoStore = create<DuoState>((set, get) => ({
   stop: async (outcome = "stopped") => {
     const s = get();
     detachListeners();
+    if (s.status === "running" || s.status === "paused") {
+      appendDialogue("system", "decision", `Run stopped (${outcome}).`);
+    }
     if (s.runId) {
       await duoCompleteRun(s.runId, "completed", outcome).catch(() => {});
+      // Write a project-progress (changelog) entry summarizing the run.
+      await duoLogCompletion(s.runId, outcome).catch(() => {});
     }
     // Tear down the spawned sessions (best-effort).
     for (const id of [s.primarySessionId, s.duoSessionId]) {
       if (id) await closeSession(id).catch(() => {});
     }
     set({ status: "completed", phase: "completed" });
+  },
+
+  hydrateInterrupted: ({ run, snapshot, events }) => {
+    detachListeners();
+    let config: DuoConfig | null = null;
+    let task: string | null = null;
+    try {
+      const parsed = JSON.parse(run.configJson) as DuoConfig & { task?: string };
+      config = parsed;
+      task = parsed.task ?? null;
+    } catch {
+      // Keep config/task null if the persisted JSON is unreadable.
+    }
+    let analystSnapshot: DuoAnalystSnapshot | null = null;
+    if (snapshot) {
+      try {
+        analystSnapshot = {
+          narrative: snapshot.narrative,
+          report: JSON.parse(snapshot.metricsJson),
+          series: JSON.parse(snapshot.seriesJson),
+        };
+      } catch {
+        analystSnapshot = null;
+      }
+    }
+    set({
+      ...INITIAL,
+      status: "paused",
+      phase: "escalated",
+      interrupted: true,
+      runId: run.id,
+      projectPath: run.projectPath,
+      task,
+      startedAt: run.createdAt,
+      config,
+      metrics: metricsFromEvents(events),
+      dialogue: timelineFromEvents(events),
+      analystSnapshot,
+    });
   },
 
   reset: () => {
@@ -525,7 +702,9 @@ function onPrimaryActivity(event: FrontendEvent): void {
 
   driftNudgedThisTurn = true;
   bumpMetrics({ driftIncidents: useDuoStore.getState().metrics.driftIncidents + 1 });
-  recordEvent("drift", "duo", signal.reason ?? "Severe drift detected");
+  const driftText = signal.reason ?? "Severe drift detected";
+  appendDialogue("system", "drift", `Drift flagged: ${driftText}`);
+  recordEvent("drift", "duo", driftText);
   if (s.config.severeDriftNudgeEnabled) {
     void injectTo(
       s.primarySessionId,
@@ -558,6 +737,7 @@ function pauseIfOverBudget(): boolean {
   const s = useDuoStore.getState();
   if (!isOverBudget(s.metrics, s.config)) return false;
   detachListeners();
+  appendDialogue("system", "budget", "Budget cap reached — run paused.");
   recordEvent("escalation", "system", "Budget cap reached — run paused");
   useDuoStore.setState({
     status: "paused",
@@ -585,8 +765,10 @@ async function handlePrimaryTurnComplete(): Promise<void> {
   // In an open dialogue, the primary's turn is its RESPONSE to the mentor's
   // concern — hand it back to the mentor to re-judge, no fresh diff review.
   if (s.phase === "dialoguing") {
-    appendDialogue("primary", "defend", primaryResponse.slice(0, 2000));
-    recordEvent("dialogue", "primary", "Primary responded to the mentor");
+    appendDialogue("primary", "defend", primaryResponse);
+    recordEvent("dialogue", "primary", "Primary responded to the mentor", {
+      text: primaryResponse.slice(0, TIMELINE_TEXT_CAP),
+    });
     useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
     await injectTo(
       s.duoSessionId,
@@ -611,7 +793,10 @@ async function handlePrimaryTurnComplete(): Promise<void> {
     // Non-fatal: review proceeds on the response alone.
   }
 
-  recordEvent("turn", "primary", "Primary completed a turn", {}, diffStats);
+  appendDialogue("primary", "work", primaryResponse || "(no textual response)");
+  recordEvent("turn", "primary", "Primary completed a turn", {
+    text: primaryResponse.slice(0, TIMELINE_TEXT_CAP),
+  }, diffStats);
   useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
 
   await injectTo(
@@ -650,6 +835,31 @@ async function handleDuoTurnComplete(): Promise<void> {
   await executeVerdict(parsed.verdict);
 }
 
+/** Shape a mentor verdict into the timeline-entry verdict metadata. */
+function toDialogueVerdict(v: DuoVerdict): DuoDialogueTurn["verdict"] {
+  return {
+    stance: v.stance,
+    severity: v.severity,
+    confidence: v.confidence,
+    ranBuild: v.ranBuild,
+    ranTests: v.ranTests,
+    checkResults: v.checkResults,
+  };
+}
+
+/** Payload extras persisted with a verdict event so the timeline rebuilds faithfully. */
+function verdictPayload(v: DuoVerdict): Record<string, unknown> {
+  return {
+    text: (v.rationale || v.summary).slice(0, TIMELINE_TEXT_CAP),
+    stance: v.stance,
+    severity: v.severity,
+    confidence: v.confidence,
+    ranBuild: v.ranBuild,
+    ranTests: v.ranTests,
+    checkResults: v.checkResults?.slice(0, TIMELINE_TEXT_CAP),
+  };
+}
+
 async function executeVerdict(verdict: DuoVerdict): Promise<void> {
   const s = useDuoStore.getState();
   if (!s.primarySessionId || !s.config) return;
@@ -657,10 +867,22 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
   bumpMetrics({ reviews: s.metrics.reviews + 1 });
   triggerAnalysis(); // refresh the dashboard analysis after each review
 
+  // Every review enters the conversation timeline (not just blocking disputes),
+  // carrying the verdict result so the dashboard shows what was decided.
+  const reviewText = verdict.rationale
+    ? `${verdict.summary}\n\n${verdict.rationale}`
+    : verdict.summary;
+  appendDialogue("duo", "review", reviewText, toDialogueVerdict(verdict));
+
   if (verdict.stance === "agree") {
     // Convergence — concern resolved (primary fixed it, or mentor conceded).
-    recordEvent("agreement", "duo", verdict.summary, { confidence: verdict.confidence });
+    recordEvent("agreement", "duo", verdict.summary, verdictPayload(verdict));
     bumpMetrics({ agreements: useDuoStore.getState().metrics.agreements + 1 });
+    // If this ended an active dispute, mark the resolution as an outcome.
+    if (s.repairAttempts > 0) {
+      appendDialogue("system", "resolve", "Agreement reached — primary's work accepted.");
+      recordEvent("decision", "system", "Agreement reached — primary's work accepted");
+    }
     useDuoStore.setState({
       phase: "building",
       repairAttempts: 0,
@@ -672,18 +894,17 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
 
   if (!isBlockingVerdict(verdict)) {
     // Advisory / nit — log, batch, don't interrupt the primary.
-    recordEvent("concern", "duo", verdict.summary, { severity: verdict.severity });
+    recordEvent("concern", "duo", verdict.summary, verdictPayload(verdict));
     useDuoStore.setState({ phase: "building" });
     return;
   }
 
   // Blocking concern / disagreement — open or continue the dialogue.
-  recordEvent("disagreement", "duo", verdict.summary, { severity: verdict.severity });
+  recordEvent("disagreement", "duo", verdict.summary, verdictPayload(verdict));
   bumpMetrics({
     disagreements: useDuoStore.getState().metrics.disagreements + 1,
     dialogueRounds: useDuoStore.getState().metrics.dialogueRounds + 1,
   });
-  appendDialogue("duo", "concern", verdict.repairTask ?? verdict.rationale);
 
   // Ping-pong: the mentor re-raised a concern it already raised this exchange.
   const norm = normalizeConcern(verdict.summary);
@@ -700,7 +921,9 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
   }
 
   // Mentor directs; primary responds (defends or fixes). Single writer.
-  recordEvent("repair", "system", "Mentor directing the primary", { round: round + 1 });
+  const repairText = `Mentor directed a repair (round ${round + 1}): ${verdict.repairTask ?? verdict.summary}`;
+  appendDialogue("system", "repair", repairText);
+  recordEvent("repair", "system", repairText, { round: round + 1 });
   bumpMetrics({ repairs: useDuoStore.getState().metrics.repairs + 1 });
   useDuoStore.setState({ phase: "dialoguing", repairAttempts: round + 1 });
   await injectTo(
@@ -733,6 +956,7 @@ async function applyTieBreak(
   };
 
   if (policy === "pause") {
+    appendDialogue("system", "decision", "Couldn't converge — paused for your decision.");
     detachListeners();
     useDuoStore.setState({ status: "paused", phase: "escalated", blocker });
     return;
@@ -750,6 +974,7 @@ function appendDialogue(
   author: DuoDialogueTurn["author"],
   stance: DuoDialogueTurn["stance"],
   text: string,
+  verdict?: DuoDialogueTurn["verdict"],
 ): void {
   useDuoStore.setState((s) => ({
     dialogue: [
@@ -759,8 +984,9 @@ function appendDialogue(
         round: s.repairAttempts + 1,
         author,
         stance,
-        text,
+        text: text.slice(0, TIMELINE_TEXT_CAP),
         ts: Date.now(),
+        ...(verdict ? { verdict } : {}),
       },
     ],
   }));

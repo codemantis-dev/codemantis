@@ -522,6 +522,8 @@ pub fn run() {
             commands::duo::duo_record_snapshot,
             commands::duo::duo_latest_snapshot,
             commands::duo::duo_analyze,
+            commands::duo::duo_log_completion,
+            commands::duo::duo_recover_interrupted,
             commands::menu::enable_update_menu_item,
             commands::menu::disable_update_menu_item,
             commands::lifecycle::wake_pong,

@@ -1,4 +1,4 @@
-export type ChangelogCategory = "feature" | "bugfix" | "refactor" | "docs" | "config" | "test" | "plan";
+export type ChangelogCategory = "feature" | "bugfix" | "refactor" | "docs" | "config" | "test" | "plan" | "duo-coding";
 
 export interface ChangelogEntry {
   id: string;

@@ -7,19 +7,9 @@ import { formatModelName } from "../../lib/format-utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import type { CliModelInfo } from "../../types/agent-events";
 import { CODEX_FALLBACK_MODELS } from "../../lib/codex-models";
-
-// Claude fallback used while the live `initialize` / `model/list`
-// capability discovery is still in-flight (or if it fails). Real lists
-// land via the CapabilitiesDiscovered event on the chat channel and
-// override this. (Codex's equivalent lives in `lib/codex-models.ts`
-// because SpecWriter also consumes it.)
-const CLAUDE_FALLBACK_MODELS: CliModelInfo[] = [
-  { value: "default", displayName: "Default", description: "Account default", isDefault: true },
-  { value: "sonnet", displayName: "Sonnet", description: "Fast and capable" },
-  { value: "opus[1m]", displayName: "Opus (1M)", description: "Extended context" },
-  { value: "sonnet[1m]", displayName: "Sonnet (1M)", description: "Extended context" },
-  { value: "haiku", displayName: "Haiku", description: "Fastest" },
-];
+// Claude fallback (used while live `initialize`/`model/list` discovery is
+// in-flight) lives in the shared resolver so the Duo setup modal reuses it.
+import { CLAUDE_FALLBACK_MODELS } from "../../lib/agent-model-options";
 
 export default function ModelSelector() {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);

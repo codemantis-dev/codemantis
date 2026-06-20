@@ -67,6 +67,7 @@ vi.mock("../../lib/tauri-commands", () => ({
   duoStartRun: mockDuoStartRun,
   duoRecordEvent: mockDuoRecordEvent,
   duoCompleteRun: vi.fn(() => Promise.resolve()),
+  duoLogCompletion: vi.fn(() => Promise.resolve()),
   duoAnalyze: mockDuoAnalyze,
   listenDuoSnapshot: vi.fn(async (cb: (e: unknown) => void) => {
     snapshotCallbacks.push(cb);
@@ -213,6 +214,11 @@ describe("Duo-Coding orchestration", () => {
     expect(s.status).toBe("running");
     // No repair injected back into the primary.
     expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
+    // The conversation captured the primary's work AND the mentor's review verdict.
+    expect(s.dialogue.some((t) => t.author === "primary" && t.stance === "work")).toBe(true);
+    const review = s.dialogue.find((t) => t.author === "duo" && t.stance === "review");
+    expect(review?.verdict?.stance).toBe("agree");
+    expect(review?.verdict?.ranTests).toBe(true);
   });
 
   it("injects a mentor-directed repair into the PRIMARY on a blocking verdict", async () => {
@@ -236,6 +242,9 @@ describe("Duo-Coding orchestration", () => {
     const primaryInjections = mockSendMessage.mock.calls.filter(([id]) => id === PRIMARY);
     expect(primaryInjections.length).toBe(1);
     expect(String(primaryInjections[0][1])).toContain("Wrap the handler in try/catch");
+    // Timeline shows the mentor's blocking review and a "repair directed" outcome marker.
+    expect(s.dialogue.some((t) => t.author === "duo" && t.verdict?.severity === "blocking")).toBe(true);
+    expect(s.dialogue.some((t) => t.author === "system" && t.stance === "repair")).toBe(true);
   });
 
   it("pauses on a duo-deadlock when the mentor stays blocking past maxDialogueRounds", async () => {
@@ -309,9 +318,10 @@ describe("Duo-Coding orchestration", () => {
     expect(s.phase).toBe("building");
     expect(s.metrics.agreements).toBe(1);
     expect(s.repairAttempts).toBe(0); // reset on convergence
-    // The dialogue captured both sides.
-    expect(s.dialogue.some((t) => t.author === "duo")).toBe(true);
+    // The dialogue captured both sides AND the resolution outcome.
+    expect(s.dialogue.some((t) => t.author === "duo" && t.stance === "review")).toBe(true);
     expect(s.dialogue.some((t) => t.author === "primary" && t.stance === "defend")).toBe(true);
+    expect(s.dialogue.some((t) => t.author === "system" && t.stance === "resolve")).toBe(true);
   });
 
   it("tie-break mentorWins forces a repair instead of pausing", async () => {
@@ -330,6 +340,7 @@ describe("Duo-Coding orchestration", () => {
     expect(s.status).toBe("running");
     expect(s.phase).toBe("repairing");
     expect(s.decisionLog.some((d) => d.summary.includes("mentor wins"))).toBe(true);
+    expect(s.dialogue.some((t) => t.author === "system" && t.stance === "decision" && /mentor wins/i.test(t.text))).toBe(true);
     expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(true);
   });
 
@@ -349,6 +360,7 @@ describe("Duo-Coding orchestration", () => {
     expect(s.phase).toBe("building");
     expect(s.repairAttempts).toBe(0);
     expect(s.decisionLog.some((d) => d.summary.includes("primary proceeds"))).toBe(true);
+    expect(s.dialogue.some((t) => t.author === "system" && t.stance === "decision" && /primary proceeds/i.test(t.text))).toBe(true);
   });
 
   it("pauses on a budget cap once the run cost exceeds it", async () => {

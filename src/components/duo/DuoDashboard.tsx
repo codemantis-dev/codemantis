@@ -89,10 +89,13 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
   const startedAt = useDuoStore((s) => s.startedAt);
   const metrics = useDuoStore((s) => s.metrics);
   const snapshot = useDuoStore((s) => s.analystSnapshot);
+  const dialogue = useDuoStore((s) => s.dialogue);
   const pause = useDuoStore((s) => s.pause);
   const resume = useDuoStore((s) => s.resume);
   const stop = useDuoStore((s) => s.stop);
+  const reset = useDuoStore((s) => s.reset);
   const blocker = useDuoStore((s) => s.blocker);
+  const interrupted = useDuoStore((s) => s.interrupted);
 
   const [confirmStop, setConfirmStop] = useState(false);
   const elapsed = useElapsed(startedAt, status === "running");
@@ -169,7 +172,17 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
         </div>
 
         <div className="flex items-center gap-2">
-          {status === "running" && (
+          {interrupted && (
+            <button
+              type="button"
+              onClick={reset}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-detail"
+              style={{ color: "var(--text-primary)", background: "var(--bg-subtle)" }}
+            >
+              <Square size={14} /> Dismiss
+            </button>
+          )}
+          {!interrupted && status === "running" && (
             <button
               type="button"
               onClick={pause}
@@ -179,7 +192,7 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
               <Pause size={14} /> Pause
             </button>
           )}
-          {status === "paused" && !blocker && (
+          {!interrupted && status === "paused" && !blocker && (
             <button
               type="button"
               onClick={() => void resume()}
@@ -189,7 +202,8 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
               <Play size={14} /> Resume
             </button>
           )}
-          {(status === "running" || status === "paused") &&
+          {!interrupted &&
+            (status === "running" || status === "paused") &&
             (confirmStop ? (
               <button
                 type="button"
@@ -214,6 +228,16 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
             ))}
         </div>
       </div>
+
+      {interrupted && (
+        <div
+          className="rounded-lg border p-3 text-detail"
+          style={{ background: "var(--bg-subtle)", borderColor: "var(--yellow)", color: "var(--text-secondary)" }}
+        >
+          This run was interrupted by an app restart — its history is shown read-only.
+          Start a new run to continue the work.
+        </div>
+      )}
 
       {/* ── Analyst headline + narrative ── */}
       {report ? (
@@ -266,6 +290,26 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
         <StatTile label="drift" value={metrics.driftIncidents} accent={metrics.driftIncidents > 0 ? "var(--red)" : undefined} />
         <StatTile label="agree rate" value={`${Math.round(metrics.agreementRate * 100)}%`} />
         <StatTile label="cost" value={`$${metrics.costUsd.toFixed(2)}`} />
+      </div>
+
+      {/* ── Conversation (prominent) ── */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-detail font-semibold" style={{ color: "var(--text-primary)" }}>
+            Conversation
+          </span>
+          {(() => {
+            const exchanges = dialogue.filter((t) => t.author !== "system").length;
+            const lastOutcome = [...dialogue].reverse().find((t) => t.author === "system");
+            return (
+              <span className="text-detail" style={{ color: "var(--text-dim)" }}>
+                {exchanges} exchange{exchanges === 1 ? "" : "s"}
+                {lastOutcome ? ` · last outcome: ${lastOutcome.text}` : ""}
+              </span>
+            );
+          })()}
+        </div>
+        <DuoDialogueView />
       </div>
 
       {/* ── Charts ── */}
@@ -371,14 +415,6 @@ export default function DuoDashboard({ onConfigure }: Props): React.ReactElement
           ))}
         </Card>
       )}
-
-      {/* ── Live dialogue ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-detail font-semibold" style={{ color: "var(--text-primary)" }}>
-          Dialogue
-        </span>
-        <DuoDialogueView />
-      </div>
 
       <DuoTieBreakModal />
     </div>

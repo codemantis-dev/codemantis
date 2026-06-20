@@ -17,10 +17,10 @@ export default function DuoTieBreakModal(): React.ReactElement | null {
   const isBudget = blocker.summary.startsWith("Budget");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
         className="w-full max-w-lg rounded-lg border shadow-xl"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)" }}
+        style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
       >
         <div
           className="flex items-center gap-2 px-4 py-3 border-b"

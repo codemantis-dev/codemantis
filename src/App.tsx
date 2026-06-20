@@ -8,11 +8,15 @@ import {
   cleanupOldAttachments,
   listSelfDriveStates,
   loadGuide,
+  duoRecoverInterrupted,
+  duoLatestSnapshot,
+  duoListEvents,
   type ClaudeStatus,
 } from "./lib/tauri-commands";
 import { useCrashRecoverySnapshot } from "./hooks/useCrashRecoverySnapshot";
 import { hydratePersistedOpenSessions } from "./lib/crash-recovery";
 import { useSelfDriveStore, type PersistedRunState } from "./stores/selfDriveStore";
+import { useDuoStore } from "./stores/duoStore";
 import type { ImplementationGuide } from "./types/implementation-guide";
 import type { AgentId } from "./types/agent-events";
 import { useClaudeSession } from "./hooks/useClaudeSession";
@@ -76,6 +80,26 @@ async function hydratePersistedSelfDriveRuns(): Promise<void> {
     useSelfDriveStore.getState().hydrateFromDisk(parsed, guide);
   } catch (e) {
     console.warn("[App] Failed to hydrate Self-Drive runs:", e);
+  }
+}
+
+/**
+ * Reconcile a Duo-Coding run left `running` when the app exited. The two CLI
+ * sessions are gone, so we can't resume live — instead mark interrupted runs
+ * paused and hydrate the newest read-only so its history/analysis survives.
+ */
+async function hydrateInterruptedDuoRun(): Promise<void> {
+  try {
+    const interrupted = await duoRecoverInterrupted();
+    if (interrupted.length === 0) return;
+    const run = interrupted[0]; // newest-first
+    const [snapshot, events] = await Promise.all([
+      duoLatestSnapshot(run.id),
+      duoListEvents(run.id),
+    ]);
+    useDuoStore.getState().hydrateInterrupted({ run, snapshot, events });
+  } catch (e) {
+    console.warn("[App] Failed to recover interrupted Duo run:", e);
   }
 }
 
@@ -162,6 +186,8 @@ export default function App() {
     // than by a real crash — live CLI processes get re-attached in place
     // (no --resume spawn) so the workspace comes back as it was.
     void hydratePersistedOpenSessions(restorePausedSession, reattachLiveSession, resumeRecoveredSession);
+    // Reconcile any Duo-Coding run left mid-flight; load the newest read-only.
+    void hydrateInterruptedDuoRun();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restorePausedSession is a stable callback
   }, [loadSettings]);
 

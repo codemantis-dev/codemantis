@@ -10,6 +10,7 @@ const ALL_CATEGORIES: ChangelogCategory[] = [
   "config",
   "test",
   "plan",
+  "duo-coding",
 ];
 
 describe("CATEGORY_CONFIG", () => {

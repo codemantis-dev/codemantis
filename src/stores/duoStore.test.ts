@@ -5,7 +5,10 @@ import {
   resolveDuoSettings,
   emptyDuoMetrics,
   collectResponseSince,
+  metricsFromEvents,
+  timelineFromEvents,
 } from "./duoStore";
+import type { DuoEventRow, DuoRunRow, DuoSnapshotRow } from "../types/duo";
 import { useSettingsStore } from "./settingsStore";
 import { DEFAULT_DUO_SETTINGS } from "../types/settings";
 import { resetAllStores } from "../test/helpers/store-reset";
@@ -107,5 +110,123 @@ describe("duoStore lifecycle", () => {
     expect(s.runId).toBeNull();
     expect(s.dialogue).toEqual([]);
     expect(s.metrics).toEqual(emptyDuoMetrics());
+  });
+});
+
+describe("metricsFromEvents", () => {
+  const ev = (kind: string): DuoEventRow => ({
+    id: `e-${Math.random()}`, runId: "r", ts: 0, kind, actor: "duo", payloadJson: "{}", diffStatsJson: null,
+  });
+
+  it("counts reviews/agreements/disagreements/repairs/drift", () => {
+    const m = metricsFromEvents([
+      ev("agreement"), ev("disagreement"), ev("concern"), ev("repair"), ev("drift"), ev("turn"),
+    ]);
+    expect(m.agreements).toBe(1);
+    expect(m.disagreements).toBe(1);
+    expect(m.reviews).toBe(3); // agreement + disagreement + concern
+    expect(m.repairs).toBe(1);
+    expect(m.driftIncidents).toBe(1);
+    expect(m.agreementRate).toBeCloseTo(1 / 3);
+  });
+
+  it("returns zeroed metrics for an empty log", () => {
+    expect(metricsFromEvents([])).toEqual(emptyDuoMetrics());
+  });
+});
+
+describe("duoStore.hydrateInterrupted", () => {
+  beforeEach(() => resetAllStores());
+
+  it("loads a crash-interrupted run read-only with reconstructed metrics + snapshot", () => {
+    const run: DuoRunRow = {
+      id: "run-x", primarySessionId: "p", duoSessionId: "d", projectPath: "/proj",
+      status: "paused", configJson: JSON.stringify({ primary: { agentId: "codex" }, duo: { agentId: "claude_code" }, task: "Add logout" }),
+      outcome: "interrupted-by-restart", createdAt: 1000, completedAt: 2000,
+    };
+    const report = {
+      schemaVersion: 1, headline: "h", narrative: "interrupted run",
+      phaseAssessment: { currentFocus: "", momentum: "unknown", momentumRationale: "" },
+      collaborationHealth: { score: 50, trend: "unknown", summary: "", frictionPoints: [] },
+      qualityAssessment: { score: 50, trajectory: "unknown", strengths: [], risks: [] },
+      repairAnalysis: { summary: "", rootCausePatterns: [], mentorEffectiveness: "unknown", mentorEffectivenessRationale: "" },
+      improvementAnalysis: { summary: "", delivered: [], preventedIssues: [] },
+      decisions: [], recommendations: [], watchItems: [], confidence: 30,
+    };
+    const snapshot: DuoSnapshotRow = {
+      id: "s1", runId: "run-x", ts: 1500, narrative: "interrupted run",
+      metricsJson: JSON.stringify(report), seriesJson: "[]",
+    };
+    const events: DuoEventRow[] = [
+      { id: "e1", runId: "run-x", ts: 1, kind: "agreement", actor: "duo", payloadJson: "{}", diffStatsJson: null },
+    ];
+
+    useDuoStore.getState().hydrateInterrupted({ run, snapshot, events });
+    const s = useDuoStore.getState();
+    expect(s.interrupted).toBe(true);
+    expect(s.status).toBe("paused");
+    expect(s.runId).toBe("run-x");
+    expect(s.task).toBe("Add logout");
+    expect(s.config?.primary.agentId).toBe("codex");
+    expect(s.metrics.agreements).toBe(1);
+    expect(s.analystSnapshot?.report.narrative).toBe("interrupted run");
+    // Conversation timeline is rebuilt from the event log.
+    expect(s.dialogue.length).toBe(1);
+    expect(s.dialogue[0].author).toBe("duo");
+    expect(s.dialogue[0].stance).toBe("review");
+  });
+});
+
+describe("timelineFromEvents", () => {
+  const ev = (
+    kind: string,
+    actor: string,
+    payload: Record<string, unknown>,
+  ): DuoEventRow => ({
+    id: `e-${kind}-${Math.random()}`,
+    runId: "r",
+    ts: 0,
+    kind,
+    actor,
+    payloadJson: JSON.stringify(payload),
+    diffStatsJson: null,
+  });
+
+  it("maps a primary turn to a work bubble", () => {
+    const t = timelineFromEvents([ev("turn", "primary", { summary: "turn", text: "did the work" })]);
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ author: "primary", stance: "work", text: "did the work" });
+  });
+
+  it("maps verdict events to mentor reviews with reconstructed verdict metadata", () => {
+    const t = timelineFromEvents([
+      ev("disagreement", "duo", {
+        summary: "no tests", text: "the path is uncovered",
+        stance: "concern", severity: "blocking", confidence: 0.7, ranBuild: true, ranTests: false,
+      }),
+    ]);
+    expect(t[0]).toMatchObject({ author: "duo", stance: "review", text: "the path is uncovered" });
+    expect(t[0].verdict).toMatchObject({ stance: "concern", severity: "blocking", ranBuild: true, ranTests: false });
+  });
+
+  it("maps system events to outcome markers", () => {
+    const t = timelineFromEvents([
+      ev("repair", "system", { summary: "Mentor directed a repair (round 1): fix it", round: 1 }),
+      ev("decision", "system", { summary: "Agreement reached — primary's work accepted" }),
+      ev("decision", "system", { summary: "Tie-break: mentor wins" }),
+      ev("drift", "duo", { summary: "rm -rf" }),
+      ev("escalation", "system", { summary: "Budget cap reached — run paused" }),
+    ]);
+    expect(t.map((e) => [e.author, e.stance])).toEqual([
+      ["system", "repair"],
+      ["system", "resolve"],
+      ["system", "decision"],
+      ["system", "drift"],
+      ["system", "budget"],
+    ]);
+  });
+
+  it("ignores unknown event kinds", () => {
+    expect(timelineFromEvents([ev("verdict", "duo", { summary: "x" })])).toEqual([]);
   });
 });

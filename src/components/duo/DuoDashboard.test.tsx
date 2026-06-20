@@ -89,6 +89,26 @@ describe("DuoDashboard", () => {
     expect(screen.getByText("repeated test gaps", { exact: false })).toBeInTheDocument();
   });
 
+  it("renders the Conversation section with the timeline and a summary line", () => {
+    runningState();
+    useDuoStore.setState({
+      dialogue: [
+        { id: "1", round: 1, author: "primary", stance: "work", text: "Implemented the feature", ts: 1 },
+        {
+          id: "2", round: 1, author: "duo", stance: "review", text: "Looks good", ts: 2,
+          verdict: { stance: "agree", severity: "nit", confidence: 0.9, ranBuild: true, ranTests: true },
+        },
+        { id: "3", round: 1, author: "system", stance: "resolve", text: "Agreement reached — primary's work accepted.", ts: 3 },
+      ],
+    });
+    render(<DuoDashboard />);
+    expect(screen.getByText("Conversation")).toBeInTheDocument();
+    expect(screen.getByText("Implemented the feature")).toBeInTheDocument();
+    // Summary line counts agent exchanges (system markers excluded) + last outcome.
+    expect(screen.getByText(/2 exchanges/)).toBeInTheDocument();
+    expect(screen.getByText(/last outcome: Agreement reached/)).toBeInTheDocument();
+  });
+
   it("Pause toggles the run to paused", () => {
     runningState();
     render(<DuoDashboard />);
