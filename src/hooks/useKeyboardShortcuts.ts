@@ -254,9 +254,12 @@ export function useKeyboardShortcuts(): void {
       }
 
       // Cmd+Shift+D — toggle the Duo-Coding dashboard for the active project
+      // (only when the feature is enabled in Settings).
       if (key === "d" && shift) {
         e.preventDefault();
-        if (useSessionStore.getState().activeProjectPath) {
+        const duoEnabled =
+          useSettingsStore.getState().settings.duo?.enabled ?? true;
+        if (duoEnabled && useSessionStore.getState().activeProjectPath) {
           useUiStore.getState().toggleDuoDashboard();
         }
         return;

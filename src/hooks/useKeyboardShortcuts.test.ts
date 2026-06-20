@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 // Mock useTerminal before importing the hook
 vi.mock("./useTerminal", () => ({
@@ -189,6 +190,19 @@ describe("useKeyboardShortcuts (unit — store effects)", () => {
     useSessionStore.setState({ activeProjectPath: null });
     expect(useUiStore.getState().showDuoDashboard).toBe(false);
     if (useSessionStore.getState().activeProjectPath) {
+      useUiStore.getState().toggleDuoDashboard();
+    }
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+  });
+
+  it("Cmd+Shift+D does nothing when Duo-Coding is disabled in Settings", () => {
+    // Mirror the handler: gated on settings.duo.enabled.
+    useSessionStore.setState({ activeProjectPath: "/a" });
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, duo: { ...(s.settings.duo ?? {}), enabled: false } as typeof s.settings.duo },
+    }));
+    const duoEnabled = useSettingsStore.getState().settings.duo?.enabled ?? true;
+    if (duoEnabled && useSessionStore.getState().activeProjectPath) {
       useUiStore.getState().toggleDuoDashboard();
     }
     expect(useUiStore.getState().showDuoDashboard).toBe(false);

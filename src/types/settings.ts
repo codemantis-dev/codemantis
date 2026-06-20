@@ -208,9 +208,9 @@ export interface DuoCodingSettings {
   budgetTokenCap: number | null;
 }
 
-/** The opt-out baseline, matching Rust `DuoCodingConfig::default()`. */
+/** Default Duo-Coding config (enabled), matching Rust `DuoCodingConfig::default()`. */
 export const DEFAULT_DUO_SETTINGS: DuoCodingSettings = {
-  enabled: false,
+  enabled: true,
   tieBreakPolicy: "pause",
   maxDialogueRounds: 3,
   severeDriftNudgeEnabled: true,

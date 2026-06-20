@@ -58,4 +58,38 @@ describe("DuoTab", () => {
     const provider = screen.getByDisplayValue("Google Gemini") as HTMLSelectElement;
     expect(provider.disabled).toBe(true);
   });
+
+  it("toggling Enable Duo-Coding persists into the settings store", async () => {
+    // Default is ON; the first toggle turns it off.
+    expect(useSettingsStore.getState().settings.duo?.enabled).toBe(true);
+    render(<DuoTab />);
+    // The enable toggle is the first switch button in the tab.
+    const toggles = screen.getAllByRole("button");
+    fireEvent.click(toggles[0]);
+    await waitFor(() =>
+      expect(useSettingsStore.getState().settings.duo?.enabled).toBe(false),
+    );
+  });
+
+  it("offers analyst models as a dropdown for the selected provider", async () => {
+    render(<DuoTab />);
+    // Provider defaults to gemini → its model list is offered as <option>s.
+    const modelSelect = screen.getByDisplayValue("Gemini 2.5 Flash Lite") as HTMLSelectElement;
+    expect(modelSelect.tagName).toBe("SELECT");
+    expect(screen.getByRole("option", { name: "Gemini 2.5 Flash" })).toBeInTheDocument();
+    fireEvent.change(modelSelect, { target: { value: "gemini-2.5-flash" } });
+    await waitFor(() =>
+      expect(useSettingsStore.getState().settings.duo?.analystModel).toBe("gemini-2.5-flash"),
+    );
+  });
+
+  it("resets the analyst model to the new provider's first model on provider change", async () => {
+    render(<DuoTab />);
+    const provider = screen.getByDisplayValue("Google Gemini");
+    fireEvent.change(provider, { target: { value: "openai" } });
+    await waitFor(() => {
+      const model = useSettingsStore.getState().settings.duo?.analystModel;
+      expect(model).toBe("gpt-5.4-mini"); // first OpenAI model in AI_MODELS
+    });
+  });
 });

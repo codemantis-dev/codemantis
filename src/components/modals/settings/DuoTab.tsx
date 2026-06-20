@@ -14,6 +14,8 @@ import { SectionTitle, FieldRow } from "./SettingsShared";
 import { CHANGELOG_PROVIDERS } from "./constants";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { DEFAULT_DUO_SETTINGS, type DuoCodingSettings } from "../../../types/settings";
+import { AI_MODELS, type APIProvider } from "../../../types/assistant-provider";
+import OpenRouterModelSelect from "../../shared/OpenRouterModelSelect";
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): React.ReactElement {
   return (
@@ -120,7 +122,17 @@ export default function DuoTab(): React.ReactElement {
       <FieldRow label="Analyst provider">
         <select
           value={duo.analystProvider}
-          onChange={(e) => patch({ analystProvider: e.target.value })}
+          onChange={(e) => {
+            const provider = e.target.value;
+            // Keep the model valid for the new provider (mirrors ChangelogSettingsTab).
+            const models = AI_MODELS[provider as APIProvider] ?? [];
+            patch({
+              analystProvider: provider,
+              ...(provider !== "openrouter" && models.length > 0
+                ? { analystModel: models[0].id }
+                : {}),
+            });
+          }}
           disabled={!duo.analystEnabled}
           className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary disabled:opacity-50"
         >
@@ -131,13 +143,25 @@ export default function DuoTab(): React.ReactElement {
       </FieldRow>
 
       <FieldRow label="Analyst model">
-        <input
-          type="text"
-          value={duo.analystModel}
-          onChange={(e) => patch({ analystModel: e.target.value })}
-          disabled={!duo.analystEnabled}
-          className="w-56 px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary disabled:opacity-50"
-        />
+        {duo.analystProvider === "openrouter" ? (
+          <div className="w-56">
+            <OpenRouterModelSelect
+              value={duo.analystModel}
+              onChange={(m) => patch({ analystModel: m })}
+            />
+          </div>
+        ) : (
+          <select
+            value={duo.analystModel}
+            onChange={(e) => patch({ analystModel: e.target.value })}
+            disabled={!duo.analystEnabled}
+            className="w-56 px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary disabled:opacity-50"
+          >
+            {(AI_MODELS[duo.analystProvider as APIProvider] ?? []).map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+        )}
       </FieldRow>
 
       <div className="h-px" style={{ background: "var(--border-light)" }} />
