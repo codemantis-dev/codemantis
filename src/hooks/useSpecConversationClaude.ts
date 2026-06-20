@@ -44,6 +44,14 @@ import type { StreamStatus } from "../types/spec-writer";
 /** Marker the model emits at the start of an auto-recheck reply per buildRecheckPrompts. */
 const AUDIT_PATCH_MARKER = "<!-- AUDIT-PATCH -->";
 
+/**
+ * Safety ceiling for an in-band guide-recovery turn (Recognize Guide on the
+ * CLI path). If the turn never produces a terminal event (process hung,
+ * interrupted, killed), the resolver fires with "" so recovery degrades to a
+ * single-session guide instead of hanging the Recognize-Guide flow forever.
+ */
+const GUIDE_RECOVERY_TIMEOUT_MS = 180_000; // 3 minutes
+
 /** Maximum auto-recheck rounds per project. Mirrors self-drive's cap. */
 const MAX_RECHECK_ROUNDS = 2;
 /**
@@ -76,6 +84,14 @@ interface PerProjectStreamState {
    */
   isAutoRecheck: boolean;
   /**
+   * True when the current stream is an in-band guide-recovery turn (Recognize
+   * Guide on the CLI path). The reply is a structured session-plan envelope
+   * consumed by the Recognize-Guide flow — NOT chat content, a spec, or an
+   * audit. Suppresses all visible-message / spec-detection / coverage
+   * handling; the reply is captured and handed to the pending resolver.
+   */
+  isGuideRecovery: boolean;
+  /**
    * Number of headings already emitted to the creation log this run.
    * `advanceCreationLog` advances this watermark on every flush so we only
    * append store actions for *new* headings, not the entire scan each time.
@@ -107,6 +123,7 @@ function makeStreamState(): PerProjectStreamState {
     auditDetected: false,
     preStreamSpec: null,
     isAutoRecheck: false,
+    isGuideRecovery: false,
     creationLogWatermark: 0,
     chunkCount: 0,
     streamStartMs: 0,
@@ -135,6 +152,12 @@ export function useSpecConversationClaude(): {
   changeModel: (projectPath: string, newModel: string) => Promise<void>;
   /** Stage 3: re-dispatch the latest audit recheck prompt. Returns true if dispatched. */
   requestRecheck: (projectPath: string) => boolean;
+  /**
+   * Recognize Guide (CLI path): send a recovery prompt into the live session
+   * and resolve with the model's raw reply. Key-free — reuses the running CLI
+   * instead of demanding an API provider.
+   */
+  recoverGuideViaCli: (projectPath: string, prompt: string) => Promise<string>;
 } {
   const streamStateMapRef = useRef<Map<string, PerProjectStreamState>>(new Map());
   const getStreamState = (projectPath: string): PerProjectStreamState => {
@@ -147,6 +170,12 @@ export function useSpecConversationClaude(): {
   };
   /** Per-project auto-recheck round counter. Reset on a fresh user-initiated turn. */
   const recheckRoundRef = useRef<Map<string, number>>(new Map());
+  /**
+   * Per-project resolver for an in-flight in-band guide-recovery turn. Set by
+   * `recoverGuideViaCli`, fired by `finalizeTurn` with the model's raw reply
+   * (or by a safety timeout with "").
+   */
+  const guideRecoveryResolversRef = useRef<Map<string, (text: string) => void>>(new Map());
   /** Per-project set of input-doc names already structurally analyzed. */
   const analyzedDocsRef = useRef<Map<string, Set<string>>>(new Map());
 
@@ -268,13 +297,19 @@ export function useSpecConversationClaude(): {
       projectPath: string,
       content: string,
       attachments?: SpecAttachment[],
-      meta?: { isAutoRecheck?: boolean }
+      meta?: { isAutoRecheck?: boolean; isGuideRecovery?: boolean }
     ) => {
+      // Guide-recovery turns are out-of-band repairs, not user turns — they
+      // skip every pre-flight side effect (compaction recap, recheck reset,
+      // input analysis) and every visible message, just like auto-recheck but
+      // more so (their reply never lands in the chat at all).
+      const isSideTurn = !!meta?.isAutoRecheck || !!meta?.isGuideRecovery;
+
       // Capture the post-compaction recap BEFORE we clear the per-turn state
       // below. If the prior turn was compacted, we'll prepend this recap to
       // the user's prompt so the model knows what it already wrote.
       let compactionRecap = "";
-      if (!meta?.isAutoRecheck) {
+      if (!isSideTurn) {
         const pre = useSpecWriterStore.getState();
         const compaction = pre.compactionInfo.get(projectPath);
         const log = pre.creationLogs.get(projectPath);
@@ -291,7 +326,7 @@ export function useSpecConversationClaude(): {
       // shouldn't linger after the user moves on to a new turn. The creation
       // log is also cleared (we already captured the recap above) so the
       // new turn starts a fresh per-section progress record.
-      if (!meta?.isAutoRecheck) {
+      if (!isSideTurn) {
         recheckRoundRef.current.set(projectPath, 0);
         useSpecWriterStore.getState().setCompactionInfo(projectPath, null);
         useSpecWriterStore.getState().setLastPatchOutcome(projectPath, null);
@@ -362,19 +397,22 @@ export function useSpecConversationClaude(): {
         prompt = `${compactionRecap}\n\n---\n\n${prompt}`;
       }
 
-      // Add user message to store
-      const userMessage: SpecMessage = {
-        id: `msg-${Date.now()}`,
-        role: "user",
-        content,
-        attachments,
-        message_type: "conversation",
-        timestamp: new Date().toISOString(),
-      };
-      store.addMessage(projectPath, userMessage);
+      // Add user message to store. Guide-recovery prompts are huge, machine-
+      // facing repair requests — they never appear in the conversation.
+      if (!meta?.isGuideRecovery) {
+        const userMessage: SpecMessage = {
+          id: `msg-${Date.now()}`,
+          role: "user",
+          content,
+          attachments,
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        };
+        store.addMessage(projectPath, userMessage);
+      }
 
       // ─── Stage 2: Input analyzer (pre-flight, runs once per attached doc) ───
-      if (!meta?.isAutoRecheck) {
+      if (!isSideTurn) {
         const convAfterUser = useSpecWriterStore.getState().getActiveConversation(projectPath);
         if (convAfterUser) {
           const docs = extractInputDocs(convAfterUser.messages);
@@ -414,15 +452,19 @@ export function useSpecConversationClaude(): {
         }
       }
 
-      // Add assistant placeholder for streaming
-      const assistantMsg: SpecMessage = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant",
-        content: "",
-        message_type: "conversation",
-        timestamp: new Date().toISOString(),
-      };
-      store.addMessage(projectPath, assistantMsg);
+      // Add assistant placeholder for streaming. Skipped for guide recovery —
+      // its reply is captured for the Recognize-Guide flow, not rendered, so a
+      // placeholder would leave a stray empty bubble behind.
+      if (!meta?.isGuideRecovery) {
+        const assistantMsg: SpecMessage = {
+          id: `msg-${Date.now() + 1}`,
+          role: "assistant",
+          content: "",
+          message_type: "conversation",
+          timestamp: new Date().toISOString(),
+        };
+        store.addMessage(projectPath, assistantMsg);
+      }
       store.setPlanningStreaming(projectPath, true);
 
       // Ensure CLI session exists
@@ -449,6 +491,7 @@ export function useSpecConversationClaude(): {
       state.auditDetected = false;
       state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
       state.isAutoRecheck = !!meta?.isAutoRecheck;
+      state.isGuideRecovery = !!meta?.isGuideRecovery;
       // The watermark counts headings already emitted from THIS turn's
       // streamBuffer (which we just cleared). Reset to 0 — the log itself
       // is cumulative across turns and is appended to, not overwritten.
@@ -509,6 +552,11 @@ export function useSpecConversationClaude(): {
         state.flushScheduled = null;
         const buf = state.streamBuffer;
         if (!buf) return;
+        // Guide-recovery replies are structured envelopes consumed by the
+        // Recognize-Guide flow — never render them, never touch spec content.
+        // The buffer keeps accumulating in the event handler; finalizeTurn
+        // hands the full text to the pending resolver.
+        if (state.isGuideRecovery) return;
         const currentStore = useSpecWriterStore.getState();
         currentStore.updateLastAssistantMessage(projectPath, buf);
         // Auto-recheck replies are patch envelopes, not specs. Never let the
@@ -635,6 +683,26 @@ export function useSpecConversationClaude(): {
           finalizeStreamStats('ok');
           // Audit generation (if any) is over — the tab can lose its ellipsis.
           currentStore.setAuditPending(projectPath, false);
+
+          // Guide-recovery turn: hand the raw reply to the pending resolver and
+          // return BEFORE any spec/audit/coverage handling. Nothing about this
+          // turn is allowed to mutate currentSpecContent, the chat, or the
+          // creation log — it's an out-of-band repair request.
+          if (state.isGuideRecovery) {
+            const recoveredText = state.streamBuffer;
+            state.streamBuffer = "";
+            currentStore.setPlanningStreaming(projectPath, false);
+            if (state.unlisten) {
+              state.unlisten();
+              state.unlisten = null;
+            }
+            const resolver = guideRecoveryResolversRef.current.get(projectPath);
+            if (resolver) {
+              guideRecoveryResolversRef.current.delete(projectPath);
+              resolver(recoveredText);
+            }
+            return;
+          }
 
           const finalContent = state.streamBuffer;
           const parsed = parseSelectableOptions(finalContent);
@@ -921,6 +989,14 @@ export function useSpecConversationClaude(): {
           currentStore.setPlanningStreaming(projectPath, false);
           currentStore.setCliSessionId(projectPath, null);
 
+          // Unblock an in-flight guide recovery with whatever we have (likely
+          // empty) so it degrades promptly instead of waiting on the timeout.
+          const recoveryResolver = guideRecoveryResolversRef.current.get(projectPath);
+          if (recoveryResolver) {
+            guideRecoveryResolversRef.current.delete(projectPath);
+            recoveryResolver(state.streamBuffer);
+          }
+
           if (event.exit_code !== 0) {
             currentStore.addMessage(projectPath, {
               id: `msg-err-${Date.now()}`,
@@ -941,6 +1017,11 @@ export function useSpecConversationClaude(): {
           finalizeStreamStats('errored', event.error);
           currentStore.setAuditPending(projectPath, false);
           currentStore.setPlanningStreaming(projectPath, false);
+          const recoveryResolverOnErr = guideRecoveryResolversRef.current.get(projectPath);
+          if (recoveryResolverOnErr) {
+            guideRecoveryResolversRef.current.delete(projectPath);
+            recoveryResolverOnErr(state.streamBuffer);
+          }
           currentStore.addMessage(projectPath, {
             id: `msg-err-${Date.now()}`,
             role: "system",
@@ -1074,6 +1155,49 @@ export function useSpecConversationClaude(): {
     return true;
   }, [sendMessage]);
 
+  /**
+   * Recognize Guide on the CLI path. Dispatches a recovery prompt INTO the
+   * live SpecWriter session — the same agent that just wrote the spec, with
+   * full context, and crucially NO API key required — then resolves with its
+   * raw reply. Mirrors the AUDIT-PATCH auto-recheck mechanism: the reply is
+   * captured in `finalizeTurn` (gated on `isGuideRecovery`) and never lands in
+   * the chat. Always resolves: a terminal event or the safety timeout fires
+   * the resolver so the Recognize-Guide flow can never hang.
+   */
+  const recoverGuideViaCli = useCallback(
+    (projectPath: string, prompt: string): Promise<string> => {
+      // A recovery already in flight for this project — refuse a second.
+      const existing = guideRecoveryResolversRef.current.get(projectPath);
+      if (existing) {
+        existing("");
+        guideRecoveryResolversRef.current.delete(projectPath);
+      }
+      return new Promise<string>((resolve) => {
+        let settled = false;
+        const wrapped = (text: string): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(text);
+        };
+        const timer = setTimeout(() => {
+          if (guideRecoveryResolversRef.current.get(projectPath) === wrapped) {
+            guideRecoveryResolversRef.current.delete(projectPath);
+          }
+          wrapped("");
+        }, GUIDE_RECOVERY_TIMEOUT_MS);
+        guideRecoveryResolversRef.current.set(projectPath, wrapped);
+        void sendMessage(projectPath, prompt, undefined, { isGuideRecovery: true }).catch(() => {
+          if (guideRecoveryResolversRef.current.get(projectPath) === wrapped) {
+            guideRecoveryResolversRef.current.delete(projectPath);
+          }
+          wrapped("");
+        });
+      });
+    },
+    [sendMessage],
+  );
+
   return {
     sendMessage,
     writeSpec,
@@ -1082,5 +1206,6 @@ export function useSpecConversationClaude(): {
     cancelStream,
     changeModel,
     requestRecheck,
+    recoverGuideViaCli,
   };
 }

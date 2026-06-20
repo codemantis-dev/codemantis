@@ -1158,7 +1158,11 @@ fn list_files_shallow(dir: &Path, max_depth: usize, files: &mut Vec<String>, bas
 /// MUST NOT invent steps, only restore canonical formatting.
 const RECOVERY_SYSTEM_PROMPT: &str = r#"You repair multi-session implementation specs whose Session Plan section failed a strict regex parser.
 
-Your only job is to return the FULL spec markdown with the Session Plan section made parseable. You do this by ensuring every implementable Session block contains a `**Prompt for Claude Code:**` label followed by a fenced code block. You preserve everything else verbatim.
+PREFERRED OUTPUT — a structured JSON envelope (regex-free, most reliable). Return ONLY a fenced code block whose first line is exactly `<!-- SESSION-PLAN-JSON -->`, followed by a JSON object of shape:
+{"title":"<spec title>","sessions":[{"title":"<short title>","prompt":"<full instruction Claude Code should receive to implement this session>","scope":"<optional>","readSections":"<optional>","files":["path/one.ts"],"verify":["<check>"]}]}
+One entry per implementable session, in order. `prompt` is REQUIRED and must be concrete and self-contained. Skip pure gates (Phase 0) and audit-only wrap-ups; include every session that ships code. Derive each prompt from the spec's existing Scope / Read sections / Files — do NOT invent work.
+
+FALLBACK OUTPUT — if you cannot produce the envelope, return the FULL spec markdown with the Session Plan section made parseable instead. You do this by ensuring every implementable Session block contains a `**Prompt for Claude Code:**` label followed by a fenced code block. You preserve everything else verbatim.
 
 Rules — every single one is non-negotiable:
 1. Preserve every byte of content outside the Session Plan section. The `#` title, Overview, Data Model, all other sections — return them exactly as given.
@@ -1183,7 +1187,7 @@ Rules — every single one is non-negotiable:
 4. If a Session block is a final audit wrap-up (it has `**Verify (full audit):**`), leave it alone — the parser handles those.
 5. If a Session block is a wrapper for sub-sessions like 1a/1b/1c, add `**Indivisible note:** This session is split into Na/Nb/Nc — see those entries.` to its body so the parser skips it. Do not invent a Prompt for Claude Code for a wrapper.
 6. Do not invent files, do not invent steps, do not invent acceptance criteria. If a Session is so empty you can't synthesize a reasonable prompt from its existing content, leave it as-is and let the parser fail loudly — silent fabrication is worse than a visible error.
-7. Return ONLY the raw markdown. No code fences around your response. No commentary. No "Here is the repaired spec:" preamble. Just the markdown bytes.
+7. Return ONLY the raw markdown (or, if you chose the PREFERRED JSON envelope, only that one fenced block). No commentary. No "Here is the repaired spec:" preamble. Just the bytes.
 "#;
 
 /// Build the user prompt for a recovery call. The diagnosis text comes

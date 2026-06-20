@@ -1,11 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { recoverSessionPlan } from "./recover-session-plan";
-
-// Mock the Tauri invoke surface so these tests stay pure.
-const invokeMock = vi.fn();
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: unknown) => invokeMock(cmd, args),
-}));
+import type { RecoveryTransport } from "./recover-session-plan";
+import { GUIDE_RECOVERY_MARKER } from "./session-plan-envelope";
 
 function session(num: number, title: string, withPrompt = true): string {
   let s = `### Session ${num}: ${title} (~1 files)
@@ -29,7 +25,6 @@ Implement session ${num}.
   return s;
 }
 
-// Helper — builds a minimal spec whose Session Plan parses cleanly.
 function validSpec(): string {
   return `# Demo Spec
 
@@ -41,10 +36,7 @@ ${session(3, "Third")}
 `;
 }
 
-// Helper — builds a spec where Session 1 is missing its Prompt for Claude
-// Code fence (mirrors the webcreator-v2 regression). Three sessions total
-// so the diagnose code hits the "Session N is the offender" branch rather
-// than the catch-all "only one usable session" branch.
+// Session 1 is missing its Prompt for Claude Code fence (mirrors webcreator-v2).
 function brokenSpec(): string {
   return `# Demo Spec
 
@@ -56,175 +48,82 @@ ${session(3, "Third")}
 `;
 }
 
-describe("recoverSessionPlan — refuses without an API path", () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
-  });
+const baseCtx = {
+  specMarkdown: brokenSpec(),
+  filename: "demo.md",
+  provider: "claude-code",
+  model: "claude-opus-4-8",
+};
 
-  it("refuses when provider is claude-code (CLI, no API key)", async () => {
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "claude-code",
-      model: "claude-opus-4-8",
-      apiKey: "",
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.recoveryReason).toMatch(/API provider/i);
-      expect(result.originalDiagnosis).toMatch(/Session 1/);
-    }
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses when provider is codex (CLI, no API key)", async () => {
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "codex",
-      model: "gpt-5",
-      apiKey: "",
-    });
-    expect(result.ok).toBe(false);
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses when API key is empty for an API provider", async () => {
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      apiKey: "   ",
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.recoveryReason).toMatch(/No API key/i);
-      expect(result.recoveryReason).toMatch(/anthropic/);
-    }
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("refuses when model name is missing", async () => {
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "anthropic",
-      model: "",
-      apiKey: "sk-test",
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.recoveryReason).toMatch(/No model configured/i);
-    }
-    expect(invokeMock).not.toHaveBeenCalled();
+describe("recoverSessionPlan — transport is invoked with the diagnosis", () => {
+  it("passes the spec, filename, and the parser's diagnosis to the transport", async () => {
+    const transport = vi.fn<RecoveryTransport>().mockResolvedValue(validSpec());
+    await recoverSessionPlan(baseCtx, transport);
+    expect(transport).toHaveBeenCalledTimes(1);
+    const arg = transport.mock.calls[0][0];
+    expect(arg.specMarkdown).toBe(brokenSpec());
+    expect(arg.filename).toBe("demo.md");
+    expect(arg.diagnosis).toMatch(/Session 1/);
+    expect(arg.diagnosis).toMatch(/Prompt for Claude Code/);
   });
 });
 
-describe("recoverSessionPlan — happy path", () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
+describe("recoverSessionPlan — structured envelope (CLI in-band shape)", () => {
+  it("builds the plan from a JSON envelope, regex-free, with no markdown to save", async () => {
+    const envelope = `${GUIDE_RECOVERY_MARKER}
+{"title":"Demo","sessions":[
+  {"title":"One","prompt":"do one"},
+  {"title":"Two","prompt":"do two"}
+]}`;
+    const transport: RecoveryTransport = async () => envelope;
+    const result = await recoverSessionPlan(baseCtx, transport);
+    expect(result.degraded).toBe(false);
+    expect(result.source).toBe("envelope");
+    expect(result.parsed.sessions).toHaveLength(2);
+    expect(result.correctedMarkdown).toBeNull();
+    expect(result.originalDiagnosis).toMatch(/Session 1/);
+    expect(result.provider).toBe("claude-code");
   });
+});
 
-  it("returns ok=true with the parsed plan when the AI returns a parseable spec", async () => {
-    invokeMock.mockResolvedValueOnce({
-      recoveredMarkdown: validSpec(),
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-    });
-
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      apiKey: "sk-test",
-    });
-
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith(
-      "recover_session_plan",
-      expect.objectContaining({
-        provider: "anthropic",
-        apiKey: "sk-test",
-        model: "claude-opus-4-8",
-        filename: "demo.md",
-      }),
+describe("recoverSessionPlan — corrected markdown (API shape)", () => {
+  it("re-parses corrected markdown and offers it for save-corrected", async () => {
+    const transport: RecoveryTransport = async () => validSpec();
+    const result = await recoverSessionPlan(
+      { ...baseCtx, provider: "anthropic" },
+      transport,
     );
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.parsed.sessions).toHaveLength(3);
-      expect(result.provider).toBe("anthropic");
-      expect(result.originalDiagnosis).toMatch(/Session 1/);
-    }
-  });
-
-  it("passes the parser's diagnosis through to the backend so the prompt is targeted", async () => {
-    invokeMock.mockResolvedValueOnce({
-      recoveredMarkdown: validSpec(),
-      provider: "openai",
-      model: "gpt-5",
-    });
-
-    await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "openai",
-      model: "gpt-5",
-      apiKey: "sk-test",
-    });
-
-    const [, args] = invokeMock.mock.calls[0];
-    const typed = args as { diagnosis: string };
-    expect(typed.diagnosis).toMatch(/Session 1/);
-    expect(typed.diagnosis).toMatch(/Prompt for Claude Code/);
+    expect(result.degraded).toBe(false);
+    expect(result.source).toBe("markdown");
+    expect(result.parsed.sessions).toHaveLength(3);
+    expect(result.correctedMarkdown).toBe(validSpec());
   });
 });
 
-describe("recoverSessionPlan — recovery failures", () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
+describe("recoverSessionPlan — never hard-fails", () => {
+  it("degrades to a single-session plan when the transport returns nothing (no key / CLI)", async () => {
+    const transport: RecoveryTransport = async () => "";
+    const result = await recoverSessionPlan(baseCtx, transport);
+    expect(result.degraded).toBe(true);
+    expect(result.source).toBe("degraded");
+    expect(result.parsed.sessions).toHaveLength(1);
+    // The original parser diagnosis is still surfaced for transparency.
+    expect(result.originalDiagnosis).toMatch(/Session 1/);
   });
 
-  it("returns ok=false when the backend invoke rejects", async () => {
-    invokeMock.mockRejectedValueOnce("Anthropic API error 401: invalid key");
-
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      apiKey: "sk-bad",
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.recoveryReason).toMatch(/Anthropic API error 401/);
-      // Original diagnosis is still surfaced so the user sees both layers.
-      expect(result.originalDiagnosis).toMatch(/Session 1/);
-    }
+  it("degrades when the transport throws (HTTP error, cancelled CLI turn)", async () => {
+    const transport: RecoveryTransport = async () => {
+      throw new Error("Anthropic API error 401: invalid key");
+    };
+    const result = await recoverSessionPlan(baseCtx, transport);
+    expect(result.degraded).toBe(true);
+    expect(result.parsed.sessions).toHaveLength(1);
   });
 
-  it("returns ok=false when the AI returned text that still doesn't parse", async () => {
-    // The AI did something, but didn't actually fix the Session 1 prompt block.
-    invokeMock.mockResolvedValueOnce({
-      recoveredMarkdown: brokenSpec(), // unchanged!
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-    });
-
-    const result = await recoverSessionPlan({
-      specMarkdown: brokenSpec(),
-      filename: "demo.md",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      apiKey: "sk-test",
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.recoveryReason).toMatch(/result still does not parse/);
-      expect(result.recoveryReason).toMatch(/Session 1/);
-    }
+  it("degrades when the model returned text that still doesn't parse", async () => {
+    const transport: RecoveryTransport = async () => brokenSpec(); // unchanged
+    const result = await recoverSessionPlan(baseCtx, transport);
+    expect(result.degraded).toBe(true);
+    expect(result.source).toBe("degraded");
   });
 });

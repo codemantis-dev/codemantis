@@ -1,19 +1,24 @@
 /**
  * Integration: Recognize Guide auto-recovery (AI fallback).
  *
- * Pins the contract between `handleRecognizeGuide`, the AI repair backend,
- * the toast surface, and the guide store when the strict regex parser
- * fails on a real-world spec.
+ * Pins the contract between `handleRecognizeGuide`, AI recovery, the toast
+ * surface, and the guide store when the strict regex parser fails on a
+ * real-world spec.
  *
  * Fixture: src/lib/__fixtures__/webcreator-v2-spec.md — a 13-session,
  * 135 KB spec where Sonnet forgot the `**Prompt for Claude Code:**` fence
- * label on Session 1. Today the parser aborts; this test pins the
- * AI-recovery path that lets the other 12 sessions through.
+ * label on Session 1. The parser aborts; recovery rescues it.
+ *
+ * Recovery is now available on EVERY provider and NEVER hard-fails:
+ *   • API providers recover via the `recover_session_plan` command,
+ *   • CLI providers (claude-code / codex) recover IN-BAND via the live
+ *     session (router.recoverGuideViaCli) with NO API key, and
+ *   • if neither yields a clean plan, recovery degrades to a single-session
+ *     guide instead of dead-ending.
  *
  * Why this lives in /integration: it exercises the parser, the recovery
- * wrapper, the settings store, the guide store, the toast store, and the
- * mocked Tauri command in one chain. Unit tests for each piece exist
- * separately; this one catches drift between them.
+ * wrapper, the envelope extractor, the settings store, the guide store, the
+ * toast store, and the mocked transports in one chain.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -36,6 +41,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args: unknown) => invokeMock(cmd, args),
 }));
 
+// The in-band CLI recovery transport, exposed by the router. Hoisted so each
+// test can drive what the live CLI session "returns" for a recovery turn.
+const routerMocks = vi.hoisted(() => ({
+  recoverGuideViaCli: vi.fn<(projectPath: string, prompt: string) => Promise<string>>(),
+}));
+
 // useSpecWriterActions reaches into several conversation hooks that
 // otherwise spin up CLI sessions. We don't need any of that to exercise
 // the Recognize Guide flow.
@@ -49,6 +60,7 @@ vi.mock("../../hooks/useSpecConversationRouter", () => ({
     generateAudit: vi.fn(),
     cancelStream: vi.fn(),
     requestRecheck: vi.fn().mockReturnValue(true),
+    recoverGuideViaCli: routerMocks.recoverGuideViaCli,
   }),
 }));
 vi.mock("../../hooks/useSpecConversation", () => ({
@@ -195,8 +207,23 @@ function primeStores(opts: {
 
 beforeEach(() => {
   invokeMock.mockReset();
+  routerMocks.recoverGuideViaCli.mockReset();
   resetAllStores();
 });
+
+// A structured JSON envelope the live CLI session would return for an in-band
+// recovery turn — the regex-free path. Mirrors GUIDE_RECOVERY_MARKER.
+function envelopeReply(): string {
+  const obj = {
+    title: "WebCreator Lead Discovery",
+    sessions: Array.from({ length: 12 }, (_, i) => ({
+      title: `Session ${i + 1}`,
+      prompt: `Implement part ${i + 1} per the spec.`,
+      files: [`src/part${i + 1}.ts`],
+    })),
+  };
+  return `<!-- SESSION-PLAN-JSON -->\n${JSON.stringify(obj)}`;
+}
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -319,10 +346,11 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
     });
   });
 
-  it("refuses to call recovery when the SpecWriter provider is CLI-only", async () => {
+  it("recovers IN-BAND via the live CLI session when the provider is claude-code (no API key)", async () => {
     primeStores({ provider: "claude-code", apiKey: "" });
-    // No invoke handler — if recovery were called, the test would fail
-    // when the unmocked invoke returned undefined and crashed the flow.
+    // The CLI path must NOT touch the API recovery command, and must NOT
+    // dead-end asking for an API key — it asks the running agent instead.
+    routerMocks.recoverGuideViaCli.mockResolvedValue(envelopeReply());
 
     const { result } = renderHook(() => useSpecWriterActions(PROJECT_PATH));
 
@@ -330,24 +358,32 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
       await result.current.handleRecognizeGuide();
     });
 
+    // In-band transport was used; the HTTP recovery command was NOT.
+    expect(routerMocks.recoverGuideViaCli).toHaveBeenCalledTimes(1);
+    const [projectArg, promptArg] = routerMocks.recoverGuideViaCli.mock.calls[0];
+    expect(projectArg).toBe(PROJECT_PATH);
+    expect(promptArg).toMatch(/SESSION-PLAN-JSON/);
+    expect(promptArg).toMatch(/Session 1/); // diagnosis is embedded
     expect(
       invokeMock.mock.calls.find((c) => c[0] === "recover_session_plan"),
     ).toBeUndefined();
 
-    // The user sees a red error with BOTH halves: parser diagnosis AND
-    // why recovery couldn't auto-fix.
+    // The guide was created from the structured envelope.
+    await waitFor(() => {
+      expect(useGuideStore.getState().guide).not.toBeNull();
+    });
+    expect(useGuideStore.getState().guide!.sessions).toHaveLength(12);
+
+    // No dead-end: the old "configure an API key" error must never appear.
     const toasts = useToastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
-    expect(toasts[0].type).toBe("error");
-    expect(toasts[0].message).toMatch(/Session 1/);
-    expect(toasts[0].message).toMatch(/Auto-recovery failed/);
-    expect(toasts[0].message).toMatch(/API provider/i);
-
-    // No guide was created.
-    expect(useGuideStore.getState().guide).toBeNull();
+    expect(toasts[0].type).not.toBe("error");
+    expect(toasts[0].message).not.toMatch(/API provider/i);
+    expect(toasts[0].message).not.toMatch(/Configure an API key/i);
+    expect(toasts[0].message).toMatch(/auto-recovered/i);
   });
 
-  it("refuses when the API key is empty", async () => {
+  it("degrades to a runnable single-session guide when the API key is empty (never dead-ends)", async () => {
     primeStores({ provider: "openai", model: "gpt-5", apiKey: "" });
 
     const { result } = renderHook(() => useSpecWriterActions(PROJECT_PATH));
@@ -356,16 +392,23 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
       await result.current.handleRecognizeGuide();
     });
 
+    // With no key, the transport returns nothing — the command is never hit.
     expect(
       invokeMock.mock.calls.find((c) => c[0] === "recover_session_plan"),
     ).toBeUndefined();
 
+    // A usable degraded guide is created instead of a red error.
+    await waitFor(() => {
+      expect(useGuideStore.getState().guide).not.toBeNull();
+    });
+    expect(useGuideStore.getState().guide!.sessions).toHaveLength(1);
+
     const toasts = useToastStore.getState().toasts;
-    expect(toasts[0].type).toBe("error");
-    expect(toasts[0].message).toMatch(/No API key/i);
+    expect(toasts[0].type).not.toBe("error");
+    expect(toasts[0].message).toMatch(/single-session guide/i);
   });
 
-  it("surfaces a red error when the AI response still does not parse", async () => {
+  it("degrades to a single-session guide when the AI response still does not parse", async () => {
     primeStores({ provider: "anthropic", apiKey: "sk-test-key" });
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "recover_session_plan") {
@@ -385,12 +428,33 @@ describe("handleRecognizeGuide — AI recovery path (webcreator-v2 fixture)", ()
       await result.current.handleRecognizeGuide();
     });
 
+    // Never a red error, never a null guide — a runnable guide is produced.
+    await waitFor(() => {
+      expect(useGuideStore.getState().guide).not.toBeNull();
+    });
+    expect(useGuideStore.getState().guide!.sessions).toHaveLength(1);
     const toasts = useToastStore.getState().toasts;
-    expect(toasts[0].type).toBe("error");
-    expect(toasts[0].message).toMatch(/Session 1/);
-    // The second-layer reason references the model that tried to repair
-    // it, so the user can tell at a glance which provider underperformed.
-    expect(toasts[0].message).toMatch(/anthropic/);
-    expect(useGuideStore.getState().guide).toBeNull();
+    expect(toasts[0].type).not.toBe("error");
+    expect(toasts[0].message).toMatch(/single-session guide/i);
+  });
+
+  it("degrades (not dead-ends) when even the in-band CLI recovery comes back empty", async () => {
+    primeStores({ provider: "claude-code", apiKey: "" });
+    routerMocks.recoverGuideViaCli.mockResolvedValue(""); // model produced nothing
+
+    const { result } = renderHook(() => useSpecWriterActions(PROJECT_PATH));
+
+    await act(async () => {
+      await result.current.handleRecognizeGuide();
+    });
+
+    expect(routerMocks.recoverGuideViaCli).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(useGuideStore.getState().guide).not.toBeNull();
+    });
+    expect(useGuideStore.getState().guide!.sessions).toHaveLength(1);
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts[0].type).not.toBe("error");
+    expect(toasts[0].message).toMatch(/single-session guide/i);
   });
 });

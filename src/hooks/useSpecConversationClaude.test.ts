@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSpecWriterStore } from "../stores/specWriterStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -874,6 +874,75 @@ describe("useSpecConversationClaude", () => {
       const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
       const assistantMsg = [...conv!.messages].reverse().find((m) => m.role === "assistant");
       expect(assistantMsg!.content).toBe("Claude reply.");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // recoverGuideViaCli — in-band, key-free guide recovery
+  //
+  // Recognize Guide on the CLI path: a recovery prompt is sent INTO the live
+  // session and the reply is captured for the Recognize-Guide flow without
+  // ever landing in the chat or touching the spec. Mirrors the AUDIT-PATCH
+  // mechanism. See plan again-specwriter-creates-a-humble-scone.
+  // -----------------------------------------------------------------------
+  describe("recoverGuideViaCli", () => {
+    /** Fire the recovery turn, drive its event callback, await the reply. */
+    async function runRecovery(
+      drive: (onEvent: (e: unknown) => void) => void,
+    ): Promise<string> {
+      const { result } = renderHook(() => useSpecConversationClaude());
+      let recovered = "";
+      await act(async () => {
+        const p = result.current.recoverGuideViaCli(PROJECT, "Repair this spec into a guide");
+        // Wait until sendMessage has registered the chat-event listener.
+        await waitFor(() => expect(mockListenChatEvents).toHaveBeenCalled());
+        const calls = mockListenChatEvents.mock.calls as unknown as Array<[string, (e: unknown) => void]>;
+        drive(calls[calls.length - 1][1]);
+        recovered = await p;
+      });
+      return recovered;
+    }
+
+    it("resolves with the model's raw reply on turn_complete", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+      // Seed an existing spec so we can prove recovery never mutates it.
+      useSpecWriterStore.getState().setCurrentSpecContent(PROJECT, "# Existing spec");
+
+      const recovered = await runRecovery((onEvent) => {
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: "<!-- SESSION-PLAN-JSON -->\n" });
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: '{"sessions":[]}' });
+        onEvent({ type: "turn_complete", session_id: "cli-session-123" });
+      });
+
+      expect(recovered).toContain("SESSION-PLAN-JSON");
+      expect(recovered).toContain('{"sessions":[]}');
+
+      // The recovery prompt + reply NEVER appear in the conversation, and the
+      // spec is untouched — it's an out-of-band repair, not a chat turn.
+      const conv = useSpecWriterStore.getState().conversations.get(PROJECT);
+      expect(conv!.messages.length).toBe(0);
+      expect(useSpecWriterStore.getState().currentSpecContent.get(PROJECT)).toBe("# Existing spec");
+      // Spinner cleared.
+      expect(useSpecWriterStore.getState().planningStreaming.get(PROJECT)).toBe(false);
+      // The recovery prompt was actually sent to the CLI.
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        "cli-session-123",
+        "Repair this spec into a guide",
+      );
+    });
+
+    it("resolves with empty string when the process errors mid-recovery (degrades, never hangs)", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+
+      const recovered = await runRecovery((onEvent) => {
+        onEvent({ type: "process_error", session_id: "cli-session-123", error: "boom" });
+      });
+
+      expect(recovered).toBe("");
     });
   });
 });

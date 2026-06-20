@@ -24,6 +24,13 @@ export function useSpecConversationRouter(): {
   cancelStream: (projectPath: string) => void;
   /** Stage 3: re-dispatch the latest audit recheck prompt. */
   requestRecheck: (projectPath: string) => boolean;
+  /**
+   * Recognize Guide (CLI path): send a recovery prompt into the live CLI
+   * session and resolve with the model's raw reply. Only meaningful for
+   * claude-code / codex providers (the caller branches on provider); API
+   * providers recover via the `recover_session_plan` command instead.
+   */
+  recoverGuideViaCli: (projectPath: string, prompt: string) => Promise<string>;
 } {
   const api = useSpecConversation();
   const cli = useSpecConversationClaude();
@@ -106,6 +113,14 @@ export function useSpecConversationRouter(): {
     [api, cli, isClaudeCode]
   );
 
+  // CLI-only — the in-band recovery lives on the Claude/Codex hook. The
+  // actions layer only calls this when the provider is a local CLI.
+  const recoverGuideViaCli = useCallback(
+    (projectPath: string, prompt: string): Promise<string> =>
+      cli.recoverGuideViaCli(projectPath, prompt),
+    [cli],
+  );
+
   return {
     sendMessage,
     writeSpec,
@@ -113,5 +128,6 @@ export function useSpecConversationRouter(): {
     loadContext,
     cancelStream,
     requestRecheck,
+    recoverGuideViaCli,
   };
 }
