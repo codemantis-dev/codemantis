@@ -119,13 +119,18 @@ function AgentColumn({
           className={selectClass}
           style={selectStyle}
         >
-          <option value="">{effortLevels.length === 0 ? "Not applicable" : "Default"}</option>
+          <option value="">Default</option>
           {effortLevels.map((lvl) => (
             <option key={lvl} value={lvl}>
               {lvl}
             </option>
           ))}
         </select>
+        {effortLevels.length === 0 && (
+          <span className="block mt-0.5 text-detail" style={{ color: "var(--text-dim)" }}>
+            Uses the model default until a {agentId === "codex" ? "Codex" : "Claude Code"} session has run.
+          </span>
+        )}
       </label>
     </div>
   );

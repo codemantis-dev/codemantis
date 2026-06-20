@@ -80,4 +80,14 @@ describe("cliModelCacheStore", () => {
     expect(useCliModelCacheStore.getState().getModels("codex")).toBeUndefined();
     expect(useCliModelCacheStore.getState().getModels("claude_code")).toBeUndefined();
   });
+
+  it("persists the cache to localStorage so it survives a launch", () => {
+    useCliModelCacheStore.getState().setModels("codex", codexModels);
+    const raw = localStorage.getItem("cm-cli-model-cache");
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw as string);
+    // zustand persist nests under `state`; only data is persisted (not methods).
+    expect(parsed.state.models.codex).toEqual(codexModels);
+    expect(parsed.state.populatedAt.codex).toBeTypeOf("number");
+  });
 });

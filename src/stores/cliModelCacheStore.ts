@@ -1,10 +1,18 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { AgentId, CliModelInfo } from "../types/agent-events";
 
 /**
  * Per-agent cache of the most recently seen `model/list` payload, populated
- * as a side-effect of any session emitting CapabilitiesDiscovered. Lives in
- * memory for the duration of the CodeMantis run; not persisted.
+ * as a side-effect of any session emitting CapabilitiesDiscovered.
+ *
+ * Persisted across launches (localStorage): capabilities are LIVE data we
+ * learned from a real session, and remembering them lets pre-spawn consumers
+ * (the Duo setup modal's model + effort dropdowns, SpecWriter, Settings) offer
+ * a previously-seen agent's models/effort levels immediately on the next
+ * launch instead of going blank until that agent runs again. The live
+ * `model/list` of any new session still overrides the cache, so it self-heals
+ * across CLI upgrades — we never hardcode or invent values, only remember.
  *
  * Motivation: the chat ModelSelector reads `sessionStore.sessionCapabilities`
  * keyed by the *active session id*. That's the right scope for the chat
@@ -40,7 +48,9 @@ interface CliModelCacheState {
   clear: (agent?: AgentId) => void;
 }
 
-export const useCliModelCacheStore = create<CliModelCacheState>((set, get) => ({
+export const useCliModelCacheStore = create<CliModelCacheState>()(
+  persist(
+    (set, get) => ({
   models: {},
   populatedAt: {},
 
@@ -73,4 +83,13 @@ export const useCliModelCacheStore = create<CliModelCacheState>((set, get) => ({
       set({ models: {}, populatedAt: {} });
     }
   },
-}));
+    }),
+    {
+      name: "cm-cli-model-cache",
+      storage: createJSONStorage(() => localStorage),
+      // Persist only the data; methods come from the initializer each load.
+      partialize: (s) => ({ models: s.models, populatedAt: s.populatedAt }),
+      version: 1,
+    },
+  ),
+);

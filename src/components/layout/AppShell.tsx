@@ -302,12 +302,17 @@ export default function AppShell() {
         >
           <div className="h-full flex flex-col">
             <div
-              className="flex items-center justify-between px-4 py-2 border-b"
+              className="flex items-center justify-between py-2 pr-4 border-b"
               style={{ borderColor: "var(--border)" }}
+              data-tauri-drag-region
             >
-              <span className="text-ui font-semibold text-text-primary">
-                Mission Control
-              </span>
+              {/* Reserve the macOS traffic-light region (titleBarStyle: Overlay). */}
+              <div className="flex items-center">
+                <div className="w-[78px] shrink-0" data-tauri-drag-region />
+                <span className="text-ui font-semibold text-text-primary">
+                  Mission Control
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowMissionControl(false)}
@@ -356,12 +361,17 @@ export default function AppShell() {
         >
           <div className="h-full flex flex-col">
             <div
-              className="flex items-center justify-between px-4 py-2 border-b"
+              className="flex items-center justify-between py-2 pr-4 border-b"
               style={{ borderColor: "var(--border)" }}
+              data-tauri-drag-region
             >
-              <span className="text-ui font-semibold text-text-primary">
-                Duo-Coding
-              </span>
+              {/* Reserve the macOS traffic-light region (titleBarStyle: Overlay). */}
+              <div className="flex items-center">
+                <div className="w-[78px] shrink-0" data-tauri-drag-region />
+                <span className="text-ui font-semibold text-text-primary">
+                  Duo-Coding
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowDuoDashboard(false)}
