@@ -29,7 +29,7 @@ import { usePreflightStore } from "../../stores/preflightStore";
 import PreflightTray from "../preflight/PreflightTray";
 import MissionControl from "../preflight/MissionControl";
 import MissionControlEmpty from "../preflight/MissionControlEmpty";
-import DuoDashboard from "../duo/DuoDashboard";
+import DuoWorkspace from "../duo/DuoWorkspace";
 import DuoSetupModal from "../duo/DuoSetupModal";
 import MidRunPauseModal from "../preflight/MidRunPauseModal";
 import {
@@ -354,41 +354,6 @@ export default function AppShell() {
         </div>
       )}
 
-      {showDuoDashboard && activeProjectPath && (
-        <div
-          className="fixed inset-0 z-40"
-          style={{ background: "var(--bg-primary)" }}
-        >
-          <div className="h-full flex flex-col">
-            <div
-              className="flex items-center justify-between py-2 pr-4 border-b"
-              style={{ borderColor: "var(--border)" }}
-              data-tauri-drag-region
-            >
-              {/* Reserve the macOS traffic-light region (titleBarStyle: Overlay). */}
-              <div className="flex items-center">
-                <div className="w-[78px] shrink-0" data-tauri-drag-region />
-                <span className="text-ui font-semibold text-text-primary">
-                  Duo-Coding
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDuoDashboard(false)}
-                className="text-detail text-text-secondary hover:text-text-primary"
-              >
-                Close
-              </button>
-            </div>
-            <div className="flex-1 min-h-0">
-              <AppErrorBoundary>
-                <DuoDashboard onConfigure={() => setShowDuoSetup(true)} />
-              </AppErrorBoundary>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showDuoSetup && activeProjectPath && (
         <DuoSetupModal
           open={showDuoSetup}
@@ -425,32 +390,60 @@ export default function AppShell() {
 
         <ResizeHandle onDrag={handleLeftDrag} />
 
-        {/* Center: Chat + Input or Project Log */}
-        <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden pb-3">
-          {showProjectLog ? (
-            <ProjectLogFeed />
-          ) : showClaudeHistory ? (
-            <ClaudeHistory />
-          ) : (
-            <>
-              <div className="flex-1 overflow-hidden">
-                <ChatPanel />
-              </div>
-              <InputArea />
-              <SuperBroStrip />
-            </>
-          )}
-        </div>
+        {showDuoDashboard && activeProjectPath ? (
+          /* Duo-Coding workspace — embedded, spans the center + right region. */
+          <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden">
+            <div
+              className="flex items-center justify-between px-3 py-1.5 border-b shrink-0"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <span className="text-detail font-semibold text-text-primary">
+                Duo-Coding
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDuoDashboard(false)}
+                className="text-detail text-text-secondary hover:text-text-primary"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <AppErrorBoundary>
+                <DuoWorkspace onConfigure={() => setShowDuoSetup(true)} />
+              </AppErrorBoundary>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Center: Chat + Input or Project Log */}
+            <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden pb-3">
+              {showProjectLog ? (
+                <ProjectLogFeed />
+              ) : showClaudeHistory ? (
+                <ClaudeHistory />
+              ) : (
+                <>
+                  <div className="flex-1 overflow-hidden">
+                    <ChatPanel />
+                  </div>
+                  <InputArea />
+                  <SuperBroStrip />
+                </>
+              )}
+            </div>
 
-        <ResizeHandle onDrag={handleRightDrag} />
+            <ResizeHandle onDrag={handleRightDrag} />
 
-        {/* Right Panel */}
-        <div
-          className="shrink-0 border-l border-border overflow-hidden pb-3"
-          style={{ width: rightPanelWidth, minWidth: rightPanelMinWidth }}
-        >
-          <RightPanel />
-        </div>
+            {/* Right Panel */}
+            <div
+              className="shrink-0 border-l border-border overflow-hidden pb-3"
+              style={{ width: rightPanelWidth, minWidth: rightPanelMinWidth }}
+            >
+              <RightPanel />
+            </div>
+          </>
+        )}
       </div>
 
       <ConfirmCloseModal

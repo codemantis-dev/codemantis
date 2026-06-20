@@ -92,6 +92,15 @@ interface SessionState {
 
   // Session management
   addSession: (session: Session) => void;
+  /**
+   * Register a session that should NOT appear in the tab bar and must not steal
+   * focus (e.g. Duo-Coding primary/mentor). Seeds the per-id state maps so chat
+   * streaming + model switching work, but leaves `tabOrder`/`activeSessionId`/
+   * project grouping untouched. Pair with `removeBackgroundSession`.
+   */
+  registerBackgroundSession: (session: Session) => void;
+  /** Remove a background session's per-id state (no tab/active/project effects). */
+  removeBackgroundSession: (sessionId: string) => void;
   removeSession: (sessionId: string) => void;
   setActiveSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => void;
@@ -248,6 +257,67 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         activeProjectPath: projectPath,
         projectOrder,
         projectActiveSession,
+      };
+    }),
+
+  registerBackgroundSession: (session) =>
+    set((state) => {
+      // Mirror addSession's per-id seeding, but DON'T touch tabOrder,
+      // activeSessionId, or project grouping — background sessions (Duo
+      // primary/mentor) render only inside their own workspace.
+      const sessions = new Map(state.sessions);
+      sessions.set(session.id, session);
+      const sessionMessages = new Map(state.sessionMessages);
+      if (!sessionMessages.has(session.id)) sessionMessages.set(session.id, []);
+      const sessionStreaming = new Map(state.sessionStreaming);
+      sessionStreaming.set(session.id, { ...DEFAULT_STREAMING });
+      const sessionContext = new Map(state.sessionContext);
+      const defaultContextMax = useSettingsStore.getState().settings.defaultContextWindow;
+      sessionContext.set(session.id, { used: 0, max: defaultContextMax });
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.set(session.id, { ...DEFAULT_STATS });
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.set(session.id, "normal");
+      const sessionBusy = new Map(state.sessionBusy);
+      if (!sessionBusy.has(session.id)) sessionBusy.set(session.id, false);
+      return {
+        sessions,
+        sessionMessages,
+        sessionStreaming,
+        sessionContext,
+        sessionStats,
+        sessionModes,
+        sessionBusy,
+      };
+    }),
+
+  removeBackgroundSession: (sessionId) =>
+    set((state) => {
+      const sessions = new Map(state.sessions);
+      sessions.delete(sessionId);
+      const sessionMessages = new Map(state.sessionMessages);
+      sessionMessages.delete(sessionId);
+      const sessionStreaming = new Map(state.sessionStreaming);
+      sessionStreaming.delete(sessionId);
+      const sessionContext = new Map(state.sessionContext);
+      sessionContext.delete(sessionId);
+      const sessionStats = new Map(state.sessionStats);
+      sessionStats.delete(sessionId);
+      const sessionModes = new Map(state.sessionModes);
+      sessionModes.delete(sessionId);
+      const sessionBusy = new Map(state.sessionBusy);
+      sessionBusy.delete(sessionId);
+      const sessionCapabilities = new Map(state.sessionCapabilities);
+      sessionCapabilities.delete(sessionId);
+      return {
+        sessions,
+        sessionMessages,
+        sessionStreaming,
+        sessionContext,
+        sessionStats,
+        sessionModes,
+        sessionBusy,
+        sessionCapabilities,
       };
     }),
 

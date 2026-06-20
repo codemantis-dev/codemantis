@@ -129,15 +129,34 @@ function AgentBubble({ turn }: { turn: DuoDialogueTurn }): React.ReactElement {
   );
 }
 
-export default function DuoDialogueView(): React.ReactElement {
+interface DuoDialogueViewProps {
+  /**
+   * "full" (default) shows the entire conversation incl. raw primary/mentor
+   * prose. "orchestrator" shows only the orchestrator's view — mentor verdict
+   * reviews + system outcome/decision markers — since the raw agent chat is
+   * already visible in the split panes.
+   */
+  variant?: "full" | "orchestrator";
+}
+
+export default function DuoDialogueView({ variant = "full" }: DuoDialogueViewProps = {}): React.ReactElement {
   const dialogue = useDuoStore((s) => s.dialogue);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
+  // In the orchestrator card, drop the agents' raw turns (those live in the
+  // split panes) — keep mentor reviews (verdicts) + every system marker.
+  const shown =
+    variant === "orchestrator"
+      ? dialogue.filter(
+          (t) => t.author === "system" || (t.author === "duo" && t.stance === "review"),
+        )
+      : dialogue;
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [dialogue.length]);
+  }, [shown.length]);
 
-  if (dialogue.length === 0) {
+  if (shown.length === 0) {
     return (
       <div
         className="rounded-lg border p-4 text-detail"
@@ -147,17 +166,19 @@ export default function DuoDialogueView(): React.ReactElement {
           color: "var(--text-dim)",
         }}
       >
-        Waiting for the first turn — the conversation appears here as the agents work.
+        {variant === "orchestrator"
+          ? "No decisions yet — the orchestrator's reviews and outcomes appear here."
+          : "Waiting for the first turn — the conversation appears here as the agents work."}
       </div>
     );
   }
 
   return (
     <div
-      className="rounded-lg border p-3 flex flex-col gap-2 overflow-y-auto"
-      style={{ background: "var(--bg-elevated)", borderColor: "var(--border)", maxHeight: "60vh" }}
+      className="rounded-lg border p-3 flex flex-col gap-2 overflow-y-auto h-full"
+      style={{ background: "var(--bg-elevated)", borderColor: "var(--border)" }}
     >
-      {dialogue.map((turn) =>
+      {shown.map((turn) =>
         turn.author === "system" ? (
           <SystemMarker key={turn.id} turn={turn} />
         ) : (

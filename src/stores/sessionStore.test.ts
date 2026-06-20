@@ -46,6 +46,36 @@ describe("sessionStore", () => {
     expect(state.sessionMessages.get("s1")).toEqual([]);
   });
 
+  it("registerBackgroundSession adds to sessions WITHOUT touching tabOrder or activeSessionId", () => {
+    const duo: Session = { ...TEST_SESSION, id: "duo-1", duoRole: "primary" };
+    useSessionStore.getState().registerBackgroundSession(duo);
+    const state = useSessionStore.getState();
+    expect(state.sessions.get("duo-1")?.duoRole).toBe("primary");
+    expect(state.sessionMessages.get("duo-1")).toEqual([]);
+    expect(state.sessionStreaming.get("duo-1")).toBeDefined();
+    // The key invariant: no tab, no focus steal.
+    expect(state.tabOrder).toEqual([]);
+    expect(state.activeSessionId).toBeNull();
+  });
+
+  it("registerBackgroundSession does not disturb the active session", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    useSessionStore.getState().registerBackgroundSession({ ...TEST_SESSION, id: "duo-1", duoRole: "mentor" });
+    const state = useSessionStore.getState();
+    expect(state.activeSessionId).toBe("s1"); // unchanged
+    expect(state.tabOrder).toEqual(["s1"]); // duo-1 absent
+    expect(state.sessions.has("duo-1")).toBe(true);
+  });
+
+  it("removeBackgroundSession clears its per-id state", () => {
+    useSessionStore.getState().registerBackgroundSession({ ...TEST_SESSION, id: "duo-1", duoRole: "primary" });
+    useSessionStore.getState().removeBackgroundSession("duo-1");
+    const state = useSessionStore.getState();
+    expect(state.sessions.has("duo-1")).toBe(false);
+    expect(state.sessionMessages.has("duo-1")).toBe(false);
+    expect(state.sessionStreaming.has("duo-1")).toBe(false);
+  });
+
   it("removeSession clears data and selects adjacent tab", () => {
     useSessionStore.getState().addSession(TEST_SESSION);
     useSessionStore.getState().addSession({ ...TEST_SESSION, id: "s2", name: "Test2" });

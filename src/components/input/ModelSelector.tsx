@@ -11,16 +11,22 @@ import { CODEX_FALLBACK_MODELS } from "../../lib/codex-models";
 // in-flight) lives in the shared resolver so the Duo setup modal reuses it.
 import { CLAUDE_FALLBACK_MODELS } from "../../lib/agent-model-options";
 
-export default function ModelSelector() {
+interface ModelSelectorProps {
+  /** Target a specific session (e.g. a Duo agent pane). Defaults to the active session. */
+  sessionId?: string;
+}
+
+export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const targetSessionId = sessionId ?? activeSessionId;
   const sessions = useSessionStore((s) => s.sessions);
   const sessionCapabilities = useSessionStore((s) => s.sessionCapabilities);
   // Subscribe to the per-agent last-known-good model cache so we re-render
   // when any session populates it.
   const cachedModelsByAgent = useCliModelCacheStore((s) => s.models);
 
-  const session = activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-  const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  const session = targetSessionId ? sessions.get(targetSessionId) ?? null : null;
+  const caps = targetSessionId ? sessionCapabilities.get(targetSessionId) : undefined;
   const agent = session?.agent_id ?? "claude_code";
   // Agent-aware fallback: Codex sessions must never see Claude models
   // (Sonnet/Opus/Haiku) — that's user-visibly wrong even for the brief
@@ -56,8 +62,8 @@ export default function ModelSelector() {
     formatModelName(session?.model ?? resolvedDefault) ?? "Model";
 
   const handleSelect = (model: CliModelInfo) => {
-    if (!activeSessionId) return;
-    setSessionModel(activeSessionId, model.value).catch((e) =>
+    if (!targetSessionId) return;
+    setSessionModel(targetSessionId, model.value).catch((e) =>
       console.error("Failed to set model:", e)
     );
     setOpen(false);

@@ -192,6 +192,25 @@ describe("Duo-Coding orchestration", () => {
     expect(mockSetSessionMode).toHaveBeenCalledWith(DUO, "plan");
     // The primary received the task as its first prompt.
     expect(mockSendMessage).toHaveBeenCalledWith(PRIMARY, "Add a logout button");
+    // Both agents are registered as background sessions (so their chat renders
+    // + the orchestrator can read it) without appearing in the tab bar.
+    expect(useSessionStore.getState().sessions.get(PRIMARY)?.duoRole).toBe("primary");
+    expect(useSessionStore.getState().sessions.get(DUO)?.duoRole).toBe("mentor");
+    expect(useSessionStore.getState().tabOrder).not.toContain(PRIMARY);
+  });
+
+  it("routes the primary's chat into sessionStore so it renders AND feeds the orchestrator", async () => {
+    await startRun();
+    // Fire a REAL text_complete (not a manual addMessage) — the duoStore chat
+    // listener routes it through handleChatEvent into sessionStore.
+    chatCallbacks.get(PRIMARY)?.({
+      type: "text_complete",
+      session_id: PRIMARY,
+      full_text: "Implemented the logout button.",
+    } as unknown as FrontendEvent);
+    await flush();
+    const msgs = useSessionStore.getState().sessionMessages.get(PRIMARY) ?? [];
+    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("Implemented the logout button"))).toBe(true);
   });
 
   it("logs an agreement and injects no repair when the mentor agrees", async () => {

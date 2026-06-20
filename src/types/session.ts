@@ -16,6 +16,13 @@ export interface Session {
   model: string | null;
   icon_index: number;
   cli_session_id?: string | null;
+  /**
+   * Set for the primary/mentor sessions of a Duo-Coding run. Such sessions are
+   * registered in the store (so their chat streams + model switching work) but
+   * kept OUT of the normal tab bar — they render only inside the Duo workspace.
+   * Absent for normal sessions.
+   */
+  duoRole?: "primary" | "mentor";
 }
 
 export type SessionStatus =

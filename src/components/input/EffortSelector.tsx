@@ -105,25 +105,31 @@ export function EffortBars({
   );
 }
 
-export default function EffortSelector() {
+interface EffortSelectorProps {
+  /** Target a specific session (e.g. a Duo agent pane). Defaults to the active session. */
+  sessionId?: string;
+}
+
+export default function EffortSelector({ sessionId }: EffortSelectorProps = {}) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const targetSessionId = sessionId ?? activeSessionId;
   const session = useSessionStore((s) =>
-    s.activeSessionId ? s.sessions.get(s.activeSessionId) ?? null : null,
+    targetSessionId ? s.sessions.get(targetSessionId) ?? null : null,
   );
   const sessionCapabilities = useSessionStore((s) => s.sessionCapabilities);
   // Subscribe to the per-agent last-known-good model cache so the effort
   // selector survives brief capability gaps and re-renders when it populates.
   const cachedModelsByAgent = useCliModelCacheStore((s) => s.models);
   const sessionEffort = useSessionStore((s) =>
-    s.activeSessionId ? s.sessionEffort.get(s.activeSessionId) : undefined,
+    targetSessionId ? s.sessionEffort.get(targetSessionId) : undefined,
   );
   const sessionStreaming = useSessionStore((s) =>
-    s.activeSessionId
-      ? s.sessionStreaming.get(s.activeSessionId)?.isStreaming ?? false
+    targetSessionId
+      ? s.sessionStreaming.get(targetSessionId)?.isStreaming ?? false
       : false,
   );
   const sessionBusy = useSessionStore((s) =>
-    s.activeSessionId ? s.sessionBusy.get(s.activeSessionId) ?? false : false,
+    targetSessionId ? s.sessionBusy.get(targetSessionId) ?? false : false,
   );
   const setSessionEffort = useSessionStore((s) => s.setSessionEffort);
   const settings = useSettingsStore((s) => s.settings);
@@ -133,7 +139,7 @@ export default function EffortSelector() {
   const [restarting, setRestarting] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
-  const caps = activeSessionId ? sessionCapabilities.get(activeSessionId) : undefined;
+  const caps = targetSessionId ? sessionCapabilities.get(targetSessionId) : undefined;
   const agent = session?.agent_id ?? "claude_code";
   // Model-list source, in resolution order: live per-session caps →
   // per-agent last-known-good cache → empty. The cache carries full
@@ -169,7 +175,7 @@ export default function EffortSelector() {
   const supportsEffort = activeModel?.supportsEffort === true;
   const levels: string[] = activeModel?.supportedEffortLevels ?? [];
 
-  if (!activeSessionId || !supportsEffort || levels.length === 0) {
+  if (!targetSessionId || !supportsEffort || levels.length === 0) {
     return null;
   }
 
@@ -212,12 +218,12 @@ export default function EffortSelector() {
     // command (no process restart needed). The optimistic local update
     // means the label reflects the click instantly; the EffortChanged
     // event from the adapter confirms it (or surfaces an error).
-    if (isCodex && activeSessionId) {
+    if (isCodex && targetSessionId) {
       const previous = runningLevel;
-      setSessionEffort(activeSessionId, next);
+      setSessionEffort(targetSessionId, next);
       setOpen(false);
-      setSessionEffortCmd(activeSessionId, next).catch((err) => {
-        if (previous) setSessionEffort(activeSessionId, previous);
+      setSessionEffortCmd(targetSessionId, next).catch((err) => {
+        if (previous) setSessionEffort(targetSessionId, previous);
         handleError("EffortSelector.codexSetEffort", err);
         showToast("Failed to update Codex effort.", "error");
       });
@@ -231,7 +237,7 @@ export default function EffortSelector() {
   };
 
   const handleRestart = async () => {
-    if (!activeSessionId || !restartTarget) return;
+    if (!targetSessionId || !restartTarget) return;
     setRestarting(true);
     setOpen(false);
     const previous = runningLevel;
@@ -246,15 +252,15 @@ export default function EffortSelector() {
       // as the documented `--effort` flag (see process.rs::spawn). The
       // existing CLI session_id is preserved via `--resume`, so the
       // conversation continues from where it left off.
-      await pauseSessionProcess(activeSessionId);
-      await resumeSessionProcess(activeSessionId, undefined);
-      setSessionEffort(activeSessionId, restartTarget);
+      await pauseSessionProcess(targetSessionId);
+      await resumeSessionProcess(targetSessionId, undefined);
+      setSessionEffort(targetSessionId, restartTarget);
       showToast(
         `Session restarted at ${labelFor(restartTarget)} effort.`,
         "success",
       );
     } catch (err) {
-      if (previous) setSessionEffort(activeSessionId, previous);
+      if (previous) setSessionEffort(targetSessionId, previous);
       handleError("EffortSelector.restart", err);
       showToast(
         "Failed to restart session. Try again or close and reopen the session manually.",

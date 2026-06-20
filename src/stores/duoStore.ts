@@ -33,6 +33,7 @@ import {
   duoLogCompletion,
 } from "../lib/tauri-commands";
 import { useSessionStore } from "./sessionStore";
+import { handleChatEvent } from "../lib/event-handlers/chat";
 import { useSettingsStore } from "./settingsStore";
 import { DEFAULT_DUO_SETTINGS, type DuoCodingSettings } from "../types/settings";
 import type { Message } from "../types/session";
@@ -280,13 +281,25 @@ function detachListeners(): void {
 /** Wire turn/activity/snapshot listeners for a (primary, duo) session pair. */
 async function attachListeners(primaryId: string, duoId: string): Promise<void> {
   detachListeners();
+  // Each chat listener BOTH feeds the normal chat pipeline (handleChatEvent →
+  // sessionStore.sessionMessages/streaming, so the panes render live and
+  // collectResponseSince sees real text) AND drives orchestration
+  // (onSessionEvent reacts to turn_complete). duoStore is the sole owner of
+  // these listeners for duoRole sessions (useClaudeSession's reconciler skips
+  // them) so there's no duplicate-delta double-processing.
   listeners.set(
     primaryId,
-    await listenChatEvents(primaryId, (e) => onSessionEvent("primary", e)),
+    await listenChatEvents(primaryId, (e) => {
+      handleChatEvent(primaryId, e);
+      onSessionEvent("primary", e);
+    }),
   );
   listeners.set(
     duoId,
-    await listenChatEvents(duoId, (e) => onSessionEvent("duo", e)),
+    await listenChatEvents(duoId, (e) => {
+      handleChatEvent(duoId, e);
+      onSessionEvent("duo", e);
+    }),
   );
   listeners.set(
     `${primaryId}:activity`,
@@ -419,6 +432,13 @@ export const useDuoStore = create<DuoState>((set, get) => ({
       );
       await setReadOnly(duoSession.id, duo.agentId);
 
+      // Register both as background sessions so their chat streams into
+      // sessionStore (renders in the split panes AND feeds the orchestrator's
+      // collectResponseSince) — without polluting the tab bar or stealing focus.
+      const sessionStore = useSessionStore.getState();
+      sessionStore.registerBackgroundSession({ ...primarySession, duoRole: "primary" });
+      sessionStore.registerBackgroundSession({ ...duoSession, duoRole: "mentor" });
+
       // Persist the task alongside the config so the backend analyst (which
       // reads `config_json.task`) and restart-recovery can recover it.
       await duoStartRun(
@@ -517,9 +537,12 @@ export const useDuoStore = create<DuoState>((set, get) => ({
       // Write a project-progress (changelog) entry summarizing the run.
       await duoLogCompletion(s.runId, outcome).catch(() => {});
     }
-    // Tear down the spawned sessions (best-effort).
+    // Tear down the spawned sessions (best-effort) + drop their store state.
     for (const id of [s.primarySessionId, s.duoSessionId]) {
-      if (id) await closeSession(id).catch(() => {});
+      if (id) {
+        await closeSession(id).catch(() => {});
+        useSessionStore.getState().removeBackgroundSession(id);
+      }
     }
     set({ status: "completed", phase: "completed" });
   },
@@ -565,6 +588,12 @@ export const useDuoStore = create<DuoState>((set, get) => ({
 
   reset: () => {
     detachListeners();
+    // Drop any still-registered background sessions (e.g. reset without stop).
+    const s = get();
+    const store = useSessionStore.getState();
+    for (const id of [s.primarySessionId, s.duoSessionId]) {
+      if (id) store.removeBackgroundSession(id);
+    }
     set({ ...INITIAL, metrics: emptyDuoMetrics() });
   },
 }));
