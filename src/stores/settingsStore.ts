@@ -67,6 +67,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   apiKeyBannerDismissed: false,
   lastCloneDirectory: null,
+  maxCodingAgentSessions: 20,
   sessionLogsEnabled: true,
   sessionLogsRetentionDays: 30,
   codexDebugLoggingEnabled: true,

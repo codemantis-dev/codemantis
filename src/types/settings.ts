@@ -97,6 +97,11 @@ export interface AppSettings {
   // Clone from GitHub
   lastCloneDirectory: string | null;
 
+  /** Maximum number of open coding-agent session tabs allowed at once
+   * (default 20, clamped to 1–100). Enforced in the frontend session
+   * lifecycle (useClaudeSession). */
+  maxCodingAgentSessions: number;
+
   // Session Logs
   sessionLogsEnabled: boolean;
   sessionLogsRetentionDays: number;

@@ -45,6 +45,7 @@ function resetStore(): void {
       onboardingCompleted: false,
       apiKeyBannerDismissed: false,
       lastCloneDirectory: null,
+      maxCodingAgentSessions: 20,
       previewConsoleAutoOpen: true,
       previewLastUrls: {},
       taskBoardPlanningModel: "gemini-3.5-flash",
@@ -219,6 +220,9 @@ describe("settingsStore", () => {
       // Session Logs fields filled from defaults
       expect(settings.sessionLogsEnabled).toBe(true);
       expect(settings.sessionLogsRetentionDays).toBe(30);
+
+      // Coding-agent session limit filled from default
+      expect(settings.maxCodingAgentSessions).toBe(20);
 
       // Task Board fields filled from defaults
       expect(settings.taskBoardPlanningModel).toBe("gemini-3.5-flash");

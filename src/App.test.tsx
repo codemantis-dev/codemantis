@@ -146,6 +146,7 @@ function mockSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     selfDriveConfirmCapabilities: true,
     defaultThinkingEffort: null,
     defaultAgentByTask: {},
+    maxCodingAgentSessions: 20,
     secondOpinionPrivacyAcknowledged: false,
     ...overrides,
   };

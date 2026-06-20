@@ -103,6 +103,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub last_clone_directory: Option<String>,
 
+    // --- Coding-agent session limit ---
+    #[serde(default = "default_max_coding_agent_sessions")]
+    pub max_coding_agent_sessions: u32,
+
     // --- Session Logs ---
     #[serde(default = "default_true")]
     pub session_logs_enabled: bool,
@@ -316,6 +320,9 @@ fn default_model_pricing() -> HashMap<String, ModelPricing> {
 fn default_session_logs_retention_days() -> u32 {
     30
 }
+fn default_max_coding_agent_sessions() -> u32 {
+    20
+}
 fn default_super_bro_provider() -> String {
     "auto".to_string()
 }
@@ -375,6 +382,7 @@ impl Default for AppSettings {
             onboarding_completed: false,
             api_key_banner_dismissed: false,
             last_clone_directory: None,
+            max_coding_agent_sessions: default_max_coding_agent_sessions(),
             session_logs_enabled: true,
             session_logs_retention_days: default_session_logs_retention_days(),
             codex_debug_logging_enabled: true,
@@ -737,6 +745,16 @@ mod tests {
     }
 
     #[test]
+    fn default_max_coding_agent_sessions_is_20() {
+        assert_eq!(default_max_coding_agent_sessions(), 20);
+        let settings = AppSettings::default();
+        assert_eq!(settings.max_coding_agent_sessions, 20);
+        // Legacy settings.json with no such field falls back to the default.
+        let restored: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(restored.max_coding_agent_sessions, 20);
+    }
+
+    #[test]
     fn app_settings_default_optional_fields_are_none() {
         let settings = AppSettings::default();
         assert!(settings.terminal_shell.is_none());
@@ -787,6 +805,7 @@ mod tests {
         assert!(json.get("defaultContextWindow").is_some());
         assert!(json.get("claudeBinaryOverride").is_some());
         assert!(json.get("onboardingCompleted").is_some());
+        assert!(json.get("maxCodingAgentSessions").is_some());
     }
 
     // ── Deserialization with missing fields (uses serde defaults) ──

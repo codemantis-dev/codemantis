@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SectionTitle } from "./SettingsShared";
+import { SectionTitle, FieldRow } from "./SettingsShared";
 import { useUiStore } from "../../../stores/uiStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { checkClaudeStatus, checkCodexStatus } from "../../../lib/tauri-commands";
@@ -207,7 +207,54 @@ export default function AgentsTab(): React.ReactElement {
         with the other agent selected.
       </p>
 
+      <SessionLimitField />
+
       <PerTaskDefaults statuses={statuses} primary={selectedAgentId} />
+    </div>
+  );
+}
+
+/**
+ * Configurable cap on how many coding-agent session tabs can be open at
+ * once. Enforced in `useClaudeSession` (startSession / resumeFromHistory).
+ * Default 20; clamped to 1–100.
+ */
+const MIN_CODING_AGENT_SESSIONS = 1;
+const MAX_CODING_AGENT_SESSIONS = 100;
+
+function SessionLimitField(): React.ReactElement {
+  const maxCodingAgentSessions = useSettingsStore(
+    (s) => s.settings.maxCodingAgentSessions,
+  );
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  const setLimit = (raw: number): void => {
+    const clamped = Math.max(
+      MIN_CODING_AGENT_SESSIONS,
+      Math.min(MAX_CODING_AGENT_SESSIONS, Math.round(raw)),
+    );
+    updateSettings({ maxCodingAgentSessions: clamped }).catch((e) =>
+      handleError("AgentsTab.setSessionLimit", e),
+    );
+  };
+
+  return (
+    <div className="mt-6 pt-5 border-t border-border">
+      <h3 className="text-ui font-medium text-text-primary mb-1">Sessions</h3>
+      <p className="text-label text-text-secondary mb-3">
+        Maximum number of coding-agent session tabs you can keep open at once.
+      </p>
+      <FieldRow label={`Max open sessions (${MIN_CODING_AGENT_SESSIONS}–${MAX_CODING_AGENT_SESSIONS})`}>
+        <input
+          type="number"
+          min={MIN_CODING_AGENT_SESSIONS}
+          max={MAX_CODING_AGENT_SESSIONS}
+          value={maxCodingAgentSessions}
+          onChange={(e) => setLimit(Number(e.target.value))}
+          className="w-16 px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary text-center"
+          data-testid="agents-tab-max-sessions"
+        />
+      </FieldRow>
     </div>
   );
 }

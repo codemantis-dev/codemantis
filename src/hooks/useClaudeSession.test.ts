@@ -189,11 +189,15 @@ describe("useClaudeSession", () => {
     expect(mockListenActivityEvents).toHaveBeenCalledWith("s1", expect.any(Function));
   });
 
-  it("startSession throws at MAX_SESSIONS (10)", async () => {
-    // Fill 10 sessions
+  it("startSession throws at the configured session limit", async () => {
+    // The limit is configurable; use a distinct value to prove it's read
+    // from settings rather than a hardcoded constant.
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, maxCodingAgentSessions: 5 },
+    });
     const sessions = new Map<string, Session>();
     const tabOrder: string[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
       const id = `s${i}`;
       sessions.set(id, makeSession(id));
       tabOrder.push(id);
@@ -206,7 +210,7 @@ describe("useClaudeSession", () => {
       act(async () => {
         await result.current.startSession(PROJECT_PATH);
       })
-    ).rejects.toThrow("Maximum 10 sessions allowed");
+    ).rejects.toThrow("Maximum 5 sessions allowed");
   });
 
   it("startSession calls initializeSession", async () => {
@@ -410,10 +414,13 @@ describe("useClaudeSession", () => {
     expect(mockStartStaleDetection).toHaveBeenCalledWith("s1");
   });
 
-  it("resumeFromHistory throws at MAX_SESSIONS", async () => {
+  it("resumeFromHistory throws at the configured session limit", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, maxCodingAgentSessions: 5 },
+    });
     const sessions = new Map<string, Session>();
     const tabOrder: string[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
       const id = `s${i}`;
       sessions.set(id, makeSession(id));
       tabOrder.push(id);
@@ -426,7 +433,7 @@ describe("useClaudeSession", () => {
       act(async () => {
         await result.current.resumeFromHistory(PROJECT_PATH, "cli-abc", "Old");
       })
-    ).rejects.toThrow("Maximum 10 sessions allowed");
+    ).rejects.toThrow("Maximum 5 sessions allowed");
   });
 
   it("resumeFromHistory loads stored messages regardless of sessionLogsEnabled", async () => {

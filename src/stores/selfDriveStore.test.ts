@@ -277,6 +277,7 @@ function setupReadyState(): void {
       selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
       defaultAgentByTask: {},
+      maxCodingAgentSessions: 20,
       secondOpinionPrivacyAcknowledged: false,
     },
     loaded: true,

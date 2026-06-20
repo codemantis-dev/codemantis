@@ -49,8 +49,6 @@ import { inputDrafts } from "../lib/input-drafts";
 import { scheduleFlushTranscript } from "../lib/session-transcript";
 import { resolveAgentForTaskNow } from "../lib/agent-resolver";
 
-const MAX_SESSIONS = 10;
-
 // Module-level listener map — persists across re-renders
 const sessionListeners = new Map<string, UnlistenFn[]>();
 
@@ -179,9 +177,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
 
   const startSession = useCallback(async (projectPath: string, agentOverride?: AgentId): Promise<string> => {
     const state = sessionStore.getState();
-    if (state.tabOrder.length >= MAX_SESSIONS) {
-      showToast(`Maximum ${MAX_SESSIONS} sessions allowed`, "error");
-      throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
+    const maxSessions = useSettingsStore.getState().settings.maxCodingAgentSessions;
+    if (state.tabOrder.length >= maxSessions) {
+      showToast(`Maximum ${maxSessions} sessions allowed`, "error");
+      throw new Error(`Maximum ${maxSessions} sessions allowed`);
     }
 
     // v1.5.0 Phase 1: route through the per-task resolver. With no
@@ -430,9 +429,10 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     forceFreshThread?: boolean,
   ): Promise<string> => {
     const state = sessionStore.getState();
-    if (state.tabOrder.length >= MAX_SESSIONS) {
-      showToast(`Maximum ${MAX_SESSIONS} sessions allowed`, "error");
-      throw new Error(`Maximum ${MAX_SESSIONS} sessions allowed`);
+    const maxSessions = useSettingsStore.getState().settings.maxCodingAgentSessions;
+    if (state.tabOrder.length >= maxSessions) {
+      showToast(`Maximum ${maxSessions} sessions allowed`, "error");
+      throw new Error(`Maximum ${maxSessions} sessions allowed`);
     }
 
     try {
@@ -658,7 +658,8 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     // here and rely on the fact that we'll remove the paused tab right after
     // the new one is in place.
     const tabCount = sessionStore.getState().tabOrder.length;
-    if (tabCount >= MAX_SESSIONS) {
+    const maxSessions = useSettingsStore.getState().settings.maxCodingAgentSessions;
+    if (tabCount >= maxSessions) {
       // The paused tab itself occupies a slot, so removing it before resume
       // is the only way to stay under the cap. Accept the brief flash in
       // this edge case — it's the only path that doesn't drop the user's tab.

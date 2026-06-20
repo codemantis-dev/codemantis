@@ -82,6 +82,7 @@ selfDriveAutoCommit: false,
   selfDriveConfirmCapabilities: true,
   defaultThinkingEffort: null,
   defaultAgentByTask: {},
+  maxCodingAgentSessions: 20,
   secondOpinionPrivacyAcknowledged: false,
 };
 

@@ -160,6 +160,7 @@ function setupSettings(): void {
       selfDriveConfirmCapabilities: true,
       defaultThinkingEffort: null,
       defaultAgentByTask: {},
+      maxCodingAgentSessions: 20,
       secondOpinionPrivacyAcknowledged: false,
     } as ReturnType<typeof useSettingsStore.getState>['settings'],
     loaded: true,

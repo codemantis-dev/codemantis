@@ -126,3 +126,46 @@ describe("AgentsTab — per-task defaults (v1.5.0 Phase 1)", () => {
     expect(screen.getByText(/Primary is currently/)).toBeInTheDocument();
   });
 });
+
+describe("AgentsTab — coding-agent session limit", () => {
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+  });
+
+  it("renders the configured limit (default 20)", async () => {
+    render(<AgentsTab />);
+    const input = (await screen.findByTestId(
+      "agents-tab-max-sessions",
+    )) as HTMLInputElement;
+    expect(input.value).toBe("20");
+  });
+
+  it("persists a new limit into settings", async () => {
+    render(<AgentsTab />);
+    const input = await screen.findByTestId("agents-tab-max-sessions");
+    fireEvent.change(input, { target: { value: "50" } });
+    await waitFor(() => {
+      expect(
+        useSettingsStore.getState().settings.maxCodingAgentSessions,
+      ).toBe(50);
+    });
+  });
+
+  it("clamps out-of-range input to the 1–100 bounds", async () => {
+    render(<AgentsTab />);
+    const input = await screen.findByTestId("agents-tab-max-sessions");
+    fireEvent.change(input, { target: { value: "999" } });
+    await waitFor(() => {
+      expect(
+        useSettingsStore.getState().settings.maxCodingAgentSessions,
+      ).toBe(100);
+    });
+    fireEvent.change(input, { target: { value: "0" } });
+    await waitFor(() => {
+      expect(
+        useSettingsStore.getState().settings.maxCodingAgentSessions,
+      ).toBe(1);
+    });
+  });
+});

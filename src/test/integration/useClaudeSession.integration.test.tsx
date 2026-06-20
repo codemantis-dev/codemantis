@@ -112,6 +112,7 @@ function setupSettings(): void {
       onboardingCompleted: false,
       apiKeyBannerDismissed: false,
       lastCloneDirectory: null,
+      maxCodingAgentSessions: 20,
       sessionLogsEnabled: false,
       codexDebugLoggingEnabled: true,
       sessionLogsRetentionDays: 30,
@@ -307,27 +308,32 @@ describe("useClaudeSession (Integration)", () => {
 
   // ─── MAX_SESSIONS limit ──────────────────────────────────────────────
 
-  it("MAX_SESSIONS limit prevents creating more than 10", async () => {
+  it("the configured session limit prevents creating more sessions", async () => {
+    // Use a small configured limit so the test stays fast and proves the
+    // cap is driven by settings.maxCodingAgentSessions, not a hardcoded 10.
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, maxCodingAgentSessions: 3 },
+    });
     const { result } = renderHook(() => useClaudeSession());
 
-    // Create 10 sessions (the maximum)
+    // Create sessions up to the maximum
     await act(async () => {
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 3; i++) {
         await result.current.startSession(PROJECT_PATH);
       }
     });
 
-    expect(useSessionStore.getState().tabOrder).toHaveLength(10);
+    expect(useSessionStore.getState().tabOrder).toHaveLength(3);
 
-    // The 11th session should throw
+    // The next session should throw
     await expect(
       act(async () => {
         await result.current.startSession(PROJECT_PATH);
       })
-    ).rejects.toThrow("Maximum 10 sessions allowed");
+    ).rejects.toThrow("Maximum 3 sessions allowed");
 
-    expect(showToast).toHaveBeenCalledWith("Maximum 10 sessions allowed", "error");
-    expect(useSessionStore.getState().tabOrder).toHaveLength(10);
+    expect(showToast).toHaveBeenCalledWith("Maximum 3 sessions allowed", "error");
+    expect(useSessionStore.getState().tabOrder).toHaveLength(3);
   });
 
   // ─── closeSession clears activity entries ─────────────────────────────
