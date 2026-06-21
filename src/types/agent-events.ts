@@ -214,6 +214,12 @@ export interface CompactCompleteEvent {
   session_id: string;
   trigger: string;
   pre_tokens: number | null;
+  /** Post-compaction conversation token count, reported by the Claude CLI
+   * (~2.1.185+) in `compact_metadata.post_tokens`. Used to drop the context
+   * meter to a provisional value immediately on compaction; the next
+   * `usage_update` then snaps it to the true window fill. `null` on older CLIs
+   * and for Codex (which doesn't report it). */
+  post_tokens: number | null;
 }
 
 export interface ToolProgressEvent {

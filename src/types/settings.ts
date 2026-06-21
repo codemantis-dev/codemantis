@@ -206,6 +206,10 @@ export interface DuoCodingSettings {
   maxDialogueRounds: number;
   severeDriftNudgeEnabled: boolean;
   severeDriftSensitivity: "conservative" | "balanced" | "aggressive";
+  /** Mentor reviews the primary's plan before any code is written. */
+  planGateEnabled: boolean;
+  /** Mentor reviews changes continuously (at checkpoints) while the primary works. */
+  liveReviewEnabled: boolean;
   analystEnabled: boolean;
   analystProvider: string;
   analystModel: string;
@@ -220,6 +224,8 @@ export const DEFAULT_DUO_SETTINGS: DuoCodingSettings = {
   maxDialogueRounds: 3,
   severeDriftNudgeEnabled: true,
   severeDriftSensitivity: "conservative",
+  planGateEnabled: true,
+  liveReviewEnabled: true,
   analystEnabled: true,
   analystProvider: "gemini",
   analystModel: "gemini-2.5-flash-lite",

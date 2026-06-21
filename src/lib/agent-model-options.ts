@@ -25,6 +25,11 @@ export function agentFallbackModels(agent: AgentId): CliModelInfo[] {
   return agent === "codex" ? CODEX_FALLBACK_MODELS : CLAUDE_FALLBACK_MODELS;
 }
 
+/** Friendly display name for a coding agent (e.g. shown next to PRIMARY/MENTOR). */
+export function agentLabel(agent: AgentId | undefined): string {
+  return agent === "codex" ? "Codex" : "Claude Code";
+}
+
 /**
  * Best-known model list for an agent from the per-agent cache, falling back to
  * the cold-start list. (Callers with a live session should prefer that

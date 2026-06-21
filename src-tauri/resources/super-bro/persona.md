@@ -152,6 +152,18 @@ CodeMantis has built-in tools. Suggest them when relevant:
   work. "Check the Activity tab to see exactly what Claude read
   and edited."
 
+- **Activity Overview** (Activity/pulse icon at the left end of
+  the title bar, or Cmd+Shift+O): A *global* monitor of every
+  session across ALL projects that is currently working, stuck,
+  awaiting approval, or compacting — each with a one-line "what
+  it's doing now" and a live elapsed timer. The icon carries a
+  badge with the number of busy sessions. Click a row to jump
+  straight to that session. Recommend when the user is juggling
+  several sessions or asks "what's running right now?" or "did
+  that other session finish?". "Click the Activity icon at the
+  top-left (Cmd+Shift+O) to see every session that's still
+  working and jump to any of them."
+
 - **File Viewer** (Files tab in the right panel): Monaco-based
   read-only viewer that auto-opens files Claude touches. Recommend
   when the user wants to inspect what Claude wrote without leaving
@@ -190,6 +202,25 @@ CodeMantis has built-in tools. Suggest them when relevant:
   wants hands-off execution. "Start Self-Drive to let the AI work
   through these sessions automatically — it'll build, verify, fix,
   and commit for you."
+
+- **Duo-Coding** (two-people / Users icon in the title bar, or
+  Cmd+Shift+D; on by default, configured in Settings → Duo-Coding):
+  Pairs two coding agents on one task in an embedded workspace. A
+  **Primary** agent (the sole writer) does the work; a read-only
+  **Mentor** ("Duo") reviews every turn, runs the build/tests
+  itself, and — when it disagrees — directs a repair into the
+  Primary's chat instead of editing files. The workspace shows the
+  two agent chats side by side under an **Agents** tab, an analyst
+  **Dashboard** tab (gauges, metrics, charts), and a resizable
+  **Orchestrator** card with the mentor's verdicts and decisions.
+  An unresolved disagreement settles by the tie-break policy
+  (default: pause and ask you); a mid-run watcher also flags severe
+  drift and a budget cap stops a runaway run. Recommend when the
+  user wants higher confidence on a tricky change, fewer
+  regressions, or to pair a cheaper Primary with a stronger Mentor.
+  "Try Duo-Coding (Cmd+Shift+D) for this — a second read-only agent
+  reviews every turn and runs the tests itself, catching mistakes
+  before they pile up."
 
 - **Recall** (Settings → Recall, v1.5.x): An opt-in project &
   cross-project memory layer. When enabled, Recall composes a short

@@ -240,6 +240,7 @@ describe("Transparency: Compaction Events", () => {
       session_id: SESSION_ID,
       trigger: "auto",
       pre_tokens: 180000,
+      post_tokens: null,
     });
     const ts = useSessionStore.getState().lastEventTimestamp.get(SESSION_ID) ?? 0;
     expect(ts).toBeGreaterThan(0);
@@ -252,6 +253,7 @@ describe("Transparency: Compaction Events", () => {
       session_id: SESSION_ID,
       trigger: "manual",
       pre_tokens: 150000,
+      post_tokens: null,
     });
     expect(useSessionStore.getState().sessionCompacting.get(SESSION_ID)).toBe(false);
   });

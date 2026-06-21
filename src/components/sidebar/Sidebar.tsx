@@ -115,7 +115,7 @@ export default function Sidebar() {
 
       {/* Context meter */}
       <div className="shrink-0 border-t border-border-light">
-        <ContextMeter used={context.used} max={context.max} stats={stats} />
+        <ContextMeter used={context.used} max={context.max} stats={stats} pending={context.pending ?? false} />
       </div>
     </div>
   );

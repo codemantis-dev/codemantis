@@ -41,6 +41,8 @@ describe("DuoAgentPane", () => {
     render(<DuoAgentPane sessionId={PRIMARY} role="primary" />);
     expect(screen.getByText("I added the logout button")).toBeInTheDocument();
     expect(screen.getByText("Primary")).toBeInTheDocument();
+    // The coding agent name is shown next to the role (registered as codex above).
+    expect(screen.getByText("Codex")).toBeInTheDocument();
   });
 
   it("primary pane has an input that sends to its session id", () => {
@@ -54,7 +56,7 @@ describe("DuoAgentPane", () => {
   it("mentor pane is read-only (no input) and labeled", () => {
     render(<DuoAgentPane sessionId={MENTOR} role="mentor" />);
     expect(screen.getByText("Mentor")).toBeInTheDocument();
-    expect(screen.getByText("read-only")).toBeInTheDocument();
+    expect(screen.getByText(/read-only/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Message the primary agent")).not.toBeInTheDocument();
   });
 });

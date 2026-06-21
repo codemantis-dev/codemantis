@@ -141,6 +141,10 @@ interface StartOpts {
   budgetUsdCap?: number | null;
   severeDriftSensitivity?: "conservative" | "balanced" | "aggressive";
   severeDriftNudgeEnabled?: boolean;
+  // Default OFF so the base turn-flow tests exercise build→review directly;
+  // the plan-gate / live-review tests opt in explicitly.
+  planGateEnabled?: boolean;
+  liveReviewEnabled?: boolean;
 }
 
 async function startRun(opts: StartOpts = {}): Promise<void> {
@@ -155,6 +159,8 @@ async function startRun(opts: StartOpts = {}): Promise<void> {
         budgetUsdCap: opts.budgetUsdCap ?? null,
         severeDriftSensitivity: opts.severeDriftSensitivity ?? "conservative",
         severeDriftNudgeEnabled: opts.severeDriftNudgeEnabled ?? true,
+        planGateEnabled: opts.planGateEnabled ?? false,
+        liveReviewEnabled: opts.liveReviewEnabled ?? false,
       },
     },
   }));
@@ -213,7 +219,7 @@ describe("Duo-Coding orchestration", () => {
     expect(msgs.some((m) => m.role === "assistant" && m.content.includes("Implemented the logout button"))).toBe(true);
   });
 
-  it("logs an agreement and injects no repair when the mentor agrees", async () => {
+  it("completes the run (no stall) and injects no repair when the mentor agrees", async () => {
     await startRun();
     mockSendMessage.mockClear();
     await primaryTurn("I added the logout button and tests pass.");
@@ -230,7 +236,8 @@ describe("Duo-Coding orchestration", () => {
     expect(s.metrics.agreements).toBe(1);
     expect(s.metrics.reviews).toBe(1);
     expect(s.decisionLog.some((d) => d.kind === "agreement")).toBe(true);
-    expect(s.status).toBe("running");
+    // agree → autonomous completion (no more "running" forever stall).
+    expect(s.status).toBe("completed");
     // No repair injected back into the primary.
     expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
     // The conversation captured the primary's work AND the mentor's review verdict.
@@ -302,15 +309,16 @@ describe("Duo-Coding orchestration", () => {
     expect(useDuoStore.getState().awaitingReAsk).toBe(true);
     expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
 
-    // Still unparseable → degrade to a logged advisory concern (no repair).
+    // Still unparseable → degrade to an advisory concern, which now DRIVES a
+    // fix turn to the primary (no stall) rather than idling.
     mockSendMessage.mockClear();
     useSessionStore.getState().addMessage(DUO, assistantMsg("still no block"));
     chatCallbacks.get(DUO)?.({ type: "turn_complete", session_id: DUO } as unknown as FrontendEvent);
     await flush();
     const s = useDuoStore.getState();
     expect(s.metrics.reviews).toBe(1);
-    expect(s.decisionLog.some((d) => d.kind === "concern")).toBe(true);
-    expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(false);
+    expect(s.status).toBe("running"); // not stalled, not completed — a fix is in flight
+    expect(mockSendMessage.mock.calls.some(([id]) => id === PRIMARY)).toBe(true);
   });
 
   it("converges through a dialogue: concern → primary defends → mentor agrees", async () => {
@@ -333,8 +341,9 @@ describe("Duo-Coding orchestration", () => {
       confidence: 0.9, ranBuild: true, ranTests: true,
     });
     const s = useDuoStore.getState();
-    expect(s.status).toBe("running");
-    expect(s.phase).toBe("building");
+    // agree after a dispute → run converges and completes.
+    expect(s.status).toBe("completed");
+    expect(s.phase).toBe("completed");
     expect(s.metrics.agreements).toBe(1);
     expect(s.repairAttempts).toBe(0); // reset on convergence
     // The dialogue captured both sides AND the resolution outcome.
@@ -452,5 +461,71 @@ describe("Duo-Coding orchestration", () => {
       cb({ runId: "some-other-run", ts: 1, narrative: "stale", report, series: [] }),
     );
     expect(useDuoStore.getState().analystSnapshot).toBeNull();
+  });
+
+  it("plan gate: primary plans → mentor approves → primary implements", async () => {
+    await startRun({ planGateEnabled: true });
+    // start() asks the primary for a PLAN first (not code).
+    expect(useDuoStore.getState().phase).toBe("planning");
+    const firstToPrimary = mockSendMessage.mock.calls.find(([id]) => id === PRIMARY);
+    expect(String(firstToPrimary?.[1])).toMatch(/plan|approach/i);
+
+    // Primary returns a plan → routed to the mentor for plan review.
+    mockSendMessage.mockClear();
+    await primaryTurn("Plan: change server.js + app.js; add tests; risk: API shape.");
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+
+    // Mentor approves the plan → primary told to implement, phase → building.
+    mockSendMessage.mockClear();
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "Approach is sound",
+      rationale: "covers the right files", confidence: 0.9, ranBuild: false, ranTests: false,
+    });
+    const s = useDuoStore.getState();
+    expect(s.phase).toBe("building");
+    expect(s.decisionLog.some((d) => /Plan approved/i.test(d.summary))).toBe(true);
+    const implementMsg = mockSendMessage.mock.calls.find(([id]) => id === PRIMARY);
+    expect(String(implementMsg?.[1])).toMatch(/implement/i);
+  });
+
+  it("plan gate: mentor redirects the plan → primary revises (still no code)", async () => {
+    await startRun({ planGateEnabled: true });
+    await primaryTurn("Plan: rewrite everything from scratch.");
+    mockSendMessage.mockClear();
+    await mentorTurn({
+      stance: "concern", severity: "blocking", summary: "Don't rewrite",
+      rationale: "extend the existing server", repairTask: "Reuse server.js; add an endpoint",
+      confidence: 0.8, ranBuild: false, ranTests: false,
+    });
+    const s = useDuoStore.getState();
+    expect(s.phase).toBe("planning"); // still planning — revising, not coding
+    const revise = mockSendMessage.mock.calls.find(([id]) => id === PRIMARY);
+    expect(String(revise?.[1])).toMatch(/revise|plan/i);
+  });
+
+  it("live co-review: edits trigger a mentor review → a clear defect interleaves a nudge", async () => {
+    await startRun({ liveReviewEnabled: true });
+    expect(useDuoStore.getState().phase).toBe("building");
+    mockSendMessage.mockClear();
+
+    // Five mutating edits reach the op threshold → an incremental mentor review.
+    for (let i = 0; i < 5; i++) primaryToolOp("Edit", { file_path: `src/file${i}.ts` });
+    await flush();
+    expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+
+    // Mentor flags a clear defect → a concise nudge is interleaved to the primary
+    // WITHOUT starting a dialogue round (live navigator behavior).
+    mockSendMessage.mockClear();
+    await mentorTurn({
+      stance: "concern", severity: "blocking", summary: "Wrong variable",
+      rationale: "you used foo, meant bar", repairTask: "Rename foo → bar in file2.ts",
+      confidence: 0.9, ranBuild: false, ranTests: false,
+    });
+    const s = useDuoStore.getState();
+    const nudge = mockSendMessage.mock.calls.find(([id]) => id === PRIMARY);
+    expect(String(nudge?.[1])).toContain("Rename foo → bar");
+    expect(s.repairAttempts).toBe(0); // not a dialogue round
+    expect(s.status).toBe("running"); // never completes on a live review
+    expect(s.phase).toBe("building"); // primary keeps working
   });
 });

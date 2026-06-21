@@ -598,10 +598,16 @@ fn handle_system_compact_boundary(
     let pre_tokens = metadata
         .and_then(|m| m.get("pre_tokens"))
         .and_then(|v| v.as_u64());
+    // CLI ~2.1.185 added `post_tokens` (the compacted conversation size). See
+    // capture S17. Older CLIs omit it; the host falls back to a pending meter.
+    let post_tokens = metadata
+        .and_then(|m| m.get("post_tokens"))
+        .and_then(|v| v.as_u64());
     let fe = FrontendEvent::CompactComplete {
         session_id: session_id.to_string(),
         trigger,
         pre_tokens,
+        post_tokens,
     };
     emit_or_warn(app_handle, chat_event, &fe, "compact-complete");
 }
@@ -1597,6 +1603,44 @@ mod tests {
             }
             other => panic!("Expected System, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn system_compact_boundary_extracts_pre_and_post_tokens() {
+        // Real CLI 2.1.185 wire shape (capture S17): manual /compact carries
+        // both pre_tokens and the new post_tokens, plus fields we ignore.
+        let json = r#"{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":28258,"post_tokens":3367,"duration_ms":29761,"preserved_segment":{}}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        let RawStreamEvent::System { extra, .. } = &event else {
+            panic!("Expected System, got {:?}", event);
+        };
+        let metadata = extra.get("compact_metadata");
+        // Mirror handle_system_compact_boundary's extraction.
+        let pre = metadata.and_then(|m| m.get("pre_tokens")).and_then(|v| v.as_u64());
+        let post = metadata.and_then(|m| m.get("post_tokens")).and_then(|v| v.as_u64());
+        let trigger = metadata
+            .and_then(|m| m.get("trigger"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        assert_eq!(trigger, "manual");
+        assert_eq!(pre, Some(28258));
+        assert_eq!(post, Some(3367));
+    }
+
+    #[test]
+    fn system_compact_boundary_post_tokens_absent_is_none() {
+        // Older CLI: no post_tokens → extraction yields None (host falls back
+        // to a pending meter with the prior value).
+        let json = r#"{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":50000}}"#;
+        let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+        let RawStreamEvent::System { extra, .. } = &event else {
+            panic!("Expected System");
+        };
+        let post = extra
+            .get("compact_metadata")
+            .and_then(|m| m.get("post_tokens"))
+            .and_then(|v| v.as_u64());
+        assert_eq!(post, None);
     }
 
     #[test]

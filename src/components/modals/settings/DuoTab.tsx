@@ -93,6 +93,17 @@ export default function DuoTab(): React.ReactElement {
       </FieldRow>
 
       <div className="h-px" style={{ background: "var(--border-light)" }} />
+      <SectionTitle>Pair-programming</SectionTitle>
+
+      <FieldRow label="Plan-review gate (mentor approves the approach before coding)">
+        <Toggle on={duo.planGateEnabled} onChange={(v) => patch({ planGateEnabled: v })} />
+      </FieldRow>
+
+      <FieldRow label="Live co-review (mentor reviews changes while the primary works)">
+        <Toggle on={duo.liveReviewEnabled} onChange={(v) => patch({ liveReviewEnabled: v })} />
+      </FieldRow>
+
+      <div className="h-px" style={{ background: "var(--border-light)" }} />
       <SectionTitle>Mid-run drift</SectionTitle>
 
       <FieldRow label="Nudge the primary on severe drift">

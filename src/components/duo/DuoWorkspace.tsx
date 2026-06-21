@@ -160,7 +160,7 @@ export default function DuoWorkspace({ onConfigure }: Props): React.ReactElement
             </button>
           )}
           {!interrupted &&
-            (status === "running" || status === "paused") &&
+            (status === "running" || status === "paused" || status === "completed") &&
             (confirmStop ? (
               <button
                 type="button"

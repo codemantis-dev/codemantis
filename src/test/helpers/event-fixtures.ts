@@ -239,6 +239,19 @@ export function createUsageUpdateEvent(
   } as FrontendEvent;
 }
 
+export function createCompactCompleteEvent(
+  opts: { trigger?: string; preTokens?: number | null; postTokens?: number | null } = {},
+  sessionId: string = DEFAULT_SESSION_ID
+): FrontendEvent {
+  return {
+    type: "compact_complete",
+    session_id: sessionId,
+    trigger: opts.trigger ?? "manual",
+    pre_tokens: opts.preTokens ?? null,
+    post_tokens: opts.postTokens ?? null,
+  } as FrontendEvent;
+}
+
 export function createRateLimitWarningEvent(
   utilization: number,
   sessionId: string = DEFAULT_SESSION_ID

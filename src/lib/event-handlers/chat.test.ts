@@ -462,8 +462,46 @@ describe("chat event handler — system events", () => {
 
   describe("compact_complete", () => {
     it("shows toast with token info", () => {
-      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "auto", pre_tokens: 150000 });
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "auto", pre_tokens: 150000, post_tokens: null });
       expect(showToast).toHaveBeenCalledWith(expect.stringContaining("150K"), "info", 6000);
+    });
+
+    it("shows pre→post reduction when post_tokens present", () => {
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "manual", pre_tokens: 28258, post_tokens: 3367 });
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("28K → 3K"), "info", 6000);
+    });
+
+    it("drops the context meter to a pending post-compaction value", () => {
+      // Seed a high pre-compaction fill, like the stale 973K in the bug report.
+      useSessionStore.getState().updateContext("s1", 973000, 1_000_000);
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "manual", pre_tokens: 28258, post_tokens: 3367 });
+      const ctx = useSessionStore.getState().sessionContext.get("s1");
+      expect(ctx?.used).toBe(3367);
+      expect(ctx?.max).toBe(1_000_000);
+      expect(ctx?.pending).toBe(true);
+    });
+
+    it("the next usage_update clears pending and sets the true fill", () => {
+      useSessionStore.getState().updateContext("s1", 973000, 1_000_000);
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "manual", pre_tokens: 28258, post_tokens: 3367 });
+      expect(useSessionStore.getState().sessionContext.get("s1")?.pending).toBe(true);
+
+      handleChatEvent("s1", {
+        type: "usage_update",
+        session_id: "s1",
+        usage: { input_tokens: 2182, output_tokens: 4, cache_creation_input_tokens: 5746, cache_read_input_tokens: 15626 },
+      });
+      const ctx = useSessionStore.getState().sessionContext.get("s1");
+      expect(ctx?.pending).toBeFalsy();
+      expect(ctx?.used).toBe(2182 + 5746 + 15626 + 4);
+    });
+
+    it("keeps the prior used value (pending) when post_tokens is absent", () => {
+      useSessionStore.getState().updateContext("s1", 50000, 200000);
+      handleChatEvent("s1", { type: "compact_complete", session_id: "s1", trigger: "auto", pre_tokens: 150000, post_tokens: null });
+      const ctx = useSessionStore.getState().sessionContext.get("s1");
+      expect(ctx?.used).toBe(50000);
+      expect(ctx?.pending).toBe(true);
     });
   });
 

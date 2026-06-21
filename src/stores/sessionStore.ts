@@ -4,6 +4,7 @@ import type { CapabilitiesDiscoveredEvent } from "../types/agent-events";
 import type { SubAgentInfo } from "../types/activity";
 import { useSettingsStore } from "./settingsStore";
 import { useFileViewerStore } from "./fileViewerStore";
+import { getContextWindowForModel } from "../lib/model-context";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -49,7 +50,10 @@ interface SessionState {
   activeSessionId: string | null;
   sessionMessages: Map<string, Message[]>;
   sessionStreaming: Map<string, StreamingState>;
-  sessionContext: Map<string, { used: number; max: number }>;
+  /** `pending` marks a provisional, post-compaction value: the CLI's
+   * `post_tokens` (conversation only) shown until the next `usage_update`
+   * supplies the true full-window fill. Cleared by `updateContext`. */
+  sessionContext: Map<string, { used: number; max: number; pending?: boolean }>;
   sessionStats: Map<string, SessionStats>;
   sessionModes: Map<string, SessionMode>;
   sessionBusy: Map<string, boolean>;
@@ -119,6 +123,13 @@ interface SessionState {
   setTurnStats: (sessionId: string, messageId: string, stats: TurnStats) => void;
   updateModel: (sessionId: string, model: string) => void;
   updateContext: (sessionId: string, used: number, max: number) => void;
+  /** Set a provisional post-compaction context value (CLI `post_tokens`),
+   * flagged `pending` so the meter renders muted with a "refreshes on next
+   * message" hint. The next `updateContext` (from a real `usage_update`)
+   * clears the flag and sets the true fill. If `postTokens` is null (older
+   * CLI), the existing `used` is kept but still flagged pending so the meter
+   * stops presenting a stale value as current. */
+  markContextCompacted: (sessionId: string, postTokens: number | null) => void;
   setSessionMode: (sessionId: string, mode: SessionMode) => void;
   setCliSessionId: (sessionId: string, cliSessionId: string) => void;
   setSessionBusy: (sessionId: string, busy: boolean) => void;
@@ -130,6 +141,9 @@ interface SessionState {
   clearRetry: (sessionId: string) => void;
   touchLastEvent: (sessionId: string) => void;
   markContextToastFired: (sessionId: string, threshold: number) => void;
+  /** Clear the fired-threshold set so the 80%/95% context toasts can fire
+   * again after compaction frees space. */
+  resetContextToastFired: (sessionId: string) => void;
   setSessionActivity: (sessionId: string, activity: SessionActivityInfo) => void;
   setSessionStuck: (sessionId: string, info: SessionStuckInfo | null) => void;
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
@@ -627,7 +641,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   updateContext: (sessionId, used, max) =>
     set((state) => {
       const sessionContext = new Map(state.sessionContext);
+      // A fresh {used, max} omits `pending`, so any prior post-compaction
+      // pending flag is cleared the moment real usage arrives.
       sessionContext.set(sessionId, { used, max });
+      return { sessionContext };
+    }),
+
+  markContextCompacted: (sessionId, postTokens) =>
+    set((state) => {
+      const sessionContext = new Map(state.sessionContext);
+      const prev = sessionContext.get(sessionId);
+      const max =
+        prev?.max ??
+        getContextWindowForModel(
+          state.sessions.get(sessionId)?.model,
+          useSettingsStore.getState().settings.defaultContextWindow,
+        );
+      const used = postTokens ?? prev?.used ?? 0;
+      sessionContext.set(sessionId, { used, max, pending: true });
       return { sessionContext };
     }),
 
@@ -788,6 +819,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const updated = new Set(existing);
       updated.add(threshold);
       contextToastFired.set(sessionId, updated);
+      return { contextToastFired };
+    }),
+
+  resetContextToastFired: (sessionId) =>
+    set((state) => {
+      const contextToastFired = new Map(state.contextToastFired);
+      contextToastFired.set(sessionId, new Set());
       return { contextToastFired };
     }),
 

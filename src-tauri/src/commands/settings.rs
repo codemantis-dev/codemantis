@@ -197,6 +197,12 @@ pub struct DuoCodingConfig {
     /// "conservative" (default) | "balanced" | "aggressive".
     #[serde(default = "default_duo_drift_sensitivity")]
     pub severe_drift_sensitivity: String,
+    /// Mentor reviews the primary's plan before any code is written.
+    #[serde(default = "default_true")]
+    pub plan_gate_enabled: bool,
+    /// Mentor reviews changes continuously (at checkpoints) while the primary works.
+    #[serde(default = "default_true")]
+    pub live_review_enabled: bool,
     #[serde(default = "default_true")]
     pub analyst_enabled: bool,
     #[serde(default = "default_changelog_provider")]
@@ -219,6 +225,8 @@ impl Default for DuoCodingConfig {
             max_dialogue_rounds: default_duo_max_rounds(),
             severe_drift_nudge_enabled: true,
             severe_drift_sensitivity: default_duo_drift_sensitivity(),
+            plan_gate_enabled: true,
+            live_review_enabled: true,
             analyst_enabled: true,
             analyst_provider: default_changelog_provider(),
             analyst_model: default_changelog_model(),
@@ -628,6 +636,8 @@ mod tests {
         assert_eq!(duo.max_dialogue_rounds, 3);
         assert!(duo.severe_drift_nudge_enabled);
         assert_eq!(duo.severe_drift_sensitivity, "conservative");
+        assert!(duo.plan_gate_enabled);
+        assert!(duo.live_review_enabled);
         assert!(duo.analyst_enabled);
         assert!(duo.budget_usd_cap.is_none());
         assert!(duo.budget_token_cap.is_none());

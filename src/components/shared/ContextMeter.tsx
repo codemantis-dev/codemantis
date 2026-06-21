@@ -5,9 +5,13 @@ interface ContextMeterProps {
   used: number;
   max: number;
   stats?: SessionStats;
+  /** Provisional post-compaction value: the CLI's conversation-only
+   * `post_tokens`, shown muted until the next turn's usage_update supplies the
+   * true full-window fill. */
+  pending?: boolean;
 }
 
-export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
+export default function ContextMeter({ used, max, stats, pending = false }: ContextMeterProps) {
   const percentage = max > 0 ? Math.min((used / max) * 100, 100) : 0;
   const displayUsed = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1)}M`
     : used >= 1000 ? `${Math.round(used / 1000)}K` : `${used}`;
@@ -15,8 +19,13 @@ export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
     : max >= 1000 ? `${Math.round(max / 1000)}K` : `${max}`;
 
   let barColor = "bg-accent";
-  if (percentage > 90) barColor = "bg-red";
+  if (pending) barColor = "bg-text-faint";
+  else if (percentage > 90) barColor = "bg-red";
   else if (percentage > 70) barColor = "bg-yellow";
+
+  const meterTitle = pending
+    ? "Context compacted — provisional, refreshes on next message"
+    : undefined;
 
   const hasCost = stats && stats.totalCostUsd > 0;
   const totalTokens = stats
@@ -42,17 +51,17 @@ export default function ContextMeter({ used, max, stats }: ContextMeterProps) {
       )}
 
       {/* Context bar */}
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-1" title={meterTitle}>
         <span className="text-label text-text-dim font-medium tracking-wider uppercase">
           Context
         </span>
-        <span className="text-label text-text-faint">
-          {displayUsed} / {displayMax}
+        <span className={`text-label ${pending ? "text-text-dim italic" : "text-text-faint"}`}>
+          {pending ? `~${displayUsed} / ${displayMax}` : `${displayUsed} / ${displayMax}`}
         </span>
       </div>
-      <div className="h-1 rounded-full bg-bg-elevated overflow-hidden">
+      <div className="h-1 rounded-full bg-bg-elevated overflow-hidden" title={meterTitle}>
         <div
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+          className={`h-full rounded-full transition-all duration-300 ${barColor} ${pending ? "opacity-60" : ""}`}
           style={{ width: `${percentage}%` }}
         />
       </div>

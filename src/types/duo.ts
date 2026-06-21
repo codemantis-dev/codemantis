@@ -25,6 +25,7 @@ export type DuoStatus = "idle" | "running" | "paused" | "completed";
  */
 export type DuoPhase =
   | "preparing"
+  | "planning" // primary drafting / mentor reviewing the approach (plan gate)
   | "building"
   | "reviewing"
   | "dialoguing"
@@ -32,6 +33,9 @@ export type DuoPhase =
   | "verifying"
   | "escalated"
   | "completed";
+
+/** How to route the mentor's next `turn_complete`. */
+export type DuoMentorMode = "plan" | "incremental" | "final" | "dialogue";
 
 // ── Verdict (parsed from the Duo's fenced ```duo-verdict``` block) ───────────
 
@@ -128,6 +132,8 @@ export interface DuoConfig {
   maxDialogueRounds: number;
   severeDriftNudgeEnabled: boolean;
   severeDriftSensitivity: "conservative" | "balanced" | "aggressive";
+  planGateEnabled: boolean;
+  liveReviewEnabled: boolean;
   analystEnabled: boolean;
   analystProvider: string;
   analystModel: string;

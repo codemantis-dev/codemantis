@@ -432,11 +432,22 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
     case "compact_complete": {
       store.touchLastEvent(sessionId);
       store.setSessionCompacting(sessionId, false);
-      const tokenInfo = event.pre_tokens
-        ? ` (was ${Math.round(event.pre_tokens / 1000)}K tokens)`
-        : "";
+      // Drop the context meter to the post-compaction size now, instead of
+      // leaving the pre-compaction value on screen until the next turn. The
+      // CLI's post_tokens covers the conversation only (not the fixed
+      // system/tool overhead), so it's shown as a provisional, pending value
+      // that the next usage_update corrects to the true window fill.
+      store.markContextCompacted(sessionId, event.post_tokens ?? null);
+      // A fresh compaction frees space — re-arm the 80%/95% threshold toasts.
+      store.resetContextToastFired(sessionId);
+      const reductionInfo =
+        event.pre_tokens && event.post_tokens
+          ? ` (${Math.round(event.pre_tokens / 1000)}K → ${Math.round(event.post_tokens / 1000)}K tokens)`
+          : event.pre_tokens
+            ? ` (was ${Math.round(event.pre_tokens / 1000)}K tokens)`
+            : "";
       const triggerLabel = event.trigger === "manual" ? "Manual" : "Auto";
-      showToast(`${triggerLabel} compaction complete${tokenInfo}`, "info", 6000);
+      showToast(`${triggerLabel} compaction complete${reductionInfo}`, "info", 6000);
       break;
     }
 

@@ -366,6 +366,12 @@ pub enum FrontendEvent {
         session_id: String,
         trigger: String,
         pre_tokens: Option<u64>,
+        /// Post-compaction conversation token count, as reported by the CLI's
+        /// `compact_metadata.post_tokens` (added in CLI ~2.1.185; verified by
+        /// capture S17). Lets the host reset the context meter immediately
+        /// instead of waiting for the next turn's usage. May be absent on
+        /// older CLIs.
+        post_tokens: Option<u64>,
     },
 
     #[serde(rename = "tool_progress")]
@@ -1810,11 +1816,28 @@ mod tests {
             session_id: "s1".into(),
             trigger: "auto".into(),
             pre_tokens: Some(150000),
+            post_tokens: None,
         };
         let val = serde_json::to_value(&fe).unwrap();
         assert_eq!(val["type"], "compact_complete");
         assert_eq!(val["trigger"], "auto");
         assert_eq!(val["pre_tokens"], 150000);
+        // Absent post_tokens serializes as null (so the TS `number | null`
+        // field is always present, not undefined).
+        assert!(val["post_tokens"].is_null());
+    }
+
+    #[test]
+    fn ser_frontend_compact_complete_with_post_tokens() {
+        let fe = FrontendEvent::CompactComplete {
+            session_id: "s1".into(),
+            trigger: "manual".into(),
+            pre_tokens: Some(28258),
+            post_tokens: Some(3367),
+        };
+        let val = serde_json::to_value(&fe).unwrap();
+        assert_eq!(val["pre_tokens"], 28258);
+        assert_eq!(val["post_tokens"], 3367);
     }
 
     #[test]

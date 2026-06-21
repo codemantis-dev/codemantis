@@ -751,6 +751,8 @@ impl Translator {
                         session_id: self.session_id.clone(),
                         trigger: "auto".to_string(),
                         pre_tokens,
+                        // Codex's contextCompaction item carries no post count.
+                        post_tokens: None,
                     }]
                 } else {
                     vec![NormalizedEvent::ProcessError {

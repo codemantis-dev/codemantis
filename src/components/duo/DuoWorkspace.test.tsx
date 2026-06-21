@@ -22,6 +22,8 @@ const CONFIG: DuoConfig = {
   maxDialogueRounds: 3,
   severeDriftNudgeEnabled: true,
   severeDriftSensitivity: "conservative",
+  planGateEnabled: true,
+  liveReviewEnabled: true,
   analystEnabled: true,
   analystProvider: "gemini",
   analystModel: "gemini-2.5-flash-lite",

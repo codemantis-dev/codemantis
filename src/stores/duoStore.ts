@@ -49,11 +49,18 @@ import {
   buildReAskPrompt,
   buildDialogueToPrimaryPrompt,
   buildDialogueToDuoPrompt,
+  buildPlanRequestPrompt,
+  buildPlanReviewPrompt,
+  buildImplementPrompt,
+  buildPlanRevisePrompt,
+  buildIncrementalReviewPrompt,
+  buildNudgePrompt,
 } from "../lib/duo-prompts";
 import { classifyDrift, normalizeConcern, type ToolOp } from "../lib/duo-drift";
 import type {
   DuoStatus,
   DuoPhase,
+  DuoMentorMode,
   DuoConfig,
   DuoAgentConfig,
   DuoDialogueTurn,
@@ -86,6 +93,8 @@ export function buildDuoConfig(
     maxDialogueRounds: settings.maxDialogueRounds,
     severeDriftNudgeEnabled: settings.severeDriftNudgeEnabled,
     severeDriftSensitivity: settings.severeDriftSensitivity,
+    planGateEnabled: settings.planGateEnabled,
+    liveReviewEnabled: settings.liveReviewEnabled,
     analystEnabled: settings.analystEnabled,
     analystProvider: settings.analystProvider,
     analystModel: settings.analystModel,
@@ -270,12 +279,45 @@ let currentTurnOps: ToolOp[] = [];
 /** Guard so a severe-drift nudge fires at most once per primary turn. */
 let driftNudgedThisTurn = false;
 
+// ── Continuous co-review (live mentor while the primary works) ───────────────
+/** What the mentor is currently doing — routes its next turn_complete. null = free. */
+let mentorMode: DuoMentorMode | null = null;
+/** Mutating edits the primary has made since the last incremental review. */
+let mutatingOpsSinceReview = 0;
+/** Pending debounce timer for a pause-triggered incremental review. */
+let incrementalTimer: ReturnType<typeof setTimeout> | null = null;
+/** Epoch ms of the last incremental review (min-interval throttle). */
+let lastReviewAt = 0;
+/** Changes accrued while the mentor was busy — review again once it's free. */
+let pendingIncremental = false;
+/** The primary finished while the mentor was mid incremental review — run the
+ *  final review as soon as the mentor is free. */
+let finalReviewQueued = false;
+
+// Cadence tuning (not CLI-derived — plain UX defaults, tunable later).
+const LIVE_REVIEW_DEBOUNCE_MS = 9000; // pause length that triggers a review
+const LIVE_REVIEW_OP_THRESHOLD = 5; // mutating edits since last review
+const LIVE_REVIEW_MIN_INTERVAL_MS = 20000; // floor between reviews
+
+function clearIncrementalTimer(): void {
+  if (incrementalTimer) {
+    clearTimeout(incrementalTimer);
+    incrementalTimer = null;
+  }
+}
+
 function detachListeners(): void {
   for (const un of listeners.values()) un();
   listeners.clear();
   currentTurnOps = [];
   driftNudgedThisTurn = false;
   analysisInFlight = false;
+  mentorMode = null;
+  mutatingOpsSinceReview = 0;
+  pendingIncremental = false;
+  finalReviewQueued = false;
+  lastReviewAt = 0;
+  clearIncrementalTimer();
 }
 
 /** Wire turn/activity/snapshot listeners for a (primary, duo) session pair. */
@@ -453,7 +495,7 @@ export const useDuoStore = create<DuoState>((set, get) => ({
         ...INITIAL,
         metrics: emptyDuoMetrics(),
         status: "running",
-        phase: "building",
+        phase: config.planGateEnabled ? "planning" : "building",
         runId,
         projectPath,
         task,
@@ -465,10 +507,15 @@ export const useDuoStore = create<DuoState>((set, get) => ({
 
       await attachListeners(primarySession.id, duoSession.id);
 
-      // Kick off the primary with the task.
-      await injectTo(primarySession.id, task, "primary");
       appendDialogue("system", "decision", `Run started — task: ${task}`);
       recordEvent("decision", "system", "Duo run started");
+      // Plan gate: ask the primary for a plan first; otherwise go straight to work.
+      if (config.planGateEnabled) {
+        appendDialogue("system", "decision", "Plan gate: primary drafting an approach for mentor review.");
+        await injectTo(primarySession.id, buildPlanRequestPrompt(task, primary.agentId), "primary");
+      } else {
+        await injectTo(primarySession.id, task, "primary");
+      }
     } catch (err) {
       detachListeners();
       set({ status: "idle", error: `Failed to start Duo run: ${String(err)}` });
@@ -618,7 +665,9 @@ async function injectTo(
   sessionId: string,
   prompt: string,
   role: "primary" | "duo",
+  opts: { isTurnStart?: boolean } = {},
 ): Promise<void> {
+  const isTurnStart = opts.isTurnStart ?? true;
   const msgId = genId(`duo-${role}`);
   const msg: Message = {
     id: msgId,
@@ -631,10 +680,17 @@ async function injectTo(
   };
   useSessionStore.getState().addMessage(sessionId, msg);
   if (role === "primary") {
-    useDuoStore.setState({ lastPrimaryPromptId: msgId });
-    // A fresh primary turn starts — reset the drift accumulator.
-    currentTurnOps = [];
-    driftNudgedThisTurn = false;
+    // Only a real turn-start moves the marker / resets the per-turn accumulators.
+    // Mid-turn nudges (isTurnStart:false) leave them so the final review still
+    // sees the WHOLE turn (collectResponseSince filters to assistant text, so
+    // the interleaved nudge user-message is skipped).
+    if (isTurnStart) {
+      useDuoStore.setState({ lastPrimaryPromptId: msgId });
+      currentTurnOps = [];
+      driftNudgedThisTurn = false;
+      mutatingOpsSinceReview = 0;
+      clearIncrementalTimer();
+    }
   } else {
     useDuoStore.setState({ lastDuoPromptId: msgId });
   }
@@ -712,35 +768,141 @@ function onSessionEvent(role: "primary" | "duo", event: FrontendEvent): void {
     });
   }
   const s = useDuoStore.getState();
+
+  if (role === "duo") {
+    if (s.status !== "running") return;
+    // Route the mentor's turn by what we asked it to do.
+    if (mentorMode === "plan") void handleDuoPlanComplete();
+    else if (mentorMode === "incremental") void handleDuoIncrementalComplete();
+    else void handleDuoTurnComplete(); // "final" | "dialogue"
+    return;
+  }
+
+  // role === "primary"
+  if (s.status === "completed") {
+    // The user guided the primary again after the run converged — reopen the
+    // loop and review the new work. Re-anchor the turn marker to the user's
+    // latest message and reset per-turn accumulators.
+    const msgs = useSessionStore.getState().sessionMessages.get(s.primarySessionId ?? "") ?? [];
+    currentTurnOps = [];
+    driftNudgedThisTurn = false;
+    mutatingOpsSinceReview = 0;
+    useDuoStore.setState({
+      status: "running",
+      phase: "building",
+      lastPrimaryPromptId: lastUserMessageId(msgs),
+    });
+    void handlePrimaryTurnComplete();
+    return;
+  }
   if (s.status !== "running") return;
-  if (role === "primary") void handlePrimaryTurnComplete();
-  else void handleDuoTurnComplete();
+  void handlePrimaryTurnComplete();
 }
 
-/** Mid-turn drift watcher: accumulate the primary's tool ops and nudge on severe drift. */
+/** The id of the most recent user message in a transcript (turn boundary). */
+function lastUserMessageId(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i].id;
+  }
+  return null;
+}
+
+/** Phases during which the primary is actively coding (live co-review applies). */
+function isCoReviewPhase(phase: DuoPhase | null): boolean {
+  return phase === "building" || phase === "repairing" || phase === "dialoguing";
+}
+
+const MUTATING_TOOL_RE = /write|edit|create|update|delete|patch|apply/i;
+const CHECKPOINT_CMD_RE = /\b(test|build|tsc|lint|check|vitest|jest|cargo|pytest|eslint)\b/i;
+
+/**
+ * Mid-turn watcher: feeds BOTH the cheap drift heuristic (instant destructive-op
+ * nudge) and the continuous co-review scheduler (mentor reviews the diff-so-far
+ * at checkpoints / after a batch of edits / on pause).
+ */
 function onPrimaryActivity(event: FrontendEvent): void {
   if (event.type !== "tool_use_start") return;
   const s = useDuoStore.getState();
   if (s.status !== "running" || !s.config || !s.primarySessionId) return;
 
   currentTurnOps.push({ toolName: event.tool_name, input: event.tool_input });
-  if (driftNudgedThisTurn) return;
 
-  const signal = classifyDrift(currentTurnOps, s.config.severeDriftSensitivity);
-  if (!signal.severe) return;
-
-  driftNudgedThisTurn = true;
-  bumpMetrics({ driftIncidents: useDuoStore.getState().metrics.driftIncidents + 1 });
-  const driftText = signal.reason ?? "Severe drift detected";
-  appendDialogue("system", "drift", `Drift flagged: ${driftText}`);
-  recordEvent("drift", "duo", driftText);
-  if (s.config.severeDriftNudgeEnabled) {
-    void injectTo(
-      s.primarySessionId,
-      `Heads up from your Duo mentor: this looks like it's going off-track — ${signal.reason}. Pause and reconsider before continuing.`,
-      "primary",
-    );
+  // (1) Drift heuristic — instant nudge on a severe/destructive op.
+  if (!driftNudgedThisTurn) {
+    const signal = classifyDrift(currentTurnOps, s.config.severeDriftSensitivity);
+    if (signal.severe) {
+      driftNudgedThisTurn = true;
+      bumpMetrics({ driftIncidents: useDuoStore.getState().metrics.driftIncidents + 1 });
+      const driftText = signal.reason ?? "Severe drift detected";
+      appendDialogue("system", "drift", `Drift flagged: ${driftText}`);
+      recordEvent("drift", "duo", driftText);
+      if (s.config.severeDriftNudgeEnabled) {
+        void injectTo(
+          s.primarySessionId,
+          `Heads up from your Duo mentor: this looks like it's going off-track — ${signal.reason}. Pause and reconsider before continuing.`,
+          "primary",
+          { isTurnStart: false },
+        );
+      }
+    }
   }
+
+  // (2) Continuous co-review scheduling (independent of drift).
+  if (!s.config.liveReviewEnabled || !isCoReviewPhase(s.phase)) return;
+  const cmd = String((event.tool_input as Record<string, unknown>)?.command ?? "");
+  const isCheckpoint = event.tool_name === "Bash" && CHECKPOINT_CMD_RE.test(cmd);
+  const isMutating = MUTATING_TOOL_RE.test(event.tool_name);
+  if (isMutating) mutatingOpsSinceReview += 1;
+
+  if (isCheckpoint || mutatingOpsSinceReview >= LIVE_REVIEW_OP_THRESHOLD) {
+    void maybeTriggerIncrementalReview(isCheckpoint);
+  } else if (isMutating) {
+    // Arm a pause-debounce: review if the primary goes quiet after editing.
+    clearIncrementalTimer();
+    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), LIVE_REVIEW_DEBOUNCE_MS);
+  }
+}
+
+/** Trigger an incremental review if the mentor is free, throttle/budget allow. */
+async function maybeTriggerIncrementalReview(isCheckpoint: boolean): Promise<void> {
+  const s = useDuoStore.getState();
+  if (!s.config?.liveReviewEnabled || s.status !== "running" || !s.duoSessionId) return;
+  if (!isCoReviewPhase(s.phase)) return;
+  if (mentorMode !== null || isOverBudget(s.metrics, s.config)) {
+    pendingIncremental = true; // mentor busy / over budget → revisit when free
+    return;
+  }
+  if (!isCheckpoint && Date.now() - lastReviewAt < LIVE_REVIEW_MIN_INTERVAL_MS) {
+    pendingIncremental = true;
+    clearIncrementalTimer();
+    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), LIVE_REVIEW_MIN_INTERVAL_MS);
+    return;
+  }
+  await triggerIncrementalReview();
+}
+
+async function triggerIncrementalReview(): Promise<void> {
+  const s = useDuoStore.getState();
+  if (!s.duoSessionId || !s.config || !s.task) return;
+  clearIncrementalTimer();
+  mutatingOpsSinceReview = 0;
+  pendingIncremental = false;
+  lastReviewAt = Date.now();
+
+  let diff = "";
+  try {
+    diff = (await getGitDiff(s.projectPath ?? "")).diff;
+  } catch {
+    // Non-fatal: skip this incremental review if we can't read the diff.
+  }
+  if (!diff.trim()) return; // nothing concrete to review yet
+
+  mentorMode = "incremental";
+  await injectTo(
+    s.duoSessionId,
+    buildIncrementalReviewPrompt({ task: s.task, diff, agentId: s.config.duo.agentId }),
+    "duo",
+  );
 }
 
 /** Whether the run has exceeded either configured budget cap. */
@@ -791,14 +953,31 @@ async function handlePrimaryTurnComplete(): Promise<void> {
     useSessionStore.getState().sessionMessages.get(s.primarySessionId) ?? [];
   const primaryResponse = collectResponseSince(messages, s.lastPrimaryPromptId);
 
-  // In an open dialogue, the primary's turn is its RESPONSE to the mentor's
-  // concern — hand it back to the mentor to re-judge, no fresh diff review.
+  // (A) Plan gate: the primary produced its PLAN → mentor reviews the approach.
+  if (s.phase === "planning") {
+    appendDialogue("primary", "work", primaryResponse || "(no plan text)");
+    recordEvent("turn", "primary", "Primary proposed a plan", {
+      text: primaryResponse.slice(0, TIMELINE_TEXT_CAP),
+    });
+    useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
+    mentorMode = "plan";
+    await injectTo(
+      s.duoSessionId,
+      buildPlanReviewPrompt({ task: s.task, plan: primaryResponse, agentId: s.config.duo.agentId }),
+      "duo",
+    );
+    return;
+  }
+
+  // (B) Open dialogue: the primary's turn is its RESPONSE to a mentor concern —
+  // hand it back to the mentor to re-judge, no fresh diff review.
   if (s.phase === "dialoguing") {
     appendDialogue("primary", "defend", primaryResponse);
     recordEvent("dialogue", "primary", "Primary responded to the mentor", {
       text: primaryResponse.slice(0, TIMELINE_TEXT_CAP),
     });
     useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
+    mentorMode = "dialogue";
     await injectTo(
       s.duoSessionId,
       buildDialogueToDuoPrompt({
@@ -811,7 +990,24 @@ async function handlePrimaryTurnComplete(): Promise<void> {
     return;
   }
 
-  // Fresh build (or post-repair) turn → diff-anchored review.
+  // (C) Fresh build / post-repair turn → thorough final review. If the mentor is
+  // mid incremental review, queue it and let that handler run the final review.
+  clearIncrementalTimer();
+  if (mentorMode !== null) {
+    finalReviewQueued = true;
+    return;
+  }
+  await runFinalReview();
+}
+
+/** Inject the end-of-turn (final) diff-anchored review to the mentor. */
+async function runFinalReview(): Promise<void> {
+  const s = useDuoStore.getState();
+  if (!s.primarySessionId || !s.duoSessionId || !s.config || !s.task) return;
+  const messages =
+    useSessionStore.getState().sessionMessages.get(s.primarySessionId) ?? [];
+  const primaryResponse = collectResponseSince(messages, s.lastPrimaryPromptId);
+
   let diffText = "";
   let diffStats: DuoDiffStats | undefined;
   try {
@@ -828,6 +1024,7 @@ async function handlePrimaryTurnComplete(): Promise<void> {
   }, diffStats);
   useDuoStore.setState({ phase: "reviewing", awaitingReAsk: false });
 
+  mentorMode = "final";
   await injectTo(
     s.duoSessionId,
     buildReviewPrompt({
@@ -861,7 +1058,132 @@ async function handleDuoTurnComplete(): Promise<void> {
     return;
   }
   useDuoStore.setState({ awaitingReAsk: false });
+  mentorMode = null; // mentor produced a final verdict → it's free again
   await executeVerdict(parsed.verdict);
+}
+
+/** Mentor finished reviewing the PLAN (plan gate). Approve → build; else revise. */
+async function handleDuoPlanComplete(): Promise<void> {
+  const s = useDuoStore.getState();
+  if (!s.duoSessionId || !s.primarySessionId || !s.config) return;
+  const messages = useSessionStore.getState().sessionMessages.get(s.duoSessionId) ?? [];
+  const duoResponse = collectResponseSince(messages, s.lastDuoPromptId);
+
+  const parsed = parseDuoVerdict(duoResponse);
+  if (!parsed.ok) {
+    if (!s.awaitingReAsk) {
+      useDuoStore.setState({ awaitingReAsk: true });
+      await injectTo(s.duoSessionId, buildReAskPrompt(), "duo"); // stays mode "plan"
+      return;
+    }
+  }
+  useDuoStore.setState({ awaitingReAsk: false });
+  mentorMode = null;
+  const verdict = parsed.ok ? parsed.verdict : needsClarificationVerdict(duoResponse);
+  triggerAnalysis();
+  appendDialogue(
+    "duo",
+    "review",
+    verdict.rationale ? `${verdict.summary}\n\n${verdict.rationale}` : verdict.summary,
+    toDialogueVerdict(verdict),
+  );
+
+  if (verdict.stance === "agree") {
+    appendDialogue("system", "decision", "Plan approved — primary implementing.");
+    recordEvent("decision", "duo", "Plan approved", verdictPayload(verdict));
+    useDuoStore.setState({ phase: "building", repairAttempts: 0, priorConcerns: [] });
+    await injectTo(s.primarySessionId, buildImplementPrompt(s.config.primary.agentId), "primary");
+    return;
+  }
+
+  // Plan needs changes — bounded by maxDialogueRounds, then tie-break.
+  recordEvent("disagreement", "duo", verdict.summary, verdictPayload(verdict));
+  const round = s.repairAttempts;
+  if (!s.tieBreakApplied && round >= s.config.maxDialogueRounds) {
+    await applyTieBreak(verdict, "rounds-exhausted");
+    return;
+  }
+  appendDialogue("system", "repair", `Mentor requested plan changes (round ${round + 1}).`);
+  useDuoStore.setState({ phase: "planning", repairAttempts: round + 1 });
+  await injectTo(
+    s.primarySessionId,
+    buildPlanRevisePrompt({
+      feedback: verdict.repairTask ?? verdict.summary,
+      rationale: verdict.rationale,
+      agentId: s.config.primary.agentId,
+    }),
+    "primary",
+  );
+}
+
+/** Mentor finished a live (incremental) review. Clear defect → interleave a
+ *  nudge to the primary; otherwise just log. Never completes / counts a round. */
+async function handleDuoIncrementalComplete(): Promise<void> {
+  const s = useDuoStore.getState();
+  if (!s.duoSessionId || !s.primarySessionId || !s.config) {
+    mentorMode = null;
+    return;
+  }
+  const messages = useSessionStore.getState().sessionMessages.get(s.duoSessionId) ?? [];
+  const duoResponse = collectResponseSince(messages, s.lastDuoPromptId);
+  mentorMode = null; // mentor is free again
+
+  const parsed = parseDuoVerdict(duoResponse);
+  if (parsed.ok) {
+    const v = parsed.verdict;
+    appendDialogue(
+      "duo",
+      "review",
+      v.rationale ? `${v.summary}\n\n${v.rationale}` : v.summary,
+      toDialogueVerdict(v),
+    );
+    recordEvent("concern", "duo", `Live review: ${v.summary}`, verdictPayload(v));
+    if (isBlockingVerdict(v) && v.repairTask) {
+      // Interleave a concise nudge — primary keeps working (not a new turn).
+      bumpMetrics({ driftIncidents: useDuoStore.getState().metrics.driftIncidents });
+      appendDialogue("system", "repair", `Live nudge → primary: ${v.repairTask}`);
+      recordEvent("repair", "system", `Live nudge: ${v.repairTask}`);
+      await injectTo(
+        s.primarySessionId,
+        buildNudgePrompt(v.repairTask, s.config.primary.agentId),
+        "primary",
+        { isTurnStart: false },
+      );
+    }
+  }
+
+  // The primary finished while we were reviewing → run the final review now.
+  if (finalReviewQueued) {
+    finalReviewQueued = false;
+    await runFinalReview();
+    return;
+  }
+  // Otherwise, if changes accrued during the review, schedule another pass.
+  if (pendingIncremental || mutatingOpsSinceReview > 0) {
+    clearIncrementalTimer();
+    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), 1500);
+  }
+}
+
+/** Autonomous, successful completion (mentor approved). Unlike `stop`, this
+ *  keeps the sessions alive so the user can keep guiding the primary. */
+function completeRun(outcome: string): void {
+  clearIncrementalTimer();
+  mentorMode = null;
+  appendDialogue("system", "resolve", "Mentor approved — task complete.");
+  recordEvent("decision", "system", `Run complete — ${outcome}`);
+  const runId = useDuoStore.getState().runId;
+  if (runId) {
+    void duoCompleteRun(runId, "completed", outcome).catch(() => {});
+    void duoLogCompletion(runId, outcome).catch(() => {});
+  }
+  useDuoStore.setState({
+    status: "completed",
+    phase: "completed",
+    repairAttempts: 0,
+    priorConcerns: [],
+    tieBreakApplied: false,
+  });
 }
 
 /** Shape a mentor verdict into the timeline-entry verdict metadata. */
@@ -903,32 +1225,19 @@ async function executeVerdict(verdict: DuoVerdict): Promise<void> {
     : verdict.summary;
   appendDialogue("duo", "review", reviewText, toDialogueVerdict(verdict));
 
-  if (verdict.stance === "agree") {
-    // Convergence — concern resolved (primary fixed it, or mentor conceded).
+  // Mentor approved (or only a trivial nit remains) → the task has CONVERGED.
+  // Complete the run autonomously (no stall); the agree path is the only way a
+  // run finishes on its own.
+  if (verdict.stance === "agree" || (!isBlockingVerdict(verdict) && verdict.severity === "nit")) {
     recordEvent("agreement", "duo", verdict.summary, verdictPayload(verdict));
     bumpMetrics({ agreements: useDuoStore.getState().metrics.agreements + 1 });
-    // If this ended an active dispute, mark the resolution as an outcome.
-    if (s.repairAttempts > 0) {
-      appendDialogue("system", "resolve", "Agreement reached — primary's work accepted.");
-      recordEvent("decision", "system", "Agreement reached — primary's work accepted");
-    }
-    useDuoStore.setState({
-      phase: "building",
-      repairAttempts: 0,
-      priorConcerns: [],
-      tieBreakApplied: false,
-    });
+    completeRun("mentor-approved");
     return;
   }
 
-  if (!isBlockingVerdict(verdict)) {
-    // Advisory / nit — log, batch, don't interrupt the primary.
-    recordEvent("concern", "duo", verdict.summary, verdictPayload(verdict));
-    useDuoStore.setState({ phase: "building" });
-    return;
-  }
-
-  // Blocking concern / disagreement — open or continue the dialogue.
+  // ANY remaining concern (blocking OR advisory) drives a fix turn so the
+  // mentor's feedback always reaches the primary — this removes the old stall
+  // where advisory verdicts were batched and the run idled forever.
   recordEvent("disagreement", "duo", verdict.summary, verdictPayload(verdict));
   bumpMetrics({
     disagreements: useDuoStore.getState().metrics.disagreements + 1,

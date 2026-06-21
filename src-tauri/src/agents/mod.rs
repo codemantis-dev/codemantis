@@ -452,6 +452,9 @@ pub enum NormalizedEvent {
         session_id: String,
         trigger: String,
         pre_tokens: Option<u64>,
+        /// Post-compaction conversation token count (Claude CLI ~2.1.185+).
+        /// Codex does not report this, so it is `None` there.
+        post_tokens: Option<u64>,
     },
 
     #[serde(rename = "rate_limit_warning")]

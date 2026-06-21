@@ -135,3 +135,87 @@ export function buildReAskPrompt(): string {
 
 ${VERDICT_FORMAT_INSTRUCTION}`;
 }
+
+// ── Plan-review gate ─────────────────────────────────────────────────────────
+
+/** First message to the PRIMARY: draft a plan before writing any code. */
+export function buildPlanRequestPrompt(task: string, agentId: AgentId): string {
+  return `${clarifier(agentId)}You are the PRIMARY in a Duo-Coding pair, working with a read-only mentor who reviews your work.
+
+Before writing ANY code, outline your approach as a short plan so your mentor can sanity-check it:
+- The files you expect to change (and roughly what in each)
+- The key steps, in order
+- Risks, unknowns, or decisions you're unsure about
+
+Do NOT write or edit code yet — just the plan. Keep it concise.
+
+TASK:
+${task}`;
+}
+
+/** Ask the MENTOR to review the primary's plan (returns a verdict). */
+export function buildPlanReviewPrompt(args: {
+  task: string;
+  plan: string;
+  agentId: AgentId;
+}): string {
+  return `${clarifier(args.agentId)}You are the MENTOR (read-only). The PRIMARY proposed this PLAN before coding. Review the APPROACH — not code (none written yet). Catch wrong directions, missing steps, risky decisions, or a misread of the task NOW, before effort is spent.
+
+ORIGINAL TASK:
+${args.task}
+
+PRIMARY'S PROPOSED PLAN:
+${args.plan}
+
+If the approach is sound, set stance to "agree". If it needs changes, set stance to "concern"/"disagree" and put concrete plan corrections in repairTask.
+
+${VERDICT_FORMAT_INSTRUCTION}`;
+}
+
+/** Tell the PRIMARY the plan is approved — start implementing. */
+export function buildImplementPrompt(agentId: AgentId): string {
+  return `${clarifier(agentId)}Your mentor approved the plan. Implement it now. Your mentor will review your changes continuously as you work and may send brief course-corrections — incorporate them as you go.`;
+}
+
+/** Tell the PRIMARY to revise its plan per the mentor's feedback (still no code). */
+export function buildPlanRevisePrompt(args: {
+  feedback: string;
+  rationale: string;
+  agentId: AgentId;
+}): string {
+  return `${clarifier(args.agentId)}Your mentor reviewed your plan and wants changes before you start coding:
+
+CHANGES REQUESTED: ${args.feedback}
+REASONING: ${args.rationale}
+
+Revise your plan accordingly and re-share it. Still do NOT write code yet.`;
+}
+
+// ── Continuous (incremental) co-review ───────────────────────────────────────
+
+/** Ask the MENTOR for a quick mid-work review of the diff so far. */
+export function buildIncrementalReviewPrompt(args: {
+  task: string;
+  diff: string;
+  agentId: AgentId;
+}): string {
+  const diff = args.diff.trim() || "(no changes in the working tree yet)";
+  return `${clarifier(args.agentId)}You are the MENTOR (read-only), pair-reviewing WHILE the PRIMARY is still actively working — like a navigator watching the driver. This is a quick check, not the final review.
+
+ORIGINAL TASK:
+${args.task}
+
+DIFF SO FAR (work in progress):
+${diff}
+
+Flag ONLY concrete, already-visible defects worth interrupting for right now — e.g. a wrong variable, a missing/mismatched bracket, an undefined symbol, a clearly wrong API call, or a deviation from the task. Be terse. DEFER style, polish, naming, and "could be improved" notes to the final review (set stance "agree" if there's nothing blocking yet). Open the changed files / run a quick check if useful.
+
+If you see a clear defect, set stance to "concern" (or "disagree") with a ONE-LINE, specific repairTask the primary can act on without stopping.
+
+${VERDICT_FORMAT_INSTRUCTION}`;
+}
+
+/** Concise mid-turn nudge injected into the PRIMARY (does not start a new turn). */
+export function buildNudgePrompt(repairTask: string, agentId: AgentId): string {
+  return `${clarifier(agentId)}⚠️ Mentor (live): ${repairTask}`;
+}

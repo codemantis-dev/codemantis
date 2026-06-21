@@ -652,6 +652,45 @@ async fn wait_for_result(capture_path: &Path, deadline: Duration) -> Option<Valu
     ).await
 }
 
+/// Multi-turn helper: `poll_for`/`wait_for_result` rescan the whole capture
+/// file from the top, so a second `wait_for_result` returns the *first*
+/// turn's result immediately. This waits until at least `n` total `result`
+/// events have been written, which is what a multi-turn scenario (S17) needs
+/// to sequence one turn after another. Returns the count actually seen.
+async fn wait_for_nth_result(capture_path: &Path, n: usize, deadline: Duration) -> usize {
+    let started = Instant::now();
+    let mut last = 0usize;
+    while started.elapsed() < deadline {
+        if let Ok(contents) = tokio::fs::read_to_string(capture_path).await {
+            let mut count = 0usize;
+            for line in contents.lines() {
+                let entry: Value = match serde_json::from_str(line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if entry.get("dir").and_then(Value::as_str) != Some("stdout") {
+                    continue;
+                }
+                let raw = match entry.get("raw").and_then(Value::as_str) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                    if parsed.get("type").and_then(Value::as_str) == Some("result") {
+                        count += 1;
+                    }
+                }
+            }
+            last = count;
+            if count >= n {
+                return count;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    last
+}
+
 async fn wait_for_control_response(
     capture_path: &Path,
     request_id: String,
@@ -1252,6 +1291,55 @@ async fn s16_hook_exceeds_cli_timeout() {
     cleanup(&mut spawned, &ctx).await;
 }
 
+/// S17 — manual `/compact` over `--input-format stream-json`.
+///
+/// Settles the open question behind the "CONTEXT meter doesn't reset after
+/// /compact" report: does compaction in stream-json (print) mode actually
+/// shrink the *next* turn's context the way the interactive TUI does, or does
+/// it merely emit a summary while the next turn still carries full history?
+///
+/// Sequence:
+///   T1, T2  — two substantive turns to build a non-trivial conversation.
+///   T3      — `/compact` (the summarization turn; reads the whole history).
+///   T4      — a tiny follow-up ("hi") whose `usage.input_tokens` reveals
+///             whether the working context was reduced.
+///
+/// Read from `S17-compaction.jsonl`:
+///   1. `system/status:"compacting"` and `system/subtype:"compact_boundary"`
+///      fire? (confirms our detection in message_router.rs is current).
+///   2. `compact_metadata` contents — only `pre_tokens`, or a post count too?
+///   3. DECISIVE: T4's input_tokens « T2/T3's input_tokens  → /compact really
+///      compacts (cosmetic meter lag only). T4 ≈ T3  → genuine stream-json
+///      limitation (the meter is actually correct).
+async fn s17_compaction() {
+    let ctx = setup("S17-compaction", allow_all()).await;
+    let mut spawned = spawn_cli(
+        &ctx.capture, ctx.hook_port, &ctx.hook_path, None, &ctx.cwd, None,
+    )
+    .await;
+
+    // T1 + T2: build conversation history worth compacting.
+    send_user(&mut spawned, &ctx.capture,
+        "Write three detailed paragraphs about the history of the C programming language.").await;
+    wait_for_nth_result(&ctx.capture_path, 1, Duration::from_secs(90)).await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Now write three more detailed paragraphs about the history of the Rust programming language.").await;
+    wait_for_nth_result(&ctx.capture_path, 2, Duration::from_secs(90)).await;
+
+    // T3: manual compaction. Sent as plain text exactly like CodeMantis does.
+    send_user(&mut spawned, &ctx.capture, "/compact").await;
+    wait_for_nth_result(&ctx.capture_path, 3, Duration::from_secs(120)).await;
+    // Give any trailing compact_boundary system event a moment to land.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // T4: tiny follow-up. Its input_tokens is the decisive measurement.
+    send_user(&mut spawned, &ctx.capture, "Reply with just the word: ok").await;
+    wait_for_nth_result(&ctx.capture_path, 4, Duration::from_secs(90)).await;
+
+    cleanup(&mut spawned, &ctx).await;
+}
+
 // =====================================================================
 // MAIN — runs the whole battery sequentially.
 // =====================================================================
@@ -1304,6 +1392,8 @@ async fn capture_full_battery() {
     s15_http_mcp_tool().await;
     eprintln!("[harness] === S16 hook exceeds CLI timeout ===");
     s16_hook_exceeds_cli_timeout().await;
+    eprintln!("[harness] === S17 manual /compact over stream-json ===");
+    s17_compaction().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1444,6 +1534,7 @@ async fn capture_single() {
         "S14" => s14_mcp_tool().await,
         "S15" => s15_http_mcp_tool().await,
         "S16" => s16_hook_exceeds_cli_timeout().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S16 (got '{other}')"),
+        "S17" => s17_compaction().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S17 (got '{other}')"),
     }
 }

@@ -23,4 +23,18 @@ describe("ContextMeter", () => {
     render(<ContextMeter used={200000} max={200000} />);
     expect(screen.getByText("200K / 200K")).toBeInTheDocument();
   });
+
+  describe("pending (post-compaction)", () => {
+    it("prefixes the value with ~ and shows the refresh hint", () => {
+      render(<ContextMeter used={3367} max={1_000_000} pending />);
+      expect(screen.getByText("~3K / 1M")).toBeInTheDocument();
+      expect(screen.getAllByTitle(/refreshes on next message/i).length).toBeGreaterThan(0);
+    });
+
+    it("does not prefix or hint when not pending", () => {
+      render(<ContextMeter used={3367} max={1_000_000} />);
+      expect(screen.getByText("3K / 1M")).toBeInTheDocument();
+      expect(screen.queryAllByTitle(/refreshes on next message/i).length).toBe(0);
+    });
+  });
 });

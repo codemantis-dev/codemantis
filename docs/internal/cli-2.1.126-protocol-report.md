@@ -223,6 +223,45 @@ server health, sub-agent context, or a host-side modal miss). The shipped diagno
 catching it with full context next time. Untested next step: hook timeout under a NON-bypass permission
 mode (`plan`/`default`) — the CLI may fail *closed* there.
 
+### S17 — manual `/compact` over stream-json ★ added 2026-06-21, CLI **2.1.185** ★
+
+> **Version note:** captured against CLI **2.1.185**. Per CLAUDE.md, trust the capture.
+
+**Motivation.** Field report: after `/compact`, the sidebar CONTEXT meter stayed pinned at its
+pre-compaction value (e.g. `973K / 1M`) while the session was idle. Open question: does `/compact` over
+`--input-format stream-json` actually shrink the next turn's context the way the interactive TUI does, or
+does it only emit a summary while the working context stays full? No prior scenario exercised compaction.
+
+**Method.** Two substantive turns to build history → `/compact` (sent as plain text, exactly as
+CodeMantis does) → a tiny follow-up. Capture: `S17-compaction.jsonl`.
+
+**Findings (decisive):**
+- **`/compact` genuinely compacts in stream-json mode.** `compact_boundary.compact_metadata` reports
+  `pre_tokens: 28258 → post_tokens: 3367`. Not a CLI regression.
+- **NEW: `compact_metadata` now carries `post_tokens`** (and `duration_ms`, `preserved_segment`,
+  `preserved_messages`), not just `pre_tokens` as the 2.1.126 fixture assumed. `post_tokens` is the
+  **conversation-only** size; it excludes the fixed system-prompt + tool-definitions overhead (~15.6K in
+  this capture — the per-turn `cache_read` floor). So the true next-turn window fill (T4 measured
+  `input+cache_read+cache_creation+output ≈ 23.5K`) is larger than `post_tokens` alone.
+- **Compaction status lifecycle is richer than we keyed on.** Observed sequence:
+  `system/status:"requesting"` → `system/status:"compacting"` → `system/status:{status:null,
+  compact_result:"success"}` → fresh `system/init` (re-init) → `system/subtype:"compact_boundary"` →
+  a synthetic `user` message containing the summary (`"This session is being continued…"`) and
+  `<local-command-stdout>Compacted </local-command-stdout>`. Our `handle_system_status` keys only on
+  `status=="compacting"`, which still works; the new `compact_result` field is ignored (could be used to
+  detect compaction *failure* in future).
+- The `/compact` turn's own `result` reports `num_turns:0` and **zero** usage.
+
+**Fix shipped (this change).** `handle_system_compact_boundary` now also extracts `post_tokens` and
+threads it through `FrontendEvent::CompactComplete`. On `compact_complete` the host drops the meter to
+`post_tokens` flagged **pending** (muted bar + "refreshes on next message" hint) instead of leaving the
+stale value; the next `usage_update` clears pending and sets the true full-window fill. This is the
+honest behaviour: `post_tokens` is a real CLI number (not fabricated), shown provisionally because it
+undercounts the system/tool overhead. `store.markContextCompacted` + `ContextMeter`'s `pending` prop;
+threshold toasts re-armed via `resetContextToastFired`. Verdict for the original report: **not a
+CodeMantis regression and not a Claude Code break** — the meter was a snapshot of the last API call and
+nothing reset it on compaction; the session was simply idle on the pre-compaction summarization read.
+
 ---
 
 ## Actionable bugs in CodeMantis (proven by the captures)

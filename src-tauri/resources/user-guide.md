@@ -213,6 +213,7 @@ Starting from the left:
 
 - **macOS traffic lights** (close, minimize, maximize) in the standard position with a spacer after them.
 - **Project tabs** -- One tab per open project, showing a folder icon, the project folder name, and optionally a session count badge (when more than one session exists). The active project tab has an accent-colored top border and elevated background. Inactive tabs have a transparent top border. Each tab shows a close button (X) on hover. Projects also show a status indicator: a pulsing green dot means at least one session is busy; a yellow dot means a session has gone stale (no events for 30+ seconds).
+- **Activity Overview** (Activity/pulse icon, near the left edge) -- A global monitor of every job running across *all* open projects. The icon pulses and shows a green count badge with the number of busy sessions. Click it (or press `Cmd Shift O`) to open a dropdown that lists every session currently working, stuck, awaiting approval, or compacting -- each with a one-line "what it's doing now" and a live elapsed timer. Click a row to jump straight to that session; click a project header to jump to the project. Closes on click-outside or `Escape`.
 - **Flexible drag region** -- The space between project tabs and action buttons is a drag region. You can click and drag here to move the window. If no projects are open, the text "CodeMantis" appears here.
 
 On the right side of the title bar, a row of icon buttons (left to right):
@@ -222,6 +223,8 @@ On the right side of the title bar, a row of icon buttons (left to right):
 | Plus (+) | New Project | `Cmd Shift N` | Opens the Project Picker on the Templates tab |
 | FolderOpen | Open Project | `Cmd O` | Opens the Project Picker on the Open Folder tab |
 | PenTool | SpecWriter | `Cmd Shift B` | Toggles the SpecWriter slide-over panel. Shows a badge if specs exist for the current project. |
+| Rocket | Mission Control | `Cmd Shift G` | Opens Mission Control (Preflight) for the active project -- environment setup checks and verification gates. See Chapter 19B. |
+| Users | Duo-Coding | `Cmd Shift D` | Opens the Duo-Coding workspace (pair a primary agent with a read-only mentor). **Only shown when Duo-Coding is enabled in Settings** (on by default). See Chapter 21D. |
 | Globe | Run Application | -- | Starts/focuses the app preview window. Launches the dev server if not running. |
 | Camera | Screenshot | -- | Captures a screenshot of the preview window and attaches it to the chat input. **Only visible when the preview window is open.** |
 | Blocks | MCP Servers | `Cmd Shift M` | Opens the MCP server configuration modal |
@@ -334,6 +337,9 @@ Click and drag the title bar (anywhere that is not a button or tab).
 | `Cmd O` | Open existing project |
 | `Cmd ,` | Settings |
 | `Cmd Shift M` | MCP Servers |
+| `Cmd Shift G` | Mission Control (Preflight) for the active project |
+| `Cmd Shift D` | Toggle the Duo-Coding workspace (when enabled in Settings) |
+| `Cmd Shift O` | Toggle the Activity Overview (global running-jobs monitor) |
 | `Cmd /` | CLI Overlay |
 | `Cmd .` | Toggle mode (Normal/Auto/Plan) |
 | `Cmd =` | Zoom in (increase font size) |
@@ -3181,22 +3187,25 @@ Duo-Coding pairs two coding agents on one task. A **Primary** agent (the sole wr
 
 ### How to open / access
 
-- **Title bar:** the **Duo-Coding** button (two-people icon).
-- **Keyboard:** `Cmd+Shift+D` toggles the dashboard for the active project.
-- From the dashboard's idle state, **Configure a Duo run** opens the setup modal.
+Duo-Coding is **on by default**. You can turn it off in **Settings -> Duo-Coding**, which also hides the entry points below.
+
+- **Title bar:** the **Duo-Coding** button (two-people / Users icon). Hidden when the feature is disabled in Settings.
+- **Keyboard:** `Cmd+Shift+D` toggles the Duo-Coding workspace for the active project.
+- From the workspace's idle state, **Configure a Duo run** opens the setup modal.
 
 ### Starting a run
 
 In the setup modal, choose the **Primary** and **Mentor** agents (Claude Code or Codex), pick a model and effort for each from the live dropdowns, and describe the task. The Mentor is locked read-only automatically (Claude plan mode / Codex read-only sandbox). Click **Start run** -- the Primary begins, and the Mentor reviews after each of its turns.
 
-### What the dashboard shows
+### The Duo-Coding workspace
 
-- **Run controls** (always available while active): **Pause/Resume** and a prominent two-step **Stop**. Stopping tears down both agent sessions and writes a Duo-Coding entry to the project changelog.
-- **Analyst assessment:** a headline, narrative, momentum, and a confidence score.
-- **Gauges:** collaboration-health and code-quality scores (0--100, color-banded).
-- **Metrics:** reviews, agreements, disagreements, repairs, dialogue rounds, drift incidents, agreement rate, and live cost.
-- **Charts:** changes per turn (added/removed) and agreements vs disagreements.
-- **Risks, recommendations, repair analysis, improvements, watch items**, and the **live dialogue** between the two agents.
+Duo-Coding runs in an **embedded workspace** that takes over the center area (it is no longer a floating overlay). It has three parts:
+
+- **Header / run controls** (always available while active): the run **status**, current **phase**, the **agent pairing** (primary -> mentor with models), a live **elapsed timer**, and **Pause/Resume** plus a two-step **Stop** (click **Stop**, then **Confirm stop?**). Stopping tears down both agent sessions and writes a Duo-Coding entry to the project changelog.
+- **Left area -- two tabs:**
+  - **Agents:** the two live agent chats **side by side** -- the **Primary** (interactive) and the read-only **Mentor** -- so you can watch both work in real time.
+  - **Dashboard:** the analyst view -- an assessment headline, narrative, momentum, and confidence score; collaboration-health and code-quality **gauges** (0--100, color-banded); **metrics** (reviews, agreements, disagreements, repairs, dialogue rounds, drift incidents, agreement rate, live cost); **charts** (changes per turn, agreements vs disagreements); and risks, recommendations, repair analysis, improvements, and watch items.
+- **Orchestrator card** (right, behind a resizable divider): the Mentor's running log of verdicts, decisions, and outcomes -- the **live dialogue** between the two agents.
 
 ### Disagreements & tie-breaks
 
@@ -3788,7 +3797,7 @@ The **Usage split (last 7 days)** panel at the bottom of the tab tells you, in h
 
 ### What You See
 
-A panel with the heading **"Agents"** and three sections:
+A panel with the heading **"Agents"** and four sections:
 
 **Per-agent status rows** -- One card per supported agent (Claude Code, OpenAI Codex). Each row shows:
 
@@ -3803,6 +3812,10 @@ A panel with the heading **"Agents"** and three sections:
   - **"Unknown"** if the CLI does not surface an auth state (some older versions).
 - A **Docs** link button (opens the agent's product page).
 - A **"Make default"** button on each row -- promotes that agent to the primary `selectedAgentId` for new sessions.
+
+**Sessions**
+
+A **Max open sessions** field (`1`--`100`, default **20**) caps how many coding-agent session tabs you can keep open at once across all projects. The cap is enforced when you start a new session or resume one from history -- if you're already at the limit, the action is blocked with a notice instead of opening another tab. Raise it if you routinely juggle many parallel sessions; lower it to keep memory and subscription usage in check. Stored as `maxCodingAgentSessions`.
 
 **Per-task Defaults** (v1.5.0 -- shown only when both CLIs are installed and signed in)
 
@@ -4032,6 +4045,9 @@ A panel with the heading **"Keyboard Shortcuts"** and categorized lists. Each en
 | `Cmd O` | Open existing project |
 | `Cmd ,` | Settings |
 | `Cmd Shift M` | MCP Servers |
+| `Cmd Shift G` | Mission Control (Preflight) for the active project |
+| `Cmd Shift D` | Toggle the Duo-Coding workspace (when enabled in Settings) |
+| `Cmd Shift O` | Toggle the Activity Overview (global running-jobs monitor) |
 | `Cmd /` | CLI Overlay |
 | `Cmd .` | Toggle mode (Normal/Auto/Plan) |
 | `Cmd =` | Zoom in (increase font size) |
@@ -4472,6 +4488,9 @@ Complete reference of every keyboard shortcut in CodeMantis, organized by catego
 | `Cmd O` | Open existing project |
 | `Cmd ,` | Settings |
 | `Cmd Shift M` | MCP Servers |
+| `Cmd Shift G` | Mission Control (Preflight) for the active project |
+| `Cmd Shift D` | Toggle the Duo-Coding workspace (when enabled in Settings) |
+| `Cmd Shift O` | Toggle the Activity Overview (global running-jobs monitor) |
 | `Cmd /` | CLI Overlay |
 | `Cmd .` | Toggle mode (Normal/Auto/Plan) |
 | `Cmd =` | Zoom in (increase font size) |
@@ -4541,6 +4560,7 @@ Complete reference of every configurable setting in CodeMantis.
 | Claude binary override | (Welcome Screen) | File path | null | Custom path to the `claude` binary; set via the "Locate Claude Code" link on the Welcome Screen when the binary is not auto-detected |
 | Default agent | Agents | Choice (`claude_code` / `codex`) | `claude_code` | The primary coding agent for new sessions (`selectedAgentId` in `uiStore`). Set via the Agent Picker (Chapter 3) or **Make default** on the Agents tab. |
 | Per-task default agent | Agents | Sparse map | `{}` | `defaultAgentByTask` — routes specific task categories (`main_chat`, `assistant`, `spec_writer`, `help`) to a particular agent overriding the primary. Categories absent from the map fall back to the primary. Self-Drive is intentionally not a task category — it inherits the agent of the session it attaches to. |
+| Max open sessions | Agents | Number (1--100) | 20 | `maxCodingAgentSessions` — cap on how many coding-agent session tabs you can keep open at once. Enforced when starting or resuming a session; opening beyond the cap is blocked with a notice. |
 | Codex policy per session | (Input toolbar) | `CodexSessionPolicy` | `workspace-write · on-request` | Per-Codex-session sandbox × approval policy, stored in `uiStore.codexPolicies[sessionId]`. Network access is read-only in v1.5.x and requires editing `~/.codex/config.toml`. |
 | Confirm capabilities (Phase 0b) | Self-Drive | Toggle | On | `selfDriveConfirmCapabilities` — controls SpecWriter Phase 0b live-fire handshake before a spec is written. |
 | Second-opinion privacy ack | (Internal) | Toggle | Off | `secondOpinionPrivacyAcknowledged` — set once after the user acknowledges the privacy disclosure for the `/second-opinion` flow. |
@@ -4561,6 +4581,14 @@ Complete reference of every configurable setting in CodeMantis.
 | Recall token budget per brief | Recall | settings.json | 2000 | `recall.tokenBudgetPerBrief` -- cap on injected brief size. |
 | Recall stale threshold (days) | Recall | settings.json | 30 | `recall.staleThresholdDays` -- age past which a note is treated as stale. |
 | Recall commit vault to git | Recall | settings.json | Off | `recall.commitVaultToGit` -- when off, `.recall/` stays local-only. |
+| Enable Duo-Coding | Duo-Coding | Toggle | On | `duo.enabled` -- master switch for mentor + primary pairing. When off, the title-bar Duo button and `Cmd Shift D` are hidden. |
+| Tie-break policy | Duo-Coding | Choice | Pause | `duo.tieBreakPolicy` -- how an unresolved disagreement settles: `pause` (ask you), `mentorWins`, or `primaryWins`. |
+| Max dialogue rounds | Duo-Coding | Number | 3 | `duo.maxDialogueRounds` -- back-and-forth rounds the mentor and primary get before the tie-break applies. |
+| Severe-drift nudge | Duo-Coding | Toggle | On | `duo.severeDriftNudgeEnabled` -- watch for dangerous mid-run actions (e.g. `rm -rf`, deleting tests) and nudge the primary back on track. |
+| Drift sensitivity | Duo-Coding | Choice | Conservative | `duo.severeDriftSensitivity` -- conservative / balanced / aggressive. |
+| Enable analyst | Duo-Coding | Toggle | On | `duo.analystEnabled` -- run a cheap API LLM that turns the run log into the live dashboard. |
+| Analyst provider / model | Duo-Coding | Dropdown | Gemini / gemini-2.5-flash-lite | `duo.analystProvider` / `duo.analystModel`. |
+| Budget cap (USD / tokens) | Duo-Coding | Number / null | None | `duo.budgetUsdCap` / `duo.budgetTokenCap` -- pause the run before it overspends. |
 | Save session conversations | Session Logs | Toggle | On | Store all messages when a session closes |
 | Retention period | Session Logs | Choice | 30 days | How long to keep session logs: 7d, 14d, 30d, 90d, 1y, Forever |
 | Codex debug logging | Session Logs | Toggle | On | `codexDebugLoggingEnabled` -- capture the raw Codex JSON-RPC wire (both directions) to a per-session `codex-wire-logs` file under the app data folder, for troubleshooting compaction stalls and other protocol issues. No effect on Claude Code sessions. |

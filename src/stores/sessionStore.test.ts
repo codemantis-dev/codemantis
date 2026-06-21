@@ -192,6 +192,46 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessionContext.get("s1")).toEqual({ used: 5000, max: 200000 });
   });
 
+  describe("markContextCompacted", () => {
+    it("sets a pending post-compaction value, preserving max", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().updateContext("s1", 973000, 1_000_000);
+      useSessionStore.getState().markContextCompacted("s1", 3367);
+      expect(useSessionStore.getState().sessionContext.get("s1")).toEqual({
+        used: 3367,
+        max: 1_000_000,
+        pending: true,
+      });
+    });
+
+    it("keeps prior used (still pending) when postTokens is null", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().updateContext("s1", 50000, 200000);
+      useSessionStore.getState().markContextCompacted("s1", null);
+      expect(useSessionStore.getState().sessionContext.get("s1")).toEqual({
+        used: 50000,
+        max: 200000,
+        pending: true,
+      });
+    });
+
+    it("updateContext clears the pending flag", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().markContextCompacted("s1", 3367);
+      expect(useSessionStore.getState().sessionContext.get("s1")?.pending).toBe(true);
+      useSessionStore.getState().updateContext("s1", 23558, 1_000_000);
+      expect(useSessionStore.getState().sessionContext.get("s1")?.pending).toBeUndefined();
+    });
+  });
+
+  it("resetContextToastFired clears the fired-threshold set", () => {
+    useSessionStore.getState().addSession(TEST_SESSION);
+    useSessionStore.getState().markContextToastFired("s1", 80);
+    expect(useSessionStore.getState().contextToastFired.get("s1")?.has(80)).toBe(true);
+    useSessionStore.getState().resetContextToastFired("s1");
+    expect(useSessionStore.getState().contextToastFired.get("s1")?.size).toBe(0);
+  });
+
   it("clearSessionData resets messages/streaming/context", () => {
     useSessionStore.getState().addSession(TEST_SESSION);
     useSessionStore.getState().addMessage("s1", {
