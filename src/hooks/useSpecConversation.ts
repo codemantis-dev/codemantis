@@ -57,6 +57,13 @@ interface PerProjectStreamState {
   stalledNoticed: boolean;
   /** True when this stream is the model's reply to an auto-recheck dispatch. */
   isAutoRecheck: boolean;
+  /**
+   * True when this stream is a Verification Audit turn (user clicked "Generate
+   * the Verification Audit"). Authoritative routing signal — when set, content
+   * goes to currentAuditContent from the first chunk and the turn finalizes as
+   * an audit regardless of the document's H1. Mirrors useSpecConversationClaude.ts.
+   */
+  isAuditTurn: boolean;
   /** Heading watermark for creation-log advancement — mirrors the Claude hook. */
   creationLogWatermark: number;
 }
@@ -75,6 +82,7 @@ function makeStreamState(): PerProjectStreamState {
     watchdogTimer: null,
     stalledNoticed: false,
     isAutoRecheck: false,
+    isAuditTurn: false,
     creationLogWatermark: 0,
   };
 }
@@ -167,7 +175,7 @@ export function useSpecConversation(): {
       projectPath: string,
       content: string,
       attachments?: SpecAttachment[],
-      meta?: { isAutoRecheck?: boolean }
+      meta?: { isAutoRecheck?: boolean; isAudit?: boolean }
     ) => {
       // Capture the post-compaction recap BEFORE we clear the per-turn state
       // below. If a prior turn was compacted (only possible today via the
@@ -388,6 +396,7 @@ export function useSpecConversation(): {
       state.auditDetected = false;
       state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
       state.isAutoRecheck = !!meta?.isAutoRecheck;
+      state.isAuditTurn = !!meta?.isAudit;
       state.creationLogWatermark = 0;
       // Stage 4: reset stream observability state and arm the stalled-stream watchdog.
       state.chunkCount = 0;
@@ -461,7 +470,9 @@ export function useSpecConversation(): {
         // unconditionally keeps parity with the Claude-CLI hook and means the
         // recap injection in `sendMessage` works the moment any signal (a
         // future provider event, or a manual trigger) sets `compactionInfo`.
-        if (!state.isAutoRecheck && !state.auditDetected) {
+        // `isAuditTurn` covers the first chunk of an intended audit, before
+        // `auditDetected` latches.
+        if (!state.isAutoRecheck && !state.auditDetected && !state.isAuditTurn) {
           const log = store.creationLogs.get(projectPath) ?? {
             entries: [],
             compactedAt: null,
@@ -477,7 +488,7 @@ export function useSpecConversation(): {
             state.creationLogWatermark = adv.nextWatermark;
           }
         }
-        if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
+        if (state.isAuditTurn || state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
           if (!state.auditDetected && state.specDetected) {
             state.specDetected = false;
@@ -521,8 +532,13 @@ export function useSpecConversation(): {
 
           const finalContent = state.streamBuffer;
           const parsed = parseSelectableOptions(finalContent);
-          // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
-          const isAudit = AUDIT_START_PATTERN.test(finalContent);
+          // Audit takes priority — a document is never also a spec. The user's
+          // explicit "Generate the Verification Audit" intent (isAuditTurn) is
+          // authoritative; AUDIT_START_PATTERN is only the fallback for audits
+          // that arrive without that intent. Keeps a mistitled audit from being
+          // misrouted into (and overwriting) currentSpecContent. Mirrors the
+          // Claude hook.
+          const isAudit = state.isAuditTurn || AUDIT_START_PATTERN.test(finalContent);
 
           // Close the final open creation-log entry (if any) so its body
           // bytes are recorded. Skip on audit/recheck turns.
@@ -876,7 +892,9 @@ export function useSpecConversation(): {
         "Output the COMPLETE document directly in your response — do NOT save it to a file. " +
         "This is a guided code review document that Claude Code will use AFTER " +
         "implementation to verify every component, state, validation, and " +
-        "integration point. Follow the Verification Audit format from your instructions."
+        "integration point. Follow the Verification Audit format from your instructions.",
+        undefined,
+        { isAudit: true }
       );
     },
     [sendMessage]

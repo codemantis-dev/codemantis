@@ -92,6 +92,15 @@ interface PerProjectStreamState {
    */
   isGuideRecovery: boolean;
   /**
+   * True when the current stream is a Verification Audit turn (the user clicked
+   * "Generate the Verification Audit"). This is the AUTHORITATIVE routing signal:
+   * when set, the stream writes to currentAuditContent from the first chunk and
+   * finalizeTurn forces isAudit=true, regardless of the title the model chose for
+   * the document. Text-pattern detection (AUDIT_START_PATTERN) is only a fallback
+   * for audits that arrive without this intent. Mirrors useSpecConversation.ts.
+   */
+  isAuditTurn: boolean;
+  /**
    * Number of headings already emitted to the creation log this run.
    * `advanceCreationLog` advances this watermark on every flush so we only
    * append store actions for *new* headings, not the entire scan each time.
@@ -124,6 +133,7 @@ function makeStreamState(): PerProjectStreamState {
     preStreamSpec: null,
     isAutoRecheck: false,
     isGuideRecovery: false,
+    isAuditTurn: false,
     creationLogWatermark: 0,
     chunkCount: 0,
     streamStartMs: 0,
@@ -297,7 +307,7 @@ export function useSpecConversationClaude(): {
       projectPath: string,
       content: string,
       attachments?: SpecAttachment[],
-      meta?: { isAutoRecheck?: boolean; isGuideRecovery?: boolean }
+      meta?: { isAutoRecheck?: boolean; isGuideRecovery?: boolean; isAudit?: boolean }
     ) => {
       // Guide-recovery turns are out-of-band repairs, not user turns — they
       // skip every pre-flight side effect (compaction recap, recheck reset,
@@ -492,6 +502,7 @@ export function useSpecConversationClaude(): {
       state.preStreamSpec = useSpecWriterStore.getState().currentSpecContent.get(projectPath) ?? null;
       state.isAutoRecheck = !!meta?.isAutoRecheck;
       state.isGuideRecovery = !!meta?.isGuideRecovery;
+      state.isAuditTurn = !!meta?.isAudit;
       // The watermark counts headings already emitted from THIS turn's
       // streamBuffer (which we just cleared). Reset to 0 — the log itself
       // is cumulative across turns and is appended to, not overwritten.
@@ -570,8 +581,9 @@ export function useSpecConversationClaude(): {
         // that have fully streamed in. Gated on non-recheck only; recheck
         // replies are patch envelopes, not spec content. Audits would also
         // be detected as headings here, but we skip them too — the recap
-        // tracks SPEC progress, not audit progress.
-        if (!state.isAutoRecheck && !state.auditDetected) {
+        // tracks SPEC progress, not audit progress. `isAuditTurn` covers the
+        // first chunk of an intended audit, before `auditDetected` latches.
+        if (!state.isAutoRecheck && !state.auditDetected && !state.isAuditTurn) {
           const log = currentStore.creationLogs.get(projectPath) ?? {
             entries: [],
             compactedAt: null,
@@ -592,7 +604,7 @@ export function useSpecConversationClaude(): {
             state.creationLogWatermark = adv.nextWatermark;
           }
         }
-        if (state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
+        if (state.isAuditTurn || state.auditDetected || AUDIT_START_PATTERN.test(buf)) {
           // If we previously misidentified this stream as a spec, restore original
           if (!state.auditDetected && state.specDetected) {
             state.specDetected = false;
@@ -706,8 +718,13 @@ export function useSpecConversationClaude(): {
 
           const finalContent = state.streamBuffer;
           const parsed = parseSelectableOptions(finalContent);
-          // Audit takes priority — a document matching AUDIT_START_PATTERN is never also a spec
-          const isAudit = AUDIT_START_PATTERN.test(finalContent);
+          // Audit takes priority — a document is never also a spec. The user's
+          // explicit "Generate the Verification Audit" intent (isAuditTurn) is
+          // authoritative; AUDIT_START_PATTERN is only the fallback for audits
+          // that arrive without that intent. This is what prevents a verification
+          // audit whose H1 doesn't match the strict title from being misrouted
+          // into (and overwriting) currentSpecContent.
+          const isAudit = state.isAuditTurn || AUDIT_START_PATTERN.test(finalContent);
 
           // Close the final open entry in the creation log (if any) so its
           // body bytes are recorded. Skip on audit/recheck turns.
@@ -1076,7 +1093,9 @@ export function useSpecConversationClaude(): {
           "Output the COMPLETE document directly in your response — do NOT save it to a file. " +
           "This is a guided code review document that Claude Code will use AFTER " +
           "implementation to verify every component, state, validation, and " +
-          "integration point. Follow the Verification Audit format from your instructions."
+          "integration point. Follow the Verification Audit format from your instructions.",
+        undefined,
+        { isAudit: true }
       );
     },
     [sendMessage]

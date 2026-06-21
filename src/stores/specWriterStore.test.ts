@@ -890,4 +890,84 @@ describe("specWriterStore", () => {
       expect(useSpecWriterStore.getState().creationLogs.has(PROJECT)).toBe(false);
     });
   });
+
+  describe("completeTurn — spec/audit routing", () => {
+    const AUDIT_CONTENT =
+      "# My App — Verification Audit\n\n" +
+      "## 1. Components\nVerify every component renders.\n\n" +
+      "## 2. Routes\nVerify every route resolves.\n\n" +
+      "x".repeat(1500);
+
+    function seedAssistantTurn(content = "streaming…"): void {
+      const store = useSpecWriterStore.getState();
+      store.initConversation(PROJECT, "gemini", "gemini-2.5-flash", "feature");
+      store.addMessage(PROJECT, {
+        id: "msg-assistant",
+        role: "assistant",
+        content,
+        message_type: "conversation",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    it("routes an audit turn to currentAuditContent only", () => {
+      seedAssistantTurn();
+      useSpecWriterStore.getState().completeTurn(PROJECT, {
+        finalContent: AUDIT_CONTENT,
+        isSpec: false,
+        isAudit: true,
+      });
+      const s = useSpecWriterStore.getState();
+      expect(s.currentAuditContent.get(PROJECT)).toBe(AUDIT_CONTENT);
+      expect(s.currentSpecContent.has(PROJECT)).toBe(false);
+    });
+
+    it("routes a genuine spec turn to currentSpecContent", () => {
+      seedAssistantTurn();
+      const spec =
+        "# My App — Specification\n\n## 1. Overview\nText.\n\n## 2. Data Model\nText.\n\n## 3. API\nText.\n\n" +
+        "x".repeat(1500);
+      useSpecWriterStore.getState().completeTurn(PROJECT, {
+        finalContent: spec,
+        isSpec: true,
+        isAudit: false,
+      });
+      const s = useSpecWriterStore.getState();
+      expect(s.currentSpecContent.get(PROJECT)).toBe(spec);
+      expect(s.currentAuditContent.has(PROJECT)).toBe(false);
+    });
+
+    // Regression for the "verification audit overwrote my spec" bug: even if a
+    // turn is misclassified as a spec, audit-shaped content must NOT overwrite an
+    // existing spec — it is rerouted to the audit slot instead.
+    it("preserves an existing spec when audit-shaped content arrives as a spec", () => {
+      const EXISTING_SPEC = "# My App — Specification\n\nThe real saved spec.";
+      seedAssistantTurn();
+      useSpecWriterStore.getState().setCurrentSpecContent(PROJECT, EXISTING_SPEC);
+
+      useSpecWriterStore.getState().completeTurn(PROJECT, {
+        finalContent: AUDIT_CONTENT,
+        isSpec: true,
+        isAudit: false,
+      });
+
+      const s = useSpecWriterStore.getState();
+      expect(s.currentSpecContent.get(PROJECT)).toBe(EXISTING_SPEC);
+      expect(s.currentAuditContent.get(PROJECT)).toBe(AUDIT_CONTENT);
+    });
+
+    it("reroutes audit-shaped content to audit even when no spec exists yet", () => {
+      seedAssistantTurn();
+      // Audit-shaped content classified as a spec, with no prior spec → the
+      // backstop still reroutes to audit; the spec slot is never written.
+      useSpecWriterStore.getState().completeTurn(PROJECT, {
+        finalContent: AUDIT_CONTENT,
+        isSpec: true,
+        isAudit: false,
+      });
+      const s = useSpecWriterStore.getState();
+      expect(s.currentSpecContent.has(PROJECT)).toBe(false);
+      expect(s.currentAuditContent.get(PROJECT)).toBe(AUDIT_CONTENT);
+    });
+  });
 });

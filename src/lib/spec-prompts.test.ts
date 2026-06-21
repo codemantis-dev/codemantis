@@ -187,6 +187,29 @@ describe("isLikelySpecDocument", () => {
     expect(short.length).toBeLessThan(1500);
     expect(isLikelySpecDocument(short)).toBe(false);
   });
+
+  // Regression: a verification audit is structurally spec-shaped (long, many
+  // numbered H2s, spec keywords). Without the audit-exclusion it was claimed as
+  // a spec and overwrote the saved spec. It must now be rejected so audit
+  // detection always wins over the spec fallback.
+  it("returns false for an audit document even though it is spec-shaped", () => {
+    const audit = "# My App — Verification Audit\n\n" +
+      "## 1. Components\nVerify every component renders.\n\n" +
+      "## 2. Routes\nVerify every route resolves.\n\n" +
+      "## 3. Validation\nVerify every validation rule.\n\n" +
+      "## 4. Integration\nVerify integration points.\n\n" +
+      "x".repeat(1500);
+    expect(isLikelySpecDocument(audit)).toBe(false);
+  });
+
+  it("returns false for a mistitled audit ('Verification Checklist')", () => {
+    const audit = "# My App — Verification Checklist\n\n" +
+      "## 1. Overview\nChecklist overview.\n\n" +
+      "## 2. Components\nComponent checks.\n\n" +
+      "## 3. API Routes\nRoute checks.\n\n" +
+      "x".repeat(1500);
+    expect(isLikelySpecDocument(audit)).toBe(false);
+  });
 });
 
 describe("FILE_REQUEST_PATTERN", () => {
@@ -231,6 +254,35 @@ describe("AUDIT_START_PATTERN", () => {
   it("matches within multi-line content", () => {
     const content = "Some preamble text\n\n# Dashboard — Verification Audit\n\n## Pre-Flight Checks";
     expect(AUDIT_START_PATTERN.test(content)).toBe(true);
+  });
+
+  // Resilience: the model does not always title the audit `# … — Verification
+  // Audit`. These titles previously slipped through and were misclassified as
+  // specs (overwriting the saved spec). They must now match.
+  it("matches audit titles with no separator", () => {
+    expect(AUDIT_START_PATTERN.test("# Verification Audit for My App")).toBe(true);
+  });
+
+  it("matches the 'Verification Checklist' phrasing", () => {
+    expect(AUDIT_START_PATTERN.test("# My App — Verification Checklist")).toBe(true);
+  });
+
+  it("matches the 'Implementation Audit' phrasing", () => {
+    expect(AUDIT_START_PATTERN.test("# My App — Implementation Audit")).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    expect(AUDIT_START_PATTERN.test("# my app — verification audit")).toBe(true);
+  });
+
+  it("matches an H1 that follows a YAML front-matter block", () => {
+    const content = "---\ntitle: My App\n---\n\n# My App — Verification Audit\n\n## Checks";
+    expect(AUDIT_START_PATTERN.test(content)).toBe(true);
+  });
+
+  it("still ignores the phrase when it is not an H1", () => {
+    expect(AUDIT_START_PATTERN.test("## Verification Checklist")).toBe(false);
+    expect(AUDIT_START_PATTERN.test("See the verification audit section below.")).toBe(false);
   });
 });
 

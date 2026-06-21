@@ -5,7 +5,7 @@
  * Only the Tauri IPC boundary (tauri-commands) and toastStore are mocked.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { resetAllStores } from "../helpers/store-reset";
 import { useSpecWriterStore } from "../../stores/specWriterStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -370,6 +370,64 @@ describe("useSpecConversation (Integration)", () => {
     });
 
     expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBeUndefined();
+  });
+
+  // ─── Audit intent overrides text classification (regression for the
+  //     "verification audit overwrote my saved spec" bug) ──────────────────
+  //
+  // The mocked classifier here only recognizes `# Verification Audit` as an
+  // audit and `# Specification` as a spec. We simulate the real-world failure:
+  // the model titles the verification audit so that the dumb classifier would
+  // call it a SPEC. Pre-fix, that audit text overwrote currentSpecContent.
+  // With the explicit audit intent threaded through generateAudit, routing no
+  // longer depends on the title — the audit lands in the audit slot and the
+  // saved spec is left untouched.
+  it("generateAudit routes a mistitled audit to the audit slot, preserving the saved spec", async () => {
+    const { result } = renderHook(() => useSpecConversation());
+    const EXISTING_SPEC = "# Specification\n\nThe real saved spec the user already approved.";
+
+    // A conversation with a saved spec already in place.
+    await act(async () => {
+      await result.current.sendMessage(PROJECT_PATH, "Build a todo app");
+    });
+    act(() => {
+      useSpecWriterStore.getState().setCurrentSpecContent(PROJECT_PATH, EXISTING_SPEC);
+    });
+
+    // User clicks "Generate the Verification Audit". generateAudit fires its
+    // sendMessage without awaiting, so wait until the audit stream is actually
+    // set up (second sendAssistantChat call) before driving events — otherwise
+    // the audit intent (isAuditTurn) may not be applied yet.
+    act(() => {
+      result.current.generateAudit(PROJECT_PATH);
+    });
+    expect(useSpecWriterStore.getState().auditPending.get(PROJECT_PATH)).toBe(true);
+    await waitFor(() => expect(sendAssistantChat).toHaveBeenCalledTimes(2));
+
+    // The model emits an audit whose H1 the classifier would read as a SPEC.
+    const MISTITLED_AUDIT = "# Specification\n\nActually a verification audit body.";
+    const handler = _streamHandlersById.get(assistantIdFor(PROJECT_PATH));
+    expect(handler).toBeDefined();
+    act(() => {
+      handler!({ type: "delta", text: MISTITLED_AUDIT });
+    });
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    });
+
+    // Mid-stream: spec slot must be untouched, audit slot fills.
+    const mid = useSpecWriterStore.getState();
+    expect(mid.currentSpecContent.get(PROJECT_PATH)).toBe(EXISTING_SPEC);
+    expect(mid.currentAuditContent.get(PROJECT_PATH)).toContain("verification audit body");
+
+    // Turn completes.
+    act(() => {
+      handler!({ type: "done" });
+    });
+
+    const end = useSpecWriterStore.getState();
+    expect(end.currentSpecContent.get(PROJECT_PATH)).toBe(EXISTING_SPEC);
+    expect(end.currentAuditContent.get(PROJECT_PATH)).toBe(MISTITLED_AUDIT);
   });
 
   it("auditPending clears when the stream is cancelled", async () => {

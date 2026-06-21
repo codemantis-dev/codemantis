@@ -627,6 +627,56 @@ describe("useSpecConversationClaude", () => {
         expect.stringContaining("do NOT save it to a file"),
       );
     });
+
+    // Regression for the "verification audit overwrote my saved spec" bug. Uses
+    // the REAL detection patterns (only tauri-commands + option-parser are
+    // mocked here). The audit is titled "Verification Report" — the strict audit
+    // pattern misses it AND it is structurally spec-shaped, so the classifier
+    // alone would call it a spec and overwrite currentSpecContent. The explicit
+    // audit intent threaded through generateAudit must override that and route
+    // the content to the audit slot, leaving the saved spec untouched.
+    it("routes a mistitled, spec-shaped audit to the audit slot, preserving the saved spec", async () => {
+      useSpecWriterStore.getState().initConversation(
+        PROJECT, "claude-code", "claude-sonnet-4-6", "feature",
+      );
+      const EXISTING_SPEC = "# My Feature — Specification\n\nThe real saved spec.";
+      useSpecWriterStore.getState().setCurrentSpecContent(PROJECT, EXISTING_SPEC);
+
+      const { result } = renderHook(() => useSpecConversationClaude());
+      await act(async () => {
+        result.current.generateAudit(PROJECT);
+      });
+
+      const calls = mockListenChatEvents.mock.calls as unknown as Array<[string, (e: unknown) => void]>;
+      const onEvent = calls[calls.length - 1][1];
+
+      const MISTITLED_AUDIT =
+        "# My Feature — Verification Report\n\n" +
+        "## 1. Components\nVerify every component renders.\n\n" +
+        "## 2. Routes\nVerify every route resolves.\n\n" +
+        "## 3. Validation\nVerify every validation rule.\n\n" +
+        "x".repeat(1500);
+
+      act(() => {
+        onEvent({ type: "text_delta", session_id: "cli-session-123", text: MISTITLED_AUDIT });
+      });
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      });
+
+      // Mid-stream: the saved spec must be untouched, audit slot fills.
+      const mid = useSpecWriterStore.getState();
+      expect(mid.currentSpecContent.get(PROJECT)).toBe(EXISTING_SPEC);
+      expect(mid.currentAuditContent.get(PROJECT)).toContain("Verification Report");
+
+      act(() => {
+        onEvent({ type: "turn_complete", session_id: "cli-session-123" });
+      });
+
+      const end = useSpecWriterStore.getState();
+      expect(end.currentSpecContent.get(PROJECT)).toBe(EXISTING_SPEC);
+      expect(end.currentAuditContent.get(PROJECT)).toBe(MISTITLED_AUDIT);
+    });
   });
 
   // -----------------------------------------------------------------------

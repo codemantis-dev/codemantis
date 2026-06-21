@@ -24,6 +24,7 @@ import type {
   StreamStats,
 } from "../types/spec-writer";
 import type { HandshakeQuestion } from "../lib/capability-handshake-prompt";
+import { AUDIT_START_PATTERN } from "../lib/spec-prompts";
 
 /** Hard cap on persisted creation-log entries. Mirrors selfDriveStore's
  *  runLog cap so long runs don't bloat the persistence row. */
@@ -849,6 +850,24 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       const conv = conversations.get(projectPath);
       if (!conv) return { planningStreaming };
 
+      // Last-line backstop against the "verification audit overwrote my spec"
+      // bug. The conversation hooks now route by explicit intent (isAuditTurn),
+      // so a turn classified as a spec should never carry audit content. But if
+      // audit-shaped content ever arrives with isSpec=true, refuse to write it to
+      // the spec slot — reroute it to the audit slot instead. This leaves any
+      // existing spec untouched and makes destroying a saved spec impossible
+      // regardless of how the caller classified the turn.
+      const contentLooksLikeAudit = AUDIT_START_PATTERN.test(updates.finalContent);
+      const misroutedAudit = updates.isSpec && !updates.isAudit && contentLooksLikeAudit;
+      if (misroutedAudit) {
+        console.warn(
+          `[specWriter] completeTurn: audit-shaped content arrived classified as a spec for "${projectPath}". ` +
+            `Rerouting it to the audit slot and leaving any existing spec untouched.`
+        );
+      }
+      const isSpec = updates.isSpec && !misroutedAudit;
+      const isAudit = updates.isAudit || misroutedAudit;
+
       const messages = [...conv.messages];
       const lastIdx = messages.length - 1;
 
@@ -860,14 +879,14 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
         if (updates.options !== undefined) {
           updated = { ...updated, parsedOptions: updates.options };
         }
-        if (updates.isSpec) {
+        if (isSpec) {
           updated = { ...updated, message_type: 'spec_document' as const };
         }
         messages[lastIdx] = updated;
       }
 
       let status = conv.status;
-      if (updates.isSpec) {
+      if (isSpec) {
         status = 'done';
       } else if (updates.isReadyToWrite) {
         status = 'ready_to_write';
@@ -875,12 +894,12 @@ export const useSpecWriterStore = create<SpecWriterState>((set, get) => ({
       conversations.set(projectPath, { ...conv, messages, status });
 
       const currentSpecContent = new Map(state.currentSpecContent);
-      if (updates.isSpec) {
+      if (isSpec) {
         currentSpecContent.set(projectPath, updates.finalContent);
       }
 
       const currentAuditContent = new Map(state.currentAuditContent);
-      if (updates.isAudit) {
+      if (isAudit) {
         currentAuditContent.set(projectPath, updates.finalContent);
       }
 
