@@ -28,7 +28,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
   const openProjectPicker = useUiStore((s) => s.openProjectPicker);
   const setShowMcpModal = useUiStore((s) => s.setShowMcpModal);
   const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
-  const setShowDuoDashboard = useUiStore((s) => s.setShowDuoDashboard);
+  const openDuo = useUiStore((s) => s.openDuo);
   const duoEnabled = useSettingsStore((s) => s.settings.duo?.enabled ?? true);
   const setShowSettingsModal = useUiStore((s) => s.setShowSettingsModal);
   const helpPanelOpen = useUiStore((s) => s.helpPanelOpen);
@@ -215,7 +215,7 @@ export default function TitleBar({ onCloseProject }: TitleBarProps) {
       {/* Duo-Coding dashboard button — hidden when the feature is disabled in Settings */}
       {duoEnabled && (
         <button
-          onClick={() => activeProjectPath && setShowDuoDashboard(true)}
+          onClick={() => activeProjectPath && openDuo()}
           disabled={!activeProjectPath}
           title="Duo-Coding (Cmd+Shift+D)"
           className="mx-0.5 p-1.5 rounded-md text-text-ghost hover:text-text-secondary hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-ghost disabled:hover:bg-transparent"

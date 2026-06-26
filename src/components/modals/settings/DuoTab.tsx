@@ -43,6 +43,12 @@ const DRIFT_SENSITIVITIES: { id: DuoCodingSettings["severeDriftSensitivity"]; la
   { id: "aggressive", label: "Aggressive" },
 ];
 
+const LIVE_REVIEW_CADENCES: { id: DuoCodingSettings["liveReviewCadence"]; label: string }[] = [
+  { id: "minimal", label: "Minimal (fewer, cheaper)" },
+  { id: "balanced", label: "Balanced" },
+  { id: "thorough", label: "Thorough (more, costlier)" },
+];
+
 export default function DuoTab(): React.ReactElement {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -101,6 +107,19 @@ export default function DuoTab(): React.ReactElement {
 
       <FieldRow label="Live co-review (mentor reviews changes while the primary works)">
         <Toggle on={duo.liveReviewEnabled} onChange={(v) => patch({ liveReviewEnabled: v })} />
+      </FieldRow>
+
+      <FieldRow label="Live-review cadence (how often the mentor reviews mid-task)">
+        <select
+          value={duo.liveReviewCadence}
+          onChange={(e) => patch({ liveReviewCadence: e.target.value as DuoCodingSettings["liveReviewCadence"] })}
+          disabled={!duo.liveReviewEnabled}
+          className="px-3 py-1.5 rounded-md text-ui bg-bg-elevated border border-border text-text-primary disabled:opacity-50"
+        >
+          {LIVE_REVIEW_CADENCES.map((c) => (
+            <option key={c.id} value={c.id}>{c.label}</option>
+          ))}
+        </select>
       </FieldRow>
 
       <div className="h-px" style={{ background: "var(--border-light)" }} />

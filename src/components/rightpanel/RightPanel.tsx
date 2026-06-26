@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, TerminalSquare, FileCode, ScrollText, MessageSquare, ListChecks } from "lucide-react";
-import { useUiStore, type RightTab } from "../../stores/uiStore";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useUiStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useTerminal } from "../../hooks/useTerminal";
+import { RightTabBar } from "./RightTabBar";
+import { useRightTabs, useRightTabSelect } from "./useRightTabs";
 import ActivityFeed from "./ActivityFeed";
 import ActivityDetailPanel from "./ActivityDetailPanel";
 import TerminalView from "./TerminalView";
@@ -19,6 +20,8 @@ import DevServerBanner from "./DevServerBanner";
 export default function RightPanel() {
   const rightTab = useUiStore((s) => s.rightTab);
   const setRightTab = useUiStore((s) => s.setRightTab);
+  const selectRightTab = useRightTabSelect();
+  const tabs = useRightTabs();
   const restoreSessionRightTab = useUiStore((s) => s.restoreSessionRightTab);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const prevSessionIdRef = useRef<string | null>(activeSessionId);
@@ -81,7 +84,9 @@ export default function RightPanel() {
     // Also observe the container itself for panel resize
     ro.observe(el);
     return () => ro.disconnect();
-  }, [measureTabWidth, hasGuide]);
+    // Re-measure when the tab COUNT changes (guide or duo tab appears/disappears),
+    // since ResizeObserver only fires for elements it already observes.
+  }, [measureTabWidth, tabs.length]);
 
   // Auto-dismiss activity detail panel on tab change
   useEffect(() => {
@@ -114,45 +119,16 @@ export default function RightPanel() {
     await closeTerminal(activeSessionId, terminalId);
   };
 
-  const tabs = useMemo(() => {
-    const base: { id: RightTab; label: string; icon: typeof Activity }[] = [
-      { id: "activity", label: "Activity", icon: Activity },
-      { id: "terminal", label: "Terminal", icon: TerminalSquare },
-      { id: "files", label: "Files", icon: FileCode },
-      { id: "changelog", label: "Changelog", icon: ScrollText },
-      { id: "assistant", label: "Assistant", icon: MessageSquare },
-    ];
-    if (hasGuide) {
-      base.push({ id: "guide", label: "Guide", icon: ListChecks });
-    }
-    return base;
-  }, [hasGuide]);
-
   return (
     <div className="h-full flex flex-col relative" style={{ background: "var(--bg-subtle)" }}>
-      {/* Tab header */}
-      <div ref={tabHeaderRef} className="h-9 flex items-center px-1 border-b border-border-light shrink-0 whitespace-nowrap">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = rightTab === tab.id;
-          const showLabel = !compactMode || isActive;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setRightTab(tab.id)}
-              title={tab.label}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-ui transition-colors shrink-0 ${
-                isActive
-                  ? "text-text-primary bg-bg-elevated font-medium"
-                  : "text-text-dim hover:text-text-secondary"
-              }`}
-            >
-              <Icon size={13} />
-              {showLabel && <span>{tab.label}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {/* Shared tab strip (Duo leftmost when a run is active for this project). */}
+      <RightTabBar
+        tabs={tabs}
+        active={rightTab}
+        onSelect={selectRightTab}
+        compact={compactMode}
+        headerRef={tabHeaderRef}
+      />
 
       {/* Activity panel */}
       <div

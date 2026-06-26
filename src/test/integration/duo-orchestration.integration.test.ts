@@ -145,6 +145,7 @@ interface StartOpts {
   // the plan-gate / live-review tests opt in explicitly.
   planGateEnabled?: boolean;
   liveReviewEnabled?: boolean;
+  liveReviewCadence?: "minimal" | "balanced" | "thorough";
 }
 
 async function startRun(opts: StartOpts = {}): Promise<void> {
@@ -161,6 +162,7 @@ async function startRun(opts: StartOpts = {}): Promise<void> {
         severeDriftNudgeEnabled: opts.severeDriftNudgeEnabled ?? true,
         planGateEnabled: opts.planGateEnabled ?? false,
         liveReviewEnabled: opts.liveReviewEnabled ?? false,
+        liveReviewCadence: opts.liveReviewCadence ?? "balanced",
       },
     },
   }));
@@ -527,5 +529,151 @@ describe("Duo-Coding orchestration", () => {
     expect(s.repairAttempts).toBe(0); // not a dialogue round
     expect(s.status).toBe("running"); // never completes on a live review
     expect(s.phase).toBe("building"); // primary keeps working
+  });
+
+  it("live co-review: an unchanged working tree is not re-reviewed (skip-unchanged)", async () => {
+    await startRun({ liveReviewEnabled: true });
+    mockSendMessage.mockClear();
+
+    // First checkpoint → a live review of the current diff (mock returns a fixed diff).
+    primaryToolOp("Bash", { command: "npm test" });
+    await flush();
+    expect(mockSendMessage.mock.calls.filter(([id]) => id === DUO).length).toBe(1);
+
+    // Mentor finishes the live review (free again).
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "looks fine so far",
+      rationale: "", confidence: 0.9, ranBuild: false, ranTests: false,
+    });
+    expect(useDuoStore.getState().status).toBe("running"); // live review never completes
+
+    // Second checkpoint with the SAME diff → skipped, no second mentor injection.
+    mockSendMessage.mockClear();
+    primaryToolOp("Bash", { command: "npm test" });
+    await flush();
+    expect(mockSendMessage.mock.calls.filter(([id]) => id === DUO).length).toBe(0);
+  });
+
+  it("live co-review: a changed diff after a review IS re-reviewed", async () => {
+    await startRun({ liveReviewEnabled: true });
+    mockSendMessage.mockClear();
+
+    primaryToolOp("Bash", { command: "npm test" });
+    await flush();
+    expect(mockSendMessage.mock.calls.filter(([id]) => id === DUO).length).toBe(1);
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "ok", rationale: "",
+      confidence: 0.9, ranBuild: false, ranTests: false,
+    });
+
+    // The working tree changed since the last review → a fresh review fires.
+    mockGetGitDiff.mockResolvedValueOnce({
+      isGitRepo: true, diff: "+ a different line", added: 1, removed: 0, files: 1, truncated: false,
+    });
+    mockSendMessage.mockClear();
+    primaryToolOp("Bash", { command: "npm test" });
+    await flush();
+    expect(mockSendMessage.mock.calls.filter(([id]) => id === DUO).length).toBe(1);
+  });
+
+  it("heartbeat: a long quiet stretch with no tool activity still triggers a review", async () => {
+    vi.useFakeTimers();
+    try {
+      useSettingsStore.setState((s) => ({
+        settings: {
+          ...s.settings,
+          duo: {
+            ...DEFAULT_DUO_SETTINGS,
+            enabled: true,
+            planGateEnabled: false,
+            liveReviewEnabled: true,
+            liveReviewCadence: "thorough", // 90s heartbeat
+          },
+        },
+      }));
+      mockCreateSession.mockImplementation(async (_path: string, name?: string) => {
+        return { id: name === "Duo · Mentor" ? DUO : PRIMARY } as unknown as Session;
+      });
+      await useDuoStore.getState().start({
+        task: "Add a logout button",
+        projectPath: "/proj",
+        primary: { agentId: "codex" },
+        duo: { agentId: "claude_code" },
+      });
+      expect(useDuoStore.getState().phase).toBe("building");
+      mockSendMessage.mockClear();
+
+      // No tool ops at all — the activity-driven triggers never fire. Advance
+      // past one heartbeat interval; the time-based trigger must review the diff.
+      await vi.advanceTimersByTimeAsync(95_000);
+      expect(mockSendMessage.mock.calls.some(([id]) => id === DUO)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cost: reported turn cost accumulates into the total; analyst cost arrives via snapshot", async () => {
+    await startRun();
+
+    // Reported agent-turn cost (Claude self-reports; Codex reports none) feeds
+    // the run total used for the budget cap.
+    useSessionStore.getState().addMessage(PRIMARY, assistantMsg("did the work"));
+    chatCallbacks.get(PRIMARY)?.({
+      type: "turn_complete", session_id: PRIMARY, cost_usd: 0.1, usage: null,
+    } as unknown as FrontendEvent);
+    chatCallbacks.get(DUO)?.({
+      type: "turn_complete", session_id: DUO, cost_usd: 0.03, usage: null,
+    } as unknown as FrontendEvent);
+    expect(useDuoStore.getState().metrics.costUsd).toBeCloseTo(0.13);
+
+    // The analyst's cost is surfaced by the snapshot event, not a turn.
+    const runId = useDuoStore.getState().runId;
+    snapshotCallbacks.forEach((cb) =>
+      cb({
+        runId,
+        ts: 1,
+        narrative: "n",
+        report: {} as unknown,
+        series: [],
+        analystCostUsd: 0.002,
+      }),
+    );
+    const m = useDuoStore.getState().metrics;
+    expect(m.costAnalystUsd).toBeCloseTo(0.002);
+    expect(m.costUsd).toBeCloseTo(0.132);
+    await flush();
+  });
+
+  it("cadence: the live-review cadence setting flows into the run config", async () => {
+    await startRun({ liveReviewCadence: "thorough" });
+    expect(useDuoStore.getState().config?.liveReviewCadence).toBe("thorough");
+  });
+
+  it("plan-gate metrics: an approved plan counts as a review + agreement", async () => {
+    await startRun({ planGateEnabled: true });
+    await primaryTurn("Plan: reuse server.js and add an endpoint.");
+    await mentorTurn({
+      stance: "agree", severity: "nit", summary: "solid plan", rationale: "",
+      confidence: 0.9, ranBuild: false, ranTests: false,
+    });
+    const m = useDuoStore.getState().metrics;
+    expect(m.reviews).toBe(1);
+    expect(m.agreements).toBe(1);
+    expect(m.disagreements).toBe(0);
+  });
+
+  it("plan-gate metrics: a plan-change request counts as a review + disagreement", async () => {
+    await startRun({ planGateEnabled: true });
+    await primaryTurn("Plan: rewrite everything from scratch.");
+    await mentorTurn({
+      stance: "concern", severity: "blocking", summary: "don't rewrite",
+      rationale: "extend the existing server", repairTask: "reuse server.js",
+      confidence: 0.8, ranBuild: false, ranTests: false,
+    });
+    const m = useDuoStore.getState().metrics;
+    expect(m.reviews).toBe(1);
+    expect(m.disagreements).toBe(1);
+    expect(m.dialogueRounds).toBe(1);
+    expect(m.agreements).toBe(0);
   });
 });

@@ -14,6 +14,8 @@ import ChatPanel from "../chat/ChatPanel";
 import ClaudeHistory from "../chat/ClaudeHistory";
 import ProjectLogFeed from "../chat/ProjectLogFeed";
 import RightPanel from "../rightpanel/RightPanel";
+import { RightTabBar } from "../rightpanel/RightTabBar";
+import { useRightTabs, useRightTabSelect, useDuoVisible } from "../rightpanel/useRightTabs";
 import InputArea from "../input/InputArea";
 import ConfirmCloseModal from "../modals/ConfirmCloseModal";
 import PreviewUrlDialog from "../modals/PreviewUrlDialog";
@@ -122,10 +124,13 @@ export default function AppShell() {
   const preflightStatus = usePreflightStore((s) => s.status);
   const showMissionControl = useUiStore((s) => s.showMissionControl);
   const setShowMissionControl = useUiStore((s) => s.setShowMissionControl);
-  const showDuoDashboard = useUiStore((s) => s.showDuoDashboard);
-  const setShowDuoDashboard = useUiStore((s) => s.setShowDuoDashboard);
   const showDuoSetup = useUiStore((s) => s.showDuoSetup);
   const setShowDuoSetup = useUiStore((s) => s.setShowDuoSetup);
+  const rightTab = useUiStore((s) => s.rightTab);
+  const setRightTab = useUiStore((s) => s.setRightTab);
+  const rightTabs = useRightTabs();
+  const selectRightTab = useRightTabSelect();
+  const duoVisible = useDuoVisible();
   const toggleSpecWriter = useSpecWriterStore((s) => s.toggleSlideOver);
   const pausedCapability = useSelfDriveStore(selectPausedCapability);
   const pausedSessionContext = useSelfDriveStore(selectPausedSessionContext);
@@ -139,6 +144,13 @@ export default function AppShell() {
   useEffect(() => {
     setPauseModalDismissed(false);
   }, [pausedBlockerId]);
+
+  // Fallback (mirrors RightPanel's guide fallback): if the Duo tab is selected
+  // but no longer visible (run ended / switched project), snap to Activity so
+  // the region never renders an orphaned "duo" selection.
+  useEffect(() => {
+    if (rightTab === "duo" && !duoVisible) setRightTab("activity");
+  }, [rightTab, duoVisible, setRightTab]);
 
   // White-screen diagnostics: record state transitions that bracket the
   // wake/unlock window. Lines land in ~/Library/Logs/CodeMantis/appshell.log
@@ -390,24 +402,12 @@ export default function AppShell() {
 
         <ResizeHandle onDrag={handleLeftDrag} />
 
-        {showDuoDashboard && activeProjectPath ? (
-          /* Duo-Coding workspace — embedded, spans the center + right region. */
+        {rightTab === "duo" && duoVisible ? (
+          /* Duo-Coding workspace — full-width view reached from the shared tab
+           * strip. The strip stays on top so Activity/Terminal/etc. remain one
+           * click away and the run keeps going in the background. */
           <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden">
-            <div
-              className="flex items-center justify-between px-3 py-1.5 border-b shrink-0"
-              style={{ borderColor: "var(--border)" }}
-            >
-              <span className="text-detail font-semibold text-text-primary">
-                Duo-Coding
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowDuoDashboard(false)}
-                className="text-detail text-text-secondary hover:text-text-primary"
-              >
-                Close
-              </button>
-            </div>
+            <RightTabBar tabs={rightTabs} active={rightTab} onSelect={selectRightTab} />
             <div className="flex-1 min-h-0">
               <AppErrorBoundary>
                 <DuoWorkspace onConfigure={() => setShowDuoSetup(true)} />

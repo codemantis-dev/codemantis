@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { Pause, Play, Square, Users } from "lucide-react";
 import { useDuoStore } from "../../stores/duoStore";
+import { useUiStore } from "../../stores/uiStore";
 import DuoAgentSplit from "./DuoAgentSplit";
 import DuoDashboard from "./DuoDashboard";
 import DuoDialogueView from "./DuoDialogueView";
@@ -55,6 +56,13 @@ export default function DuoWorkspace({ onConfigure }: Props): React.ReactElement
   const resume = useDuoStore((s) => s.resume);
   const stop = useDuoStore((s) => s.stop);
   const reset = useDuoStore((s) => s.reset);
+  const closeDuo = useUiStore((s) => s.closeDuo);
+
+  // Clear the run AND leave the Duo view (removes the tab, returns to Activity).
+  const dismiss = (): void => {
+    reset();
+    closeDuo();
+  };
 
   const [tab, setTab] = useState<WorkspaceTab>("agents");
   const [confirmStop, setConfirmStop] = useState(false);
@@ -129,10 +137,10 @@ export default function DuoWorkspace({ onConfigure }: Props): React.ReactElement
         </div>
 
         <div className="flex items-center gap-2">
-          {interrupted && (
+          {(interrupted || status === "completed") && (
             <button
               type="button"
-              onClick={reset}
+              onClick={dismiss}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-detail"
               style={{ color: "var(--text-primary)", background: "var(--bg-subtle)" }}
             >
@@ -160,7 +168,7 @@ export default function DuoWorkspace({ onConfigure }: Props): React.ReactElement
             </button>
           )}
           {!interrupted &&
-            (status === "running" || status === "paused" || status === "completed") &&
+            (status === "running" || status === "paused") &&
             (confirmStop ? (
               <button
                 type="button"

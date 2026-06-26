@@ -396,7 +396,7 @@ pub async fn duo_analyze(
         )
         .map_err(|e| e.to_string())?;
 
-    events::emit_snapshot(&app, &run_id, ts, &report, &series);
+    events::emit_snapshot(&app, &run_id, ts, &report, &series, cost);
     Ok(report)
 }
 

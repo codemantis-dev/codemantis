@@ -7,6 +7,8 @@ import {
   collectResponseSince,
   metricsFromEvents,
   timelineFromEvents,
+  cadenceParams,
+  hashDiff,
 } from "./duoStore";
 import type { DuoEventRow, DuoRunRow, DuoSnapshotRow } from "../types/duo";
 import { useSettingsStore } from "./settingsStore";
@@ -57,6 +59,49 @@ describe("duoStore helpers", () => {
     expect(m.reviews).toBe(0);
     expect(m.agreementRate).toBe(0);
     expect(m.mentorPrecision).toBeNull();
+    expect(m.costUsd).toBe(0);
+    expect(m.costAnalystUsd).toBe(0);
+  });
+
+  it("buildDuoConfig carries the live-review cadence from settings", () => {
+    const config = buildDuoConfig(PRIMARY, MENTOR, {
+      ...DEFAULT_DUO_SETTINGS,
+      liveReviewCadence: "thorough",
+    });
+    expect(config.liveReviewCadence).toBe("thorough");
+  });
+});
+
+describe("cadenceParams", () => {
+  it("returns progressively tighter thresholds from minimal → thorough", () => {
+    const minimal = cadenceParams("minimal");
+    const balanced = cadenceParams("balanced");
+    const thorough = cadenceParams("thorough");
+    // Higher coverage ⇒ fewer ops before review, shorter debounce/interval/heartbeat.
+    expect(minimal.opThreshold).toBeGreaterThan(balanced.opThreshold);
+    expect(balanced.opThreshold).toBeGreaterThan(thorough.opThreshold);
+    expect(minimal.minIntervalMs).toBeGreaterThan(balanced.minIntervalMs);
+    expect(balanced.minIntervalMs).toBeGreaterThan(thorough.minIntervalMs);
+    expect(minimal.heartbeatMs).toBeGreaterThan(balanced.heartbeatMs);
+    expect(balanced.heartbeatMs).toBeGreaterThan(thorough.heartbeatMs);
+  });
+
+  it("defaults unknown cadence to balanced", () => {
+    expect(cadenceParams("balanced")).toEqual(
+      cadenceParams("nonsense" as "balanced"),
+    );
+  });
+});
+
+describe("hashDiff", () => {
+  it("is stable for identical input and differs for changed input", () => {
+    const a = "diff --git a/x b/x\n+hello\n";
+    expect(hashDiff(a)).toBe(hashDiff(a));
+    expect(hashDiff(a)).not.toBe(hashDiff(a + "+world\n"));
+  });
+
+  it("returns a compact base36 string for the empty diff", () => {
+    expect(hashDiff("")).toMatch(/^[0-9a-z]+$/);
   });
 });
 

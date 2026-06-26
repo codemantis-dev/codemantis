@@ -3,7 +3,7 @@ import type { ActivityEntry } from "../types/activity";
 import type { SettingsTab } from "../components/modals/settings/constants";
 import { useSessionStore } from "./sessionStore";
 
-export type RightTab = "activity" | "terminal" | "files" | "changelog" | "assistant" | "guide";
+export type RightTab = "duo" | "activity" | "terminal" | "files" | "changelog" | "assistant" | "guide";
 export type ProjectPickerTab = "templates" | "open" | "recent" | "clone" | "resume";
 export type ActivityFeedScope = "session" | "project";
 
@@ -130,6 +130,10 @@ interface UiState {
   toggleMissionControl: () => void;
   setShowDuoDashboard: (show: boolean) => void;
   toggleDuoDashboard: () => void;
+  /** Open the Duo view: mark it visible AND select the leftmost "duo" tab. */
+  openDuo: () => void;
+  /** Leave the Duo view: hide it and fall back to the Activity tab. */
+  closeDuo: () => void;
   setShowDuoSetup: (show: boolean) => void;
   setShowActivityOverview: (show: boolean) => void;
   setShowProjectPicker: (show: boolean) => void;
@@ -272,7 +276,16 @@ export const useUiStore = create<UiState>((set) => ({
   setShowMissionControl: (show) => set({ showMissionControl: show }),
   toggleMissionControl: () => set((s) => ({ showMissionControl: !s.showMissionControl })),
   setShowDuoDashboard: (show) => set({ showDuoDashboard: show }),
-  toggleDuoDashboard: () => set((s) => ({ showDuoDashboard: !s.showDuoDashboard })),
+  toggleDuoDashboard: () =>
+    set((s) =>
+      s.showDuoDashboard && s.rightTab === "duo"
+        ? { showDuoDashboard: false, rightTab: "activity" }
+        : { showDuoDashboard: true, rightTab: "duo" },
+    ),
+  // Set rightTab directly (not via setRightTab) so the transient "duo" selection
+  // isn't persisted into the per-session sessionRightTab map.
+  openDuo: () => set({ showDuoDashboard: true, rightTab: "duo" }),
+  closeDuo: () => set({ showDuoDashboard: false, rightTab: "activity" }),
   setShowDuoSetup: (show) => set({ showDuoSetup: show }),
   setShowActivityOverview: (show) => set({ showActivityOverview: show }),
   setShowProjectPicker: (show) => set({ showProjectPicker: show }),

@@ -95,6 +95,7 @@ export function buildDuoConfig(
     severeDriftSensitivity: settings.severeDriftSensitivity,
     planGateEnabled: settings.planGateEnabled,
     liveReviewEnabled: settings.liveReviewEnabled,
+    liveReviewCadence: settings.liveReviewCadence,
     analystEnabled: settings.analystEnabled,
     analystProvider: settings.analystProvider,
     analystModel: settings.analystModel,
@@ -114,6 +115,7 @@ export function emptyDuoMetrics(): DuoMetrics {
     driftIncidents: 0,
     mentorPrecision: null,
     costUsd: 0,
+    costAnalystUsd: 0,
     outputTokens: 0,
   };
 }
@@ -293,17 +295,76 @@ let pendingIncremental = false;
 /** The primary finished while the mentor was mid incremental review — run the
  *  final review as soon as the mentor is free. */
 let finalReviewQueued = false;
+/** djb2 hash of the diff at the last incremental review — skip an unchanged tree. */
+let lastReviewedDiffHash: string | null = null;
+/** Heartbeat interval: periodic live review independent of tool activity. */
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-// Cadence tuning (not CLI-derived — plain UX defaults, tunable later).
-const LIVE_REVIEW_DEBOUNCE_MS = 9000; // pause length that triggers a review
-const LIVE_REVIEW_OP_THRESHOLD = 5; // mutating edits since last review
-const LIVE_REVIEW_MIN_INTERVAL_MS = 20000; // floor between reviews
+/**
+ * Live-review cadence tiers (not CLI-derived — UX knobs governing the mentor's
+ * cost-vs-coverage tradeoff). `opThreshold` = mutating edits before a review;
+ * `debounceMs` = quiet-after-editing pause that triggers one; `minIntervalMs` =
+ * floor between reviews; `heartbeatMs` = max blind stretch (time-based trigger).
+ */
+export function cadenceParams(cadence: DuoConfig["liveReviewCadence"]): {
+  opThreshold: number;
+  debounceMs: number;
+  minIntervalMs: number;
+  heartbeatMs: number;
+} {
+  switch (cadence) {
+    case "minimal":
+      return { opThreshold: 8, debounceMs: 12000, minIntervalMs: 45000, heartbeatMs: 360000 };
+    case "thorough":
+      return { opThreshold: 3, debounceMs: 6000, minIntervalMs: 15000, heartbeatMs: 90000 };
+    case "balanced":
+    default:
+      return { opThreshold: 5, debounceMs: 9000, minIntervalMs: 25000, heartbeatMs: 180000 };
+  }
+}
+
+/** Resolve the active cadence from the current run config (defaults to balanced). */
+function activeCadence(): ReturnType<typeof cadenceParams> {
+  return cadenceParams(useDuoStore.getState().config?.liveReviewCadence ?? "balanced");
+}
+
+/** Cheap, stable djb2 hash — used only to detect an unchanged working-tree diff. */
+export function hashDiff(diff: string): string {
+  let h = 5381;
+  for (let i = 0; i < diff.length; i++) {
+    h = ((h << 5) + h + diff.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
 
 function clearIncrementalTimer(): void {
   if (incrementalTimer) {
     clearTimeout(incrementalTimer);
     incrementalTimer = null;
   }
+}
+
+function clearHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+/** Time-based co-review: fires even when the primary emits no tool events for a
+ *  long stretch. The skip-unchanged-diff guard makes a tick over an unchanged
+ *  tree a cheap no-op, so this only spends a mentor call when work has landed. */
+function startHeartbeat(): void {
+  clearHeartbeat();
+  const { heartbeatMs } = activeCadence();
+  heartbeatTimer = setInterval(() => {
+    const s = useDuoStore.getState();
+    if (s.status !== "running" || !s.config?.liveReviewEnabled || !isCoReviewPhase(s.phase)) {
+      return;
+    }
+    if (mentorMode !== null) return; // mentor busy — its handler reschedules
+    void maybeTriggerIncrementalReview(false);
+  }, heartbeatMs);
 }
 
 function detachListeners(): void {
@@ -317,7 +378,9 @@ function detachListeners(): void {
   pendingIncremental = false;
   finalReviewQueued = false;
   lastReviewAt = 0;
+  lastReviewedDiffHash = null;
   clearIncrementalTimer();
+  clearHeartbeat();
 }
 
 /** Wire turn/activity/snapshot listeners for a (primary, duo) session pair. */
@@ -351,15 +414,28 @@ async function attachListeners(primaryId: string, duoId: string): Promise<void> 
     "duo:snapshot",
     await listenDuoSnapshot((payload) => {
       if (payload.runId !== useDuoStore.getState().runId) return;
-      useDuoStore.setState({
+      const analystCost =
+        typeof payload.analystCostUsd === "number" ? payload.analystCostUsd : 0;
+      useDuoStore.setState((s) => ({
         analystSnapshot: {
           narrative: payload.narrative,
           report: payload.report,
           series: payload.series,
         },
-      });
+        metrics: analystCost
+          ? {
+              ...s.metrics,
+              costAnalystUsd: s.metrics.costAnalystUsd + analystCost,
+              costUsd: s.metrics.costUsd + analystCost,
+            }
+          : s.metrics,
+      }));
     }),
   );
+  // Time-based co-review heartbeat (no blind stretches when the primary goes
+  // quiet-but-busy). Cheap because the skip-unchanged-diff guard no-ops ticks
+  // over an unchanged tree.
+  startHeartbeat();
 }
 
 let idCounter = 0;
@@ -762,10 +838,11 @@ function onSessionEvent(role: "primary" | "duo", event: FrontendEvent): void {
       ? event.usage.output_tokens
       : 0;
   if (cost || out) {
-    bumpMetrics({
-      costUsd: useDuoStore.getState().metrics.costUsd + cost,
-      outputTokens: useDuoStore.getState().metrics.outputTokens + out,
-    });
+    const m = useDuoStore.getState().metrics;
+    // Total reported cost (for the budget cap). Per-role $ for the dashboard is
+    // derived from per-session token usage in `lib/duo-cost.ts` so Codex — which
+    // reports no cost_usd — still gets an estimate.
+    bumpMetrics({ costUsd: m.costUsd + cost, outputTokens: m.outputTokens + out });
   }
   const s = useDuoStore.getState();
 
@@ -854,12 +931,13 @@ function onPrimaryActivity(event: FrontendEvent): void {
   const isMutating = MUTATING_TOOL_RE.test(event.tool_name);
   if (isMutating) mutatingOpsSinceReview += 1;
 
-  if (isCheckpoint || mutatingOpsSinceReview >= LIVE_REVIEW_OP_THRESHOLD) {
+  const { opThreshold, debounceMs } = activeCadence();
+  if (isCheckpoint || mutatingOpsSinceReview >= opThreshold) {
     void maybeTriggerIncrementalReview(isCheckpoint);
   } else if (isMutating) {
     // Arm a pause-debounce: review if the primary goes quiet after editing.
     clearIncrementalTimer();
-    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), LIVE_REVIEW_DEBOUNCE_MS);
+    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), debounceMs);
   }
 }
 
@@ -872,10 +950,11 @@ async function maybeTriggerIncrementalReview(isCheckpoint: boolean): Promise<voi
     pendingIncremental = true; // mentor busy / over budget → revisit when free
     return;
   }
-  if (!isCheckpoint && Date.now() - lastReviewAt < LIVE_REVIEW_MIN_INTERVAL_MS) {
+  const { minIntervalMs } = activeCadence();
+  if (!isCheckpoint && Date.now() - lastReviewAt < minIntervalMs) {
     pendingIncremental = true;
     clearIncrementalTimer();
-    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), LIVE_REVIEW_MIN_INTERVAL_MS);
+    incrementalTimer = setTimeout(() => void maybeTriggerIncrementalReview(false), minIntervalMs);
     return;
   }
   await triggerIncrementalReview();
@@ -896,6 +975,13 @@ async function triggerIncrementalReview(): Promise<void> {
     // Non-fatal: skip this incremental review if we can't read the diff.
   }
   if (!diff.trim()) return; // nothing concrete to review yet
+
+  // Skip a redundant review of an unchanged tree (the mentor is not cheap).
+  // Consume the trigger (lastReviewAt already advanced, ops reset) so the
+  // heartbeat/debounce doesn't immediately re-fire on the same diff.
+  const hash = hashDiff(diff);
+  if (hash === lastReviewedDiffHash) return;
+  lastReviewedDiffHash = hash;
 
   mentorMode = "incremental";
   await injectTo(
@@ -1017,6 +1103,9 @@ async function runFinalReview(): Promise<void> {
   } catch {
     // Non-fatal: review proceeds on the response alone.
   }
+  // Record the reviewed tree so a live review fired immediately after doesn't
+  // redundantly re-review the identical diff.
+  if (diffText.trim()) lastReviewedDiffHash = hashDiff(diffText);
 
   appendDialogue("primary", "work", primaryResponse || "(no textual response)");
   recordEvent("turn", "primary", "Primary completed a turn", {
@@ -1087,10 +1176,18 @@ async function handleDuoPlanComplete(): Promise<void> {
     verdict.rationale ? `${verdict.summary}\n\n${verdict.rationale}` : verdict.summary,
     toDialogueVerdict(verdict),
   );
+  // The plan review counts toward the dashboard metrics (it's a real mentor
+  // review) — previously the plan-gate path bypassed all metric counting, so a
+  // run that only planned showed 0 reviews and an empty agreement chart.
+  bumpMetrics({ reviews: useDuoStore.getState().metrics.reviews + 1 });
 
   if (verdict.stance === "agree") {
     appendDialogue("system", "decision", "Plan approved — primary implementing.");
+    // Record an `agreement` event (not just the decision marker) so the metric
+    // tiles populate live AND `metricsFromEvents` rebuilds it on recovery.
+    recordEvent("agreement", "duo", verdict.summary, verdictPayload(verdict));
     recordEvent("decision", "duo", "Plan approved", verdictPayload(verdict));
+    bumpMetrics({ agreements: useDuoStore.getState().metrics.agreements + 1 });
     useDuoStore.setState({ phase: "building", repairAttempts: 0, priorConcerns: [] });
     await injectTo(s.primarySessionId, buildImplementPrompt(s.config.primary.agentId), "primary");
     return;
@@ -1098,6 +1195,10 @@ async function handleDuoPlanComplete(): Promise<void> {
 
   // Plan needs changes — bounded by maxDialogueRounds, then tie-break.
   recordEvent("disagreement", "duo", verdict.summary, verdictPayload(verdict));
+  bumpMetrics({
+    disagreements: useDuoStore.getState().metrics.disagreements + 1,
+    dialogueRounds: useDuoStore.getState().metrics.dialogueRounds + 1,
+  });
   const round = s.repairAttempts;
   if (!s.tieBreakApplied && round >= s.config.maxDialogueRounds) {
     await applyTieBreak(verdict, "rounds-exhausted");

@@ -203,6 +203,10 @@ pub struct DuoCodingConfig {
     /// Mentor reviews changes continuously (at checkpoints) while the primary works.
     #[serde(default = "default_true")]
     pub live_review_enabled: bool,
+    /// How aggressively live co-review fires (cost vs. coverage):
+    /// "minimal" | "balanced" (default) | "thorough".
+    #[serde(default = "default_duo_live_review_cadence")]
+    pub live_review_cadence: String,
     #[serde(default = "default_true")]
     pub analyst_enabled: bool,
     #[serde(default = "default_changelog_provider")]
@@ -227,6 +231,7 @@ impl Default for DuoCodingConfig {
             severe_drift_sensitivity: default_duo_drift_sensitivity(),
             plan_gate_enabled: true,
             live_review_enabled: true,
+            live_review_cadence: default_duo_live_review_cadence(),
             analyst_enabled: true,
             analyst_provider: default_changelog_provider(),
             analyst_model: default_changelog_model(),
@@ -244,6 +249,9 @@ fn default_duo_max_rounds() -> u32 {
 }
 fn default_duo_drift_sensitivity() -> String {
     "conservative".to_string()
+}
+fn default_duo_live_review_cadence() -> String {
+    "balanced".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -638,6 +646,7 @@ mod tests {
         assert_eq!(duo.severe_drift_sensitivity, "conservative");
         assert!(duo.plan_gate_enabled);
         assert!(duo.live_review_enabled);
+        assert_eq!(duo.live_review_cadence, "balanced");
         assert!(duo.analyst_enabled);
         assert!(duo.budget_usd_cap.is_none());
         assert!(duo.budget_token_cap.is_none());
@@ -661,6 +670,7 @@ mod tests {
         // Untouched fields keep their defaults.
         assert_eq!(settings.duo.max_dialogue_rounds, 3);
         assert!(settings.duo.severe_drift_nudge_enabled);
+        assert_eq!(settings.duo.live_review_cadence, "balanced");
     }
 
     #[test]

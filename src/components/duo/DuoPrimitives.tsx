@@ -9,6 +9,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { scoreColor } from "./duo-colors";
+import { formatTokens } from "../../lib/format-utils";
+import type { DuoRoleCosts } from "../../lib/duo-cost";
 
 export function StatTile({
   label,
@@ -33,6 +35,57 @@ export function StatTile({
       <span className="text-detail" style={{ color: "var(--text-dim)" }}>
         {label}
       </span>
+    </div>
+  );
+}
+
+const fmtUsd = (n: number): string => `$${n.toFixed(2)}`;
+
+function CostRow({
+  label,
+  cost,
+}: {
+  label: string;
+  cost: { usd: number; est?: boolean; tokens?: number };
+}): React.ReactElement {
+  // Estimated costs (Codex, which reports no real $) get a "~" + the token count
+  // they were derived from; real reported costs show just the dollar figure.
+  const value = cost.est
+    ? `~${fmtUsd(cost.usd)}${cost.tokens ? ` · ${formatTokens(cost.tokens)}` : ""}`
+    : fmtUsd(cost.usd);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span style={{ color: "var(--text-dim)" }}>{label}</span>
+      <span style={{ color: "var(--text-secondary)" }}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Cost tile with a per-role breakdown (primary / mentor / analyst). The total is
+ * shown prominently; the three contributors sit beneath it. Codex (primary)
+ * reports no real cost, so its figure is an estimate (token usage × pricing),
+ * marked with "~" and the token count.
+ */
+export function CostBreakdownTile({ costs }: { costs: DuoRoleCosts }): React.ReactElement {
+  return (
+    <div
+      className="rounded-md px-3 py-2 border flex flex-col gap-1 min-w-[150px]"
+      style={{ background: "var(--bg-subtle)", borderColor: "var(--border)" }}
+    >
+      <div className="flex flex-col gap-0.5">
+        <span className="text-lg font-semibold leading-none" style={{ color: "var(--text-primary)" }}>
+          {fmtUsd(costs.total)}
+        </span>
+        <span className="text-detail" style={{ color: "var(--text-dim)" }}>
+          cost
+        </span>
+      </div>
+      <div className="text-detail flex flex-col gap-0.5 mt-1">
+        <CostRow label="primary" cost={costs.primary} />
+        <CostRow label="mentor" cost={costs.mentor} />
+        <CostRow label="analyst" cost={costs.analyst} />
+      </div>
     </div>
   );
 }

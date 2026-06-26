@@ -71,6 +71,24 @@ describe("DuoTab", () => {
     );
   });
 
+  it("changing the live-review cadence persists into the settings store", async () => {
+    render(<DuoTab />);
+    const select = screen.getByDisplayValue("Balanced") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "thorough" } });
+    await waitFor(() =>
+      expect(useSettingsStore.getState().settings.duo?.liveReviewCadence).toBe("thorough"),
+    );
+  });
+
+  it("disables the live-review cadence when live co-review is off", () => {
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, duo: { ...DEFAULT_DUO_SETTINGS, liveReviewEnabled: false } },
+    }));
+    render(<DuoTab />);
+    const cadence = screen.getByDisplayValue("Balanced") as HTMLSelectElement;
+    expect(cadence.disabled).toBe(true);
+  });
+
   it("offers analyst models as a dropdown for the selected provider", async () => {
     render(<DuoTab />);
     // Provider defaults to gemini → its model list is offered as <option>s.

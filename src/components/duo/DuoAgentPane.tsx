@@ -9,13 +9,16 @@
 import { useMemo, useRef, useState } from "react";
 import { Send, ArrowDown } from "lucide-react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 import { useStickToBottom } from "../../hooks/useStickToBottom";
 import { autoGrowTextarea } from "../../lib/textarea-autogrow";
 import { agentLabel } from "../../lib/agent-model-options";
+import { getContextWindowForModel } from "../../lib/model-context";
 import { EMPTY_ARRAY, EMPTY_STREAMING } from "../../lib/empty-refs";
 import MessageBubble from "../chat/MessageBubble";
 import ThinkingIndicator from "../chat/ThinkingIndicator";
+import ContextMeter from "../shared/ContextMeter";
 import ModelSelector from "../input/ModelSelector";
 import EffortSelector from "../input/EffortSelector";
 
@@ -29,6 +32,11 @@ export default function DuoAgentPane({ sessionId, role }: Props): React.ReactEle
   const streaming = useSessionStore((s) => s.sessionStreaming.get(sessionId) ?? EMPTY_STREAMING);
   const busy = useSessionStore((s) => s.sessionBusy.get(sessionId) ?? false);
   const agentId = useSessionStore((s) => s.sessions.get(sessionId)?.agent_id);
+  const model = useSessionStore((s) => s.sessions.get(sessionId)?.model);
+  const rawContext = useSessionStore((s) => s.sessionContext.get(sessionId));
+  const stats = useSessionStore((s) => s.sessionStats.get(sessionId));
+  const settingsDefault = useSettingsStore((s) => s.settings.defaultContextWindow);
+  const context = rawContext ?? { used: 0, max: getContextWindowForModel(model, settingsDefault) };
   const { sendMessage } = useClaudeSession();
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,6 +100,16 @@ export default function DuoAgentPane({ sessionId, role }: Props): React.ReactEle
             title={busy ? "Working" : "Idle"}
           />
         </div>
+      </div>
+
+      {/* Per-agent context window + cost/tokens (real, live data for THIS session) */}
+      <div className="shrink-0 border-b" style={{ borderColor: "var(--border)" }}>
+        <ContextMeter
+          used={context.used}
+          max={context.max}
+          stats={stats}
+          pending={context.pending ?? false}
+        />
       </div>
 
       {/* Transcript */}

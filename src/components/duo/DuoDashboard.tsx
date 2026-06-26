@@ -24,7 +24,10 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useDuoStore } from "../../stores/duoStore";
-import { StatTile, Badge, ScoreGauge } from "./DuoPrimitives";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { StatTile, CostBreakdownTile, Badge, ScoreGauge } from "./DuoPrimitives";
+import { computeDuoRoleCosts } from "../../lib/duo-cost";
 import { levelColor } from "./duo-colors";
 
 function Card({
@@ -55,9 +58,24 @@ function Card({
 export default function DuoDashboard(): React.ReactElement {
   const metrics = useDuoStore((s) => s.metrics);
   const snapshot = useDuoStore((s) => s.analystSnapshot);
+  const config = useDuoStore((s) => s.config);
+  const primaryId = useDuoStore((s) => s.primarySessionId);
+  const duoId = useDuoStore((s) => s.duoSessionId);
+  const primaryStats = useSessionStore((s) => (primaryId ? s.sessionStats.get(primaryId) : undefined));
+  const mentorStats = useSessionStore((s) => (duoId ? s.sessionStats.get(duoId) : undefined));
+  const modelPricing = useSettingsStore((s) => s.settings.modelPricing);
 
   const report = snapshot?.report;
   const series = snapshot?.series ?? [];
+  // Per-role $: real reported cost (Claude) or token×pricing estimate (Codex).
+  const costs = computeDuoRoleCosts({
+    primaryStats,
+    mentorStats,
+    primaryModel: config?.primary.model,
+    mentorModel: config?.duo.model,
+    modelPricing,
+    analystUsd: metrics.costAnalystUsd,
+  });
   const agreeData = [
     { name: "Agree", value: metrics.agreements, fill: "var(--green)" },
     { name: "Disagree", value: metrics.disagreements, fill: "var(--red)" },
@@ -116,7 +134,7 @@ export default function DuoDashboard(): React.ReactElement {
         <StatTile label="dialogue rounds" value={metrics.dialogueRounds} />
         <StatTile label="drift" value={metrics.driftIncidents} accent={metrics.driftIncidents > 0 ? "var(--red)" : undefined} />
         <StatTile label="agree rate" value={`${Math.round(metrics.agreementRate * 100)}%`} />
-        <StatTile label="cost" value={`$${metrics.costUsd.toFixed(2)}`} />
+        <CostBreakdownTile costs={costs} />
       </div>
 
       {/* ── Charts ── */}
@@ -136,7 +154,8 @@ export default function DuoDashboard(): React.ReactElement {
               </ResponsiveContainer>
             ) : (
               <div className="text-detail" style={{ color: "var(--text-dim)" }}>
-                No turns recorded yet.
+                No code changes recorded yet — the primary hasn&apos;t modified tracked
+                files (or this isn&apos;t a git repo).
               </div>
             )}
           </div>

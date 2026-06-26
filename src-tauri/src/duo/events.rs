@@ -31,6 +31,9 @@ pub struct SnapshotPayload {
     pub narrative: String,
     pub report: DuoAnalystReport,
     pub series: Vec<SeriesPoint>,
+    /// Cost (USD) of the analyst API call that produced this snapshot — lets the
+    /// frontend accumulate the analyst's share of the per-role cost breakdown.
+    pub analyst_cost_usd: f64,
 }
 
 pub fn emit_snapshot(
@@ -39,6 +42,7 @@ pub fn emit_snapshot(
     ts: i64,
     report: &DuoAnalystReport,
     series: &[SeriesPoint],
+    analyst_cost_usd: f64,
 ) {
     let _ = app.emit(
         EVENT_SNAPSHOT,
@@ -48,6 +52,7 @@ pub fn emit_snapshot(
             narrative: report.narrative.clone(),
             report: report.clone(),
             series: series.to_vec(),
+            analyst_cost_usd,
         },
     );
 }

@@ -134,6 +134,8 @@ export interface DuoConfig {
   severeDriftSensitivity: "conservative" | "balanced" | "aggressive";
   planGateEnabled: boolean;
   liveReviewEnabled: boolean;
+  /** How aggressively the mentor co-reviews while the primary works. */
+  liveReviewCadence: "minimal" | "balanced" | "thorough";
   analystEnabled: boolean;
   analystProvider: string;
   analystModel: string;
@@ -176,7 +178,12 @@ export interface DuoMetrics {
   driftIncidents: number;
   /** Mentor-precision: flagged concerns that turned out real (post-fix verified). */
   mentorPrecision: number | null;
+  /** Total reported agent-turn cost (Claude self-reports; Codex reports none) —
+   *  used for the budget cap. The dashboard breakdown is computed separately from
+   *  per-session token usage so Codex shows an estimate (see `lib/duo-cost.ts`). */
   costUsd: number;
+  /** Cost of the API-LLM analyst calls (surfaced via the snapshot event). */
+  costAnalystUsd: number;
   outputTokens: number;
 }
 
@@ -257,6 +264,8 @@ export interface DuoSnapshotEvent {
   narrative: string;
   report: DuoAnalystReport;
   series: DuoSeriesPoint[];
+  /** Cost (USD) of the analyst API call that produced this snapshot. */
+  analystCostUsd: number;
 }
 
 // ── Persistence rows (serde camelCase from Rust) ─────────────────────────────

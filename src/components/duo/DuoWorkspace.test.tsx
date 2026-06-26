@@ -24,6 +24,7 @@ const CONFIG: DuoConfig = {
   severeDriftSensitivity: "conservative",
   planGateEnabled: true,
   liveReviewEnabled: true,
+  liveReviewCadence: "balanced",
   analystEnabled: true,
   analystProvider: "gemini",
   analystModel: "gemini-2.5-flash-lite",
@@ -73,6 +74,21 @@ describe("DuoWorkspace", () => {
     // Agents tab is default → both panes present.
     expect(screen.getByText("Primary")).toBeInTheDocument();
     expect(screen.getByText("Mentor")).toBeInTheDocument();
+  });
+
+  it("each agent pane shows its own live context meter (real per-session data)", () => {
+    runningState();
+    useSessionStore.setState((s) => {
+      const sessionContext = new Map(s.sessionContext);
+      sessionContext.set(PRIMARY, { used: 120_000, max: 200_000 });
+      sessionContext.set(MENTOR, { used: 50_000, max: 1_000_000 });
+      return { sessionContext };
+    });
+    render(<DuoWorkspace />);
+    // One ContextMeter per pane, each bound to its own session id.
+    expect(screen.getAllByText("Context")).toHaveLength(2);
+    expect(screen.getByText("120K / 200K")).toBeInTheDocument();
+    expect(screen.getByText("50K / 1M")).toBeInTheDocument();
   });
 
   it("switches to the Dashboard tab", () => {

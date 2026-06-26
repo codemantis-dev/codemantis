@@ -2,8 +2,30 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import DuoDashboard from "./DuoDashboard";
 import { useDuoStore, emptyDuoMetrics } from "../../stores/duoStore";
+import { useSessionStore } from "../../stores/sessionStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { resetAllStores } from "../../test/helpers/store-reset";
-import type { DuoAnalystReport } from "../../types/duo";
+import type { DuoAnalystReport, DuoConfig } from "../../types/duo";
+import type { SessionStats } from "../../types/session";
+
+function makeStats(p: Partial<SessionStats>): SessionStats {
+  return {
+    totalCostUsd: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalCacheReadTokens: 0,
+    turnCount: 1,
+    apiCallCount: 1,
+    totalReasoningOutputTokens: 0,
+    ...p,
+  };
+}
+
+const DUO_CONFIG = {
+  primary: { agentId: "codex", model: "gpt-5.5" },
+  duo: { agentId: "claude_code", model: "claude-opus-4-8" },
+} as unknown as DuoConfig;
 
 const REPORT: DuoAnalystReport = {
   schemaVersion: 1,
@@ -36,11 +58,41 @@ describe("DuoDashboard (metadata body)", () => {
 
   it("renders metrics tiles", () => {
     useDuoStore.setState({
-      metrics: { ...emptyDuoMetrics(), reviews: 2, agreements: 1, disagreements: 1, repairs: 1, costUsd: 0.12, agreementRate: 0.5 },
+      metrics: { ...emptyDuoMetrics(), reviews: 2, agreements: 1, disagreements: 1, repairs: 1, agreementRate: 0.5 },
     });
     render(<DuoDashboard />);
     expect(screen.getByText("agreements")).toBeInTheDocument();
-    expect(screen.getByText("$0.12")).toBeInTheDocument();
+    expect(screen.getByText("reviews")).toBeInTheDocument();
+  });
+
+  it("renders the per-role cost breakdown: real mentor $, estimated primary $ + tokens, analyst $", () => {
+    // Mentor (Claude) self-reports real cost; primary (Codex) reports none, so it
+    // is estimated from token usage × pricing; analyst arrives via the snapshot.
+    useDuoStore.setState({
+      metrics: { ...emptyDuoMetrics(), costAnalystUsd: 0.01 },
+      primarySessionId: "p1",
+      duoSessionId: "m1",
+      config: DUO_CONFIG,
+    });
+    useSessionStore.setState((s) => {
+      const sessionStats = new Map(s.sessionStats);
+      sessionStats.set("p1", makeStats({ totalCostUsd: 0, totalInputTokens: 20_000, totalOutputTokens: 0 }));
+      sessionStats.set("m1", makeStats({ totalCostUsd: 0.04 }));
+      return { sessionStats };
+    });
+    useSettingsStore.setState((s) => ({
+      settings: { ...s.settings, modelPricing: { ...s.settings.modelPricing, "gpt-5.5": { input: 5.0, output: 30.0 } } },
+    }));
+
+    render(<DuoDashboard />);
+    expect(screen.getByText("primary")).toBeInTheDocument();
+    expect(screen.getByText("mentor")).toBeInTheDocument();
+    expect(screen.getByText("analyst")).toBeInTheDocument();
+    // primary: 20K input × $5/1M = $0.10, estimated → "~$0.10 · 20.0K"
+    expect(screen.getByText(/~\$0\.10 · 20\.0K/)).toBeInTheDocument();
+    expect(screen.getByText("$0.04")).toBeInTheDocument(); // mentor real
+    expect(screen.getByText("$0.01")).toBeInTheDocument(); // analyst
+    expect(screen.getByText("$0.15")).toBeInTheDocument(); // total
   });
 
   it("renders the analyst report (headline, gauges, risks, recommendations, watch items)", () => {

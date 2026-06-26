@@ -210,6 +210,8 @@ export interface DuoCodingSettings {
   planGateEnabled: boolean;
   /** Mentor reviews changes continuously (at checkpoints) while the primary works. */
   liveReviewEnabled: boolean;
+  /** How aggressively live co-review fires (cost vs. coverage). Default "balanced". */
+  liveReviewCadence: "minimal" | "balanced" | "thorough";
   analystEnabled: boolean;
   analystProvider: string;
   analystModel: string;
@@ -226,6 +228,7 @@ export const DEFAULT_DUO_SETTINGS: DuoCodingSettings = {
   severeDriftSensitivity: "conservative",
   planGateEnabled: true,
   liveReviewEnabled: true,
+  liveReviewCadence: "balanced",
   analystEnabled: true,
   analystProvider: "gemini",
   analystModel: "gemini-2.5-flash-lite",

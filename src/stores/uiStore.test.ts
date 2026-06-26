@@ -132,14 +132,29 @@ describe("uiStore", () => {
     expect(useUiStore.getState().showMissionControl).toBe(false);
   });
 
-  it("Duo dashboard + setup flags default to false and toggle/set", () => {
+  it("Duo dashboard + setup flags default to false; openDuo/closeDuo/toggle drive the view", () => {
     expect(useUiStore.getState().showDuoDashboard).toBe(false);
     expect(useUiStore.getState().showDuoSetup).toBe(false);
 
-    useUiStore.getState().setShowDuoDashboard(true);
+    // openDuo marks the view visible AND selects the leftmost "duo" tab.
+    useUiStore.getState().openDuo();
     expect(useUiStore.getState().showDuoDashboard).toBe(true);
+    expect(useUiStore.getState().rightTab).toBe("duo");
+
+    // toggle while the duo tab is active hides it and falls back to Activity.
     useUiStore.getState().toggleDuoDashboard();
     expect(useUiStore.getState().showDuoDashboard).toBe(false);
+    expect(useUiStore.getState().rightTab).toBe("activity");
+
+    // toggle again re-opens it.
+    useUiStore.getState().toggleDuoDashboard();
+    expect(useUiStore.getState().showDuoDashboard).toBe(true);
+    expect(useUiStore.getState().rightTab).toBe("duo");
+
+    // closeDuo hides it and returns to Activity.
+    useUiStore.getState().closeDuo();
+    expect(useUiStore.getState().showDuoDashboard).toBe(false);
+    expect(useUiStore.getState().rightTab).toBe("activity");
 
     useUiStore.getState().setShowDuoSetup(true);
     expect(useUiStore.getState().showDuoSetup).toBe(true);
