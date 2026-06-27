@@ -58,6 +58,18 @@ CodeMantis runs every session on either **Claude Code** *or* **OpenAI Codex** �
 - **Codex session resilience** (**1.9.0**) — recover wedged or compaction-deadlocked Codex sessions in place: a non-destructive revive is tried first, with a fresh-thread reset (continuity primed by a recap) as the escalation. Includes stall detection and an opt-in wire-logging mode for protocol diagnostics.
 - **Codex Management Panel** (**1.6.0**) — view and reload Codex config, MCP servers, and account from inside the app (via `/config` or `/mcp`), plus the interactive TUI commands (`/plan`, `/model`, `/approvals`, …) reachable through a real `codex resume` overlay.
 
+### Duo-Coding — Mentor + Primary Pairing (new in 1.10.0)
+
+Put two coding agents on one task. A **Primary** agent (the sole writer) does the work; a read-only **Mentor** ("Duo") reviews every completed turn, independently runs the build and tests, and — when it disagrees — directs a repair into the Primary's chat instead of editing files itself. A separate **Analyst** (a cheap API LLM) turns the run's events into a live dashboard. More done, fewer errors, faster.
+
+- **One writer, one reviewer.** The Mentor stays read-only (Claude plan mode / Codex `read-only` sandbox) and never edits — it catches mistakes the Primary would otherwise ship.
+- **Plan gate + live reviews.** The Mentor can vet the plan before work starts and check in mid-turn, not just at the end (both on by default, tunable in **Settings → Duo-Coding**).
+- **Bounded disagreement.** A blocking objection opens a short dialogue; if the two can't converge, a configurable **tie-break** applies (default: pause and let you decide — mentor wins / primary proceeds / stop).
+- **Guardrails.** A severe-drift watcher nudges the Primary back on track (e.g. `rm -rf`, deleting tests), and a per-run **budget cap** (USD or tokens) pauses before overspend.
+- **Embedded workspace + dashboard.** Open with the title-bar **Duo-Coding** button or `Cmd+Shift+D`; watch both agents side-by-side with a live cost/verdict dashboard. On by default — runs on any Claude/Codex pairing.
+
+This is also the foundation for a **cheap or open-source Primary mentored by a top-tier model** — swap the Primary in the setup modal, keep a strong Mentor, no orchestration changes.
+
 ### SpecWriter — Write the Spec, Not the Code
 
 Claude Code implements what you describe — but the quality of the description determines the quality of the result. SpecWriter is an AI conversation partner that draws out the details you'd forget. Attach mockups, screenshots, PDFs, or **project files via the new file picker**. It reads your codebase for real file paths and context, tags its confidence level on each recommendation, and produces implementation-ready specs with verification checklists. Save specs directly to your project and send them to Claude Code in one click.
