@@ -1,5 +1,34 @@
 # CodeMantis Releases
 
+## 1.10.0 — Duo-Coding: mentor + primary pairing
+
+The headline of this release is **Duo-Coding** — put two coding agents on one task, with a read-only Mentor reviewing and directing a sole-writer Primary. Plus Mission Control tier 2, a configurable session cap, SpecWriter routing fixes, and dependency-security + Codex-protocol housekeeping.
+
+### Duo-Coding (new)
+
+Pair a **Primary** coding agent (the sole writer) with a read-only **Mentor** ("Duo") that reviews every completed turn — independently running the build and tests — and directs repairs into the Primary's chat instead of editing files itself. A separate **Analyst** (a cheap API LLM) turns the run's event log into a live dashboard.
+
+- **Single writer, independent reviewer.** The Mentor stays read-only (Claude plan mode / Codex `read-only` sandbox) and never edits; it raises concerns and directs fixes.
+- **Plan gate + live reviews.** The Mentor can vet the plan before work begins and check in mid-turn, not only at turn boundaries (both on by default).
+- **Bounded disagreement.** A blocking objection opens a short dialogue; on non-convergence a configurable **tie-break** applies (default: pause for you to decide — mentor wins / primary proceeds / stop).
+- **Guardrails.** A severe-drift watcher nudges the Primary back on track (e.g. `rm -rf`, deleting tests); a per-run **budget cap** (USD or output tokens) pauses before overspend.
+- **Embedded workspace + dashboard.** Open with the title-bar Duo-Coding button or `Cmd+Shift+D`; both agents run side-by-side with a live cost/verdict dashboard. **On by default**; works on any Claude/Codex pairing. Configure everything in **Settings → Duo-Coding**. See the user guide, Chapter 21D.
+
+This is also the foundation for a **cheap/OSS Primary mentored by a top-tier model** — swap the Primary in the setup modal, keep a strong Mentor.
+
+### Also in 1.10.0
+
+- **Mission Control tier 2.** Reachable for any project (title-bar rocket button or `Cmd+Shift+G`), even before a `preflight.yaml` exists; per-session capability gate with a mid-run pause modal; persisted "Skip for now"; docs corrected.
+- **Activity Overview** (`Cmd+Shift+O`) — a global monitor of every running/stuck/awaiting-approval session across all open projects.
+- **Configurable session cap** — set how many coding-agent session tabs can be open at once (Settings → Agents, default 20).
+- **SpecWriter fixes** — audit turns routed by explicit intent so a verification audit no longer overwrites a saved spec; key-free CLI guide recovery via a JSON envelope; Codex read-only spawn + finalization fixes.
+- **Compaction fix** — slash commands bypass recall enrichment so `/compact` is sent verbatim, and compaction failures surface instead of looping.
+
+### Housekeeping
+
+- **Dependency security** — dompurify 3.4.11 (runtime), undici 7.28.0, vite 7.3.6, @babel/core 7.29.7 (dev), all bounded to current majors. Clears all open Dependabot alerts.
+- **Codex protocol** — app-server schema bundle regenerated against codex-cli 0.140.0 (additive `thread/delete`, `SubAgentActivity` item, optional `approvals_reviewer`).
+
 ## 1.9.0 — Native Codex plan-mode lever, session resilience, approval hardening
 
 A feature release that makes Codex sessions resilient under context compaction, hardens Claude's approval path, and upgrades Codex plan mode to the real native lever. Rolls up everything since 1.8.3.
