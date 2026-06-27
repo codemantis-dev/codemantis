@@ -138,6 +138,30 @@
         "method": {
           "type": "string",
           "enum": [
+            "thread/delete"
+          ],
+          "title": "Thread/deleteRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadDeleteParams"
+        }
+      },
+      "title": "Thread/deleteRequest"
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
             "thread/unsubscribe"
           ],
           "title": "Thread/unsubscribeRequestMethod"
@@ -2035,6 +2059,26 @@
         {
           "type": "object",
           "required": [
+            "text",
+            "type"
+          ],
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "input_text"
+              ],
+              "title": "InputTextAgentMessageInputContentType"
+            }
+          },
+          "title": "InputTextAgentMessageInputContent"
+        },
+        {
+          "type": "object",
+          "required": [
             "encrypted_content",
             "type"
           ],
@@ -2175,6 +2219,36 @@
           "type": "string"
         }
       }
+    },
+    "CapabilityRootLocation": {
+      "description": "Location used to resolve a selected capability root.",
+      "oneOf": [
+        {
+          "description": "A path owned by an execution environment.",
+          "type": "object",
+          "required": [
+            "environmentId",
+            "path",
+            "type"
+          ],
+          "properties": {
+            "environmentId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "environment"
+              ],
+              "title": "EnvironmentCapabilityRootLocationType"
+            }
+          },
+          "title": "EnvironmentCapabilityRootLocation"
+        }
+      ]
     },
     "ClientInfo": {
       "type": "object",
@@ -2593,6 +2667,13 @@
           },
           "title": "OutputTextContentItem"
         }
+      ]
+    },
+    "ConversationTextRole": {
+      "type": "string",
+      "enum": [
+        "user",
+        "developer"
       ]
     },
     "DynamicToolSpec": {
@@ -3341,8 +3422,16 @@
             }
           ]
         },
-        "threadId": {
-          "type": "string"
+        "summary": {
+          "description": "Override the reasoning summary for this turn and subsequent turns.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReasoningSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "input": {
           "type": "array",
@@ -3360,16 +3449,8 @@
         "outputSchema": {
           "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
         },
-        "summary": {
-          "description": "Override the reasoning summary for this turn and subsequent turns.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ReasoningSummary"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "threadId": {
+          "type": "string"
         },
         "personality": {
           "description": "Override the personality for this turn and subsequent turns.",
@@ -4349,6 +4430,20 @@
         }
       }
     },
+    "RealtimeConversationArchitecture": {
+      "type": "string",
+      "enum": [
+        "realtimeapi",
+        "avas"
+      ]
+    },
+    "RealtimeConversationVersion": {
+      "type": "string",
+      "enum": [
+        "v1",
+        "v2"
+      ]
+    },
     "RealtimeOutputModality": {
       "type": "string",
       "enum": [
@@ -4473,24 +4568,6 @@
         }
       ]
     },
-    "ThreadRollbackParams": {
-      "type": "object",
-      "required": [
-        "numTurns",
-        "threadId"
-      ],
-      "properties": {
-        "numTurns": {
-          "description": "The number of turns to drop from the end of the thread. Must be >= 1.\n\nThis only modifies the thread's history and does not revert local file changes that have been made by the agent. Clients are responsible for reverting these changes.",
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "threadId": {
-          "type": "string"
-        }
-      }
-    },
     "ThreadResumeParams": {
       "description": "There are three ways to resume a thread: 1. By thread_id: load the thread from disk by thread_id and resume it. 2. By history: instantiate the thread from memory and resume it. 3. By path: load the thread from disk by path and resume it.\n\nFor non-running threads, the precedence is: history > non-empty path > thread_id. If using history or a non-empty path for a non-running thread, the thread_id param will be ignored.\n\nIf thread_id identifies a running thread, app-server rejoins that thread and treats a non-empty path as a consistency check against the active rollout path. Empty string path values are treated as absent.\n\nPrefer using thread_id whenever possible.",
       "type": "object",
@@ -4560,8 +4637,15 @@
             }
           ]
         },
-        "threadId": {
-          "type": "string"
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "model": {
           "description": "Configuration overrides for the resumed thread, if any.",
@@ -4576,15 +4660,46 @@
             "null"
           ]
         },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
+        "threadId": {
+          "type": "string"
+        }
+      }
+    },
+    "ThreadRealtimeAudioChunk": {
+      "description": "EXPERIMENTAL - thread realtime audio chunk.",
+      "type": "object",
+      "required": [
+        "data",
+        "numChannels",
+        "sampleRate"
+      ],
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "itemId": {
+          "type": [
+            "string",
+            "null"
           ]
+        },
+        "numChannels": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0.0
+        },
+        "sampleRate": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "samplesPerChannel": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
         }
       }
     },
@@ -4594,6 +4709,22 @@
         "startup",
         "clear"
       ]
+    },
+    "RemoteControlDisableParams": {
+      "type": "object",
+      "properties": {
+        "ephemeral": {
+          "type": "boolean"
+        }
+      }
+    },
+    "RemoteControlEnableParams": {
+      "type": "object",
+      "properties": {
+        "ephemeral": {
+          "type": "boolean"
+        }
+      }
     },
     "ThreadStartParams": {
       "type": "object",
@@ -4644,10 +4775,14 @@
             "null"
           ]
         },
-        "serviceName": {
-          "type": [
-            "string",
-            "null"
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "threadSource": {
@@ -4667,7 +4802,7 @@
             "null"
           ]
         },
-        "serviceTier": {
+        "serviceName": {
           "type": [
             "string",
             "null"
@@ -4695,14 +4830,10 @@
             "null"
           ]
         },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
+        "serviceTier": {
+          "type": [
+            "string",
+            "null"
           ]
         },
         "personality": {
@@ -5592,6 +5723,28 @@
         }
       ]
     },
+    "SelectedCapabilityRoot": {
+      "description": "A user-selected root that can expose one or more runtime capabilities.",
+      "type": "object",
+      "required": [
+        "id",
+        "location"
+      ],
+      "properties": {
+        "id": {
+          "description": "Stable identifier supplied by the capability selection platform.",
+          "type": "string"
+        },
+        "location": {
+          "description": "Where the selected root can be resolved.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CapabilityRootLocation"
+            }
+          ]
+        }
+      }
+    },
     "SendAddCreditsNudgeEmailParams": {
       "type": "object",
       "required": [
@@ -5779,12 +5932,30 @@
       }
     },
     "ThreadSource": {
+      "type": "string"
+    },
+    "ThreadSortKey": {
       "type": "string",
       "enum": [
-        "user",
-        "subagent",
-        "memory_consolidation"
+        "created_at",
+        "updated_at"
       ]
+    },
+    "ThreadShellCommandParams": {
+      "type": "object",
+      "required": [
+        "command",
+        "threadId"
+      ],
+      "properties": {
+        "command": {
+          "description": "Shell command string evaluated by the thread's configured shell. Unlike `command/exec`, this intentionally preserves shell syntax such as pipes, redirects, and quoting. This runs unsandboxed with full access rather than inheriting the thread sandbox policy.",
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      }
     },
     "ThreadCompactStartParams": {
       "type": "object",
@@ -5797,12 +5968,52 @@
         }
       }
     },
-    "ThreadSortKey": {
-      "type": "string",
-      "enum": [
-        "created_at",
-        "updated_at"
-      ]
+    "ThreadResumeInitialTurnsPageParams": {
+      "type": "object",
+      "properties": {
+        "itemsView": {
+          "description": "How much item detail to include for each returned turn; defaults to summary.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TurnItemsView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "description": "Optional turn page size.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "sortDirection": {
+          "description": "Optional turn pagination direction; defaults to descending.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SortDirection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ThreadDeleteParams": {
+      "type": "object",
+      "required": [
+        "threadId"
+      ],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      }
     },
     "ThreadForkParams": {
       "description": "There are two ways to fork a thread: 1. By thread_id: load the thread from disk by thread_id and fork it into a new thread. 2. By path: load the thread from disk by path and fork it into a new thread.\n\nIf using a non-empty path, the thread_id param will be ignored. Empty string path values are treated as absent.\n\nPrefer using thread_id whenever possible.",
@@ -5886,12 +6097,6 @@
         "threadId": {
           "type": "string"
         },
-        "serviceTier": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "threadSource": {
           "description": "Optional client-supplied analytics source classification for this forked thread.",
           "anyOf": [
@@ -5901,6 +6106,12 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "serviceTier": {
+          "type": [
+            "string",
+            "null"
           ]
         }
       }
@@ -5972,15 +6183,14 @@
         "complete"
       ]
     },
-    "ThreadShellCommandParams": {
+    "ThreadSetNameParams": {
       "type": "object",
       "required": [
-        "command",
+        "name",
         "threadId"
       ],
       "properties": {
-        "command": {
-          "description": "Shell command string evaluated by the thread's configured shell. Unlike `command/exec`, this intentionally preserves shell syntax such as pipes, redirects, and quoting. This runs unsandboxed with full access rather than inheriting the thread sandbox policy.",
+        "name": {
           "type": "string"
         },
         "threadId": {
@@ -6243,92 +6453,21 @@
         }
       }
     },
-    "ThreadSetNameParams": {
+    "ThreadRollbackParams": {
       "type": "object",
       "required": [
-        "name",
+        "numTurns",
         "threadId"
       ],
       "properties": {
-        "name": {
-          "type": "string"
+        "numTurns": {
+          "description": "The number of turns to drop from the end of the thread. Must be >= 1.\n\nThis only modifies the thread's history and does not revert local file changes that have been made by the agent. Clients are responsible for reverting these changes.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
         },
         "threadId": {
           "type": "string"
-        }
-      }
-    },
-    "ThreadResumeInitialTurnsPageParams": {
-      "type": "object",
-      "properties": {
-        "itemsView": {
-          "description": "How much item detail to include for each returned turn; defaults to summary.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/TurnItemsView"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "limit": {
-          "description": "Optional turn page size.",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "sortDirection": {
-          "description": "Optional turn pagination direction; defaults to descending.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SortDirection"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "ThreadRealtimeAudioChunk": {
-      "description": "EXPERIMENTAL - thread realtime audio chunk.",
-      "type": "object",
-      "required": [
-        "data",
-        "numChannels",
-        "sampleRate"
-      ],
-      "properties": {
-        "data": {
-          "type": "string"
-        },
-        "itemId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "numChannels": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0.0
-        },
-        "sampleRate": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "samplesPerChannel": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0.0
         }
       }
     }

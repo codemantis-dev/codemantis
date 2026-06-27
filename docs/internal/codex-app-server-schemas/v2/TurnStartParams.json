@@ -71,8 +71,16 @@
         }
       ]
     },
-    "threadId": {
-      "type": "string"
+    "summary": {
+      "description": "Override the reasoning summary for this turn and subsequent turns.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ReasoningSummary"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "input": {
       "type": "array",
@@ -90,16 +98,8 @@
     "outputSchema": {
       "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
     },
-    "summary": {
-      "description": "Override the reasoning summary for this turn and subsequent turns.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/ReasoningSummary"
-        },
-        {
-          "type": "null"
-        }
-      ]
+    "threadId": {
+      "type": "string"
     },
     "personality": {
       "description": "Override the personality for this turn and subsequent turns.",

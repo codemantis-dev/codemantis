@@ -12,11 +12,8 @@
     "thread"
   ],
   "properties": {
-    "serviceTier": {
-      "type": [
-        "string",
-        "null"
-      ]
+    "thread": {
+      "$ref": "#/definitions/Thread"
     },
     "approvalPolicy": {
       "$ref": "#/definitions/AskForApproval"
@@ -56,8 +53,11 @@
         }
       ]
     },
-    "thread": {
-      "$ref": "#/definitions/Thread"
+    "serviceTier": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "sandbox": {
       "description": "Legacy sandbox policy retained for compatibility. Experimental clients should prefer `activePermissionProfile` for profile provenance.",
@@ -929,6 +929,14 @@
         }
       ]
     },
+    "SubAgentActivityKind": {
+      "type": "string",
+      "enum": [
+        "started",
+        "interacted",
+        "interrupted"
+      ]
+    },
     "SubAgentSource": {
       "oneOf": [
         {
@@ -1688,6 +1696,38 @@
         {
           "type": "object",
           "required": [
+            "agentPath",
+            "agentThreadId",
+            "id",
+            "kind",
+            "type"
+          ],
+          "properties": {
+            "agentPath": {
+              "type": "string"
+            },
+            "agentThreadId": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/definitions/SubAgentActivityKind"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "subAgentActivity"
+              ],
+              "title": "SubAgentActivityThreadItemType"
+            }
+          },
+          "title": "SubAgentActivityThreadItem"
+        },
+        {
+          "type": "object",
+          "required": [
             "id",
             "query",
             "type"
@@ -1858,12 +1898,7 @@
       ]
     },
     "ThreadSource": {
-      "type": "string",
-      "enum": [
-        "user",
-        "subagent",
-        "memory_consolidation"
-      ]
+      "type": "string"
     },
     "ThreadStatus": {
       "oneOf": [

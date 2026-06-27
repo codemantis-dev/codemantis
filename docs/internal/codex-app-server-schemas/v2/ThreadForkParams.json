@@ -82,12 +82,6 @@
     "threadId": {
       "type": "string"
     },
-    "serviceTier": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "threadSource": {
       "description": "Optional client-supplied analytics source classification for this forked thread.",
       "anyOf": [
@@ -97,6 +91,12 @@
         {
           "type": "null"
         }
+      ]
+    },
+    "serviceTier": {
+      "type": [
+        "string",
+        "null"
       ]
     }
   },
@@ -173,12 +173,7 @@
       ]
     },
     "ThreadSource": {
-      "type": "string",
-      "enum": [
-        "user",
-        "subagent",
-        "memory_consolidation"
-      ]
+      "type": "string"
     }
   }
 }
