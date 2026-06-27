@@ -41,6 +41,10 @@ db_migration:
   You'll need to run migrations before testing."
 - Prisma schema → "schema.prisma changed. Run
   `npx prisma generate` then `npx prisma migrate dev`."
+- Drizzle schema → "Your Drizzle schema changed. Run
+  `npx drizzle-kit generate` to create the migration, then
+  `npx drizzle-kit migrate` (or your project's `db:migrate`
+  script) to apply it."
 - Django models → "models.py changed. Run
   `python manage.py makemigrations` then `migrate`."
 - Alembic → "Run `alembic revision --autogenerate` then

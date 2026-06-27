@@ -206,6 +206,10 @@ export interface CompactingStatusEvent {
   agent_id?: AgentId;
   session_id: string;
   is_compacting: boolean;
+  /** On the completion event the CLI reports "success" | "failed"
+   * (compact_metadata, ~CLI 2.1.185+). Absent on the start event and on
+   * older CLIs. Used to surface a silently-failed compaction. */
+  compact_result?: string | null;
 }
 
 export interface CompactCompleteEvent {

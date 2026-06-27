@@ -359,6 +359,13 @@ pub enum FrontendEvent {
     CompactingStatus {
         session_id: String,
         is_compacting: bool,
+        /// On the compaction-completion `system/status` event the CLI reports
+        /// `compact_result` ("success" | "failed"; added ~2.1.185, verified by
+        /// capture S18). Carried so the host can surface a silently-failed
+        /// compaction instead of just clearing the spinner. `None` on the start
+        /// event and on older CLIs that don't emit the field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compact_result: Option<String>,
     },
 
     #[serde(rename = "compact_complete")]
@@ -1804,10 +1811,25 @@ mod tests {
         let fe = FrontendEvent::CompactingStatus {
             session_id: "s1".into(),
             is_compacting: true,
+            compact_result: None,
         };
         let val = serde_json::to_value(&fe).unwrap();
         assert_eq!(val["type"], "compacting_status");
         assert_eq!(val["is_compacting"], true);
+        // Omitted from the wire when absent (start event).
+        assert!(val.get("compact_result").is_none());
+    }
+
+    #[test]
+    fn ser_frontend_compacting_status_carries_failed_result() {
+        let fe = FrontendEvent::CompactingStatus {
+            session_id: "s1".into(),
+            is_compacting: false,
+            compact_result: Some("failed".into()),
+        };
+        let val = serde_json::to_value(&fe).unwrap();
+        assert_eq!(val["is_compacting"], false);
+        assert_eq!(val["compact_result"], "failed");
     }
 
     #[test]

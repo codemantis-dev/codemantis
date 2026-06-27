@@ -425,6 +425,21 @@ export function handleChatEvent(sessionId: string, event: FrontendEvent): void {
       if (event.is_compacting) {
         store.setSessionActivity(sessionId, { label: "Compacting context...", toolName: null, toolElapsed: 0, filePath: null });
         showToast("Compacting context — this may take a moment...", "info", 5000);
+      } else if (event.compact_result && event.compact_result !== "success") {
+        // The CLI reported a failed compaction (compact_result !== "success").
+        // Without this, the spinner just clears and the optimistic "Compacting
+        // conversation context..." chat message is left unresolved. Surface it
+        // durably so the user knows compaction did NOT run. The success path is
+        // handled by `compact_complete` (which carries the token reduction).
+        store.addMessage(sessionId, {
+          id: `system-${Date.now()}`,
+          role: "assistant",
+          content: "Compaction did not run — the Claude CLI reported it could not compact this conversation. Try again, or send a fresh message to continue.",
+          timestamp: new Date().toISOString(),
+          activityIds: [],
+          isStreaming: false,
+        });
+        showToast("Compaction failed — conversation was not compacted", "error", 8000);
       }
       break;
     }

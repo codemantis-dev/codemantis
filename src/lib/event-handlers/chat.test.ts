@@ -454,9 +454,25 @@ describe("chat event handler — system events", () => {
       expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Compacting"), "info", 5000);
     });
 
-    it("does not show toast when compacting ends", () => {
+    it("does not show toast when compacting ends successfully", () => {
+      handleChatEvent("s1", { type: "compacting_status", session_id: "s1", is_compacting: false, compact_result: "success" });
+      expect(showToast).not.toHaveBeenCalled();
+    });
+
+    it("does not show toast when compacting ends with no result (older CLI)", () => {
       handleChatEvent("s1", { type: "compacting_status", session_id: "s1", is_compacting: false });
       expect(showToast).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a failed compaction (compact_result !== success)", () => {
+      const before = useSessionStore.getState().sessionMessages.get("s1")?.length ?? 0;
+      handleChatEvent("s1", { type: "compacting_status", session_id: "s1", is_compacting: false, compact_result: "failed" });
+      expect(useSessionStore.getState().sessionCompacting.get("s1")).toBe(false);
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Compaction failed"), "error", 8000);
+      const after = useSessionStore.getState().sessionMessages.get("s1")?.length ?? 0;
+      expect(after).toBe(before + 1);
+      const msgs = useSessionStore.getState().sessionMessages.get("s1") ?? [];
+      expect(msgs[msgs.length - 1]?.content).toContain("Compaction did not run");
     });
   });
 

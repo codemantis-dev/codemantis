@@ -219,12 +219,14 @@ export function createCliSessionIdEvent(
 
 export function createCompactingStatusEvent(
   isCompacting: boolean,
-  sessionId: string = DEFAULT_SESSION_ID
+  sessionId: string = DEFAULT_SESSION_ID,
+  compactResult?: string
 ): FrontendEvent {
   return {
     type: "compacting_status",
     session_id: sessionId,
     is_compacting: isCompacting,
+    ...(compactResult !== undefined ? { compact_result: compactResult } : {}),
   } as FrontendEvent;
 }
 

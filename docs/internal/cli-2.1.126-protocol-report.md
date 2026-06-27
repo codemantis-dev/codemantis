@@ -264,6 +264,54 @@ nothing reset it on compaction; the session was simply idle on the pre-compactio
 
 ---
 
+### S18 — `/compact` "doesn't compact" was host-side recall enrichment, NOT a CLI break ★ added 2026-06-26, CLI **2.1.186** ★
+
+> **Version note:** captured against CLI **2.1.186** (one patch past S17's 2.1.185). Per CLAUDE.md, trust the capture.
+
+**Field report.** In the real app, running `/compact` no longer compacted. Instead the model answered the
+literal text `/compact` conversationally — emitting a handoff/"checkpoint" summary ("Go ahead with
+`/compact` — I'm at a clean stopping point"). Re-running it just repeated the summary. The CONTEXT meter
+sat at 92% (≈921K/1M). The initial hypothesis was a 2.1.186 CLI regression: that the CLI had stopped
+intercepting plain-text `/compact` over stream-json.
+
+**Method.** `s18_compaction_mechanism` (capture `S18-compaction-mechanism.jsonl`): build a small
+compactable history, then probe three candidate triggers in one process, delimited by `probe_*` marker
+events — (A) `/compact` as plain `user` text, (B) `compact` as a `control_request` subtype, (C) two-phase
+`/compact` + a `"yes"` confirmation. The harness spawns the CLI exactly like production but sends a **bare**
+`/compact`.
+
+**Findings (decisive — they overturn the hypothesis):**
+- **Plain-text `/compact` STILL genuinely compacts on 2.1.186.** Probe A: `system/status:"compacting"` →
+  `{status:null, compact_result:"success"}` → fresh `system/init` → `compact_boundary` with
+  `pre_tokens 25910 → post_tokens 2670`, `trigger:"manual"`. No model role-play at all. **Not a CLI
+  regression.**
+- **`compact` is still "Unsupported" as a `control_request` subtype** (Probe B:
+  `"error":"Unsupported control request subtype: compact"`) — unchanged since 2.1.74. Compaction did not
+  move onto the control channel.
+- **A second back-to-back `/compact` returns `compact_result:"failed"`** (Probe C: two
+  `{status:null, compact_result:"failed"}` status events, no `compact_boundary`) — i.e. "nothing left to
+  compact." So `compact_result` is a real success/failure signal worth surfacing.
+
+**Root cause (host-side).** The clean harness sends a **bare** `/compact`; the real app does not. With
+`recall.enabled = true` (the user's setting) and `autoEnrichSources:["agent_prompts"]`, `send_message`
+(`commands/session.rs`) routes every user prompt through `recall::enricher::enrich_if_enabled`, which
+**prepends a context brief**. That turns the content from exactly `/compact` into `<brief>…/compact`, and
+the CLI only intercepts a slash command when the message content **is exactly the command** — so the
+enriched form reaches the model as plain text, which role-plays the "go ahead and compact" handoff. This
+fully explains every symptom (model produces a real turn; consistent across attempts; only in the real app,
+never in the harness). Mirrors the long-standing precedent that `/effort` typed as a user message is gated
+in non-TTY mode (S13) — slash-command-over-stdin handling is exact and unforgiving of leading text.
+
+**Fix shipped (this change).**
+- **Slash commands bypass recall enrichment.** `send_message` now sends slash commands verbatim
+  (`is_cli_slash_command` guard — `/<word>` with an ASCII-command-word first token, so file paths like
+  `/Users/...` and natural-language mentions are still enriched). This restores `/compact`, `/cost`, etc.
+- **Failed compactions are now visible.** `handle_system_status` extracts `compact_result` onto
+  `FrontendEvent::CompactingStatus`; `chat.ts` surfaces a durable chat message + error toast when
+  `compact_result !== "success"`, instead of silently clearing the spinner (Probe C's failure mode).
+
+---
+
 ## Actionable bugs in CodeMantis (proven by the captures)
 
 ### B1 — `chat.ts:291–305` toast misclassifies UI-prompt denials as "writes blocked"

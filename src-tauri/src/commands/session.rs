@@ -387,6 +387,24 @@ pub async fn resume_session_process(
     Ok(())
 }
 
+/// True when `prompt` is a CLI slash command (`/<word>` optionally followed by
+/// args), which the Claude CLI only intercepts when sent verbatim. Such prompts
+/// must bypass recall enrichment (which would prepend a brief and defeat
+/// detection — see `send_message`). The first token immediately after `/` must
+/// be a command word: ASCII alphanumeric plus `-` / `_` / `:`. This excludes
+/// file paths like `/Users/hr/foo` (the token contains a second `/`) and
+/// natural-language text that merely mentions a command (does not start `/`).
+fn is_cli_slash_command(prompt: &str) -> bool {
+    let Some(rest) = prompt.trim_start().strip_prefix('/') else {
+        return false;
+    };
+    let token: String = rest.chars().take_while(|c| !c.is_whitespace()).collect();
+    !token.is_empty()
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+}
+
 #[tauri::command]
 pub async fn send_message(
     state: State<'_, AppState>,
@@ -406,7 +424,17 @@ pub async fn send_message(
     // (default). On any failure inside the enricher we ship the
     // original prompt verbatim — see `enrich_if_enabled` for the
     // mode-dependent policy.
-    let final_prompt = {
+    //
+    // CLI slash commands (`/compact`, `/cost`, …) MUST reach the CLI verbatim:
+    // the Claude CLI only intercepts a slash command when the message content
+    // is EXACTLY the command. Recall enrichment prepends a context brief, which
+    // turns `/compact` into `<brief>…/compact` and defeats slash-command
+    // detection — the command then reaches the model as plain text and is never
+    // executed (the "/compact doesn't compact" bug). Skip enrichment for slash
+    // commands so only natural-language prompts get enriched.
+    let final_prompt = if is_cli_slash_command(&prompt) {
+        prompt.clone()
+    } else {
         let project_path = {
             let sessions = state.sessions.lock().await;
             sessions
@@ -1576,6 +1604,44 @@ pub async fn close_specwriter_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── is_cli_slash_command (recall-enrichment bypass) ──
+
+    #[test]
+    fn slash_command_compact_is_detected() {
+        // The regression: `/compact` must bypass recall enrichment so the CLI
+        // intercepts it instead of feeding it to the model as plain text.
+        assert!(is_cli_slash_command("/compact"));
+    }
+
+    #[test]
+    fn slash_command_with_args_is_detected() {
+        assert!(is_cli_slash_command("/model sonnet"));
+        assert!(is_cli_slash_command("/cost"));
+        assert!(is_cli_slash_command("/rewind"));
+    }
+
+    #[test]
+    fn slash_command_tolerates_leading_and_trailing_whitespace() {
+        assert!(is_cli_slash_command("  /compact"));
+        assert!(is_cli_slash_command("/compact\n"));
+    }
+
+    #[test]
+    fn file_path_is_not_a_slash_command() {
+        // A path starts with `/` but its first token contains a second `/`,
+        // so it must still be enriched as a normal prompt.
+        assert!(!is_cli_slash_command("/Users/hr/projects/my-app"));
+        assert!(!is_cli_slash_command("/etc/hosts has the entry"));
+    }
+
+    #[test]
+    fn natural_language_is_not_a_slash_command() {
+        assert!(!is_cli_slash_command("please run /compact for me"));
+        assert!(!is_cli_slash_command("fix the bug in session.rs"));
+        assert!(!is_cli_slash_command(""));
+        assert!(!is_cli_slash_command("/ trailing space then word"));
+    }
 
     // ── derive_session_base_name ──
 

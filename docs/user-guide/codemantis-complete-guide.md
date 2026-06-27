@@ -3204,8 +3204,15 @@ Duo-Coding runs in an **embedded workspace** that takes over the center area (it
 - **Header / run controls** (always available while active): the run **status**, current **phase**, the **agent pairing** (primary -> mentor with models), a live **elapsed timer**, and **Pause/Resume** plus a two-step **Stop** (click **Stop**, then **Confirm stop?**). Stopping tears down both agent sessions and writes a Duo-Coding entry to the project changelog.
 - **Left area -- two tabs:**
   - **Agents:** the two live agent chats **side by side** -- the **Primary** (interactive) and the read-only **Mentor** -- so you can watch both work in real time.
-  - **Dashboard:** the analyst view -- an assessment headline, narrative, momentum, and confidence score; collaboration-health and code-quality **gauges** (0--100, color-banded); **metrics** (reviews, agreements, disagreements, repairs, dialogue rounds, drift incidents, agreement rate, live cost); **charts** (changes per turn, agreements vs disagreements); and risks, recommendations, repair analysis, improvements, and watch items.
+  - **Dashboard:** the analyst view -- an assessment headline, narrative, momentum, and confidence score; collaboration-health and code-quality **gauges** (0--100, color-banded); **metrics** (reviews, agreements, disagreements, repairs, dialogue rounds, drift incidents, agreement rate, and a **per-role cost** breakdown (the mentor's real reported $, the primary's estimated $ + tokens, and the analyst $)); **charts** (changes per turn, agreements vs disagreements); and risks, recommendations, repair analysis, improvements, and watch items.
 - **Orchestrator card** (right, behind a resizable divider): the Mentor's running log of verdicts, decisions, and outcomes -- the **live dialogue** between the two agents.
+
+### Plan gate & live co-review
+
+Beyond reviewing each completed turn, the Mentor can engage the Primary at two extra points -- both **on by default**, toggled in **Settings -> Duo-Coding**:
+
+- **Plan-review gate** -- before the Primary writes any code, the Mentor reviews and approves the proposed approach. This catches a wrong direction early, before effort is spent building it out.
+- **Live co-review** -- while the Primary works, the Mentor reviews changes continuously at checkpoints (not only after a full turn finishes), so drift is caught sooner. Its **cadence** -- `minimal` (fewer reviews, cheaper), `balanced`, or `thorough` (more reviews, costlier) -- trades review coverage against cost, and applies only while live co-review is on.
 
 ### Disagreements & tie-breaks
 
@@ -4584,6 +4591,9 @@ Complete reference of every configurable setting in CodeMantis.
 | Enable Duo-Coding | Duo-Coding | Toggle | On | `duo.enabled` -- master switch for mentor + primary pairing. When off, the title-bar Duo button and `Cmd Shift D` are hidden. |
 | Tie-break policy | Duo-Coding | Choice | Pause | `duo.tieBreakPolicy` -- how an unresolved disagreement settles: `pause` (ask you), `mentorWins`, or `primaryWins`. |
 | Max dialogue rounds | Duo-Coding | Number | 3 | `duo.maxDialogueRounds` -- back-and-forth rounds the mentor and primary get before the tie-break applies. |
+| Plan-review gate | Duo-Coding | Toggle | On | `duo.planGateEnabled` -- the mentor reviews and approves the primary's plan/approach before any code is written. |
+| Live co-review | Duo-Coding | Toggle | On | `duo.liveReviewEnabled` -- the mentor reviews changes continuously (at checkpoints) while the primary works, not only after a turn completes. |
+| Live-review cadence | Duo-Coding | Choice | Balanced | `duo.liveReviewCadence` -- how often live co-review fires: `minimal` (fewer, cheaper) / `balanced` / `thorough` (more, costlier). Only applies when Live co-review is on. |
 | Severe-drift nudge | Duo-Coding | Toggle | On | `duo.severeDriftNudgeEnabled` -- watch for dangerous mid-run actions (e.g. `rm -rf`, deleting tests) and nudge the primary back on track. |
 | Drift sensitivity | Duo-Coding | Choice | Conservative | `duo.severeDriftSensitivity` -- conservative / balanced / aggressive. |
 | Enable analyst | Duo-Coding | Toggle | On | `duo.analystEnabled` -- run a cheap API LLM that turns the run log into the live dashboard. |

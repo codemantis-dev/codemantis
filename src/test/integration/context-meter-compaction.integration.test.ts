@@ -118,4 +118,25 @@ describe("Context meter across compaction (Integration)", () => {
     expect(ctx?.used).toBe(401000); // prior value retained
     expect(ctx?.pending).toBe(true); // but flagged so it's not presented as current
   });
+
+  it("surfaces a failed compaction instead of clearing silently (capture S18 probe C)", () => {
+    // Real CLI 2.1.186 failure shape: status:"compacting" then
+    // {status:null, compact_result:"failed"} with NO compact_boundary. Without
+    // surfacing, the spinner clears and the user gets no feedback that the
+    // conversation was never compacted.
+    const before = useSessionStore.getState().sessionMessages.get(SID)?.length ?? 0;
+    simulateEventStream(SID, [
+      createCompactingStatusEvent(true, SID),
+      createCompactingStatusEvent(false, SID, "failed"),
+    ]);
+    // Spinner cleared...
+    expect(useSessionStore.getState().sessionCompacting.get(SID)).toBe(false);
+    // ...and a durable failure message was appended to the chat.
+    const msgs = useSessionStore.getState().sessionMessages.get(SID) ?? [];
+    expect(msgs.length).toBe(before + 1);
+    expect(msgs[msgs.length - 1]?.content).toContain("Compaction did not run");
+    // No compact_complete fired, so the meter's post-compaction *pending* drop
+    // never happened (the conversation was not compacted).
+    expect(useSessionStore.getState().sessionContext.get(SID)?.pending).toBeFalsy();
+  });
 });

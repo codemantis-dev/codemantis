@@ -102,8 +102,10 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Agent-aware slash commands** (v1.5.0; Codex TUI overlay v1.6.0):
   the command palette scans `.codex/prompts/` on Codex sessions and
   `.claude/commands` + `.claude/skills` on Claude sessions, and
-  surfaces each agent's own CLI-only commands. The CLI Overlay
-  (Cmd+/) runs whichever agent's binary the active session is on.
+  surfaces each agent's own CLI-only commands. Cmd+/ opens the
+  command palette; selecting a CLI-only command from it launches the
+  CLI Overlay, which runs whichever agent's binary the active session
+  is on.
   On Codex, the interactive TUI commands (`/plan`, `/model`,
   `/approvals`, `/review`, `/status`, `/diff`) now open the *real*
   Codex TUI resumed into the current conversation (`codex resume
@@ -143,6 +145,14 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Terminal** (right panel): Integrated terminal for running
   builds, tests, dev servers. Recommend for build/test commands.
 
+- **Quick Commands** (configured in Settings → Quick Commands,
+  surfaced under the Terminal tab): user-defined command pills —
+  one click sends the command (e.g. `pnpm dev`, `pnpm test`,
+  `git status`) straight into the active terminal. Recommend when
+  the user keeps re-typing the same build/test/dev commands. "Add
+  your common commands as Quick Commands in Settings — then they're
+  one click away under the Terminal tab."
+
 - **Changelog** (right panel): AI-generated summaries of each
   coding turn. Recommend when many files changed. "Check the
   Changelog tab to see a summary of what Claude just did."
@@ -173,9 +183,10 @@ CodeMantis has built-in tools. Suggest them when relevant:
 - **Assistant Panel** (right panel): Chat with other AI providers
   (GPT, Gemini, Anthropic API, OpenRouter, plus local Claude Code
   and Codex) alongside the main session. The v1.5.x assistant model
-  lineup includes Gemini 3.1 Flash Lite, Gemini 3.5 Flash, Gemini 3.1
-  Pro, GPT-5.4 Mini, GPT-5.4, GPT-5.5, Opus 4.8 / Sonnet 4.6 / Haiku
-  4.5 — retired model IDs have been dropped.
+  lineup includes Gemini 2.5 Flash Lite, Gemini 2.5 Flash, Gemini 3.1
+  Flash Lite, Gemini 3.5 Flash, Gemini 3.1 Pro, GPT-5.4 Mini, GPT-5.4,
+  GPT-5.5, Opus 4.8 / Sonnet 4.6 / Haiku 4.5 — retired model IDs have
+  been dropped.
   Recommend for second opinions. "Open an Assistant tab if you want
   a quick second opinion from GPT or Gemini."
 

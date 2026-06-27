@@ -1340,6 +1340,76 @@ async fn s17_compaction() {
     cleanup(&mut spawned, &ctx).await;
 }
 
+/// S18 — what triggers `/compact` on CLI 2.1.186 (regression probe).
+///
+/// Field report (CodeMantis): running `/compact` no longer compacts. The CLI
+/// instead lets the model answer the literal text `/compact` conversationally
+/// (a "checkpoint" handoff summary), and no `compact_boundary` ever fires.
+/// S17 verified plain-text `/compact` DID compact on 2.1.185 — so this is a
+/// fresh break one patch later (2.1.186).
+///
+/// This scenario builds a small compactable history, then probes — IN ORDER,
+/// with `probe_*` marker events delimiting each — the candidate 2.1.186
+/// trigger mechanisms, so `S18-compaction-mechanism.jsonl` reveals which (if
+/// any) now emits `system/status:"compacting"` + `system/compact_boundary`:
+///
+///   Probe A  — `/compact` as plain `user` text (reproduce the break).
+///   Probe B  — `compact` as a `control_request` subtype (was "Unsupported"
+///              through 2.1.185; re-test in case compaction moved onto the
+///              control channel).
+///   Probe C  — two-phase: re-send `/compact` then a bare confirmation turn
+///              ("yes") to test whether 2.1.186 made it a preview/confirm flow.
+///
+/// Read decisively: find the `compact_boundary` (if any) in the capture and
+/// look back at the nearest preceding `dir:"stdin"` line — that envelope is
+/// the new trigger and the basis for the host-side fix.
+async fn s18_compaction_mechanism() {
+    let ctx = setup("S18-compaction-mechanism", allow_all()).await;
+    let mut spawned = spawn_cli(
+        &ctx.capture, ctx.hook_port, &ctx.hook_path, None, &ctx.cwd, None,
+    )
+    .await;
+
+    // T1 + T2: build a small but non-trivial history worth compacting.
+    send_user(&mut spawned, &ctx.capture,
+        "Write one short paragraph about the history of the C programming language.").await;
+    wait_for_nth_result(&ctx.capture_path, 1, Duration::from_secs(90)).await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Now write one short paragraph about the history of the Rust programming language.").await;
+    wait_for_nth_result(&ctx.capture_path, 2, Duration::from_secs(90)).await;
+
+    // Probe A — plain-text `/compact` (the current CodeMantis path).
+    ctx.capture.log_event("probe_a_plaintext_compact", json!({ "ts": now_ts() })).await;
+    send_user(&mut spawned, &ctx.capture, "/compact").await;
+    wait_for_nth_result(&ctx.capture_path, 3, Duration::from_secs(120)).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Probe B — `compact` as a control_request subtype.
+    ctx.capture.log_event("probe_b_control_request_compact", json!({ "ts": now_ts() })).await;
+    let req_id = "req_compact".to_string();
+    send_control(&mut spawned, &ctx.capture, &req_id, json!({ "subtype": "compact" })).await;
+    let _ = wait_for_control_response(&ctx.capture_path, req_id, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Probe C — two-phase: re-send `/compact`, then a bare confirmation turn.
+    ctx.capture.log_event("probe_c_two_phase_compact", json!({ "ts": now_ts() })).await;
+    send_user(&mut spawned, &ctx.capture, "/compact").await;
+    wait_for_nth_result(&ctx.capture_path, 4, Duration::from_secs(120)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    send_user(&mut spawned, &ctx.capture, "yes").await;
+    wait_for_nth_result(&ctx.capture_path, 5, Duration::from_secs(120)).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Final tiny turn — its usage.input_tokens reveals whether ANY probe
+    // actually shrank the working context.
+    ctx.capture.log_event("probe_final_measurement", json!({ "ts": now_ts() })).await;
+    send_user(&mut spawned, &ctx.capture, "Reply with just the word: ok").await;
+    wait_for_nth_result(&ctx.capture_path, 6, Duration::from_secs(90)).await;
+
+    cleanup(&mut spawned, &ctx).await;
+}
+
 // =====================================================================
 // MAIN — runs the whole battery sequentially.
 // =====================================================================
@@ -1394,6 +1464,8 @@ async fn capture_full_battery() {
     s16_hook_exceeds_cli_timeout().await;
     eprintln!("[harness] === S17 manual /compact over stream-json ===");
     s17_compaction().await;
+    eprintln!("[harness] === S18 /compact trigger mechanism (2.1.186 regression) ===");
+    s18_compaction_mechanism().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1535,6 +1607,7 @@ async fn capture_single() {
         "S15" => s15_http_mcp_tool().await,
         "S16" => s16_hook_exceeds_cli_timeout().await,
         "S17" => s17_compaction().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S17 (got '{other}')"),
+        "S18" => s18_compaction_mechanism().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S18 (got '{other}')"),
     }
 }

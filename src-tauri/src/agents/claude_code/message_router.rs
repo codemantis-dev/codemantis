@@ -576,9 +576,17 @@ fn handle_system_status(
 ) {
     let status = extra.get("status").and_then(|v| v.as_str());
     let is_compacting = status == Some("compacting");
+    // The completion event (`status:null`) carries `compact_result`
+    // ("success" | "failed", ~2.1.185+). Surfaced so a silently-failed
+    // compaction is visible to the user instead of just clearing the spinner.
+    let compact_result = extra
+        .get("compact_result")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let fe = FrontendEvent::CompactingStatus {
         session_id: session_id.to_string(),
         is_compacting,
+        compact_result,
     };
     emit_or_warn(app_handle, chat_event, &fe, "compacting-status");
 }
@@ -1587,6 +1595,39 @@ mod tests {
                 assert_eq!(status, Some("compacting"));
             }
             other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn system_status_completion_extracts_compact_result() {
+        // Real CLI 2.1.186 wire shape (capture S18, probe C): the compaction
+        // completion event carries `compact_result`. Mirror
+        // handle_system_status's extraction for both success and failure.
+        for (json, expect_compacting, expect_result) in [
+            (
+                r#"{"type":"system","subtype":"status","status":"compacting"}"#,
+                true,
+                None,
+            ),
+            (
+                r#"{"type":"system","subtype":"status","status":null,"compact_result":"success"}"#,
+                false,
+                Some("success"),
+            ),
+            (
+                r#"{"type":"system","subtype":"status","status":null,"compact_result":"failed"}"#,
+                false,
+                Some("failed"),
+            ),
+        ] {
+            let event: RawStreamEvent = serde_json::from_str(json).unwrap();
+            let RawStreamEvent::System { extra, .. } = &event else {
+                panic!("Expected System, got {:?}", event);
+            };
+            let is_compacting = extra.get("status").and_then(|v| v.as_str()) == Some("compacting");
+            let compact_result = extra.get("compact_result").and_then(|v| v.as_str());
+            assert_eq!(is_compacting, expect_compacting);
+            assert_eq!(compact_result, expect_result);
         }
     }
 
