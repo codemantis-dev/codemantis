@@ -232,11 +232,33 @@ fn get_claude_version(binary_path: &PathBuf) -> Option<String> {
 }
 
 fn check_authenticated() -> bool {
-    if let Some(home) = dirs::home_dir() {
-        home.join(".claude").exists()
-    } else {
-        false
+    match dirs::home_dir() {
+        Some(home) => check_authenticated_at(&home),
+        None => false,
     }
+}
+
+/// Pure, testable core of `check_authenticated`. Prefers a real credential
+/// signal, but falls back to the historical "`~/.claude` exists" heuristic so we
+/// never produce a false negative (e.g. macOS keeps the OAuth token in the
+/// Keychain, leaving no credential file on disk). Better to let a signed-in user
+/// proceed than to wrongly tell them to log in again.
+fn check_authenticated_at(home: &std::path::Path) -> bool {
+    let claude_dir = home.join(".claude");
+    // Strong positive signal: a stored OAuth credential file (Linux/WSL and
+    // some macOS setups).
+    if claude_dir.join(".credentials.json").exists() {
+        return true;
+    }
+    // The CLI records the signed-in account in ~/.claude.json; a populated
+    // `oauthAccount` means an active login even when the token lives in Keychain.
+    if let Ok(contents) = std::fs::read_to_string(home.join(".claude.json")) {
+        if contents.contains("\"oauthAccount\"") {
+            return true;
+        }
+    }
+    // Conservative fallback — permissive on uncertainty.
+    claude_dir.exists()
 }
 
 #[cfg(test)]
@@ -402,5 +424,40 @@ mod tests {
         let mut status = make_status(Some("99.0.0"));
         apply_classification(&mut status, None);
         assert!(matches!(status.support, CliSupport::Unknown { .. }));
+    }
+
+    #[test]
+    fn check_authenticated_true_when_credentials_file_present() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let claude = dir.path().join(".claude");
+        std::fs::create_dir_all(&claude).unwrap();
+        std::fs::write(claude.join(".credentials.json"), b"{}").unwrap();
+        assert!(check_authenticated_at(dir.path()));
+    }
+
+    #[test]
+    fn check_authenticated_true_when_oauth_account_recorded() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join(".claude.json"),
+            br#"{"oauthAccount":{"emailAddress":"a@b.c"}}"#,
+        )
+        .unwrap();
+        assert!(check_authenticated_at(dir.path()));
+    }
+
+    #[test]
+    fn check_authenticated_falls_back_to_claude_dir_existence() {
+        // No credential file and no oauthAccount, but the dir exists: stay
+        // permissive (macOS Keychain leaves no on-disk credential file).
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        assert!(check_authenticated_at(dir.path()));
+    }
+
+    #[test]
+    fn check_authenticated_false_when_nothing_present() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(!check_authenticated_at(dir.path()));
     }
 }

@@ -33,6 +33,7 @@ import {
   RESUME_CONTEXT_BUDGET_CHARS,
 } from "../lib/recap";
 import { useSettingsStore } from "../stores/settingsStore";
+import { INTERRUPT_CLARIFICATION_NOTE } from "../lib/interrupt-detector";
 import type { SessionMessagePayload, Message, Session, SessionHistoryEntry } from "../types/session";
 import type { AgentId } from "../types/agent-events";
 import { useUiStore } from "../stores/uiStore";
@@ -289,6 +290,19 @@ export function useClaudeSession(): UseClaudeSessionReturn {
     if (recapPrefix) {
       cliPrompt = `${recapPrefix}\n\n---\n\n${prompt}`;
       sessionStore.getState().clearRecapPrefix(targetId);
+    }
+
+    // If the previous turn ended with an interrupt-cancelled tool, the CLI fed
+    // the model a reason-less "user doesn't want to proceed…" result, which
+    // makes it claim it's "waiting for approval" the user never saw. Prepend a
+    // one-line clarification so it continues normally. Slash commands must reach
+    // the CLI verbatim (see is_cli_slash_command in commands/session.rs), so
+    // never prefix those. Displayed message stays unprefixed (added above).
+    if (sessionStore.getState().pendingInterruptNote.get(targetId)) {
+      if (!prompt.trimStart().startsWith("/")) {
+        cliPrompt = `${INTERRUPT_CLARIFICATION_NOTE}\n\n${cliPrompt}`;
+      }
+      sessionStore.getState().clearInterruptNote(targetId);
     }
 
     try {

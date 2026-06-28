@@ -284,6 +284,43 @@ describe("useClaudeSession", () => {
     expect(useSessionStore.getState().sessionBusy.get("s1")).toBe(true);
   });
 
+  it("prepends an interrupt clarification to the CLI payload after an interrupt-cancelled tool", async () => {
+    useSessionStore.getState().addSession(makeSession("s1"));
+    useSessionStore.getState().flagInterruptNote("s1");
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.sendMessage("s1", "continue please");
+    });
+
+    // The CLI payload carries the clarification so the model stops claiming it
+    // needs approval…
+    const calls = mockSendMessage.mock.calls as unknown as Array<[string, string]>;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[1]).toContain("was NOT rejected by the user");
+    expect(lastCall[1]).toContain("continue please");
+    // …but the DISPLAYED user message stays unprefixed.
+    const messages = useSessionStore.getState().sessionMessages.get("s1") ?? [];
+    expect(messages[0].content).toBe("continue please");
+    // …and the flag is consumed (one-shot).
+    expect(useSessionStore.getState().pendingInterruptNote.get("s1")).toBeFalsy();
+  });
+
+  it("does NOT prefix a slash command even after an interrupt-cancelled tool", async () => {
+    useSessionStore.getState().addSession(makeSession("s1"));
+    useSessionStore.getState().flagInterruptNote("s1");
+    const { result } = renderHook(() => useClaudeSession());
+
+    await act(async () => {
+      await result.current.sendMessage("s1", "/compact");
+    });
+
+    // Slash commands must reach the CLI verbatim (slash-command interception).
+    const slashCalls = mockSendMessage.mock.calls as unknown as Array<[string, string]>;
+    expect(slashCalls[slashCalls.length - 1][1]).toBe("/compact");
+    expect(useSessionStore.getState().pendingInterruptNote.get("s1")).toBeFalsy();
+  });
+
   it("closeSession unlists listeners and removes from all stores", async () => {
     const mockUnlisten = vi.fn();
     mockListenChatEvents.mockResolvedValue(mockUnlisten);

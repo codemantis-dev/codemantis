@@ -900,7 +900,8 @@ async fn handle_control_response(
                             let user_msg = format!(
                                 "Initialize handshake failed: {detail}. \
                                  This usually means the installed Claude Code CLI is too old. \
-                                 Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis."
+                                 Update it from the CodeMantis Welcome screen (Re-check → Update), \
+                                 or run `claude update`, then restart CodeMantis."
                             );
                             let fe = FrontendEvent::ProcessError {
                                 session_id: session_id.to_string(),

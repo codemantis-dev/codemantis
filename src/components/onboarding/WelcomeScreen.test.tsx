@@ -50,6 +50,7 @@ const defaultProps = {
   claudeStatus: supportedStatus,
   rechecking: false,
   onRecheck: vi.fn(),
+  onSignIn: vi.fn(),
   onGetStarted: vi.fn(),
   onOpenProject: vi.fn(),
   onNewProject: vi.fn(),
@@ -172,14 +173,17 @@ describe("WelcomeScreen", () => {
 
   // ── Outdated CLI state ──
 
-  it("shows outdated banner when CLI support is 'outdated'", () => {
+  it("shows outdated banner with an in-app Update button", () => {
     render(<WelcomeScreen {...defaultProps} claudeStatus={outdatedStatus} />);
     expect(screen.getByText("Claude Code CLI is outdated")).toBeInTheDocument();
-    // The upgrade command appears in both the banner and the prereq row.
-    const matches = screen.getAllByText(
-      "npm install -g @anthropic-ai/claude-code@latest"
-    );
-    expect(matches.length).toBeGreaterThanOrEqual(1);
+    // The npm command is no longer shown as a dead-end snippet; the primary
+    // affordance is a one-click in-app Update button (no Terminal / no npm).
+    expect(
+      screen.getByRole("button", { name: /Update Claude Code/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("npm install -g @anthropic-ai/claude-code@latest")
+    ).not.toBeInTheDocument();
   });
 
   it("includes the outdated reason in the banner", () => {
@@ -196,14 +200,18 @@ describe("WelcomeScreen", () => {
     expect(screen.getByTitle("Clone a Git repository")).toBeDisabled();
   });
 
-  it("uses 'install latest' help command for outdated CLI in prerequisites", () => {
+  it("reveals the npm '@latest' command under the advanced disclosure", () => {
     render(<WelcomeScreen {...defaultProps} claudeStatus={outdatedStatus} />);
-    // Two copies appear: one in the prereq row, one in the banner. Both must
-    // contain the @latest tag — the older 'install' string would not.
-    const matches = screen.getAllByText(
-      "npm install -g @anthropic-ai/claude-code@latest"
-    );
-    expect(matches.length).toBeGreaterThanOrEqual(1);
+    // npm is now an advanced fallback, hidden by default.
+    expect(
+      screen.queryByText("npm install -g @anthropic-ai/claude-code@latest")
+    ).not.toBeInTheDocument();
+    // The outdated screen has more than one CliSetupButton (the banner's Update
+    // button plus the Codex install row); the banner's disclosure comes first.
+    fireEvent.click(screen.getAllByText("Show details / advanced")[0]);
+    expect(
+      screen.getByText("npm install -g @anthropic-ai/claude-code@latest")
+    ).toBeInTheDocument();
   });
 
   it("does not show outdated banner when CLI is supported", () => {

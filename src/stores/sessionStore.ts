@@ -68,6 +68,13 @@ interface SessionState {
    * new (empty-context) thread regains continuity. Consumed + cleared on the
    * next sendMessage; the displayed user message is left unprefixed. */
   pendingRecapPrefix: Map<string, string>;
+  /** Set when a tool call was interrupt-cancelled (the CLI's reason-less "user
+   * doesn't want to proceed…" artifact — e.g. a hung MCP tool stopped mid-run).
+   * The CLI feeds the model that rejection-flavoured text, making it claim it's
+   * "waiting for approval" the user never saw. Consumed + cleared on the next
+   * sendMessage, which prepends a clarification to the CLI payload (display
+   * stays unprefixed). See lib/interrupt-detector.ts. */
+  pendingInterruptNote: Map<string, boolean>;
   /** True once a Codex "Recover" (revive: kill+respawn+resume same thread) has
    * been attempted for a session and has NOT yet produced a completed turn.
    * Used to escalate: a compaction failure with this set means the revive
@@ -149,6 +156,8 @@ interface SessionState {
   setSessionCompacting: (sessionId: string, compacting: boolean) => void;
   setRecapPrefix: (sessionId: string, recap: string) => void;
   clearRecapPrefix: (sessionId: string) => void;
+  flagInterruptNote: (sessionId: string) => void;
+  clearInterruptNote: (sessionId: string) => void;
   setCodexRecoverAttempted: (sessionId: string, attempted: boolean) => void;
   setRateLimitUtilization: (sessionId: string, utilization: number) => void;
   setSessionCapabilities: (sessionId: string, caps: CapabilitiesDiscoveredEvent) => void;
@@ -208,6 +217,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionActivity: new Map(),
   sessionCompacting: new Map(),
   pendingRecapPrefix: new Map(),
+  pendingInterruptNote: new Map(),
   codexRecoverAttempted: new Map(),
   busySince: new Map(),
   rateLimitUtilization: new Map(),
@@ -372,6 +382,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionCompacting.delete(sessionId);
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
+      const pendingInterruptNote = new Map(state.pendingInterruptNote);
+      pendingInterruptNote.delete(sessionId);
       const codexRecoverAttempted = new Map(state.codexRecoverAttempted);
       codexRecoverAttempted.delete(sessionId);
       const busySince = new Map(state.busySince);
@@ -442,6 +454,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessionActivity,
         sessionCompacting,
         pendingRecapPrefix,
+        pendingInterruptNote,
         codexRecoverAttempted,
         busySince,
         rateLimitUtilization,
@@ -766,6 +779,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionCompacting.delete(sessionId);
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
+      const pendingInterruptNote = new Map(state.pendingInterruptNote);
+      pendingInterruptNote.delete(sessionId);
       const codexRecoverAttempted = new Map(state.codexRecoverAttempted);
       codexRecoverAttempted.delete(sessionId);
       const busySince = new Map(state.busySince);
@@ -786,7 +801,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionThinking.delete(sessionId);
       const sessionReviewContent = new Map(state.sessionReviewContent);
       sessionReviewContent.delete(sessionId);
-      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, codexRecoverAttempted, busySince, rateLimitUtilization, activeSubAgents, sessionThinking, sessionReviewContent };
+      return { sessionMessages, sessionStreaming, sessionContext, sessionStats, sessionModes, sessionBusy, sessionEffort, contextToastFired, sessionActivity, sessionCompacting, pendingRecapPrefix, pendingInterruptNote, codexRecoverAttempted, busySince, rateLimitUtilization, activeSubAgents, sessionThinking, sessionReviewContent };
     }),
 
   setRetryState: (sessionId, retryState) =>
@@ -874,6 +889,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const pendingRecapPrefix = new Map(state.pendingRecapPrefix);
       pendingRecapPrefix.delete(sessionId);
       return { pendingRecapPrefix };
+    }),
+
+  flagInterruptNote: (sessionId) =>
+    set((state) => {
+      const pendingInterruptNote = new Map(state.pendingInterruptNote);
+      pendingInterruptNote.set(sessionId, true);
+      return { pendingInterruptNote };
+    }),
+
+  clearInterruptNote: (sessionId) =>
+    set((state) => {
+      const pendingInterruptNote = new Map(state.pendingInterruptNote);
+      pendingInterruptNote.delete(sessionId);
+      return { pendingInterruptNote };
     }),
 
   setCodexRecoverAttempted: (sessionId, attempted) =>

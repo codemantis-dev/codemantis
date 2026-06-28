@@ -33,6 +33,7 @@ import McpModal from "./components/modals/McpModal";
 import QuestionModal from "./components/modals/QuestionModal";
 import PlanCompleteModal from "./components/modals/PlanCompleteModal";
 import CliOverlay from "./components/modals/CliOverlay";
+import SetupTerminalOverlay from "./components/modals/SetupTerminalOverlay";
 import CodexManagementPanel from "./components/modals/CodexManagementPanel";
 import Toast from "./components/shared/Toast";
 import ErrorCard from "./components/shared/ErrorCard";
@@ -194,17 +195,34 @@ export default function App() {
   const handleRecheck = async (): Promise<void> => {
     setRechecking(true);
     try {
-      const status = await checkClaudeStatus();
-      setClaudeStatus(status);
-      if (status.binary_path) {
-        useUiStore.getState().setClaudeBinaryPath(status.binary_path);
+      // Re-check BOTH agents — install/update and sign-in actions can target
+      // either, so a single recheck must refresh the whole Requirements list.
+      const [claude, codex] = await Promise.allSettled([
+        checkClaudeStatus(),
+        checkCodexStatus(),
+      ]);
+      if (claude.status === "fulfilled") {
+        setClaudeStatus(claude.value);
+        if (claude.value.binary_path) {
+          useUiStore.getState().setClaudeBinaryPath(claude.value.binary_path);
+        }
+      } else {
+        console.error("Claude recheck failed:", claude.reason);
+        showToast("Failed to recheck Claude CLI", "error");
       }
-    } catch (e) {
-      console.error("Recheck failed:", e);
-      showToast("Failed to recheck Claude CLI", "error");
+      if (codex.status === "fulfilled") {
+        setCodexStatus(codex.value);
+        if (codex.value.binary_path) {
+          useUiStore.getState().setCodexBinaryPath(codex.value.binary_path);
+        }
+      }
     } finally {
       setRechecking(false);
     }
+  };
+
+  const handleSignIn = (agent: AgentId): void => {
+    useUiStore.getState().openSetupTerminal(agent);
   };
 
   const handleGetStarted = (skipFuture: boolean): void => {
@@ -293,11 +311,13 @@ export default function App() {
     settingsLoaded && !onboardingCompleted && !onboardingDismissed;
   if (showOnboarding || cliGateBlocking) {
     return (
+      <>
       <WelcomeScreen
         claudeStatus={claudeStatus}
         codexStatus={codexStatus}
         rechecking={rechecking}
         onRecheck={handleRecheck}
+        onSignIn={handleSignIn}
         onGetStarted={handleGetStarted}
         onOpenProject={() => {
           handleGetStarted(true);
@@ -317,6 +337,8 @@ export default function App() {
         }}
         onSelectClaudeBinary={handleSelectClaudeBinary}
       />
+      <SetupTerminalOverlay onClosed={handleRecheck} />
+      </>
     );
   }
 

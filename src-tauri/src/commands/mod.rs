@@ -3,6 +3,7 @@ pub mod assistant_chat;
 pub mod attachments;
 pub mod changelog;
 pub mod claude_md;
+pub mod cli_setup;
 pub mod clone;
 pub mod codex;
 pub mod duo;

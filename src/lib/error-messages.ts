@@ -275,7 +275,7 @@ const ERROR_CATALOG: ErrorPattern[] = [
       message:
         "Your installed Claude Code CLI is too old to communicate with CodeMantis. Update it to continue.",
       remediation:
-        "Run npm install -g @anthropic-ai/claude-code@latest in a terminal, then restart CodeMantis.",
+        "Open the CodeMantis Welcome screen and click Update Claude Code (no Terminal or npm needed), then restart CodeMantis. Advanced: run `claude update`.",
       toastMessage: "Outdated Claude Code CLI",
     }),
   },

@@ -92,6 +92,41 @@ export async function checkCodexStatus(): Promise<CodexStatus> {
   return invoke<CodexStatus>("check_codex_status");
 }
 
+/** Result of an in-app CLI install/update (mirrors Rust `InstallResult`). */
+export interface CliInstallResult {
+  success: boolean;
+  exitCode: number | null;
+  message: string;
+}
+
+/** One streamed line of install output (mirrors Rust `CliSetupProgressPayload`). */
+export interface CliSetupProgress {
+  agent: AgentId;
+  line: string;
+  stream: "stdout" | "stderr";
+}
+
+/**
+ * Install or update a coding-agent CLI using its official npm-free native
+ * installer (no Node/npm required) — the fix for non-developer macOS users who
+ * don't have npm. Streams progress via {@link listenCliSetupProgress}; the
+ * caller should re-run `checkClaudeStatus` / `checkCodexStatus` afterwards.
+ */
+export async function installOrUpdateCli(
+  agent: AgentId,
+  channel?: string,
+): Promise<CliInstallResult> {
+  return invoke<CliInstallResult>("install_or_update_cli", { agent, channel });
+}
+
+/** Subscribe to live install/update output lines. Remember to call the returned
+ * unlisten fn on unmount. */
+export function listenCliSetupProgress(
+  handler: (progress: CliSetupProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<CliSetupProgress>("cli-setup:progress", (e) => handler(e.payload));
+}
+
 // `isLegacyClaudePathActive` (Phase 1 v1.2.0 rollback indicator) removed in
 // v1.3.0 / Phase 2 S8 — the v1.2.0 soak surfaced no adapter regressions.
 

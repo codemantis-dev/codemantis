@@ -84,6 +84,11 @@ interface UiState {
    * `check_codex_status`. Used by CliOverlay to spawn `codex` in a PTY
    * for Codex sessions (parallel to Claude's `claudeBinaryPath`). */
   codexBinaryPath: string | null;
+  /** Session-less "Sign in" terminal overlay shown from the Welcome screen.
+   * Unlike `showCliOverlay` it pauses/resumes no session — it just spawns the
+   * agent's interactive login in a PTY so the browser OAuth can complete. */
+  showSetupTerminal: boolean;
+  setupTerminalAgent: import("../types/agent-events").AgentId | null;
   showProjectLog: boolean;
   showClaudeHistory: boolean;
   draftInput: string | null;
@@ -155,6 +160,8 @@ interface UiState {
   setShowCodexPanel: (show: boolean) => void;
   setClaudeBinaryPath: (path: string | null) => void;
   setCodexBinaryPath: (path: string | null) => void;
+  openSetupTerminal: (agent: import("../types/agent-events").AgentId) => void;
+  closeSetupTerminal: () => void;
   setShowProjectLog: (show: boolean) => void;
   setShowClaudeHistory: (show: boolean) => void;
   setDraftInput: (text: string | null) => void;
@@ -212,6 +219,8 @@ export const useUiStore = create<UiState>((set) => ({
   cliOverlayProjectPath: null,
   claudeBinaryPath: null,
   codexBinaryPath: null,
+  showSetupTerminal: false,
+  setupTerminalAgent: null,
   showProjectLog: false,
   showClaudeHistory: false,
   draftInput: null,
@@ -308,6 +317,8 @@ export const useUiStore = create<UiState>((set) => ({
     set({ showCodexPanel: show, ...(!show ? { codexPanelSessionId: null } : {}) }),
   setClaudeBinaryPath: (path) => set({ claudeBinaryPath: path }),
   setCodexBinaryPath: (path) => set({ codexBinaryPath: path }),
+  openSetupTerminal: (agent) => set({ showSetupTerminal: true, setupTerminalAgent: agent }),
+  closeSetupTerminal: () => set({ showSetupTerminal: false, setupTerminalAgent: null }),
   setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
   setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
   setDraftInput: (text) => set({ draftInput: text }),

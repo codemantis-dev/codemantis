@@ -369,4 +369,19 @@ describe("uiStore", () => {
       expect(useUiStore.getState().cliOverlayCodexMode).toBe("resume-tui");
     });
   });
+
+  describe("setup-terminal (Welcome-screen sign-in) overlay", () => {
+    it("opens for a specific agent", () => {
+      useUiStore.getState().openSetupTerminal("codex");
+      expect(useUiStore.getState().showSetupTerminal).toBe(true);
+      expect(useUiStore.getState().setupTerminalAgent).toBe("codex");
+    });
+
+    it("clears the agent when closed", () => {
+      useUiStore.getState().openSetupTerminal("claude_code");
+      useUiStore.getState().closeSetupTerminal();
+      expect(useUiStore.getState().showSetupTerminal).toBe(false);
+      expect(useUiStore.getState().setupTerminalAgent).toBeNull();
+    });
+  });
 });

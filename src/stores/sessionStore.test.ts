@@ -532,6 +532,23 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessionMessages.get("s2")?.[0].content).toBe("Session2");
   });
 
+  describe("pendingInterruptNote (interrupt-cancel clarification)", () => {
+    it("flagInterruptNote sets and clearInterruptNote removes the flag", () => {
+      const store = useSessionStore.getState();
+      store.flagInterruptNote("s1");
+      expect(useSessionStore.getState().pendingInterruptNote.get("s1")).toBe(true);
+      store.clearInterruptNote("s1");
+      expect(useSessionStore.getState().pendingInterruptNote.has("s1")).toBe(false);
+    });
+
+    it("removeSession evicts the pending interrupt note", () => {
+      useSessionStore.getState().addSession(TEST_SESSION);
+      useSessionStore.getState().flagInterruptNote("s1");
+      useSessionStore.getState().removeSession("s1");
+      expect(useSessionStore.getState().pendingInterruptNote.has("s1")).toBe(false);
+    });
+  });
+
   describe("pendingRecapPrefix (Codex recover)", () => {
     it("setRecapPrefix stores and clearRecapPrefix removes the recap", () => {
       const store = useSessionStore.getState();

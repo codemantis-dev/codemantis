@@ -32,6 +32,19 @@ export const CLI_INTERRUPT_USER_MARKER =
   "[Request interrupted by user for tool use]";
 
 /**
+ * Prepended to the CLI payload of the message that follows an interrupt-cancelled
+ * tool (display copy stays unprefixed). Counters the CLI's "wait for the user to
+ * tell you how to proceed" text so the model doesn't falsely claim it's blocked
+ * on an approval the user was never shown.
+ */
+export const INTERRUPT_CLARIFICATION_NOTE =
+  "<system-reminder>Your previous tool call was interrupted because it was stopped " +
+  "or a new message arrived while it was still running (e.g. a slow MCP tool). It " +
+  "was NOT rejected by the user, and there is no approval pending or required — the " +
+  "user was never shown an approval prompt. Do not say you are waiting for approval; " +
+  "just proceed with the request below.</system-reminder>";
+
+/**
  * True when a tool_result's content is the CLI's generic interrupt/rejection
  * artifact (cancelled tool, no host-supplied reason).
  */

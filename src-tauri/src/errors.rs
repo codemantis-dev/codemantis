@@ -3,7 +3,7 @@ use serde::Serialize;
 #[derive(Debug, thiserror::Error)]
 #[allow(dead_code)]
 pub enum AppError {
-    #[error("Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code")]
+    #[error("Claude Code CLI not found. Install it from the CodeMantis Welcome screen, or run: curl -fsSL https://claude.ai/install.sh | bash")]
     ClaudeNotFound,
 
     #[error("Claude CLI error: {0}")]
@@ -53,7 +53,7 @@ mod tests {
         let json = serde_json::to_string(&error).unwrap();
         assert_eq!(
             json,
-            "\"Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code\""
+            "\"Claude Code CLI not found. Install it from the CodeMantis Welcome screen, or run: curl -fsSL https://claude.ai/install.sh | bash\""
         );
     }
 

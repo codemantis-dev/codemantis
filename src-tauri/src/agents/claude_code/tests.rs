@@ -1180,7 +1180,7 @@ use std::path::PathBuf;
 
         assert_eq!(
             AppError::ClaudeNotFound.to_string(),
-            "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+            "Claude Code CLI not found. Install it from the CodeMantis Welcome screen, or run: curl -fsSL https://claude.ai/install.sh | bash"
         );
         assert_eq!(
             AppError::ProcessNotRunning("s1".into()).to_string(),

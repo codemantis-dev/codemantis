@@ -7,12 +7,15 @@ import {
   FolderOpen,
   Plus,
   Key,
+  KeyRound,
   Sparkles,
   AlertTriangle,
   Search,
   GitBranch,
 } from "lucide-react";
 import type { ClaudeStatus, CodexStatus } from "../../lib/tauri-commands";
+import type { AgentId } from "../../types/agent-events";
+import CliSetupButton from "./CliSetupButton";
 
 interface WelcomeScreenProps {
   claudeStatus: ClaudeStatus | null;
@@ -24,6 +27,8 @@ interface WelcomeScreenProps {
   codexStatus?: CodexStatus | null;
   rechecking: boolean;
   onRecheck: () => void;
+  /** Open the in-app sign-in flow (PTY + browser OAuth) for the given agent. */
+  onSignIn: (agent: AgentId) => void;
   onGetStarted: (skipFuture: boolean) => void;
   onOpenProject: () => void;
   onNewProject: () => void;
@@ -32,11 +37,21 @@ interface WelcomeScreenProps {
   onSelectClaudeBinary: () => void;
 }
 
+/** What in-app action resolves an unsatisfied requirement. The Claude CLI rows
+ * deliberately carry no action — the prominent yellow callout box above the
+ * checklist owns the install/update button for Claude, so we don't duplicate it
+ * in the row. Codex (which has no callout box) and all auth rows are actioned
+ * inline. */
+type PrereqAction =
+  | { kind: "install-cli"; agent: AgentId }
+  | { kind: "sign-in"; agent: AgentId };
+
 interface Prerequisite {
   label: string;
   description: string;
   satisfied: boolean;
   helpCommand?: string;
+  action?: PrereqAction;
 }
 
 function describeCli(status: ClaudeStatus | null): { description: string; satisfied: boolean; helpCommand?: string } {
@@ -102,32 +117,40 @@ function getPrerequisites(
   const codexAuth = codexStatus?.authenticated ?? false;
   return [
     {
+      // Claude CLI is actioned via the prominent callout box above (no inline
+      // button here to avoid a duplicate CTA).
       label: "Claude Code CLI",
       description: claude.description,
       satisfied: claude.satisfied,
-      helpCommand: claude.helpCommand,
     },
     {
       label: "Claude Code · Authentication",
-      description: claudeAuth ? "Logged in" : "Not authenticated",
+      description: claudeAuth
+        ? "Logged in"
+        : "Not signed in — click Sign in to log in with your Claude subscription (a browser window opens).",
       satisfied: claudeAuth,
-      helpCommand: "claude login",
+      action: claudeAuth ? undefined : { kind: "sign-in", agent: "claude_code" },
     },
     {
       label: "OpenAI Codex CLI",
       description: codex.description,
       satisfied: codex.satisfied,
-      helpCommand: codex.helpCommand,
+      action: codex.satisfied
+        ? undefined
+        : { kind: "install-cli", agent: "codex" },
     },
     {
       label: "OpenAI Codex · Authentication",
       description: codexAuth
         ? "Logged in"
         : codexStatus?.installed
-        ? "Not authenticated"
+        ? "Not signed in — click Sign in to log in with your ChatGPT subscription (a browser window opens)."
         : "—",
       satisfied: codexAuth,
-      helpCommand: "codex login",
+      action:
+        !codexAuth && codexStatus?.installed
+          ? { kind: "sign-in", agent: "codex" }
+          : undefined,
     },
     {
       label: "You are cool and motivated \u{1F680}",
@@ -142,6 +165,7 @@ export default function WelcomeScreen({
   codexStatus = null,
   rechecking,
   onRecheck,
+  onSignIn,
   onGetStarted,
   onOpenProject,
   onNewProject,
@@ -220,24 +244,16 @@ export default function WelcomeScreen({
                 </p>
                 <p className="text-text-secondary leading-relaxed mb-3">
                   {outdatedReason ??
-                    "The installed Claude Code CLI is older than CodeMantis supports. Update it to continue."}
+                    "The installed Claude Code CLI is older than CodeMantis supports. Update it to continue."}{" "}
+                  No Terminal or npm needed — CodeMantis can update it for you:
                 </p>
-                <div className="mb-3">
-                  <code
-                    className="text-accent font-mono px-2 py-1 rounded inline-block"
-                    style={{
-                      fontSize: "12px",
-                      background: "var(--bg-elevated)",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    npm install -g @anthropic-ai/claude-code@latest
-                  </code>
+                <div className="mb-1">
+                  <CliSetupButton
+                    agent="claude_code"
+                    kind="update"
+                    onDone={onRecheck}
+                  />
                 </div>
-                <p className="text-text-dim leading-relaxed">
-                  After updating, click <strong className="text-text-secondary">Re-check</strong> below
-                  or restart CodeMantis.
-                </p>
               </div>
             </div>
           )}
@@ -262,8 +278,16 @@ export default function WelcomeScreen({
                 </p>
                 <p className="text-text-secondary leading-relaxed mb-3">
                   CodeMantis is a coding application built around Claude Code. It needs
-                  Claude Code installed to work. Please check your Claude Code installation.
+                  Claude Code installed to work. No Terminal or npm needed — CodeMantis
+                  can install it for you:
                 </p>
+                <div className="mb-3">
+                  <CliSetupButton
+                    agent="claude_code"
+                    kind="install"
+                    onDone={onRecheck}
+                  />
+                </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <a
                     href="https://claude.com/product/claude-code"
@@ -368,7 +392,9 @@ export default function WelcomeScreen({
               </div>
 
               {/* Prerequisite rows */}
-              {prerequisites.map((prereq, i) => (
+              {prerequisites.map((prereq, i) => {
+                const action = prereq.action;
+                return (
                 <div
                   key={prereq.label}
                   className="flex items-start gap-3 px-4 py-3"
@@ -395,7 +421,31 @@ export default function WelcomeScreen({
                     <span className="text-text-dim block" style={{ fontSize: "12px" }}>
                       {prereq.description}
                     </span>
-                    {!prereq.satisfied && prereq.helpCommand && (
+                    {!prereq.satisfied && action && (
+                      <div className="mt-2">
+                        {action.kind === "sign-in" ? (
+                          <button
+                            onClick={() => onSignIn(action.agent)}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-opacity hover:opacity-90"
+                            style={{
+                              background: "var(--accent)",
+                              color: "var(--accent-contrast, #fff)",
+                              fontSize: "12px",
+                            }}
+                          >
+                            <KeyRound size={13} />
+                            Sign in
+                          </button>
+                        ) : (
+                          <CliSetupButton
+                            agent={action.agent}
+                            kind="install"
+                            onDone={onRecheck}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {!prereq.satisfied && !action && prereq.helpCommand && (
                       <code
                         className="text-accent font-mono px-1.5 py-0.5 rounded inline-block mt-1"
                         style={{
@@ -409,7 +459,8 @@ export default function WelcomeScreen({
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* First steps card */}

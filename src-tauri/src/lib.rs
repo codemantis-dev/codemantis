@@ -364,6 +364,7 @@ pub fn run() {
             commands::startup::check_claude_status,
             commands::startup::check_codex_status,
             commands::startup::set_claude_binary_override,
+            commands::cli_setup::install_or_update_cli,
             commands::session::create_session,
             commands::session::pause_session_process,
             commands::session::resume_session_process,

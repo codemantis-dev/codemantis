@@ -298,6 +298,14 @@ function handleToolResult(
   // user was never shown. See lib/interrupt-detector.ts.
   const interrupted = event.is_error && isInterruptCancellation(event.content);
 
+  // Remember that this turn ended with an interrupt-cancelled tool. The CLI fed
+  // the model its reason-less "user doesn't want to proceed…" text, so the
+  // model may now believe it needs the user's approval. The next sendMessage
+  // prepends a clarification to the CLI payload to set the record straight.
+  if (interrupted) {
+    sessionStore.flagInterruptNote(sessionId);
+  }
+
   activityStore.updateEntryStatus(
     sessionId,
     event.tool_use_id,

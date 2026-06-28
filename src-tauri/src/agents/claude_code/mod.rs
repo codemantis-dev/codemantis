@@ -220,8 +220,8 @@ impl AgentAdapter for ClaudeCodeAdapter {
         match status.binary_path {
             Some(path) => Ok(path),
             None => Err(AgentError::BinaryNotFound(
-                "Claude Code CLI not found. Install with: \
-                 npm install -g @anthropic-ai/claude-code"
+                "Claude Code CLI not found. Install it from the CodeMantis \
+                 Welcome screen, or run: curl -fsSL https://claude.ai/install.sh | bash"
                     .to_string(),
             )),
         }

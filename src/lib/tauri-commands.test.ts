@@ -16,6 +16,8 @@ const mockListen = vi.mocked(listen);
 import {
   checkClaudeStatus,
   setClaudeBinaryOverride,
+  installOrUpdateCli,
+  listenCliSetupProgress,
   createSession,
   pauseSessionProcess,
   resumeSessionProcess,
@@ -154,6 +156,28 @@ describe("setClaudeBinaryOverride", () => {
     mockInvoke.mockResolvedValueOnce({ installed: true, version: "1.0", authenticated: true, binary_path: "/usr/local/bin/claude" });
     await setClaudeBinaryOverride("/usr/local/bin/claude");
     expectInvoke("set_claude_binary_override", { path: "/usr/local/bin/claude" });
+  });
+});
+
+describe("installOrUpdateCli", () => {
+  it("passes the agent and an undefined channel by default", async () => {
+    mockInvoke.mockResolvedValueOnce({ success: true, exitCode: 0, message: "ok" });
+    await installOrUpdateCli("claude_code");
+    expectInvoke("install_or_update_cli", { agent: "claude_code", channel: undefined });
+  });
+
+  it("forwards an explicit channel", async () => {
+    mockInvoke.mockResolvedValueOnce({ success: true, exitCode: 0, message: "ok" });
+    await installOrUpdateCli("codex", "stable");
+    expectInvoke("install_or_update_cli", { agent: "codex", channel: "stable" });
+  });
+});
+
+describe("listenCliSetupProgress", () => {
+  it("subscribes to the cli-setup:progress event", async () => {
+    const handler = vi.fn();
+    await listenCliSetupProgress(handler);
+    expect(mockListen).toHaveBeenCalledWith("cli-setup:progress", expect.any(Function));
   });
 });
 

@@ -239,10 +239,10 @@ describe("translateError — file read errors", () => {
 describe("translateError — outdated Claude CLI", () => {
   it("matches the structured ProcessError emitted by the backend on initialize failure", () => {
     const raw =
-      "Initialize handshake failed: missing field. This usually means the installed Claude Code CLI is too old. Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis.";
+      "Initialize handshake failed: missing field. This usually means the installed Claude Code CLI is too old. Update it from the CodeMantis Welcome screen (Re-check → Update), or run `claude update`, then restart CodeMantis.";
     const result = translateError(raw);
     expect(result.title).toBe("Claude Code CLI is outdated");
-    expect(result.remediation).toContain("npm install -g @anthropic-ai/claude-code@latest");
+    expect(result.remediation).toContain("Update Claude Code");
   });
 
   it("matches the protocol-failure message from sustained NDJSON parse errors", () => {

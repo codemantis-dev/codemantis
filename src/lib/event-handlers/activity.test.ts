@@ -576,6 +576,9 @@ describe("activity event handler", () => {
       expect(entry.status).toBe("interrupted");
       // Crucially NOT flagged as an error — it is not a real rejection.
       expect(entry.isError).toBe(false);
+      // And the session is flagged so the next message clarifies to the model
+      // that the tool was interrupted, not rejected (no approval pending).
+      expect(useSessionStore.getState().pendingInterruptNote.get(SESSION_ID)).toBe(true);
     });
 
     it("still classifies a real tool error (reasoned) as 'error'", () => {

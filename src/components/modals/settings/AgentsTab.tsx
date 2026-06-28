@@ -37,8 +37,8 @@ const AGENTS: AgentRow[] = [
     id: "claude_code",
     label: "Claude Code",
     tagline: "Anthropic's CLI — uses your Claude Pro/Max subscription.",
-    installCmd: "npm install -g @anthropic-ai/claude-code",
-    loginCmd: "claude login   (or sign in via the welcome screen)",
+    installCmd: "curl -fsSL https://claude.ai/install.sh | bash   # no npm needed",
+    loginCmd: "claude login   (or sign in via the Welcome screen — no Terminal needed)",
     docsUrl: "https://claude.com/product/claude-code",
   },
   {
@@ -46,8 +46,8 @@ const AGENTS: AgentRow[] = [
     label: "OpenAI Codex",
     tagline:
       "ChatGPT-bundled coding agent — uses your ChatGPT subscription, no separate OpenAI API key needed.",
-    installCmd: "npm install -g @openai/codex   # or: brew install codex",
-    loginCmd: "codex login",
+    installCmd: "curl -fsSL https://chatgpt.com/codex/install.sh | sh   # no npm needed",
+    loginCmd: "codex login   (or sign in via the Welcome screen)",
     docsUrl: "https://developers.openai.com/codex/auth",
   },
 ];

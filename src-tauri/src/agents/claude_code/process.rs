@@ -581,7 +581,8 @@ impl ClaudeProcess {
                 let user_msg = format!(
                     "The Claude Code CLI is producing output we cannot parse ({}). \
                      This usually means the installed CLI is too old. \
-                     Run `npm install -g @anthropic-ai/claude-code@latest` and restart CodeMantis.",
+                     Update it from the CodeMantis Welcome screen (Re-check → Update), \
+                     or run `claude update`, then restart CodeMantis.",
                     detail
                 );
                 let payload = FrontendEvent::ProcessError {
