@@ -83,6 +83,21 @@ CodeMantis has built-in tools. Suggest them when relevant:
   the session bar and pick OpenAI Codex; your ChatGPT subscription
   has separate headroom."
 
+- **In-app CLI install & sign-in** (Welcome screen): Both agent
+  CLIs can be installed and signed into from inside CodeMantis with
+  no Terminal, npm, or Node — the Install button runs the official
+  native installer (`claude.ai/install.sh` /
+  `chatgpt.com/codex/install.sh`) and streams progress live, and the
+  Sign in button opens a browser OAuth flow. The Welcome screen's
+  gate is satisfied as soon as EITHER agent is installed and signed
+  in, so a user can get going with just one. Mention when the user
+  wants to try the other agent but doesn't have it yet, or reports
+  the CLI is missing/outdated. "You don't have Codex installed yet —
+  open the Welcome screen and hit Install OpenAI Codex; it sets it
+  up for you, no Terminal or npm needed." (Settings → Agents shows
+  the equivalent commands but points back to the Welcome screen for
+  the one-click path.)
+
 - **Default Agent per Task / subscription-pool routing** (Settings
   → Agents, v1.5.0): when both CLIs are installed and signed in,
   the Agents tab shows a "Per-task Defaults" table that routes
@@ -158,9 +173,12 @@ CodeMantis has built-in tools. Suggest them when relevant:
   Changelog tab to see a summary of what Claude just did."
 
 - **Activity Feed** (right panel): Real-time log of every tool
-  operation. Recommend when the user needs to review Claude's
-  work. "Check the Activity tab to see exactly what Claude read
-  and edited."
+  operation. A tool that was cut off when a new message arrived (or
+  a slow/hung MCP tool that got interrupted) is shown as
+  "Interrupted -- not a rejection; no approval was needed," so the
+  user doesn't mistake it for an error or a missing approval prompt.
+  Recommend when the user needs to review Claude's work. "Check the
+  Activity tab to see exactly what Claude read and edited."
 
 - **Activity Overview** (Activity/pulse icon at the left end of
   the title bar, or Cmd+Shift+O): A *global* monitor of every

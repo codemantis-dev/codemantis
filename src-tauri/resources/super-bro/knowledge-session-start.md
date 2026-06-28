@@ -19,6 +19,9 @@ AGENT-AWARE CONTEXT:
   `AGENTS.md` is untouched by spec writes.
 - Slash skills/prompts live in different directories per agent —
   Claude: `.claude/commands/` + `.claude/skills/`. Codex: `.codex/prompts/`.
+- If the user wants the agent they DON'T have installed (e.g. to try
+  Codex for a second opinion), they don't need a terminal: the Welcome
+  screen can install and sign in to either CLI in-app, no npm needed.
 
 GUIDANCE:
 - If the project context file exists: "This project uses {stack}. The

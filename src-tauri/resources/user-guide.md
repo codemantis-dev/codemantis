@@ -99,7 +99,7 @@ The first time you open CodeMantis, a Welcome Screen greets you and walks you th
 
 ### What You See
 
-The Welcome Screen fills the entire window. At the top center is the CodeMantis icon (a large rounded square logo) followed by the heading **"Welcome to CodeMantis"**, the subtitle *"the native macOS app Claude Code and Codex deserve"*, and the current version number (e.g., v1.5.0).
+The Welcome Screen fills the entire window. At the top center is the CodeMantis icon (a large rounded square logo) followed by the heading **"Welcome to CodeMantis"**, the subtitle *"Native desktop UI for Claude Code and OpenAI Codex"*, and the current version number (e.g., v1.5.0).
 
 Below the heading is a brief description: **"CodeMantis: The AI Coding Studio for the Rest of Us."** followed by a short paragraph explaining what CodeMantis does, and three highlighted capabilities:
 
@@ -112,10 +112,10 @@ The bottom half of the screen is split into two side-by-side cards:
 **Left card: "Requirements"**
 A checklist of prerequisites, each with a green checkmark or an empty circle. CodeMantis needs **at least one** of the two supported coding-agent CLIs installed and authenticated -- you can use both, but you do not have to. The checklist shows:
 
-1. **Claude Code CLI** -- Shows "Installed (vX.X.X)" when detected, or "Not installed" with the install command `npm install -g @anthropic-ai/claude-code`.
-2. **Claude Code authentication** -- Shows "Logged in at Claude Code" or "Not authenticated" with the command `claude login`.
-3. **OpenAI Codex CLI** (optional second agent) -- Shows "Installed (vX.X.X)" when detected, or the install command `npm install -g @openai/codex` (or `brew install codex`). Codex is bundled with your ChatGPT Plus/Pro/Business subscription -- no separate OpenAI API key is required.
-4. **Codex authentication** -- Shows "Logged in to Codex" or the command `codex login` (OAuth via browser; credentials persist to `~/.codex/auth.json`).
+1. **Claude Code CLI** -- Shows "Installed (vX.X.X)" when detected, or "Not installed". When it is missing or outdated, a prominent yellow callout box above the checklist offers a one-click **Install / Update** button that runs the official installer for you -- no Terminal and no npm needed (see "In-app install & sign-in" below).
+2. **Claude Code authentication** -- Shows "Logged in" when signed in, or "Not signed in" with a **Sign in** button (key icon). Click it to log in with your Claude subscription -- a browser window opens to complete sign-in.
+3. **OpenAI Codex CLI** (optional second agent) -- Shows "Installed (vX.X.X)" when detected, or "Not installed" with a one-click **Install OpenAI Codex** button that runs the official npm-free installer. Codex is bundled with your ChatGPT Plus/Pro/Business subscription -- no separate OpenAI API key is required.
+4. **Codex authentication** -- Shows "Logged in" when signed in, or (once Codex is installed) "Not signed in" with a **Sign in** button. Click it to log in with your ChatGPT subscription -- a browser window opens. Credentials persist to `~/.codex/auth.json`.
 5. **You are cool and motivated** -- Always checked (just for fun).
 
 A **Re-check** button sits in the top-right of the Requirements card. Click it to re-verify your installation. It shows a spinning icon and the text "Checking..." while working.
@@ -130,17 +130,23 @@ Four action buttons stacked vertically, each with an icon, title, and subtitle:
 
 All four buttons are disabled (grayed out, cursor shows not-allowed) until all requirements are satisfied.
 
-**If neither Claude Code nor Codex is found**, a yellow warning box appears above the description with an AlertTriangle icon. It reads **"No coding agent installed"** and explains that CodeMantis needs at least one supported CLI on disk. Links are provided to install or locate each agent:
+**If Claude Code is not found**, a yellow warning box appears above the description with an AlertTriangle icon, headed **"Claude Code not found"**. It carries a one-click **Install Claude Code** button (the npm-free native installer -- no Terminal needed), plus a **"Get Claude Code"** link that opens the Anthropic product page and a **"Locate Claude Code"** button that lets you manually point CodeMantis to the `claude` binary if it is installed in a non-standard location (e.g. nvm, volta).
 
-- **"Get Claude Code"** opens the Anthropic product page in your browser. **"Locate Claude Code"** lets you manually point CodeMantis to the `claude` binary if it is installed in a non-standard location (e.g. nvm, volta).
-- **"Get Codex"** opens the OpenAI Codex docs page; **"Locate Codex"** lets you point CodeMantis to the `codex` binary.
+**If Claude Code is outdated**, a similar yellow box headed **"Claude Code CLI is outdated"** appears instead, with a one-click **Update Claude Code** button. (For an existing native install this runs the fast in-place `claude update`.)
 
-You only need to install the agent you intend to use -- both prerequisites pass independently. If only one is installed, sessions silently default to that agent and the Agent Picker (Chapter 3) collapses to a static label.
+Codex install and sign-in are offered inline on their checklist rows rather than in a callout box. You only need the agent you intend to use -- the app is ready as soon as *either* agent is installed and signed in. If only one is installed, sessions silently default to that agent and the Agent Picker (Chapter 3) collapses to a static label.
 
 At the very bottom of the screen is a footer row with:
 
 - A checkbox labeled **"Do not show this again"** (checked by default).
 - A **"Skip for now"** link on the right (only visible when prerequisites are met).
+
+### In-app install & sign-in (no Terminal or npm needed)
+
+CodeMantis can set up its coding-agent CLIs for you, so you never have to open a terminal or install Node/npm first:
+
+- **Install / Update a CLI** -- Click the **Install Claude Code** / **Update Claude Code** button in the yellow callout box, or the **Install OpenAI Codex** button on the Codex row. CodeMantis runs the agent's official native installer (`curl -fsSL https://claude.ai/install.sh | bash` for Claude, `curl -fsSL https://chatgpt.com/codex/install.sh | sh` for Codex) in the background and streams the live install output beneath the button. When it finishes, the Requirements card re-checks automatically. Expand **"Show details / advanced"** to see the exact command it runs, or the legacy `npm install -g ...` command if you would rather use npm.
+- **Sign in to a CLI** -- Click the **Sign in** button on an Authentication row. A sign-in overlay opens with a live terminal and starts the agent's browser OAuth flow (Claude runs `/login`; Codex runs `codex login`). Complete the login in the browser window that opens, then close the overlay -- the row flips to "Logged in" on its own.
 
 ### How to Open / Access
 
@@ -176,8 +182,8 @@ Uncheck the **"Do not show this again"** checkbox before dismissing.
 ### States
 
 - **Default (prerequisites met):** All three checkmarks are green. All four action buttons are enabled. The "Skip for now" link is visible.
-- **Prerequisites not met:** One or more items show an empty circle instead of a checkmark. A terminal command is shown below the unmet item (e.g., `npm install -g @anthropic-ai/claude-code`). The four action buttons are disabled.
-- **Claude Code not found:** A yellow warning banner appears above the description with instructions and a link to install Claude Code.
+- **Prerequisites not met:** One or more items show an empty circle instead of a checkmark. An in-app **Install** or **Sign in** button (and, for the Claude CLI row, the yellow callout box) is shown for each unmet item -- no terminal command required. The four action buttons are disabled until at least one agent is installed and signed in.
+- **Claude Code not found:** A yellow warning banner appears above the description with a one-click **Install Claude Code** button; a separate **"Claude Code CLI is outdated"** banner offers a one-click **Update Claude Code** button.
 - **Re-checking:** The Re-check button shows a spinning icon and "Checking..." text.
 
 ### Configuration
@@ -194,7 +200,7 @@ Uncheck the **"Do not show this again"** checkbox before dismissing.
 ### Tips
 
 1. If you installed Claude Code via a version manager (e.g., nvm, volta), it might not be in the default PATH. Use "Locate Claude Code" to point CodeMantis directly to the binary.
-2. You must authenticate with Claude Code before CodeMantis can start sessions. Run `claude login` in your terminal if the Authentication prerequisite is unmet.
+2. You must sign in before CodeMantis can start sessions. Click **Sign in** on the Authentication row (a browser window opens) -- you no longer need to run `claude login` in a terminal.
 3. The "Add AI API Keys" step is optional. You only need API keys if you want to use the multi-AI Assistant panel or the automatic changelog summarizer.
 
 ---
@@ -1066,6 +1072,16 @@ For both option types, a "Write your own response..." button expands into a text
 
 A close button (X) and Cancel button are available to decline to answer.
 
+**Stuck-session banner**
+
+When a session goes silent for a while, a one-line yellow banner appears just above the session status bar. Its wording depends on *why* the session is stalled, so you are never left guessing:
+
+- **Lost approval prompt** -- *"[Agent] is waiting for your approval but the prompt isn't showing."* with a **Reopen approval** button that re-opens the approval modal.
+- **A slow or hung tool** -- names the longest-running in-flight tool, e.g. *"mcp__... has been running 42s -- it may be slow or hung (an MCP server may be unresponsive). This is not waiting for your approval."* This makes clear the session is blocked on a tool, **not** on an approval you were never shown (a frequent point of confusion with slow MCP servers like the browser gateway).
+- **Codex compaction hang** -- *"Codex has been compacting for Ns -- this can hang on a large context (a known OpenAI bug)."* with a **Start fresh thread** button (reviving the same thread would just re-load the doomed context and hang again).
+
+There is no generic "Stop session" button on this banner -- to stop a busy or wedged session, use the input area's **Stop** button or press **Escape**, which escalates a graceful interrupt to a forceful restart.
+
 ### How to Open / Access
 
 These modals open automatically when Claude Code requests an approval or asks a question. You do not need to do anything to trigger them.
@@ -1417,6 +1433,7 @@ The Activity Feed occupies the first tab of the Right Panel, marked with a pulse
 - **Timestamp:** Shown at the far right in HH:MM:SS format.
 - **Input summary:** Below the header row, a monospace line shows the key input -- file path for file operations, command for bash, pattern for searches, or question text for user questions. Agent entries show a formatted description with optional type tag and background indicator. This line is capped at 3 lines with ellipsis.
 - **Result preview:** For completed operations, a faint line shows the result text (capped at 3 lines). For errors, this text appears in red. For answered questions, it shows "Answer: ..." in accent color.
+- **Interrupted entries:** If a tool was cancelled because you sent a new message (or pressed Stop) while it was still running -- the common case for a slow MCP tool such as the browser gateway -- the entry is marked **interrupted** and shows the yellow note *"Interrupted -- a message was sent while this tool was running. Not a rejection; no approval was needed."* This is not a tool error and there is no approval pending.
 
 Above the feed, you see a small toolbar area with:
 
@@ -1472,6 +1489,7 @@ In the Approve Tool modal, click the "Always allow [ToolName] in this session" l
 - **Empty:** Centered text reads "No activity yet." The Reasoning toggle and Scope toggle remain visible.
 - **Detail view:** The Activity Detail Panel slides in as a full overlay with a "Back (Escape)" button and contextual sections based on the tool type.
 - **Error entries:** Shown with red result text. The status dot inherits the tool's color but does not pulse.
+- **Interrupted entries:** Shown with a yellow note when a tool was cancelled by an interrupt (new message sent / Stop pressed while it was running). Distinct from an error -- it is neither a rejection nor a pending approval.
 
 ### Configuration
 
@@ -3812,10 +3830,10 @@ A panel with the heading **"Agents"** and four sections:
 - A detected status badge:
   - **"Installed (vX.Y.Z)"** in green when the binary is on `$PATH` and reports its version.
   - **"Checking..."** with a spinner while detection runs.
-  - **"Not installed"** in dim text with the install command shown verbatim (e.g. `npm install -g @anthropic-ai/claude-code` or `npm install -g @openai/codex` / `brew install codex`).
+  - **"Not installed"** in dim text with the install command shown verbatim -- now the npm-free native installer (`curl -fsSL https://claude.ai/install.sh | bash` for Claude, `curl -fsSL https://chatgpt.com/codex/install.sh | sh` for Codex; both need no npm). The one-click installer lives on the Welcome screen.
 - A separate **authentication badge**:
   - **"Signed in"** in green when the CLI reports a valid login.
-  - **"Sign-in required"** in yellow with the login command (`claude login` / `codex login`).
+  - **"Sign-in required"** in yellow with the login command (`claude login` / `codex login`) -- or just use the **Sign in** button on the Welcome screen, no Terminal needed.
   - **"Unknown"** if the CLI does not surface an auth state (some older versions).
 - A **Docs** link button (opens the agent's product page).
 - A **"Make default"** button on each row -- promotes that agent to the primary `selectedAgentId` for new sessions.
