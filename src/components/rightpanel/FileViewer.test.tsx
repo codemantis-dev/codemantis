@@ -6,9 +6,33 @@ import { useSessionStore } from "../../stores/sessionStore";
 
 const SESSION = "session-1";
 
+// Spies for the Monaco code-editor line-navigation API (hoisted so the mock
+// factory can reach them).
+const monacoMocks = vi.hoisted(() => ({
+  revealLineInCenter: vi.fn(),
+  setPosition: vi.fn(),
+  focus: vi.fn(),
+}));
+
 // Mock Monaco Editor — it requires a browser canvas context
 vi.mock("@monaco-editor/react", () => {
-  function MockEditor({ value, language }: { value: string; language: string }) {
+  function MockEditor({
+    value,
+    language,
+    onMount,
+  }: {
+    value: string;
+    language: string;
+    onMount?: (editor: unknown, monaco: unknown) => void;
+  }) {
+    onMount?.(
+      {
+        revealLineInCenter: monacoMocks.revealLineInCenter,
+        setPosition: monacoMocks.setPosition,
+        focus: monacoMocks.focus,
+      },
+      { editor: { defineTheme: vi.fn(), setTheme: vi.fn() } },
+    );
     return (
       <div data-testid="mock-editor" data-language={language}>
         {value}
@@ -39,6 +63,9 @@ vi.mock("@monaco-editor/react", () => {
 });
 
 function resetStore(): void {
+  monacoMocks.revealLineInCenter.mockClear();
+  monacoMocks.setPosition.mockClear();
+  monacoMocks.focus.mockClear();
   useFileViewerStore.setState({
     sessionOpenFiles: new Map(),
     sessionActiveFile: new Map(),
@@ -121,6 +148,40 @@ describe("FileViewer", () => {
     expect(editor).toBeInTheDocument();
     expect(editor.getAttribute("data-language")).toBe("python");
     expect(editor.textContent).toBe('print("hello")');
+  });
+
+  it("reveals the cited line when a tab carries gotoLine", () => {
+    useFileViewerStore.getState().openFile(SESSION, {
+      filePath: "/src/main.rs",
+      fileName: "main.rs",
+      language: "rust",
+      extension: "rs",
+      fileSize: 256,
+      content: "fn main() {}",
+      isDiff: false,
+      gotoLine: 7,
+    });
+    render(<FileViewer />);
+    expect(monacoMocks.revealLineInCenter).toHaveBeenCalledWith(7);
+    expect(monacoMocks.setPosition).toHaveBeenCalledWith({
+      lineNumber: 7,
+      column: 1,
+    });
+  });
+
+  it("does not reveal a line when a tab has no gotoLine", () => {
+    useFileViewerStore.getState().openFile(SESSION, {
+      filePath: "/src/main.rs",
+      fileName: "main.rs",
+      language: "rust",
+      extension: "rs",
+      fileSize: 256,
+      content: "fn main() {}",
+      isDiff: false,
+    });
+    render(<FileViewer />);
+    expect(monacoMocks.revealLineInCenter).not.toHaveBeenCalled();
+    expect(monacoMocks.setPosition).not.toHaveBeenCalled();
   });
 
   it("renders DiffEditor for diff mode", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo, useEffect } from "react";
+import { useCallback, useState, useMemo, useEffect, useRef } from "react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import { X, FileText, WrapText, Columns2, Save, ArrowLeftRight } from "lucide-react";
 import { useFileViewerStore } from "../../stores/fileViewerStore";
@@ -12,6 +12,13 @@ import { handleError } from "../../lib/error-handler";
 const EMPTY_TABS: import("../../stores/fileViewerStore").FileViewerTab[] = [];
 const EMPTY_DIRTY = new Set<string>();
 const EMPTY_EDITED = new Map<string, string>();
+
+/** Minimal slice of the Monaco code-editor API used for line navigation. */
+interface CodeEditor {
+  revealLineInCenter: (line: number) => void;
+  setPosition: (position: { lineNumber: number; column: number }) => void;
+  focus: () => void;
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -157,6 +164,32 @@ export default function FileViewer() {
     [monacoColors, monacoThemeName]
   );
 
+  const codeEditorRef = useRef<CodeEditor | null>(null);
+
+  const revealLine = useCallback((line: number | undefined): void => {
+    const editor = codeEditorRef.current;
+    if (!editor || !line || line < 1) return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+  }, []);
+
+  // Standalone (non-diff) editor: apply theme, capture the instance, then jump
+  // to the cited line from a `path:line` citation.
+  const handleCodeEditorMount = useCallback(
+    (editor: unknown, monaco: Parameters<typeof handleEditorMount>[1]): void => {
+      handleEditorMount(editor, monaco);
+      codeEditorRef.current = editor as CodeEditor;
+      revealLine(activeTab?.gotoLine);
+    },
+    [handleEditorMount, revealLine, activeTab?.gotoLine]
+  );
+
+  // Re-clicking a link to an already-open file re-opens the same tab (no
+  // editor remount); re-reveal the cited line when the target changes.
+  useEffect(() => {
+    revealLine(activeTab?.gotoLine);
+  }, [activeFilePath, activeTab?.gotoLine, revealLine]);
+
   const editorValue = activeFilePath
     ? editedContents.get(activeFilePath) ?? activeTab?.content ?? ""
     : "";
@@ -299,7 +332,7 @@ export default function FileViewer() {
             language={activeTab?.language ?? "plaintext"}
             theme={monacoThemeName}
             options={monacoOptions}
-            onMount={handleEditorMount}
+            onMount={handleCodeEditorMount}
             onChange={(value) => {
               if (value !== undefined && activeFilePath) {
                 setEditedContent(activeFilePath, value);

@@ -120,6 +120,42 @@ describe("useFileViewer", () => {
     expect(mockReadFileContent).toHaveBeenCalledWith("/elsewhere/file.ts");
   });
 
+  it("openFile strips a trailing :line citation before reading (regression)", async () => {
+    mockReadFileContent.mockResolvedValueOnce("{}");
+
+    const { result } = renderHook(() => useFileViewer());
+
+    await act(async () => {
+      await result.current.openFile("/test/project/output/doc.json:1");
+    });
+
+    // The `:1` suffix must NOT reach the filesystem.
+    expect(mockReadFileContent).toHaveBeenCalledWith("/test/project/output/doc.json");
+    expect(mockOpenFile).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        filePath: "/test/project/output/doc.json",
+        gotoLine: 1,
+      }),
+    );
+  });
+
+  it("openFile forwards the cited line from a relative path:line link", async () => {
+    mockReadFileContent.mockResolvedValueOnce("code");
+
+    const { result } = renderHook(() => useFileViewer());
+
+    await act(async () => {
+      await result.current.openFile("src/foo.ts:48");
+    });
+
+    expect(mockReadFileContent).toHaveBeenCalledWith("/test/project/src/foo.ts");
+    expect(mockOpenFile).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ filePath: "/test/project/src/foo.ts", gotoLine: 48 }),
+    );
+  });
+
   it("openFile sets right tab to files", async () => {
     mockReadFileContent.mockResolvedValueOnce("content");
 

@@ -10,6 +10,8 @@ export interface FileViewerTab {
   isDiff: boolean;
   oldContent?: string;
   newContent?: string;
+  /** 1-based line to scroll to when the tab opens (from a `path:line` citation). */
+  gotoLine?: number;
 }
 
 interface FileViewerState {

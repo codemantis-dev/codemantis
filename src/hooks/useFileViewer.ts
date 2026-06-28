@@ -3,6 +3,7 @@ import { useFileViewerStore, getLanguageFromPath } from "../stores/fileViewerSto
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { readFileContent, readFileBytes } from "../lib/tauri-commands";
+import { parseFileLink } from "../lib/file-link";
 import { handleError } from "../lib/error-handler";
 
 function getExtension(filePath: string): string {
@@ -59,8 +60,12 @@ export async function openFileInViewer(filePath: string): Promise<void> {
   const { activeSessionId: sessionId, sessions } = useSessionStore.getState();
   if (!sessionId) return;
 
+  // Agent citations carry a trailing `:line[:col]` (e.g. `/repo/foo.ts:48`);
+  // strip it before touching the filesystem, keep the line for the viewer.
+  const { path: rawPath, line: gotoLine } = parseFileLink(filePath);
+
   const projectPath = sessions.get(sessionId)?.project_path;
-  const absPath = resolveToAbsolute(filePath, projectPath);
+  const absPath = resolveToAbsolute(rawPath, projectPath);
 
   const extension = getExtension(absPath);
   const mimeType = IMAGE_EXTENSIONS[extension];
@@ -97,6 +102,7 @@ export async function openFileInViewer(filePath: string): Promise<void> {
       fileSize: new Blob([content]).size,
       content,
       isDiff: false,
+      gotoLine,
     });
     useUiStore.getState().setRightTab("files");
   } catch (e) {
