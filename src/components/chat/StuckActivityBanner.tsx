@@ -1,6 +1,7 @@
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useClaudeSession } from "../../hooks/useClaudeSession";
 
@@ -19,6 +20,12 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
   const agentId = useSessionStore((s) => s.sessions.get(sessionId)?.agent_id);
   const isCompacting = useSessionStore((s) => s.sessionCompacting.get(sessionId) ?? false);
   const setShowApprovalModal = useUiStore((s) => s.setShowApprovalModal);
+  // The longest-pending in-flight tool, if any — names the likely culprit when
+  // a session goes silent (e.g. a slow/hung MCP server like the browser
+  // gateway), so the user doesn't mistake a hung tool for a missing approval.
+  const runningToolName = useActivityStore((s) =>
+    (s.sessionEntries.get(sessionId) ?? []).find((e) => e.status === "running")?.toolName
+  );
   const { freshThreadCodexSession } = useClaudeSession();
   const [freshState, setFreshState] = useState<"idle" | "starting">("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -46,11 +53,21 @@ export default function StuckActivityBanner({ sessionId }: StuckActivityBannerPr
   // here revives the SAME thread → reloads the context → re-hangs, so the
   // primary action must be "Start fresh thread" instead.
   const isCompactionStuck = agentId === "codex" && isCompacting && !isPendingApproval;
+  // Generic no-progress: if a tool is still in-flight, name it and make clear
+  // this is a hung/slow tool, NOT a pending approval. MCP tools (e.g. the
+  // browser gateway) are the usual offenders — they can hang on a dropped
+  // server connection.
+  const isMcpTool = !!runningToolName && runningToolName.startsWith("mcp__");
+  const hungToolMessage = runningToolName
+    ? `${runningToolName} has been running ${elapsedSec}s — it may be slow or hung${
+        isMcpTool ? " (an MCP server may be unresponsive)" : ""
+      }. This is not waiting for your approval.`
+    : `${agentLabel} hasn't responded for ${elapsedSec}s.`;
   const message = isPendingApproval
     ? `${agentLabel} is waiting for your approval but the prompt isn't showing.`
     : isCompactionStuck
       ? `Codex has been compacting for ${elapsedSec}s — this can hang on a large context (a known OpenAI bug).`
-      : `${agentLabel} hasn't responded for ${elapsedSec}s.`;
+      : hungToolMessage;
 
   return (
     <div

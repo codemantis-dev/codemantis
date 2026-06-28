@@ -360,6 +360,64 @@ fn settings_json_with_timeout(hook_path: &Path, hook_timeout_secs: u64) -> Strin
     }).to_string()
 }
 
+/// Like `settings_json_with_timeout` but adds a `permissions.allow` block — the
+/// candidate Step-2 fix for the 2.1.195 MCP regression (the CLI ignores the
+/// PreToolUse hook's `allow` for `mcp__*` tools, so a static permission grant is
+/// needed). `allow_rules` are CLI permission rule strings, e.g. `"mcp__*"`,
+/// `"mcp__teststub"` (whole server), or `"mcp__teststub__echo"` (exact tool).
+fn settings_json_with_permissions(
+    hook_path: &Path,
+    hook_timeout_secs: u64,
+    allow_rules: &[&str],
+) -> String {
+    let cmd = format!("bash \"{}\"", hook_path.display());
+    json!({
+        "alwaysThinkingEnabled": true,
+        "showThinkingSummaries": true,
+        "permissions": { "allow": allow_rules },
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": ".*",
+                "hooks": [{
+                    "type": "command",
+                    "command": cmd,
+                    "timeout": hook_timeout_secs
+                }]
+            }]
+        }
+    }).to_string()
+}
+
+/// Fully-flexible settings builder for the S20 production-discovery repro:
+/// optional `permissions.allow` rules and the optional `enableAllProjectMcpServers`
+/// trust flag (the candidate that governs auto-discovered project `.mcp.json`
+/// servers — the production path that diverges from S14/S19's `--mcp-config`).
+fn settings_json_custom(
+    hook_path: &Path,
+    hook_timeout_secs: u64,
+    allow_rules: &[&str],
+    enable_all_project_mcp: bool,
+) -> String {
+    let cmd = format!("bash \"{}\"", hook_path.display());
+    let mut v = json!({
+        "alwaysThinkingEnabled": true,
+        "showThinkingSummaries": true,
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": ".*",
+                "hooks": [{ "type": "command", "command": cmd, "timeout": hook_timeout_secs }]
+            }]
+        }
+    });
+    if !allow_rules.is_empty() {
+        v["permissions"] = json!({ "allow": allow_rules });
+    }
+    if enable_all_project_mcp {
+        v["enableAllProjectMcpServers"] = json!(true);
+    }
+    v.to_string()
+}
+
 // =====================================================================
 // MCP STUB — a minimal stdio JSON-RPC MCP server (one `echo` tool) the
 // CLI can load via --mcp-config. Lets S14 observe how MCP tools
@@ -398,6 +456,26 @@ rl.on('line', (line) => {
 /// name `teststub` (so its tool surfaces as `mcp__teststub__echo`).
 fn write_mcp_config(dir: &Path, stub_path: &Path) -> PathBuf {
     let path = dir.join("mcp-config.json");
+    let cfg = json!({
+        "mcpServers": {
+            "teststub": {
+                "command": "node",
+                "args": [ stub_path.display().to_string() ]
+            }
+        }
+    });
+    std::fs::write(&path, cfg.to_string()).unwrap();
+    path
+}
+
+/// Write a PROJECT-scoped `.mcp.json` into `dir` (the CLI auto-discovers this
+/// from cwd — no `--mcp-config` flag). This is the production path: CodeMantis
+/// does NOT pass `--mcp-config`/`--strict-mcp-config`, so the real
+/// stable-browser-gateway is loaded via config discovery, which is approval/
+/// trust-gated in a way `--mcp-config` servers are not. S20 probes whether THAT
+/// gate is the field-incident trigger.
+fn write_project_mcp_json(dir: &Path, stub_path: &Path) -> PathBuf {
+    let path = dir.join(".mcp.json");
     let cfg = json!({
         "mcpServers": {
             "teststub": {
@@ -509,6 +587,27 @@ async fn spawn_cli_with_extra(
     extra_args: &[String],
     hook_timeout_secs: u64,
 ) -> Spawned {
+    let settings = settings_json_with_timeout(hook_path, hook_timeout_secs);
+    spawn_cli_with_settings(
+        capture, hook_port, permission_mode, cwd, initial_prompt, extra_args, &settings,
+    )
+    .await
+}
+
+/// Lowest-level spawn: takes the fully-built `--settings` JSON string so a
+/// scenario can inject a `permissions` block (S19) without churning every other
+/// call site. The PreToolUse hook command is already embedded in
+/// `settings_override`.
+#[allow(clippy::too_many_arguments)]
+async fn spawn_cli_with_settings(
+    capture: &CaptureWriter,
+    hook_port: u16,
+    permission_mode: Option<&str>,
+    cwd: &Path,
+    initial_prompt: Option<&str>,
+    extra_args: &[String],
+    settings_override: &str,
+) -> Spawned {
     let mut cmd = Command::new("claude");
 
     for a in production_cli_args() {
@@ -517,7 +616,7 @@ async fn spawn_cli_with_extra(
     for a in diagnostic_cli_args() {
         cmd.arg(a);
     }
-    cmd.args(["--settings", &settings_json_with_timeout(hook_path, hook_timeout_secs)]);
+    cmd.args(["--settings", settings_override]);
 
     for a in extra_args {
         cmd.arg(a);
@@ -1410,6 +1509,129 @@ async fn s18_compaction_mechanism() {
     cleanup(&mut spawned, &ctx).await;
 }
 
+/// S19 — MCP permission grant via the `--settings` `permissions.allow` block
+/// (the CLI 2.1.195 regression fix). On 2.1.195 the PreToolUse hook's `allow` is
+/// IGNORED for `mcp__*` tools (S14a denies the tool despite the hook returning
+/// allow), so CodeMantis needs a static permission grant the CLI's own system
+/// honors. This probes which rule form works under `--dangerously-skip-permissions`
+/// and — decisively — that a hook DENY still gates an allow-listed MCP tool, so
+/// the user-approval modal stays meaningful.
+///
+/// Read each sub-capture for: `system/init` mcp_servers status (did the CLI
+/// connect?), the `hook_in_raw`/`hook_out` pair for `mcp__teststub__echo` (did
+/// the hook fire?), the synthetic `tool_result` (real "echo: ..." vs the CLI's
+/// reasonless deny), and `result.permission_denials`. ALWAYS check for
+/// `rate_limit_event` / `api_retry` first — a throttled run proves nothing (the
+/// S14a lesson).
+async fn run_mcp_permissions_scenario(scenario: &str, allow_rules: &[&str], deny_mcp: bool) {
+    let policy: HookPolicy = if deny_mcp {
+        Arc::new(|input| {
+            let tool = input.tool_name.as_deref().unwrap_or("");
+            if tool.starts_with("mcp__") {
+                HookOutcome::Respond(HookResponse::deny("S19 user denied the MCP tool"))
+            } else {
+                HookOutcome::Respond(HookResponse::allow())
+            }
+        })
+    } else {
+        allow_all()
+    };
+    let ctx = setup(scenario, policy).await;
+
+    let stub = write_mcp_stub(&ctx.cwd);
+    let mcp_config = write_mcp_config(&ctx.cwd, &stub);
+    // NO --allowedTools — the permission grant must come from --settings alone.
+    let extra: Vec<String> = vec![
+        "--mcp-config".into(),
+        mcp_config.display().to_string(),
+        "--strict-mcp-config".into(),
+    ];
+
+    let settings = settings_json_with_permissions(&ctx.hook_path, 300, allow_rules);
+    let mut spawned = spawn_cli_with_settings(
+        &ctx.capture, ctx.hook_port, None, &ctx.cwd, None, &extra, &settings,
+    )
+    .await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Call the echo tool (its name is mcp__teststub__echo) with text \"hello from S19\". \
+         It is in your tool set — call it directly, do not call ToolSearch. After it returns, \
+         tell me in plain text exactly what it returned.").await;
+
+    let _ = wait_for_result(&ctx.capture_path, Duration::from_secs(90)).await;
+    cleanup(&mut spawned, &ctx).await;
+}
+
+async fn s19_mcp_permissions() {
+    eprintln!("[harness] S19a — settings permissions.allow=[mcp__*], hook ALLOW");
+    run_mcp_permissions_scenario("S19a-perm-wildcard", &["mcp__*"], false).await;
+    eprintln!("[harness] S19a — settings permissions.allow=[mcp__teststub], hook ALLOW");
+    run_mcp_permissions_scenario("S19a-perm-server", &["mcp__teststub"], false).await;
+    eprintln!("[harness] S19b — settings permissions.allow=[mcp__teststub], hook DENY (gate check)");
+    run_mcp_permissions_scenario("S19b-perm-deny-gates", &["mcp__teststub"], true).await;
+}
+
+/// S20 — PRODUCTION-FAITHFUL MCP discovery repro (the field incident).
+///
+/// The hermetic S14/S19 scenarios pass `--mcp-config --strict-mcp-config`, but
+/// production does NOT — CodeMantis lets the CLI auto-discover servers from a
+/// project `.mcp.json` / user config. Auto-discovered project servers are
+/// TRUST-gated (the CLI normally prompts "approve this MCP server?"), unlike
+/// `--mcp-config` servers. The field-incident pattern — the PreToolUse hook
+/// FIRES and returns allow, yet the CLI denies the MCP tool with its generic
+/// "user doesn't want to proceed" — is consistent with a server-level trust
+/// gate applied AFTER the tool-level hook. S20 tests exactly that, with the
+/// production flag set (NO `--mcp-config`, NO `--allowedTools`), hook = ALLOW:
+///
+///   * S20a-discover-plain — bare production settings. REPRO candidate: does an
+///     auto-discovered project server's tool get denied despite hook allow? (Or
+///     surface as "No such tool" = server silently not loaded.)
+///   * S20b-discover-enable-all — adds `enableAllProjectMcpServers: true`.
+///   * S20c-discover-perm-grant — adds `permissions.allow: ["mcp__*"]`.
+///
+/// Read each capture for: `system/init.mcp_servers` (status: connected /
+/// needs-auth / absent), a `hook_in_raw`/`hook_out` pair for the MCP tool (did
+/// the hook fire — i.e. was the tool recognized?), the synthetic `tool_result`
+/// (real echo vs reasonless deny vs "No such tool"), `result.permission_denials`,
+/// and `rate_limit_info.status` (must be "allowed" to trust the run).
+async fn run_mcp_discovery_scenario(
+    scenario: &str,
+    allow_rules: &[&str],
+    enable_all_project_mcp: bool,
+) {
+    let ctx = setup(scenario, allow_all()).await;
+
+    let stub = write_mcp_stub(&ctx.cwd);
+    // Project-scoped discovery: write `.mcp.json` in cwd, pass NO --mcp-config.
+    let _mcp_json = write_project_mcp_json(&ctx.cwd, &stub);
+
+    // Production-faithful: no --mcp-config, no --strict-mcp-config, no --allowedTools.
+    let extra: Vec<String> = vec![];
+    let settings = settings_json_custom(&ctx.hook_path, 300, allow_rules, enable_all_project_mcp);
+
+    let mut spawned = spawn_cli_with_settings(
+        &ctx.capture, ctx.hook_port, None, &ctx.cwd, None, &extra, &settings,
+    )
+    .await;
+
+    send_user(&mut spawned, &ctx.capture,
+        "Call the echo tool (its name is mcp__teststub__echo) with text \"hello from S20\". \
+         It is in your tool set — call it directly, do not call ToolSearch. After it returns, \
+         tell me in plain text exactly what it returned.").await;
+
+    let _ = wait_for_result(&ctx.capture_path, Duration::from_secs(90)).await;
+    cleanup(&mut spawned, &ctx).await;
+}
+
+async fn s20_mcp_discovery() {
+    eprintln!("[harness] S20a — project .mcp.json discovery, bare settings (REPRO attempt)");
+    run_mcp_discovery_scenario("S20a-discover-plain", &[], false).await;
+    eprintln!("[harness] S20b — discovery + enableAllProjectMcpServers");
+    run_mcp_discovery_scenario("S20b-discover-enable-all", &[], true).await;
+    eprintln!("[harness] S20c — discovery + permissions.allow=[mcp__*]");
+    run_mcp_discovery_scenario("S20c-discover-perm-grant", &["mcp__*"], false).await;
+}
+
 // =====================================================================
 // MAIN — runs the whole battery sequentially.
 // =====================================================================
@@ -1466,6 +1688,8 @@ async fn capture_full_battery() {
     s17_compaction().await;
     eprintln!("[harness] === S18 /compact trigger mechanism (2.1.186 regression) ===");
     s18_compaction_mechanism().await;
+    eprintln!("[harness] === S19 MCP permissions.allow grant (2.1.195 regression) ===");
+    s19_mcp_permissions().await;
     eprintln!("[harness] === DONE ===");
 }
 
@@ -1608,6 +1832,8 @@ async fn capture_single() {
         "S16" => s16_hook_exceeds_cli_timeout().await,
         "S17" => s17_compaction().await,
         "S18" => s18_compaction_mechanism().await,
-        other => panic!("set CM_HARNESS_ONLY to one of S01..S18 (got '{other}')"),
+        "S19" => s19_mcp_permissions().await,
+        "S20" => s20_mcp_discovery().await,
+        other => panic!("set CM_HARNESS_ONLY to one of S01..S20 (got '{other}')"),
     }
 }

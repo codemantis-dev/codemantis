@@ -435,6 +435,12 @@ export default function ActivityFeed() {
                   {entry.helpHint}
                 </p>
               )}
+              {entry.status === "interrupted" && (
+                <p className="text-label text-yellow mt-0.5 break-words line-clamp-3">
+                  Interrupted — a message was sent while this tool was running.
+                  Not a rejection; no approval was needed.
+                </p>
+              )}
             </div>
           </div>
         );

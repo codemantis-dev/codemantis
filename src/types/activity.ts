@@ -24,7 +24,7 @@ export interface ActivityEntry {
   helpHint?: string;
 }
 
-export type ActivityStatus = "pending" | "preparing" | "running" | "done" | "error";
+export type ActivityStatus = "pending" | "preparing" | "running" | "done" | "error" | "interrupted";
 
 export type ActivityType = "read" | "write" | "edit" | "bash" | "task" | "search" | "agent" | "question" | "mcp" | "other";
 

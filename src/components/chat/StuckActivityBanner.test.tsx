@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import StuckActivityBanner from "./StuckActivityBanner";
 import { useSessionStore } from "../../stores/sessionStore";
+import { useActivityStore } from "../../stores/activityStore";
 import { useUiStore } from "../../stores/uiStore";
+import type { ActivityEntry } from "../../types/activity";
 import { resetAllStores } from "../../test/helpers/store-reset";
 import { mockInvoke } from "../../test/helpers/tauri-mock-factory";
 import type { Session } from "../../types/session";
@@ -61,6 +63,52 @@ describe("StuckActivityBanner", () => {
     expect(screen.queryByRole("button", { name: /Reopen approval/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Stop session/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Start fresh thread/i })).not.toBeInTheDocument();
+  });
+
+  // Fix #2: when a tool is still in-flight during a no-progress stall, the
+  // banner names the hung tool and explicitly says it is NOT an approval wait —
+  // so a hung MCP server (the reported browser-gateway case) doesn't read as a
+  // missing approval prompt.
+  function seedRunningTool(toolName: string): void {
+    const entry: ActivityEntry = {
+      id: "e1",
+      toolUseId: "tu1",
+      toolName,
+      toolInput: {},
+      status: "running",
+      timestamp: "2026-01-01T00:00:00Z",
+      messageId: "m1",
+      isError: false,
+    };
+    useActivityStore.getState().addEntry(SID, entry);
+  }
+
+  it("names a hung MCP tool and clarifies it is not an approval wait", () => {
+    seedSession("claude_code");
+    seedRunningTool("mcp__stable-browser-gateway__browser_open_local");
+    useSessionStore.getState().setSessionStuck(SID, {
+      since: Date.now() - 90_000,
+      reason: "no-progress",
+    });
+    render(<StuckActivityBanner sessionId={SID} />);
+    expect(
+      screen.getByText(/mcp__stable-browser-gateway__browser_open_local has been running/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/an MCP server may be unresponsive/i)).toBeInTheDocument();
+    expect(screen.getByText(/not waiting for your approval/i)).toBeInTheDocument();
+  });
+
+  it("names a hung non-MCP tool without the MCP qualifier", () => {
+    seedSession("claude_code");
+    seedRunningTool("Bash");
+    useSessionStore.getState().setSessionStuck(SID, {
+      since: Date.now() - 90_000,
+      reason: "no-progress",
+    });
+    render(<StuckActivityBanner sessionId={SID} />);
+    expect(screen.getByText(/Bash has been running/i)).toBeInTheDocument();
+    expect(screen.queryByText(/an MCP server may be unresponsive/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/not waiting for your approval/i)).toBeInTheDocument();
   });
 
   // Regression: stuck banner used to hardcode "Codex" for every agent, so a

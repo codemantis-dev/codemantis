@@ -551,6 +551,53 @@ describe("activity event handler", () => {
       expect(entry.result).toBe("command not found");
     });
 
+    it("classifies an interrupt-cancelled tool as 'interrupted', not 'error'", () => {
+      // The CLI's reason-less artifact for a tool cancelled by an interrupt
+      // (e.g. a slow MCP tool that hung until a new message interrupted the
+      // turn). Must NOT surface as a rejection — see lib/interrupt-detector.ts.
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-mcp-interrupted",
+        tool_name: "mcp__stable-browser-gateway__browser_open_local",
+        tool_input: { port: 8080, path: "/" },
+      });
+
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-mcp-interrupted",
+        content:
+          "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+        is_error: true,
+      });
+
+      const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
+      expect(entry.status).toBe("interrupted");
+      // Crucially NOT flagged as an error — it is not a real rejection.
+      expect(entry.isError).toBe(false);
+    });
+
+    it("still classifies a real tool error (reasoned) as 'error'", () => {
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_use_start",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-real-err",
+        tool_name: "Bash",
+        tool_input: { command: "false" },
+      });
+      handleActivityEvent(SESSION_ID, {
+        type: "tool_result",
+        session_id: SESSION_ID,
+        tool_use_id: "tu-real-err",
+        content: "Approval timed out",
+        is_error: true,
+      });
+      const entry = useActivityStore.getState().getActiveEntries(SESSION_ID)[0];
+      expect(entry.status).toBe("error");
+      expect(entry.isError).toBe(true);
+    });
+
     it("skips mode-control tool results", () => {
       // Register a mode-control tool ID (simulates ExitPlanMode having been handled)
       modeControlToolIds.add("tu-mode-ctrl");

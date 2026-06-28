@@ -15,6 +15,7 @@ import { useAssistantStore } from "../../stores/assistantStore";
 import { toolActivityLabel, subAgentActivityLabel, parseAgentUsage } from "../event-classifier";
 import { assertActivitySessionScope } from "../session-integrity";
 import { detectSettingsCarveout } from "../carveout-detector";
+import { isInterruptCancellation } from "../interrupt-detector";
 import { handleError } from "../error-handler";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 
@@ -289,20 +290,28 @@ function handleToolResult(
   } else {
     sessionStore.setSessionActivity(sessionId, { label: "Thinking...", toolName: null, toolElapsed: 0, filePath: null });
   }
+  // An interrupt-cancelled tool (the CLI's reason-less "user doesn't want to
+  // proceed…" artifact — e.g. a slow MCP tool that hung until a new message
+  // interrupted the turn) is NOT a real error/rejection. Classify it as
+  // "interrupted" so the feed shows a calm, accurate state instead of a red
+  // rejection that makes the agent look like it's "waiting for approval" the
+  // user was never shown. See lib/interrupt-detector.ts.
+  const interrupted = event.is_error && isInterruptCancellation(event.content);
+
   activityStore.updateEntryStatus(
     sessionId,
     event.tool_use_id,
-    event.is_error ? "error" : "done",
+    interrupted ? "interrupted" : event.is_error ? "error" : "done",
     event.content ?? undefined,
-    event.is_error
+    interrupted ? false : event.is_error
   );
 
   // Surface a friendly hint when the CLI silently rejects writes to its own
   // settings files (the 2.1.x privilege-escalation carve-out). The error
   // string is otherwise opaque ("haven't granted it yet") and the
   // PreToolUse hook is never called for these paths, so Auto-Accept can't
-  // suppress it.
-  if (event.is_error) {
+  // suppress it. Skip for interrupted tools — they are not real errors.
+  if (event.is_error && !interrupted) {
     const entry = activityStore
       .getActiveEntries(sessionId)
       .find((e) => e.toolUseId === event.tool_use_id);

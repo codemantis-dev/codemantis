@@ -223,6 +223,15 @@ server health, sub-agent context, or a host-side modal miss). The shipped diagno
 catching it with full context next time. Untested next step: hook timeout under a NON-bypass permission
 mode (`plan`/`default`) — the CLI may fail *closed* there.
 
+> **★ RESOLVED 2026-06-28 (CLI 2.1.195) — see §S21.** It was never a permission gate. The reason-less
+> "user doesn't want to proceed" was an **interrupt-cancelled** slow MCP tool. Diagnosed not by a new
+> capture but by reading the CLI's OWN transcript (`~/.claude/projects/<proj>/<id>.jsonl`): hook fired +
+> allowed, the `mcp-remote` browser-gateway tool hung ~2 min, the user sent a message, CodeMantis
+> interrupted, and the CLI labels the cancelled tool `toolUseResult:"User rejected tool use"` +
+> `[Request interrupted by user for tool use]`. None of the three remaining hypotheses applied
+> (mode was `acceptEdits`/AutoAccept = auto-allow, no modal expected; not a sub-agent). Lesson: when a
+> screenshot is ambiguous, the CLI transcript is the ground truth — go there first.
+
 ### S17 — manual `/compact` over stream-json ★ added 2026-06-21, CLI **2.1.185** ★
 
 > **Version note:** captured against CLI **2.1.185**. Per CLAUDE.md, trust the capture.
@@ -361,6 +370,62 @@ Pitfall — typos in the mode value are not surfaced. CodeMantis sends from a sm
 > "ExitPlanMode is no longer routed via PreToolUse at all in 2.1.123."
 
 **Wrong.** S06–S08 prove PreToolUse fires for ExitPlanMode, with `tool_input: {plan}`. The host *is* in the loop. The host's *decision* is just consistently overridden by a CLI-internal "this is a UI tool" rule.
+
+---
+
+### S19 — MCP grant via `--settings` `permissions.allow` ★ added 2026-06-28, CLI **2.1.195** ★
+
+Tests whether a static MCP permission grant in the `--settings` blob is honored and, decisively,
+whether a hook `deny` still overrides it. Three sub-captures (stdio stub via `--mcp-config`, **no**
+`--allowedTools`), all `rate_limit_info.status:"allowed"`:
+
+- **S19a-perm-wildcard** (`permissions.allow:["mcp__*"]`, hook=allow) → MCP tool **ran**, `permission_denials:[]`.
+- **S19a-perm-server** (`permissions.allow:["mcp__teststub"]`, hook=allow) → **ran**, `[]`.
+- **S19b-perm-deny-gates** (`permissions.allow:["mcp__teststub"]`, hook=**deny**) → tool **blocked**;
+  `permission_denials` carries the entry and the host's reason ("S19 user denied the MCP tool") is
+  propagated. **The hook still fires and its deny still wins over a static allow rule.**
+
+**Conclusion:** a `permissions.allow` MCP grant is **safe** (preserves the deny gate) and **functional**,
+but **unnecessary** on 2.1.195 — S14a/S19a show hook-allow already runs MCP tools. Not shipped to
+production. The `mcp__*` wildcard is accepted.
+
+### S20 — production-faithful MCP discovery (no `--strict-mcp-config`) ★ CLI 2.1.195 ★
+
+Production does NOT pass `--mcp-config`/`--strict-mcp-config`; it auto-discovers servers. S20 writes a
+project `.mcp.json` and passes neither flag (so the CLI also loaded the real user servers). All three
+variants (bare / `enableAllProjectMcpServers:true` / `permissions.allow:["mcp__*"]`, hook=allow) **ran**
+the stub tool, `permission_denials:[]`. Notable: under `--dangerously-skip-permissions`, discovered
+project servers **auto-connect** (the stub was `connected`), and the **real `stable-browser-gateway`
+showed `status:"pending"`** (slow `mcp-remote` proxy) — the readiness signal behind the hang in §S21.
+
+### S21 — the field incident: an interrupt-cancelled MCP tool, mislabeled ★ RESOLVED, CLI 2.1.195 ★
+
+Not a capture — **transcript forensics** on the real incident. Reported: "Claude says it's waiting for my
+approval, but I get no prompt." Evidence from `~/.codemantis/approval-hook.log` +
+`~/.claude/projects/-Users-hr-…/<id>.jsonl`:
+
+| ts (UTC) | event |
+|---|---|
+| `01:23:41Z` | hook log: `browser_open_local` → **allow** (forward, curl_exit=0) |
+| `01:23:41.106` | transcript: assistant `TOOL_USE browser_open_local` (same second — hook allowed THIS call) |
+| `01:25:41.473` | transcript: `tool_result is_error=true`, `toolUseResult:"User rejected tool use"` |
+| `01:25:41.474` | transcript: user text `[Request interrupted by user for tool use]` |
+| `01:25:41.480` | transcript: a NEW user message (recall brief auto-injected) |
+
+`permissionMode:"acceptEdits"` (AutoAccept → MCP auto-allowed, no modal by design). `isSidechain:false`
+(not a sub-agent). The ~2-min gap = the slow `mcp-remote` gateway tool **hung**; the user sent a message;
+CodeMantis **interrupted** the turn; the CLI labels the cancelled tool with its reason-less rejection
+text, which the agent then narrated as "waiting for approval."
+
+**Distinguishing signatures** (for any host): a CodeMantis hook deny ALWAYS carries a specific reason, so
+the **reason-less** "user doesn't want to proceed" is never a host decision; an interrupt-cancel has **no
+`permission_denials` entry** in `result` (unlike a CLI-side deny); `toolUseResult:"User rejected tool
+use"` + `[Request interrupted by user for tool use]` are the markers.
+
+**Fix (UI-side, shipped):** `src/lib/interrupt-detector.ts` classifies the artifact; tool_result becomes
+`ActivityStatus:"interrupted"` (not a red error); `ActivityFeed` shows "Interrupted — … not a rejection;
+no approval was needed"; `StuckActivityBanner` names the hung in-flight tool and states it is "not
+waiting for your approval." No CLI/permission/spawn change.
 
 ---
 
