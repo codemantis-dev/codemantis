@@ -24,10 +24,10 @@ describe("HelpWelcome", () => {
     expect(onClick).toHaveBeenCalledWith("How do I create a new project from a template?");
   });
 
-  it("renders five suggestion buttons", () => {
+  it("renders six suggestion buttons", () => {
     render(<HelpWelcome onSuggestionClick={vi.fn()} />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons.length).toBe(5);
+    expect(buttons.length).toBe(6);
   });
 
   it("displays descriptive subtitle text", () => {

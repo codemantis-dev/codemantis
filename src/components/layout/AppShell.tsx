@@ -13,6 +13,7 @@ import Sidebar from "../sidebar/Sidebar";
 import ChatPanel from "../chat/ChatPanel";
 import ClaudeHistory from "../chat/ClaudeHistory";
 import ProjectLogFeed from "../chat/ProjectLogFeed";
+import BranchMapView from "../branchmap/BranchMapView";
 import RightPanel from "../rightpanel/RightPanel";
 import { RightTabBar } from "../rightpanel/RightTabBar";
 import { useRightTabs, useRightTabSelect, useDuoVisible } from "../rightpanel/useRightTabs";
@@ -112,8 +113,10 @@ export default function AppShell() {
   const rightPanelMinWidth = useUiStore((s) => s.rightPanelMinWidth);
   const showProjectLog = useUiStore((s) => s.showProjectLog);
   const showClaudeHistory = useUiStore((s) => s.showClaudeHistory);
+  const showBranchMap = useUiStore((s) => s.showBranchMap);
   const setShowProjectLog = useUiStore((s) => s.setShowProjectLog);
   const setShowClaudeHistory = useUiStore((s) => s.setShowClaudeHistory);
+  const setShowBranchMap = useUiStore((s) => s.setShowBranchMap);
   const setSelectedActivityEntry = useUiStore((s) => s.setSelectedActivityEntry);
   const activeProjectPath = useSessionStore((s) => s.activeProjectPath);
   const { addSessionToProject, closeSession, closeAllSessionsInProject, renameSession } = useClaudeSession();
@@ -231,8 +234,15 @@ export default function AppShell() {
   useEffect(() => {
     setShowProjectLog(false);
     setShowClaudeHistory(false);
+    setShowBranchMap(false);
     setSelectedActivityEntry(null);
-  }, [activeProjectPath, setShowProjectLog, setShowClaudeHistory, setSelectedActivityEntry]);
+  }, [
+    activeProjectPath,
+    setShowProjectLog,
+    setShowClaudeHistory,
+    setShowBranchMap,
+    setSelectedActivityEntry,
+  ]);
 
   const handleCloseSession = useCallback((sessionId: string) => {
     const session = useSessionStore.getState().sessions.get(sessionId);
@@ -416,9 +426,13 @@ export default function AppShell() {
           </div>
         ) : (
           <>
-            {/* Center: Chat + Input or Project Log */}
+            {/* Center: Chat + Input, Project Log, Session History, or Branch Map */}
             <div className="flex-1 flex flex-col min-w-[400px] overflow-hidden pb-3">
-              {showProjectLog ? (
+              {showBranchMap ? (
+                <AppErrorBoundary>
+                  <BranchMapView />
+                </AppErrorBoundary>
+              ) : showProjectLog ? (
                 <ProjectLogFeed />
               ) : showClaudeHistory ? (
                 <ClaudeHistory />

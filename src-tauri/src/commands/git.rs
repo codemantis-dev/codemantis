@@ -18,7 +18,7 @@ pub struct GitStatusInfo {
     pub last_push_time: Option<String>,
 }
 
-fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -126,7 +126,7 @@ pub struct GitDiffResult {
 
 /// Run git capturing stdout even when it is empty (an empty diff is a valid,
 /// meaningful result — unlike `run_git`, which collapses empty to `None`).
-fn run_git_capture(cwd: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn run_git_capture(cwd: &str, args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)

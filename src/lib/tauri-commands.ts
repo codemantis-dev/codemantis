@@ -6,6 +6,18 @@ import type { AgentId, FrontendEvent, ToolApprovalRequestEvent } from "../types/
 import type { AppSettings } from "../types/settings";
 import type { ChangelogEntry, ProjectChangelogEntry } from "../types/changelog";
 import type { GitStatusInfo, GitCommit, GitDiffResult } from "../types/git";
+import type {
+  BranchGraph,
+  BranchRef,
+  UpstreamStatus,
+  ConflictState,
+  GitOpResult,
+  SwitchPreview,
+  DeletePreview,
+  MergePreview,
+  PushPreview,
+  UndoToken,
+} from "../types/branch-graph";
 import type { SlashCommand, ExpandedSkill, OneshotResult } from "../types/slash-commands";
 import type { McpServerConfig } from "../types/mcp";
 import type { ApiLogEntry, ApiCostSummary } from "../types/api-logs";
@@ -788,6 +800,103 @@ export async function getGitLog(projectPath: string, maxCommits: number): Promis
 
 export async function getGitDiff(projectPath: string): Promise<GitDiffResult> {
   return invoke<GitDiffResult>("get_git_diff", { projectPath });
+}
+
+// --- Branch Map (rich git graph + branch ops) ---
+
+export async function getBranchGraph(
+  projectPath: string,
+  maxCommits: number,
+): Promise<BranchGraph> {
+  return invoke<BranchGraph>("get_branch_graph", { projectPath, maxCommits });
+}
+
+export async function listBranches(projectPath: string): Promise<BranchRef[]> {
+  return invoke<BranchRef[]>("list_branches", { projectPath });
+}
+
+export async function getUpstreamStatus(projectPath: string): Promise<UpstreamStatus> {
+  return invoke<UpstreamStatus>("get_upstream_status", { projectPath });
+}
+
+export async function getConflictState(projectPath: string): Promise<ConflictState> {
+  return invoke<ConflictState>("get_conflict_state", { projectPath });
+}
+
+// Write ops — each rejects with a GitOpError on failure.
+
+export async function createBranch(
+  projectPath: string,
+  name: string,
+  fromRef: string | null,
+  checkout: boolean,
+): Promise<GitOpResult> {
+  return invoke<GitOpResult>("create_branch", { projectPath, name, fromRef, checkout });
+}
+
+export async function switchBranch(projectPath: string, name: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("switch_branch", { projectPath, name });
+}
+
+export async function switchBranchPreview(
+  projectPath: string,
+  name: string,
+): Promise<SwitchPreview> {
+  return invoke<SwitchPreview>("switch_branch_preview", { projectPath, name });
+}
+
+export async function gitCommit(projectPath: string, message: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("git_commit", { projectPath, message });
+}
+
+export async function deleteBranch(
+  projectPath: string,
+  name: string,
+  force: boolean,
+): Promise<GitOpResult> {
+  return invoke<GitOpResult>("delete_branch", { projectPath, name, force });
+}
+
+export async function deleteBranchPreview(
+  projectPath: string,
+  name: string,
+): Promise<DeletePreview> {
+  return invoke<DeletePreview>("delete_branch_preview", { projectPath, name });
+}
+
+export async function mergeBranch(projectPath: string, source: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("merge_branch", { projectPath, source });
+}
+
+export async function mergeBranchPreview(
+  projectPath: string,
+  source: string,
+): Promise<MergePreview> {
+  return invoke<MergePreview>("merge_branch_preview", { projectPath, source });
+}
+
+export async function abortMerge(projectPath: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("abort_merge", { projectPath });
+}
+
+export async function gitPull(projectPath: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("git_pull", { projectPath });
+}
+
+export async function gitPush(projectPath: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("git_push", { projectPath });
+}
+
+export async function gitPushPreview(projectPath: string): Promise<PushPreview> {
+  return invoke<PushPreview>("git_push_preview", { projectPath });
+}
+
+export async function publishBranch(projectPath: string): Promise<GitOpResult> {
+  return invoke<GitOpResult>("publish_branch", { projectPath });
+}
+
+export async function undoGitOp(projectPath: string, token: UndoToken): Promise<GitOpResult> {
+  return invoke<GitOpResult>("undo_git_op", { projectPath, token });
 }
 
 // --- Slash Commands ---

@@ -9,6 +9,8 @@ pub mod codex;
 pub mod duo;
 pub mod files;
 pub mod git;
+pub mod git_graph;
+pub mod git_write;
 pub mod guide;
 pub mod help;
 pub mod lifecycle;

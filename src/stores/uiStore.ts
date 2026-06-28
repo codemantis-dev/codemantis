@@ -91,6 +91,9 @@ interface UiState {
   setupTerminalAgent: import("../types/agent-events").AgentId | null;
   showProjectLog: boolean;
   showClaudeHistory: boolean;
+  /** Branch Map — full-width center view of the rich git graph. Mutually
+   *  exclusive with Project Log / Session History (same center column). */
+  showBranchMap: boolean;
   draftInput: string | null;
   selectedActivityEntry: ActivityEntry | null;
   fileTreeRefreshTrigger: number;
@@ -164,6 +167,7 @@ interface UiState {
   closeSetupTerminal: () => void;
   setShowProjectLog: (show: boolean) => void;
   setShowClaudeHistory: (show: boolean) => void;
+  setShowBranchMap: (show: boolean) => void;
   setDraftInput: (text: string | null) => void;
   triggerFileTreeRefresh: () => void;
   setPendingInputInsert: (text: string | null) => void;
@@ -223,6 +227,7 @@ export const useUiStore = create<UiState>((set) => ({
   setupTerminalAgent: null,
   showProjectLog: false,
   showClaudeHistory: false,
+  showBranchMap: false,
   draftInput: null,
   selectedActivityEntry: null,
   fileTreeRefreshTrigger: 0,
@@ -319,8 +324,12 @@ export const useUiStore = create<UiState>((set) => ({
   setCodexBinaryPath: (path) => set({ codexBinaryPath: path }),
   openSetupTerminal: (agent) => set({ showSetupTerminal: true, setupTerminalAgent: agent }),
   closeSetupTerminal: () => set({ showSetupTerminal: false, setupTerminalAgent: null }),
-  setShowProjectLog: (show) => set({ showProjectLog: show, ...(show ? { showClaudeHistory: false } : {}) }),
-  setShowClaudeHistory: (show) => set({ showClaudeHistory: show, ...(show ? { showProjectLog: false } : {}) }),
+  setShowProjectLog: (show) =>
+    set({ showProjectLog: show, ...(show ? { showClaudeHistory: false, showBranchMap: false } : {}) }),
+  setShowClaudeHistory: (show) =>
+    set({ showClaudeHistory: show, ...(show ? { showProjectLog: false, showBranchMap: false } : {}) }),
+  setShowBranchMap: (show) =>
+    set({ showBranchMap: show, ...(show ? { showProjectLog: false, showClaudeHistory: false } : {}) }),
   setDraftInput: (text) => set({ draftInput: text }),
   triggerFileTreeRefresh: () => set((s) => ({ fileTreeRefreshTrigger: s.fileTreeRefreshTrigger + 1 })),
   setPendingInputInsert: (text) => set({ pendingInputInsert: text }),

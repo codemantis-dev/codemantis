@@ -5,6 +5,7 @@ interface HelpWelcomeProps {
 const SUGGESTIONS = [
   "How do I create a new project from a template?",
   "What are the three session modes?",
+  "How do branches work in the Branch Map?",
   "How do I connect an MCP server?",
   "How do I use SpecWriter?",
   "What keyboard shortcuts are available?",
